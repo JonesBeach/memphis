@@ -1,0 +1,13 @@
+[package]
+name = "memphis"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-or-later"
+
+[dependencies]
+pyo3 = { version = "0.20.3", optional = true }
+inkwell = { version = "0.4.0", features = [ "llvm17-0" ], optional = true }
+
+[features]
+c_stdlib = ["pyo3"]
+llvm_backend = ["inkwell"]
