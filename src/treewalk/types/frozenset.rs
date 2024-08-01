@@ -22,6 +22,7 @@ impl FrozenSet {
         vec![Box::new(NewBuiltin), Box::new(ContainsBuiltin)]
     }
 
+    #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<ExprResult>) -> Self {
         Self { items }
     }

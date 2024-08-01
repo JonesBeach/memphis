@@ -952,6 +952,9 @@ impl Interpreter {
     ) -> Result<ExprResult, InterpreterError> {
         let expr = self.evaluate_expr(range)?;
 
+        // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
+        // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
+        #[allow(clippy::mutable_key_type)]
         let mut output = HashMap::new();
         for i in expr {
             let tuple = i

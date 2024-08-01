@@ -37,6 +37,7 @@ impl ResolvedArguments {
             .iter()
             .map(|arg| interpreter.evaluate_expr(arg))
             .collect::<Result<Vec<_>, _>>()?;
+        #[allow(clippy::mutable_key_type)]
         let mut kwarg_values: HashMap<ExprResult, ExprResult> = arguments
             .kwargs
             .iter()
@@ -61,6 +62,7 @@ impl ResolvedArguments {
         };
         arg_values.append(&mut second_arg_values);
 
+        #[allow(clippy::mutable_key_type)]
         let second_kwarg_values = if let Some(ref kwargs_var) = arguments.kwargs_var {
             let kwargs_var_value = interpreter.evaluate_expr(kwargs_var)?;
             let kwargs_dict = kwargs_var_value
@@ -85,6 +87,7 @@ impl ResolvedArguments {
         Ok(Self::new(arg_values, kwarg_values))
     }
 
+    #[allow(clippy::mutable_key_type)]
     pub fn new(args: Vec<ExprResult>, kwargs: HashMap<ExprResult, ExprResult>) -> Self {
         Self {
             bound_val: None,
@@ -119,6 +122,7 @@ impl ResolvedArguments {
     }
 
     /// Return a `Dict` of all the keyword arguments.
+    #[allow(clippy::mutable_key_type)]
     pub fn get_kwargs(&self) -> HashMap<ExprResult, ExprResult> {
         self.kwargs.clone()
     }

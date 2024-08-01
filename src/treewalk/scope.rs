@@ -157,6 +157,7 @@ impl Scope {
     }
 
     pub fn as_dict(&self) -> Container<Dict> {
+        #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
             items.insert(ExprResult::String(Str::new(key.clone())), value.clone());

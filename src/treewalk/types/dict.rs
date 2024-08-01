@@ -30,6 +30,7 @@ impl Dict {
         ]
     }
 
+    #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashMap<ExprResult, ExprResult>) -> Self {
         Self { items }
     }
@@ -40,6 +41,7 @@ impl Dict {
         }
     }
 
+    #[allow(clippy::mutable_key_type)]
     pub fn raw(&self) -> HashMap<ExprResult, ExprResult> {
         self.items.clone()
     }
@@ -78,6 +80,7 @@ impl IndexWrite for Container<Dict> {
 
 impl From<DictItems> for Dict {
     fn from(dict: DictItems) -> Self {
+        #[allow(clippy::mutable_key_type)]
         let mut items: HashMap<ExprResult, ExprResult> = HashMap::new();
 
         for i in dict {
