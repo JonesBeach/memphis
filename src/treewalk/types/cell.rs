@@ -3,7 +3,7 @@ use crate::{
     types::errors::InterpreterError,
 };
 
-use super::{traits::MemberAccessor, ExprResult};
+use super::{traits::MemberReader, ExprResult};
 
 /// This corresponds to the Python internal `Cell` class, which is returned for values captured in
 /// a closure.
@@ -22,15 +22,7 @@ impl Cell {
     }
 }
 
-impl MemberAccessor for Cell {
-    fn set_member(&mut self, _name: &str, _value: ExprResult) {
-        unimplemented!();
-    }
-
-    fn delete_member(&mut self, _name: &str) -> Option<ExprResult> {
-        unimplemented!();
-    }
-
+impl MemberReader for Cell {
     fn get_member(
         &self,
         _interpreter: &Interpreter,

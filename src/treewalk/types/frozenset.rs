@@ -12,7 +12,7 @@ use super::{
     ExprResult, Set,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct FrozenSet {
     pub items: HashSet<ExprResult>,
 }
@@ -25,12 +25,6 @@ impl FrozenSet {
     #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<ExprResult>) -> Self {
         Self { items }
-    }
-
-    pub fn default() -> Self {
-        Self {
-            items: HashSet::new(),
-        }
     }
 }
 

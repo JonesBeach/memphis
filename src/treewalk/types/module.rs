@@ -7,7 +7,7 @@ use crate::parser::types::ImportPath;
 use crate::treewalk::{Interpreter, LoadedModule, Scope};
 use crate::types::errors::{InterpreterError, MemphisError};
 
-use super::{traits::MemberAccessor, ExprResult};
+use super::{traits::MemberReader, ExprResult};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
@@ -93,7 +93,7 @@ impl Module {
     }
 }
 
-impl MemberAccessor for Module {
+impl MemberReader for Module {
     fn get_member(
         &self,
         _interpreter: &Interpreter,
@@ -104,14 +104,6 @@ impl MemberAccessor for Module {
 
     fn dir(&self) -> Vec<String> {
         self.scope.symbols()
-    }
-
-    fn delete_member(&mut self, _name: &str) -> Option<ExprResult> {
-        unimplemented!();
-    }
-
-    fn set_member(&mut self, _name: &str, _value: ExprResult) {
-        unimplemented!();
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
 };
 
 use super::{
-    traits::{Callable, MemberAccessor},
+    traits::{Callable, MemberReader},
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -27,7 +27,7 @@ impl Super {
     }
 }
 
-impl MemberAccessor for Container<Super> {
+impl MemberReader for Container<Super> {
     fn get_member(
         &self,
         interpreter: &Interpreter,
@@ -46,7 +46,7 @@ impl MemberAccessor for Container<Super> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class via super()", parent_class, name)
             });
-            return Ok(Some(attr.resolve_descriptor(
+            return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
                 Some(instance),
                 class,
@@ -54,14 +54,6 @@ impl MemberAccessor for Container<Super> {
         }
 
         Ok(None)
-    }
-
-    fn delete_member(&mut self, _name: &str) -> Option<ExprResult> {
-        unimplemented!()
-    }
-
-    fn set_member(&mut self, _name: &str, _value: ExprResult) {
-        unimplemented!()
     }
 }
 

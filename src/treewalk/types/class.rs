@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::{
-    traits::{Callable, MemberAccessor},
+    traits::{Callable, MemberReader, MemberWriter},
     utils::{Dunder, ResolvedArguments},
     ExprResult, Str, Tuple, Type,
 };
@@ -244,9 +244,13 @@ impl Container<Class> {
 
         self.borrow().metaclass().search_mro(name)
     }
+
+    pub fn set_on_class(&self, name: &str, value: ExprResult) {
+        self.borrow_mut().scope.insert(name, value);
+    }
 }
 
-impl MemberAccessor for Container<Class> {
+impl MemberReader for Container<Class> {
     /// Attribute access for a class uses this order:
     /// 1. the class itself
     /// 2. parent class MRO
@@ -261,7 +265,7 @@ impl MemberAccessor for Container<Class> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class", self, name)
             });
-            return Ok(Some(attr.resolve_descriptor(
+            return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
                 None,
                 self.clone(),
@@ -272,7 +276,7 @@ impl MemberAccessor for Container<Class> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on metaclass", self, name)
             });
-            return Ok(Some(attr.resolve_descriptor(
+            return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
                 Some(ExprResult::Class(self.clone())),
                 self.borrow().metaclass(),
@@ -281,15 +285,29 @@ impl MemberAccessor for Container<Class> {
 
         Ok(None)
     }
+}
 
-    fn delete_member(&mut self, name: &str) -> Option<ExprResult> {
-        self.borrow_mut().scope.delete(name)
+impl MemberWriter for Container<Class> {
+    fn delete_member(
+        &mut self,
+        _interpreter: &Interpreter,
+        name: &str,
+    ) -> Result<(), InterpreterError> {
+        self.borrow_mut().scope.delete(name);
 
         // TODO support delete attributes from parent classes?
+
+        Ok(())
     }
 
-    fn set_member(&mut self, name: &str, value: ExprResult) {
-        self.borrow_mut().scope.insert(name, value);
+    fn set_member(
+        &mut self,
+        _interpreter: &Interpreter,
+        name: &str,
+        value: ExprResult,
+    ) -> Result<(), InterpreterError> {
+        self.set_on_class(name, value);
+        Ok(())
     }
 }
 

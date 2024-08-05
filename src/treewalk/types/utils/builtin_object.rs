@@ -1,7 +1,7 @@
 use crate::{
     core::{log, Container, LogLevel},
     treewalk::{
-        types::{traits::MemberAccessor, Class, ExprResult},
+        types::{traits::MemberReader, Class, ExprResult},
         Interpreter,
     },
     types::errors::InterpreterError,
@@ -24,7 +24,7 @@ impl BuiltinObject {
     }
 }
 
-impl MemberAccessor for BuiltinObject {
+impl MemberReader for BuiltinObject {
     fn get_member(
         &self,
         interpreter: &Interpreter,
@@ -38,7 +38,7 @@ impl MemberAccessor for BuiltinObject {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on builtin class", self.class, name)
             });
-            return Ok(Some(attr.resolve_descriptor(
+            return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
                 Some(self.instance.clone()),
                 self.class.clone(),
@@ -46,13 +46,5 @@ impl MemberAccessor for BuiltinObject {
         }
 
         Ok(None)
-    }
-
-    fn set_member(&mut self, _name: &str, _value: ExprResult) {
-        unimplemented!()
-    }
-
-    fn delete_member(&mut self, _name: &str) -> Option<ExprResult> {
-        unimplemented!()
     }
 }

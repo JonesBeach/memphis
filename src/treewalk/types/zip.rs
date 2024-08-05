@@ -18,8 +18,10 @@ impl ZipIterator {
     pub fn new(items: Vec<ExprResultIterator>) -> Self {
         Self(items)
     }
+}
 
-    pub fn default() -> Self {
+impl Default for ZipIterator {
+    fn default() -> Self {
         Self(vec![ExprResultIterator::List(ListIterator::new(
             Container::new(List::new(vec![])),
         ))])

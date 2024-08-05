@@ -19,7 +19,7 @@ use super::{
     ExprResult, Range, Set, Slice, Tuple,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct List {
     items: Vec<ExprResult>,
 }
@@ -31,10 +31,6 @@ impl List {
             Box::new(AppendBuiltin),
             Box::new(ExtendBuiltin),
         ]
-    }
-
-    pub fn default() -> Self {
-        Self { items: vec![] }
     }
 
     pub fn new(items: Vec<ExprResult>) -> Self {

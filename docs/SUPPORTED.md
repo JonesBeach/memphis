@@ -33,6 +33,7 @@
 |Args and kwargs|✅||
 |Closures|✅||
 |Decorators|✅||
+|Descriptor protocol|✅||
 |Interface to Python stdlib written in C|✅||
 |Context managers|✅||
 |Compound assignment (`+=`) for integers|✅||
@@ -223,8 +224,8 @@ Attribute Access
 \_\_delattr__(self, name)
 Descriptors
 \_\_get__(self, instance, owner)|✅
-\_\_set__(self, instance, value)
-\_\_delete__(self, instance)
+\_\_set__(self, instance, value)|✅
+\_\_delete__(self, instance)|✅
 Callable Objects
 \_\_call__(self, [...])
 Context Managers

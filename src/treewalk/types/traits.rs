@@ -44,7 +44,7 @@ impl PartialEq for dyn Callable {
     }
 }
 
-pub trait MemberAccessor {
+pub trait MemberReader {
     /// A pointer to the [`Interpreter`] is sometimes not needed, but is required to evalute method
     /// calls for descriptors.
     fn get_member(
@@ -52,13 +52,25 @@ pub trait MemberAccessor {
         interpreter: &Interpreter,
         name: &str,
     ) -> Result<Option<ExprResult>, InterpreterError>;
-    fn set_member(&mut self, name: &str, value: ExprResult);
-    fn delete_member(&mut self, name: &str) -> Option<ExprResult>;
 
     /// Returns a sorted list of the symbols available.
     fn dir(&self) -> Vec<String> {
         unimplemented!()
     }
+}
+
+pub trait MemberWriter {
+    fn set_member(
+        &mut self,
+        interpreter: &Interpreter,
+        name: &str,
+        value: ExprResult,
+    ) -> Result<(), InterpreterError>;
+    fn delete_member(
+        &mut self,
+        interpreter: &Interpreter,
+        name: &str,
+    ) -> Result<(), InterpreterError>;
 }
 
 pub trait NonDataDescriptor {
@@ -69,6 +81,22 @@ pub trait NonDataDescriptor {
         instance: Option<ExprResult>,
         owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError>;
+}
+
+/// All data descriptors in Python, which provide write access, can be assumed to also be non-data
+/// descriptors, which provide read access (and, for our implementation, their name).
+pub trait DataDescriptor: NonDataDescriptor {
+    fn set_attr(
+        &self,
+        interpreter: &Interpreter,
+        instance: ExprResult,
+        value: ExprResult,
+    ) -> Result<(), InterpreterError>;
+    fn delete_attr(
+        &self,
+        interpreter: &Interpreter,
+        instance: ExprResult,
+    ) -> Result<(), InterpreterError>;
 }
 
 pub trait IndexRead {

@@ -19,7 +19,9 @@ impl Range {
     pub fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
     }
+}
 
+impl Default for Range {
     fn default() -> Self {
         Self {
             start: 0,

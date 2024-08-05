@@ -6,7 +6,7 @@ use std::fmt::{Display, Error, Formatter};
 use crate::core::Container;
 use crate::treewalk::{
     types::{
-        traits::{Callable, IndexRead, IndexWrite, MemberAccessor},
+        traits::{Callable, IndexRead, IndexWrite, MemberReader},
         utils::{Dunder, ResolvedArguments},
         ExprResult,
     },
@@ -69,14 +69,11 @@ pub const BUILTIN_MODULE_NAMES: [&'static str; 8] = [
 ];
 
 #[derive(Clone)]
-pub struct CPythonModule {
-    name: String,
-    pymodule: PyObject,
-}
+pub struct CPythonModule(PyObject);
 
 impl Display for Container<CPythonModule> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(f, "<module '{}' (built-in)>", self.borrow().name)
+        write!(f, "<module '{}' (built-in)>", self.borrow().name())
     }
 }
 
@@ -85,46 +82,41 @@ impl CPythonModule {
         pyo3::prepare_freethreaded_python();
         let pymodule = Python::with_gil(|py| PyModule::import(py, name).expect("failed").into());
 
-        Self {
-            name: name.into(),
-            pymodule,
-        }
+        Self(pymodule)
+    }
+
+    fn name(&self) -> String {
+        self.get_item(Dunder::Name.value())
+            .unwrap()
+            .unwrap()
+            .as_string()
+            .unwrap()
+    }
+
+    fn get_item(&self, name: &str) -> Result<Option<ExprResult>, InterpreterError> {
+        Ok(Python::with_gil(|py| {
+            match self.0.as_ref(py).getattr(name) {
+                Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
+                Err(_) => None,
+            }
+        }))
     }
 }
 
-impl MemberAccessor for CPythonModule {
+impl MemberReader for CPythonModule {
     fn get_member(
         &self,
         _interpreter: &Interpreter,
         name: &str,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        Ok(Python::with_gil(|py| {
-            let module = self.pymodule.as_ref(py).downcast::<PyModule>().ok();
-
-            if let Some(module) = module {
-                match module.getattr(name) {
-                    Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        }))
-    }
-
-    fn delete_member(&mut self, _name: &str) -> Option<ExprResult> {
-        unimplemented!();
-    }
-
-    fn set_member(&mut self, _name: &str, _value: ExprResult) {
-        unimplemented!();
+        self.get_item(name)
     }
 
     fn dir(&self) -> Vec<String> {
         Python::with_gil(|py| {
-            let module = self.pymodule.as_ref(py).downcast::<PyModule>().unwrap();
-            let dir_list = module.dir();
-            dir_list
+            self.0
+                .as_ref(py)
+                .dir()
                 .iter()
                 .map(|item| item.extract::<String>().unwrap())
                 .collect()

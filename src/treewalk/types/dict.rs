@@ -13,7 +13,7 @@ use super::{
     DictItems, ExprResult,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct Dict {
     pub items: HashMap<ExprResult, ExprResult>,
 }
@@ -23,6 +23,7 @@ impl Dict {
         vec![
             Box::new(NewBuiltin),
             Box::new(InitBuiltin),
+            Box::new(GetBuiltin),
             Box::new(DictKeysBuiltin),
             Box::new(DictValuesBuiltin),
             Box::new(DictItemsBuiltin),
@@ -35,10 +36,13 @@ impl Dict {
         Self { items }
     }
 
-    pub fn default() -> Self {
-        Self {
-            items: HashMap::new(),
-        }
+    fn get(&self, key: ExprResult, default: Option<ExprResult>) -> ExprResult {
+        let default = default.unwrap_or(ExprResult::None);
+        self.items.get(&key).unwrap_or(&default).clone()
+    }
+
+    pub fn has(&self, key: &ExprResult) -> bool {
+        self.items.contains_key(key)
     }
 
     #[allow(clippy::mutable_key_type)]
@@ -122,6 +126,7 @@ impl IntoIterator for Container<Dict> {
 
 struct NewBuiltin;
 struct InitBuiltin;
+struct GetBuiltin;
 struct DictItemsBuiltin;
 struct DictKeysBuiltin;
 struct DictValuesBuiltin;
@@ -229,7 +234,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 
@@ -264,6 +269,38 @@ impl Callable for InitBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::Init.value().into()
+        Dunder::Init.into()
+    }
+}
+
+impl Callable for GetBuiltin {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        if ![1, 2].contains(&args.len()) {
+            utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        }
+
+        let dict = args
+            .get_self()
+            .ok_or(InterpreterError::ExpectedDict(
+                interpreter.state.call_stack(),
+            ))?
+            .as_dict()
+            .ok_or(InterpreterError::ExpectedDict(
+                interpreter.state.call_stack(),
+            ))?;
+
+        let key = args.get_arg(0);
+        let default = args.get_arg_optional(1);
+
+        let d = dict.borrow().clone();
+        Ok(d.get(key, default))
+    }
+
+    fn name(&self) -> String {
+        "get".into()
     }
 }

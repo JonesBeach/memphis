@@ -41,7 +41,7 @@ impl Callable for DirBuiltin {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
         let dir = args
             .get_arg(0)
-            .as_member_accessor(interpreter)
+            .as_member_reader(interpreter)
             .dir()
             .iter()
             .map(|i| ExprResult::String(Str::new(i.to_string())))
@@ -77,7 +77,7 @@ impl Callable for GetattrBuiltin {
             ))?;
 
         let attr = object
-            .as_member_accessor(interpreter)
+            .as_member_reader(interpreter)
             .get_member(interpreter, name.as_str())?;
 
         if let Some(attr) = attr {

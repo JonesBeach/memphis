@@ -3,6 +3,7 @@ use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 
 use crate::parser::static_analysis::{FunctionAnalysisVisitor, Visitor};
+use crate::treewalk::types::utils::Dunder;
 use crate::types::errors::InterpreterError;
 
 /// There are a handful of places where we reference a variable and it must be a variable name
@@ -116,6 +117,18 @@ pub enum BinOp {
     Mod,
     MatMul,
     Expo,
+}
+
+impl TryFrom<&BinOp> for Dunder {
+    type Error = ();
+
+    fn try_from(op: &BinOp) -> Result<Self, Self::Error> {
+        match op {
+            BinOp::Equals => Ok(Dunder::Eq),
+            BinOp::NotEquals => Ok(Dunder::Ne),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -547,9 +560,9 @@ pub enum CompoundOperator {
     Expo,
 }
 
-impl CompoundOperator {
-    pub fn to_bin_op(&self) -> BinOp {
-        match self {
+impl From<&CompoundOperator> for BinOp {
+    fn from(value: &CompoundOperator) -> Self {
+        match value {
             CompoundOperator::Add => BinOp::Add,
             CompoundOperator::Subtract => BinOp::Sub,
             CompoundOperator::Multiply => BinOp::Mul,

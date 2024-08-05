@@ -11,9 +11,10 @@ use crate::{
     types::errors::InterpreterError,
 };
 
+use super::traits::{DataDescriptor, MemberWriter};
 use super::Str;
 use super::{
-    traits::{Callable, MemberAccessor, NonDataDescriptor},
+    traits::{Callable, MemberReader, NonDataDescriptor},
     utils::{Dunder, EnvironmentFrame, ResolvedArguments},
     Cell, Class, Dict, ExprResult, Module, Tuple, Type,
 };
@@ -49,6 +50,7 @@ impl Function {
     pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![
             Box::new(CodeAttribute),
+            Box::new(DictDescriptor),
             Box::new(GlobalsAttribute),
             Box::new(ClosureAttribute),
             Box::new(ModuleAttribute),
@@ -140,13 +142,9 @@ impl Function {
     }
 }
 
-impl MemberAccessor for Container<Function> {
-    fn set_member(&mut self, name: &str, value: ExprResult) {
-        self.borrow_mut().scope.insert(name, value);
-    }
-
-    /// This is really the same logic as in Container<Object>::get. Maybe we can combine those at
-    /// some point.
+impl MemberReader for Container<Function> {
+    /// This is really the same logic as in Container<Object>::get_member. Maybe we can combine
+    /// those at some point.
     fn get_member(
         &self,
         interpreter: &Interpreter,
@@ -167,7 +165,7 @@ impl MemberAccessor for Container<Function> {
             log(LogLevel::Debug, || format!("Found: {}::{}", class, name));
             let instance = ExprResult::Function(self.clone());
             let owner = instance.get_class(interpreter);
-            return Ok(Some(attr.resolve_descriptor(
+            return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
                 Some(instance),
                 owner,
@@ -176,9 +174,26 @@ impl MemberAccessor for Container<Function> {
 
         Ok(None)
     }
+}
 
-    fn delete_member(&mut self, name: &str) -> Option<ExprResult> {
-        self.borrow_mut().scope.delete(name)
+impl MemberWriter for Container<Function> {
+    fn set_member(
+        &mut self,
+        _interpreter: &Interpreter,
+        name: &str,
+        value: ExprResult,
+    ) -> Result<(), InterpreterError> {
+        self.borrow_mut().scope.insert(name, value);
+        Ok(())
+    }
+
+    fn delete_member(
+        &mut self,
+        _interpreter: &Interpreter,
+        name: &str,
+    ) -> Result<(), InterpreterError> {
+        self.borrow_mut().scope.delete(name);
+        Ok(())
     }
 }
 
@@ -276,6 +291,7 @@ impl NonDataDescriptor for ClosureAttribute {
     }
 }
 
+#[derive(Clone)]
 struct CodeAttribute;
 
 impl NonDataDescriptor for CodeAttribute {
@@ -293,12 +309,31 @@ impl NonDataDescriptor for CodeAttribute {
                 ))?
                 .borrow()
                 .get_code(),
-            None => ExprResult::DataDescriptor,
+            None => ExprResult::DataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
     fn name(&self) -> String {
         Dunder::Code.into()
+    }
+}
+
+impl DataDescriptor for CodeAttribute {
+    fn set_attr(
+        &self,
+        _interpreter: &Interpreter,
+        _instance: ExprResult,
+        _value: ExprResult,
+    ) -> Result<(), InterpreterError> {
+        todo!();
+    }
+
+    fn delete_attr(
+        &self,
+        _interpreter: &Interpreter,
+        _instance: ExprResult,
+    ) -> Result<(), InterpreterError> {
+        todo!();
     }
 }
 
@@ -484,5 +519,36 @@ impl NonDataDescriptor for TypeParamsAttribute {
 
     fn name(&self) -> String {
         Dunder::TypeParams.into()
+    }
+}
+
+#[derive(Clone)]
+struct DictDescriptor;
+
+/// This is really the same logic as in Container<Object>::get_attr. Maybe we can combine those at
+/// some point.
+impl NonDataDescriptor for DictDescriptor {
+    fn get_attr(
+        &self,
+        interpreter: &Interpreter,
+        instance: Option<ExprResult>,
+        owner: Container<Class>,
+    ) -> Result<ExprResult, InterpreterError> {
+        let scope = match instance {
+            Some(i) => i
+                .as_function()
+                .ok_or(InterpreterError::ExpectedObject(
+                    interpreter.state.call_stack(),
+                ))?
+                .borrow()
+                .scope
+                .clone(),
+            None => owner.borrow().scope.clone(),
+        };
+        Ok(ExprResult::Dict(scope.as_dict()))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Dict.into()
     }
 }

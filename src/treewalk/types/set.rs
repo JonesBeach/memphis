@@ -13,7 +13,7 @@ use super::{
     ExprResult, FrozenSet, List, Range, Tuple,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct Set {
     pub items: HashSet<ExprResult>,
 }
@@ -30,12 +30,6 @@ impl Set {
     #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<ExprResult>) -> Self {
         Self { items }
-    }
-
-    pub fn default() -> Self {
-        Self {
-            items: HashSet::new(),
-        }
     }
 
     pub fn add(&mut self, item: ExprResult) -> bool {

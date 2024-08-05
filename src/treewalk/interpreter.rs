@@ -15,7 +15,7 @@ use crate::parser::Parser;
 use crate::treewalk::types::{
     function::FunctionType,
     iterators::GeneratorIterator,
-    traits::{Callable, MemberAccessor},
+    traits::{Callable, MemberReader},
     utils::{Dunder, ResolvedArguments},
     Bytes, Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
     Tuple,
@@ -96,11 +96,7 @@ impl Interpreter {
         if_value: &Expr,
         else_value: &Expr,
     ) -> Result<ExprResult, InterpreterError> {
-        if self
-            .evaluate_expr(condition)?
-            .as_boolean()
-            .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-        {
+        if self.evaluate_expr(condition)?.as_boolean() {
             self.evaluate_expr(if_value)
         } else {
             self.evaluate_expr(else_value)
@@ -113,15 +109,9 @@ impl Interpreter {
         op: &LogicalOp,
         right: &Expr,
     ) -> Result<ExprResult, InterpreterError> {
-        let left = self.evaluate_expr(left)?;
-        let right = self.evaluate_expr(right)?;
-        left.as_boolean()
-            .and_then(|left| {
-                right
-                    .as_boolean()
-                    .map(|right| evaluators::evaluate_logical_op(left, op, right))
-            })
-            .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
+        let left = self.evaluate_expr(left)?.as_boolean();
+        let right = self.evaluate_expr(right)?.as_boolean();
+        evaluators::evaluate_logical_op(left, op, right)
     }
 
     fn evaluate_binary_operation_outer(
@@ -196,14 +186,14 @@ impl Interpreter {
                 ))?
         } else if left.as_object().is_some()
             && right.as_object().is_some()
-            && matches!(op, BinOp::Equals | BinOp::NotEquals)
+            && Dunder::try_from(op).is_ok()
         {
-            let dunder = match op {
-                BinOp::Equals => Dunder::Eq.value(),
-                BinOp::NotEquals => Dunder::Ne.value(),
-                _ => unreachable!(),
-            };
-            self.evaluate_method(left, dunder, &ResolvedArguments::default().add_arg(right))
+            let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
+            self.evaluate_method(
+                left,
+                dunder.value(),
+                &ResolvedArguments::default().add_arg(right),
+            )
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
@@ -227,7 +217,7 @@ impl Interpreter {
             format!("Member access {}.{}", result, field)
         });
         result
-            .as_member_accessor(self)
+            .as_member_reader(self)
             .get_member(self, field)?
             .ok_or(InterpreterError::AttributeError(
                 result.get_class(self).borrow().name.clone(),
@@ -387,13 +377,14 @@ impl Interpreter {
                 }
                 Expr::MemberAccess { object, field } => {
                     let result = self.evaluate_expr(object)?;
-                    result.as_member_accessor(self).delete_member(field).ok_or(
-                        InterpreterError::AttributeError(
-                            result.get_class(self).borrow().name.clone(),
-                            field.clone(),
+                    result
+                        .as_member_writer()
+                        .ok_or(InterpreterError::AttributeError(
+                            result.get_type().to_string(),
+                            field.to_string(),
                             self.state.call_stack(),
-                        ),
-                    )?;
+                        ))?
+                        .delete_member(self, field)?;
                 }
                 _ => return Err(InterpreterError::ExpectedVariable(self.state.call_stack())),
             }
@@ -420,11 +411,7 @@ impl Interpreter {
     }
 
     fn evaluate_assert(&self, expr: &Expr) -> Result<(), InterpreterError> {
-        if self
-            .evaluate_expr(expr)?
-            .as_boolean()
-            .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-        {
+        if self.evaluate_expr(expr)?.as_boolean() {
             Ok(())
         } else {
             Err(InterpreterError::AssertionError(self.state.call_stack()))
@@ -634,8 +621,8 @@ impl Interpreter {
         target: &Expr,
         value: &Expr,
     ) -> Result<(), InterpreterError> {
-        let op = operator.to_bin_op();
-        let result = self.evaluate_binary_operation_outer(target, &op, value)?;
+        let bin_op = BinOp::from(operator);
+        let result = self.evaluate_binary_operation_outer(target, &bin_op, value)?;
         self.evaluate_assignment_inner(target, result)
     }
 
@@ -650,11 +637,6 @@ impl Interpreter {
             Expr::Variable(name) => {
                 self.state.write(name, value.clone());
             }
-            Expr::MemberAccess { object, field } => {
-                self.evaluate_expr(object)?
-                    .as_member_accessor(self)
-                    .set_member(field, value);
-            }
             Expr::IndexAccess { object, index } => {
                 let index_result = self.evaluate_expr(index)?;
                 let object_result = self.evaluate_expr(object)?;
@@ -668,6 +650,17 @@ impl Interpreter {
                         self.state.call_stack(),
                     ))?
                     .setitem(self, index_result, value)?;
+            }
+            Expr::MemberAccess { object, field } => {
+                let result = self.evaluate_expr(object)?;
+                result
+                    .as_member_writer()
+                    .ok_or(InterpreterError::AttributeError(
+                        result.get_type().to_string(),
+                        field.to_string(),
+                        self.state.call_stack(),
+                    ))?
+                    .set_member(self, field, value)?;
             }
             _ => return Err(InterpreterError::ExpectedVariable(self.state.call_stack())),
         }
@@ -833,20 +826,14 @@ impl Interpreter {
         else_part: &Option<Block>,
     ) -> Result<(), InterpreterError> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
-        if if_condition_result
-            .as_boolean()
-            .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-        {
+        if if_condition_result.as_boolean() {
             self.evaluate_block(&if_part.block)?;
             return Ok(());
         }
 
         for elif_part in elif_parts {
             let elif_condition_result = self.evaluate_expr(&elif_part.condition)?;
-            if elif_condition_result
-                .as_boolean()
-                .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-            {
+            if elif_condition_result.as_boolean() {
                 self.evaluate_block(&elif_part.block)?;
                 return Ok(());
             }
@@ -861,11 +848,7 @@ impl Interpreter {
     }
 
     fn evaluate_while_loop(&self, condition: &Expr, body: &Block) -> Result<(), InterpreterError> {
-        while self
-            .evaluate_expr(condition)?
-            .as_boolean()
-            .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-        {
+        while self.evaluate_expr(condition)?.as_boolean() {
             match self.evaluate_block(body) {
                 Err(InterpreterError::EncounteredBreak) => {
                     break;
@@ -907,11 +890,7 @@ impl Interpreter {
                 }
 
                 if let Some(condition) = first_clause.condition.clone() {
-                    if !self
-                        .evaluate_expr(&condition)?
-                        .as_boolean()
-                        .ok_or(InterpreterError::ExpectedBoolean(self.state.call_stack()))?
-                    {
+                    if !self.evaluate_expr(&condition)?.as_boolean() {
                         continue;
                     }
                 }
@@ -4477,6 +4456,29 @@ w = { key for key, value in a.items() }
                 );
             }
         }
+
+        let input = r#"
+a = { "b": 4, 'c': 5 }
+b = a.get("b")
+c = a.get("d")
+d = a.get("d", 99)
+"#;
+        let (mut parser, mut interpreter) = init(input);
+
+        match interpreter.run(&mut parser) {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(_) => {
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::Integer(4.store()))
+                );
+                assert_eq!(interpreter.state.read("c"), Some(ExprResult::None));
+                assert_eq!(
+                    interpreter.state.read("d"),
+                    Some(ExprResult::Integer(99.store()))
+                );
+            }
+        }
     }
 
     #[test]
@@ -6643,6 +6645,8 @@ a = type
 b = type.__dict__
 c = type(type.__dict__)
 d = type(dict.__dict__['fromkeys'])
+# TODO this should fail
+e = type(object().__dict__)
 "#;
         let (mut parser, mut interpreter) = init(input);
 
@@ -6664,6 +6668,10 @@ d = type(dict.__dict__['fromkeys'])
                 assert_eq!(
                     interpreter.state.read("d").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::BuiltinMethod)
+                );
+                assert_eq!(
+                    interpreter.state.read("e").unwrap().as_class().unwrap(),
+                    interpreter.state.get_type_class(Type::Dict)
                 );
             }
         }
@@ -8700,6 +8708,61 @@ a = obj.attribute
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(44.store()))
+                );
+            }
+        }
+
+        let input = r#"
+class Descriptor:
+    def __init__(self, default):
+        self.default = default
+        self.data = {}
+
+    def __get__(self, instance, _owner):
+        if instance is None:
+            return self
+        return self.data.get(instance, self.default)
+
+    def __set__(self, instance, value):
+        self.data[instance] = value
+
+    def __delete__(self, instance):
+        if instance in self.data:
+            del self.data[instance]
+
+class MyClass:
+    my_attr = Descriptor('default value')
+
+    def __init__(self, value=None):
+        if value:
+            self.my_attr = value
+
+obj = MyClass()
+a = obj.my_attr
+
+obj.my_attr = 'new value'
+b = obj.my_attr
+
+del obj.my_attr
+c = obj.my_attr
+"#;
+
+        let (mut parser, mut interpreter) = init(input);
+
+        match interpreter.run(&mut parser) {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(_) => {
+                assert_eq!(
+                    interpreter.state.read("a"),
+                    Some(ExprResult::String(Str::new("default value".into())))
+                );
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::String(Str::new("new value".into())))
+                );
+                assert_eq!(
+                    interpreter.state.read("c"),
+                    Some(ExprResult::String(Str::new("default value".into())))
                 );
             }
         }

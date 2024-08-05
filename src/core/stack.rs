@@ -18,10 +18,6 @@ where
         Self::new(vec![item])
     }
 
-    pub fn default() -> Self {
-        Self::new(vec![])
-    }
-
     /// It is safe to call `unwrap()` after `write()` in our single-threaded context.
     ///
     /// If this is used in a multi-threaded context in the future, we will need to consider lock
@@ -64,5 +60,14 @@ where
     /// reverse.
     pub fn iter_mut(&self) -> impl DoubleEndedIterator<Item = T> {
         self.elements.write().unwrap().clone().into_iter()
+    }
+}
+
+impl<T> Default for Stack<T>
+where
+    T: Clone,
+{
+    fn default() -> Self {
+        Self::new(vec![])
     }
 }

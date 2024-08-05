@@ -10,7 +10,7 @@ use super::{
     ExprResult, List, Range, Set,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct Tuple {
     items: Vec<ExprResult>,
 }
@@ -18,10 +18,6 @@ pub struct Tuple {
 impl Tuple {
     pub fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
-    }
-
-    pub fn default() -> Self {
-        Self { items: vec![] }
     }
 
     pub fn new(items: Vec<ExprResult>) -> Self {

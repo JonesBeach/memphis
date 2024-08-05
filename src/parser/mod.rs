@@ -251,16 +251,11 @@ impl Parser {
         log(LogLevel::Trace, || "parse_binary_expr".to_string());
         let mut left = self.parse_bitwise_shift()?;
 
-        while self.current_token == Token::BitwiseAnd
-            || self.current_token == Token::BitwiseOr
-            || self.current_token == Token::BitwiseXor
-        {
-            let op = match self.current_token {
-                Token::BitwiseAnd => BinOp::BitwiseAnd,
-                Token::BitwiseOr => BinOp::BitwiseOr,
-                Token::BitwiseXor => BinOp::BitwiseXor,
-                _ => unreachable!(),
-            };
+        while matches!(
+            self.current_token,
+            Token::BitwiseAnd | Token::BitwiseOr | Token::BitwiseXor
+        ) {
+            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
             self.consume(self.current_token.clone())?;
             let right = self.parse_bitwise_shift()?;
             left = Expr::BinaryOperation {
@@ -277,12 +272,8 @@ impl Parser {
         log(LogLevel::Trace, || "parse_add_sub".to_string());
         let mut left = self.parse_logical_term()?;
 
-        while self.current_token == Token::Plus || self.current_token == Token::Minus {
-            let op = match self.current_token {
-                Token::Plus => BinOp::Add,
-                Token::Minus => BinOp::Sub,
-                _ => unreachable!(),
-            };
+        while matches!(self.current_token, Token::Plus | Token::Minus) {
+            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
             self.consume(self.current_token.clone())?;
             let right = self.parse_logical_term()?;
             left = Expr::BinaryOperation {
@@ -299,12 +290,8 @@ impl Parser {
         log(LogLevel::Trace, || "parse_bitwise_shift".to_string());
         let mut left = self.parse_add_sub()?;
 
-        while self.current_token == Token::LeftShift || self.current_token == Token::RightShift {
-            let op = match self.current_token {
-                Token::LeftShift => BinOp::LeftShift,
-                Token::RightShift => BinOp::RightShift,
-                _ => unreachable!(),
-            };
+        while matches!(self.current_token, Token::LeftShift | Token::RightShift) {
+            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
             self.consume(self.current_token.clone())?;
             let right = self.parse_add_sub()?;
             left = Expr::BinaryOperation {
@@ -426,7 +413,7 @@ impl Parser {
         log(LogLevel::Trace, || "parse_access_operations".to_string());
         let mut left = self.parse_exponentiation()?;
 
-        while self.current_token == Token::Dot || self.current_token == Token::LBracket {
+        while matches!(self.current_token, Token::Dot | Token::LBracket) {
             left = match self.current_token {
                 Token::Dot => self.parse_member_access(left)?,
                 Token::LBracket => self.parse_index_access(left)?,
@@ -450,12 +437,8 @@ impl Parser {
         log(LogLevel::Trace, || "parse_logical_term".to_string());
         let mut left = self.parse_term()?;
 
-        while self.current_token == Token::And || self.current_token == Token::Or {
-            let op = match self.current_token {
-                Token::And => LogicalOp::And,
-                Token::Or => LogicalOp::Or,
-                _ => unreachable!(),
-            };
+        while matches!(self.current_token, Token::And | Token::Or) {
+            let op = LogicalOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
             self.consume(self.current_token.clone())?;
             let right = self.parse_term()?;
             left = Expr::LogicalOperation {
@@ -472,20 +455,11 @@ impl Parser {
         log(LogLevel::Trace, || "parse_term".to_string());
         let mut left = self.parse_access_operations()?;
 
-        while self.current_token == Token::Asterisk
-            || self.current_token == Token::Slash
-            || self.current_token == Token::DoubleSlash
-            || self.current_token == Token::Modulo
-            || self.current_token == Token::AtSign
-        {
-            let op = match self.current_token {
-                Token::Asterisk => BinOp::Mul,
-                Token::Slash => BinOp::Div,
-                Token::DoubleSlash => BinOp::IntegerDiv,
-                Token::Modulo => BinOp::Mod,
-                Token::AtSign => BinOp::MatMul,
-                _ => unreachable!(),
-            };
+        while matches!(
+            self.current_token,
+            Token::Asterisk | Token::Slash | Token::DoubleSlash | Token::Modulo | Token::AtSign
+        ) {
+            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
             self.consume(self.current_token.clone())?;
             let right = self.parse_access_operations()?;
             left = Expr::BinaryOperation {
@@ -495,15 +469,17 @@ impl Parser {
             };
         }
 
-        while self.current_token == Token::LessThan
-            || self.current_token == Token::LessThanOrEqual
-            || self.current_token == Token::GreaterThan
-            || self.current_token == Token::GreaterThanOrEqual
-            || self.current_token == Token::Equal
-            || self.current_token == Token::NotEqual
-            || self.current_token == Token::In
-            || self.peek_ahead_contains(vec![Token::Not, Token::In])
-            || self.current_token == Token::Is
+        while matches!(
+            self.current_token,
+            Token::LessThan
+                | Token::LessThanOrEqual
+                | Token::GreaterThan
+                | Token::GreaterThanOrEqual
+                | Token::Equal
+                | Token::NotEqual
+                | Token::In
+                | Token::Is
+        ) || self.peek_ahead_contains(vec![Token::Not, Token::In])
             || self.peek_ahead_contains(vec![Token::Is, Token::Not])
         {
             // Handle two tokens to produce one `BinOp::NotIn` operation. If this gets too messy,
@@ -517,17 +493,7 @@ impl Parser {
                 self.consume(Token::Not)?;
                 BinOp::IsNot
             } else {
-                let op = match self.current_token {
-                    Token::LessThan => BinOp::LessThan,
-                    Token::LessThanOrEqual => BinOp::LessThanOrEqual,
-                    Token::GreaterThan => BinOp::GreaterThan,
-                    Token::GreaterThanOrEqual => BinOp::GreaterThanOrEqual,
-                    Token::Equal => BinOp::Equals,
-                    Token::NotEqual => BinOp::NotEquals,
-                    Token::In => BinOp::In,
-                    Token::Is => BinOp::Is,
-                    _ => unreachable!(),
-                };
+                let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
                 self.consume(self.current_token.clone())?;
                 op
             };

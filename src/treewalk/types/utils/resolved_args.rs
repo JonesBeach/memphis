@@ -12,7 +12,7 @@ use crate::{
 /// Represents the fully resolved parameter state for all positional and keyword arguments.
 ///
 /// For the unresolved state, see [`ParsedArguments`].
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct ResolvedArguments {
     bound_val: Option<ExprResult>,
     args: Vec<ExprResult>,
@@ -20,14 +20,6 @@ pub struct ResolvedArguments {
 }
 
 impl ResolvedArguments {
-    pub fn default() -> Self {
-        Self {
-            bound_val: None,
-            args: vec![],
-            kwargs: HashMap::new(),
-        }
-    }
-
     pub fn from(
         interpreter: &Interpreter,
         arguments: &ParsedArguments,
@@ -119,6 +111,10 @@ impl ResolvedArguments {
     /// `get_self` for those.
     pub fn get_arg(&self, index: usize) -> ExprResult {
         self.args[index].clone()
+    }
+
+    pub fn get_arg_optional(&self, index: usize) -> Option<ExprResult> {
+        self.args.get(index).cloned()
     }
 
     /// Return a `Dict` of all the keyword arguments.

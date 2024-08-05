@@ -25,13 +25,7 @@ impl Callable for NewBuiltin {
         if args.len() == 1 {
             Ok(ExprResult::Boolean(false))
         } else if args.len() == 2 {
-            let input = args
-                .get_arg(1)
-                .as_boolean()
-                .ok_or(InterpreterError::ExpectedBoolean(
-                    interpreter.state.call_stack(),
-                ))?;
-
+            let input = args.get_arg(1).as_boolean();
             Ok(ExprResult::Boolean(input))
         } else {
             Err(InterpreterError::WrongNumberOfArguments(

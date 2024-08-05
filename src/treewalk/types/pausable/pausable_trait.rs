@@ -96,9 +96,7 @@ pub trait Pausable {
     ) -> Result<bool, InterpreterError> {
         match statement {
             Statement::WhileLoop { body, condition } => {
-                if interpreter.evaluate_expr(condition)?.as_boolean().ok_or(
-                    InterpreterError::ExpectedBoolean(interpreter.state.call_stack()),
-                )? {
+                if interpreter.evaluate_expr(condition)?.as_boolean() {
                     self.context().push_context(PausableToken::new(
                         Frame::new(body.clone()),
                         PausableState::InWhileLoop(condition.clone()),
@@ -112,13 +110,7 @@ pub trait Pausable {
                 elif_parts,
                 else_part,
             } => {
-                if interpreter
-                    .evaluate_expr(&if_part.condition)?
-                    .as_boolean()
-                    .ok_or(InterpreterError::ExpectedBoolean(
-                        interpreter.state.call_stack(),
-                    ))?
-                {
+                if interpreter.evaluate_expr(&if_part.condition)?.as_boolean() {
                     self.context().push_context(PausableToken::new(
                         Frame::new(if_part.block.clone()),
                         PausableState::InBlock,
@@ -131,9 +123,6 @@ pub trait Pausable {
                     if interpreter
                         .evaluate_expr(&elif_part.condition)?
                         .as_boolean()
-                        .ok_or(InterpreterError::ExpectedBoolean(
-                            interpreter.state.call_stack(),
-                        ))?
                     {
                         self.context().push_context(PausableToken::new(
                             Frame::new(elif_part.block.clone()),
@@ -276,9 +265,7 @@ pub trait Pausable {
                     };
 
                     if self.context().current_frame().is_finished()
-                        && interpreter.evaluate_expr(&condition)?.as_boolean().ok_or(
-                            InterpreterError::ExpectedBoolean(interpreter.state.call_stack()),
-                        )?
+                        && interpreter.evaluate_expr(&condition)?.as_boolean()
                     {
                         self.context().restart_frame();
                     }

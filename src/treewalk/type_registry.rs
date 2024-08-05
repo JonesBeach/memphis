@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::core::Container;
 use crate::treewalk::types::{
     iterators::{ReversedIterator, ZipIterator},
-    traits::{Callable, MemberAccessor, NonDataDescriptor},
+    traits::{Callable, NonDataDescriptor},
     Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception, ExprResult,
     FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice, Staticmethod,
     Str, Super, Traceback, Tuple, Type, TypeClass,
@@ -40,7 +40,7 @@ fn builtin_methods() -> HashMap<Type, impl Iterator<Item = Box<dyn Callable>>> {
 }
 
 /// [`Type::Type`] and [`Type::Object`] are excluded here because they are initialized separately.
-fn dynamic_attributes() -> HashMap<Type, impl Iterator<Item = Box<dyn NonDataDescriptor>>> {
+fn descriptors() -> HashMap<Type, impl Iterator<Item = Box<dyn NonDataDescriptor>>> {
     HashMap::from([
         (Type::Function, Function::get_descriptors().into_iter()),
         (Type::Exception, Exception::get_descriptors().into_iter()),
@@ -153,39 +153,39 @@ fn callable_types() -> Vec<Type> {
 /// directly, but a cycle is created if we try to make Type inherit from Object while Object's
 /// metaclass is Type.
 fn type_class() -> Container<Class> {
-    let mut object_base = Class::new_builtin(Type::ObjectMeta, None, vec![]);
+    let object_base = Class::new_builtin(Type::ObjectMeta, None, vec![]);
     for method in Object::get_methods().into_iter() {
-        object_base.set_member(
+        object_base.set_on_class(
             &method.name(),
             ExprResult::BuiltinMethod(Container::new(method)),
         );
     }
 
-    let mut type_base = Class::new_builtin(Type::TypeMeta, None, vec![]);
+    let type_base = Class::new_builtin(Type::TypeMeta, None, vec![]);
     for method in TypeClass::get_methods().into_iter() {
-        type_base.set_member(
+        type_base.set_on_class(
             &method.name(),
             ExprResult::BuiltinMethod(Container::new(method)),
         );
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
-        type_base.set_member(
+        type_base.set_on_class(
             &attr.name(),
             ExprResult::NonDataDescriptor(Container::new(attr)),
         );
     }
 
-    let mut type_class = Class::new_builtin(Type::Type, Some(type_base), vec![object_base]);
+    let type_class = Class::new_builtin(Type::Type, Some(type_base), vec![object_base]);
     for method in TypeClass::get_methods().into_iter() {
-        type_class.set_member(
+        type_class.set_on_class(
             &method.name(),
             ExprResult::BuiltinMethod(Container::new(method)),
         );
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
-        type_class.set_member(
+        type_class.set_on_class(
             &attr.name(),
             ExprResult::NonDataDescriptor(Container::new(attr)),
         );
@@ -197,11 +197,25 @@ fn type_class() -> Container<Class> {
 /// Create the [`Type::Object`] class which is the parent class to all classes, including
 /// [`Type::Type`], except itself.
 fn object_class(metaclass: Container<Class>) -> Container<Class> {
-    let mut object_class = Class::new_builtin(Type::Object, Some(metaclass), vec![]);
+    let object_class = Class::new_builtin(Type::Object, Some(metaclass), vec![]);
     for method in Object::get_methods().into_iter() {
-        object_class.set_member(
+        object_class.set_on_class(
             &method.name(),
             ExprResult::BuiltinMethod(Container::new(method)),
+        );
+    }
+
+    for attr in Object::get_descriptors().into_iter() {
+        object_class.set_on_class(
+            &attr.name(),
+            ExprResult::NonDataDescriptor(Container::new(attr)),
+        );
+    }
+
+    for attr in Object::get_data_descriptors().into_iter() {
+        object_class.set_on_class(
+            &attr.name(),
+            ExprResult::DataDescriptor(Container::new(attr)),
         );
     }
 
@@ -227,10 +241,9 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
 
     // Create all the other type classes using `Type::Type` and `Type::Object`.
     let mut methods = builtin_methods();
-    let mut attributes = dynamic_attributes();
+    let mut attributes = descriptors();
     for type_ in all_types() {
-        let mut class =
-            Class::new_builtin(type_, Some(type_class.clone()), vec![object_class.clone()]);
+        let class = Class::new_builtin(type_, Some(type_class.clone()), vec![object_class.clone()]);
         let builtin_type = class.borrow().builtin_type();
 
         // Add the builtin methods for this type class.
@@ -239,7 +252,7 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
         // which is what we want since this is just initialization code.
         if let Some(mut methods_for_type) = methods.remove(&builtin_type) {
             for method in methods_for_type.by_ref() {
-                class.set_member(
+                class.set_on_class(
                     &method.name(),
                     ExprResult::BuiltinMethod(Container::new(method)),
                 );
@@ -249,7 +262,7 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
         // Add the dynamic attributes for this type class.
         if let Some(mut attributes_for_type) = attributes.remove(&builtin_type) {
             for attr in attributes_for_type.by_ref() {
-                class.set_member(
+                class.set_on_class(
                     &attr.name(),
                     ExprResult::NonDataDescriptor(Container::new(attr)),
                 );

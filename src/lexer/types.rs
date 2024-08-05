@@ -1,3 +1,5 @@
+use crate::parser::types::{BinOp, LogicalOp};
+
 pub struct MultilineString {
     pub raw: bool,
     pub literal: String,
@@ -115,6 +117,52 @@ pub enum Token {
     Newline,
     Eof,
     InvalidCharacter(char),
+}
+
+impl TryFrom<&Token> for BinOp {
+    type Error = ();
+
+    fn try_from(value: &Token) -> Result<Self, Self::Error> {
+        let op = match value {
+            Token::BitwiseAnd => BinOp::BitwiseAnd,
+            Token::BitwiseOr => BinOp::BitwiseOr,
+            Token::BitwiseXor => BinOp::BitwiseXor,
+            Token::Plus => BinOp::Add,
+            Token::Minus => BinOp::Sub,
+            Token::LeftShift => BinOp::LeftShift,
+            Token::RightShift => BinOp::RightShift,
+            Token::Asterisk => BinOp::Mul,
+            Token::Slash => BinOp::Div,
+            Token::DoubleSlash => BinOp::IntegerDiv,
+            Token::Modulo => BinOp::Mod,
+            Token::AtSign => BinOp::MatMul,
+            Token::LessThan => BinOp::LessThan,
+            Token::LessThanOrEqual => BinOp::LessThanOrEqual,
+            Token::GreaterThan => BinOp::GreaterThan,
+            Token::GreaterThanOrEqual => BinOp::GreaterThanOrEqual,
+            Token::Equal => BinOp::Equals,
+            Token::NotEqual => BinOp::NotEquals,
+            Token::In => BinOp::In,
+            Token::Is => BinOp::Is,
+            _ => return Err(()),
+        };
+
+        Ok(op)
+    }
+}
+
+impl TryFrom<&Token> for LogicalOp {
+    type Error = ();
+
+    fn try_from(value: &Token) -> Result<Self, Self::Error> {
+        let op = match value {
+            Token::And => LogicalOp::And,
+            Token::Or => LogicalOp::Or,
+            _ => return Err(()),
+        };
+
+        Ok(op)
+    }
 }
 
 impl Token {
