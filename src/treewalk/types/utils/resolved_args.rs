@@ -156,3 +156,16 @@ impl ResolvedArguments {
         base
     }
 }
+
+/// This macro is useful when you only need positional arguments.
+#[macro_export]
+macro_rules! resolved_args {
+    ( $( $arg:expr ),* ) => {{
+        #[allow(unused_mut)]
+        let mut args = ResolvedArguments::default();
+        $(
+            args = args.add_arg($arg);
+        )*
+        args
+    }};
+}

@@ -12,6 +12,7 @@ use crate::parser::types::{
     UnaryOp, Variable,
 };
 use crate::parser::Parser;
+use crate::resolved_args;
 use crate::treewalk::types::{
     function::FunctionType,
     iterators::GeneratorIterator,
@@ -189,11 +190,7 @@ impl Interpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.evaluate_method(
-                left,
-                dunder.value(),
-                &ResolvedArguments::default().add_arg(right),
-            )
+            self.evaluate_method(left, dunder.value(), &resolved_args!(right))
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
@@ -1095,7 +1092,7 @@ impl Interpreter {
         let result = self.evaluate_method(
             expr_result.clone(),
             Dunder::Enter.value(),
-            &ResolvedArguments::default(),
+            &resolved_args!(),
         )?;
 
         if let Some(variable) = variable {
@@ -1106,10 +1103,7 @@ impl Interpreter {
         self.evaluate_method(
             expr_result.clone(),
             Dunder::Exit.value(),
-            &ResolvedArguments::default()
-                .add_arg(ExprResult::None)
-                .add_arg(ExprResult::None)
-                .add_arg(ExprResult::None),
+            &resolved_args!(ExprResult::None, ExprResult::None, ExprResult::None),
         )?;
 
         // Return the exception if one is called.
