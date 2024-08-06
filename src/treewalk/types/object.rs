@@ -2,6 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    resolved_args,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
 };
@@ -61,7 +62,7 @@ impl IndexWrite for Container<Object> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::SetItem.value(),
-            &ResolvedArguments::default().add_arg(index).add_arg(value),
+            &resolved_args!(index, value),
         )?;
 
         Ok(())
@@ -75,7 +76,7 @@ impl IndexWrite for Container<Object> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::DelItem.value(),
-            &ResolvedArguments::default().add_arg(index),
+            &resolved_args!(index),
         )?;
 
         Ok(())
@@ -91,7 +92,7 @@ impl IndexRead for Container<Object> {
         let result = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::GetItem.value(),
-            &ResolvedArguments::default().add_arg(index),
+            &resolved_args!(index),
         )?;
 
         Ok(Some(result))
@@ -238,9 +239,10 @@ impl NonDataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Get.value(),
-            &ResolvedArguments::default()
-                .add_arg(instance.unwrap_or(ExprResult::None))
-                .add_arg(ExprResult::Class(owner)),
+            &resolved_args!(
+                instance.unwrap_or(ExprResult::None),
+                ExprResult::Class(owner)
+            ),
         )
     }
 
@@ -262,9 +264,7 @@ impl DataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Set.value(),
-            &ResolvedArguments::default()
-                .add_arg(instance)
-                .add_arg(value),
+            &resolved_args!(instance, value),
         )?;
 
         Ok(())
@@ -278,7 +278,7 @@ impl DataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Delete.value(),
-            &ResolvedArguments::default().add_arg(instance),
+            &resolved_args!(instance),
         )?;
 
         Ok(())
@@ -390,7 +390,7 @@ impl Callable for NeBuiltin {
         let result = interpreter.evaluate_method(
             receiver,
             Dunder::Eq.value(),
-            &ResolvedArguments::default().add_arg(args.get_arg(0)),
+            &resolved_args!(args.get_arg(0)),
         )?;
 
         Ok(result.inverted())
