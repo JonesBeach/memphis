@@ -8745,6 +8745,14 @@ b = obj.my_attr
 
 del obj.my_attr
 c = obj.my_attr
+
+d = MyClass.my_attr
+
+obj2 = MyClass('custom value')
+e = obj2.my_attr
+
+del obj.my_attr
+f = obj.my_attr
 "#;
 
         let (mut parser, mut interpreter) = init(input);
@@ -8762,6 +8770,24 @@ c = obj.my_attr
                 );
                 assert_eq!(
                     interpreter.state.read("c"),
+                    Some(ExprResult::String(Str::new("default value".into())))
+                );
+                assert_eq!(
+                    interpreter
+                        .state
+                        .read("d")
+                        .unwrap()
+                        .get_class(&interpreter)
+                        .borrow()
+                        .name,
+                    "Descriptor"
+                );
+                assert_eq!(
+                    interpreter.state.read("e"),
+                    Some(ExprResult::String(Str::new("custom value".into())))
+                );
+                assert_eq!(
+                    interpreter.state.read("f"),
                     Some(ExprResult::String(Str::new("default value".into())))
                 );
             }
