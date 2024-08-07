@@ -1,35 +1,53 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::core::Container;
+use crate::{core::Container, treewalk::Interpreter};
 
-use super::{Dict, ExprResult, List, Tuple};
+use super::{
+    dict::{HashableKey, HashablePair},
+    Dict, ExprResult, List,
+};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct DictItems {
-    items: Vec<(ExprResult, ExprResult)>,
+    items: Vec<(HashableKey, ExprResult)>,
 }
 
 impl DictItems {
-    pub fn new(items: Vec<(ExprResult, ExprResult)>) -> Self {
+    pub fn new(interpreter: Interpreter, items: Vec<(ExprResult, ExprResult)>) -> Self {
+        let mut new_hash = Vec::new();
+        for (key, value) in items {
+            let new_key = HashableKey::new(key.clone(), interpreter.clone());
+            new_hash.push((new_key, value));
+        }
+
+        Self::new_inner(new_hash)
+    }
+
+    fn new_inner(items: Vec<(HashableKey, ExprResult)>) -> Self {
         Self { items }
     }
 }
 
 impl From<Dict> for DictItems {
     fn from(dict: Dict) -> Self {
-        let mut items: Vec<(ExprResult, ExprResult)> = vec![];
+        let mut items = vec![];
         for i in dict.items.keys() {
             items.push((i.clone(), dict.items[i].clone()));
         }
         // TODO this should support non-strings
-        items.sort_by(|a, b| a.0.as_string().unwrap().cmp(&b.0.as_string().unwrap()));
-        DictItems::new(items)
+        items.sort_by(|a, b| {
+            a.0.key
+                .as_string()
+                .unwrap()
+                .cmp(&b.0.key.as_string().unwrap())
+        });
+        DictItems::new_inner(items)
     }
 }
 
 impl From<Container<List>> for DictItems {
     fn from(list: Container<List>) -> Self {
-        let mut items: Vec<(ExprResult, ExprResult)> = vec![];
+        let mut items = vec![];
         for i in list {
             match i {
                 ExprResult::Tuple(tuple) => {
@@ -38,7 +56,8 @@ impl From<Container<List>> for DictItems {
                 _ => panic!("expected a tuple!"),
             }
         }
-        DictItems::new(items)
+        todo!();
+        // DictItems::new_inner(items)
     }
 }
 
@@ -53,7 +72,7 @@ impl Display for DictItems {
 }
 
 impl IntoIterator for DictItems {
-    type Item = ExprResult;
+    type Item = HashablePair;
     type IntoIter = DictItemsIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -71,16 +90,14 @@ impl DictItemsIterator {
 }
 
 impl Iterator for DictItemsIterator {
-    type Item = ExprResult;
+    type Item = HashablePair;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.items.is_empty() {
             None
         } else {
             let removed = self.0.items.remove(0);
-            Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
-                removed.0, removed.1,
-            ]))))
+            Some(HashablePair::new(removed.0, removed.1))
         }
     }
 }

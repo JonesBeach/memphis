@@ -54,7 +54,7 @@ impl Class {
             ExprResult::Class(metaclass.clone()),
             ExprResult::String(Str::new(name.into())),
             bases,
-            ExprResult::Dict(Scope::default().as_dict())
+            ExprResult::Dict(Scope::default().as_dict(interpreter.clone()))
         );
         interpreter
             .evaluate_method(ExprResult::Class(metaclass), Dunder::New.value(), args)?

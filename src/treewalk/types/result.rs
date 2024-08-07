@@ -123,13 +123,7 @@ impl PartialEq for ExprResult {
             (ExprResult::Tuple(a), ExprResult::Tuple(b)) => a == b,
             (ExprResult::Function(a), ExprResult::Function(b)) => a == b,
             (ExprResult::Class(a), ExprResult::Class(b)) => a == b,
-            // This uses `Dunder::Eq` and is handled in [`Interpreter::evaluate_binary_operation`].
-            (ExprResult::Object(_), ExprResult::Object(_)) => {
-                // TODO this is very dangerous. we are ending up here because of `Dict.get`, which
-                // uses a HashMap and therefore checks the equality of keys on a collision. We
-                // should really be using `Dunder::Eq` here like is mentioned in the comment above.
-                true
-            } //unreachable!(),
+            (ExprResult::Object(a), ExprResult::Object(b)) => a.same_identity(b),
             (ExprResult::Exception(a), ExprResult::Exception(b)) => a == b,
             (ExprResult::BuiltinMethod(a), ExprResult::BuiltinMethod(b)) => a.same_identity(b),
             (ExprResult::DataDescriptor(a), ExprResult::DataDescriptor(b)) => a.same_identity(b),
@@ -185,6 +179,13 @@ impl ExprResult {
         interpreter.evaluate_method(object.clone(), Dunder::Init.value(), &arguments)?;
 
         Ok(object)
+    }
+
+    pub fn hash(&self) -> usize {
+        match self {
+            ExprResult::Object(o) => o.address(),
+            _ => 0,
+        }
     }
 
     fn minimized_display(&self, f: &mut Formatter) -> Result<(), Error> {
@@ -660,6 +661,7 @@ impl ExprResult {
     }
 
     pub fn as_tuple(&self) -> Option<Container<Tuple>> {
+        dbg!(&self);
         match self {
             ExprResult::List(i) => Some(i.clone().into()),
             ExprResult::Tuple(i) => Some(i.clone()),
@@ -764,7 +766,7 @@ impl Iterator for ExprResultIterator {
             ExprResultIterator::Zip(i) => i.next(),
             ExprResultIterator::Reversed(i) => i.next(),
             ExprResultIterator::Dict(i) => i.next(),
-            ExprResultIterator::DictItems(i) => i.next(),
+            ExprResultIterator::DictItems(i) => i.next().map(|k| k.first_resolved().clone()),
             ExprResultIterator::Generator(i) => i.next(),
             ExprResultIterator::Range(i) => i.next(),
             ExprResultIterator::String(i) => i.next(),

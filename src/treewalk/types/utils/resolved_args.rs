@@ -68,7 +68,7 @@ impl ResolvedArguments {
         };
 
         for (key, value) in second_kwarg_values {
-            if kwarg_values.insert(key.clone(), value).is_some() {
+            if kwarg_values.insert(key.key.clone(), value).is_some() {
                 return Err(InterpreterError::KeyError(
                     key.to_string(),
                     interpreter.state.call_stack(),

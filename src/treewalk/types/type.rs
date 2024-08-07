@@ -34,7 +34,7 @@ struct MroAttribute;
 impl NonDataDescriptor for DictAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError> {
@@ -44,7 +44,7 @@ impl NonDataDescriptor for DictAttribute {
         };
 
         Ok(ExprResult::MappingProxy(Container::new(MappingProxy::new(
-            scope.as_dict(),
+            scope.as_dict(interpreter.clone()),
         ))))
     }
 

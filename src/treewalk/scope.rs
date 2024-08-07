@@ -99,7 +99,10 @@ impl Scope {
         }
 
         if let Some(ref kwargs_var) = function_args.kwargs_var {
-            let kwargs_value = ExprResult::Dict(Container::new(Dict::new(arguments.get_kwargs())));
+            let kwargs_value = ExprResult::Dict(Container::new(Dict::new(
+                interpreter.clone(),
+                arguments.get_kwargs(),
+            )));
             scope.insert(kwargs_var.as_str(), kwargs_value);
         }
 
@@ -156,22 +159,21 @@ impl Scope {
         self.nonlocal_vars.contains(name)
     }
 
-    pub fn as_dict(&self) -> Container<Dict> {
+    pub fn as_dict(&self, interpreter: Interpreter) -> Container<Dict> {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
             items.insert(ExprResult::String(Str::new(key.clone())), value.clone());
         }
 
-        Container::new(Dict::new(items))
+        Container::new(Dict::new(interpreter, items))
     }
 
     pub fn from_dict(dict: DictItems) -> Self {
         let mut symbol_table = HashMap::new();
-        for item in dict.into_iter() {
-            let tuple = item.as_tuple().unwrap();
-            let key = tuple.first().as_string().unwrap();
-            let value = tuple.second();
+        for pair in dict.into_iter() {
+            let key = pair.first_resolved().as_string().unwrap();
+            let value = pair.second().clone();
             symbol_table.insert(key, value);
         }
 

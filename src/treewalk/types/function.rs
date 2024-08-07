@@ -546,7 +546,7 @@ impl NonDataDescriptor for DictDescriptor {
                 .clone(),
             None => owner.borrow().scope.clone(),
         };
-        Ok(ExprResult::Dict(scope.as_dict()))
+        Ok(ExprResult::Dict(scope.as_dict(interpreter.clone())))
     }
 
     fn name(&self) -> String {

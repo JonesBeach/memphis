@@ -17,7 +17,7 @@ impl From<Dict> for DictKeys {
     fn from(dict: Dict) -> Self {
         let mut items: Vec<ExprResult> = vec![];
         for i in dict.items.keys() {
-            items.push(i.clone());
+            items.push(i.key.clone());
         }
         // TODO this should support non-strings
         items.sort_by_key(|a| a.as_string().unwrap());

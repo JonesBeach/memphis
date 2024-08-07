@@ -177,6 +177,7 @@ Object Creation and Destruction
 Representation
 \_\_repr__(self)
 \_\_str__(self)
+\_\_hash__(self)|✅
 \_\_format__(self, format_spec)
 Comparison and Equality
 \_\_eq__(self, other)|✅

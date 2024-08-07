@@ -323,7 +323,7 @@ impl Interpreter {
             .iter()
             .map(|(key, value)| Ok((self.evaluate_expr(key)?, self.evaluate_expr(value)?)))
             .collect::<Result<HashMap<_, _>, _>>()
-            .map(|d| ExprResult::Dict(Container::new(Dict::new(d))))
+            .map(|d| ExprResult::Dict(Container::new(Dict::new(self.clone(), d))))
     }
 
     fn evaluate_await(&self, expr: &Expr) -> Result<ExprResult, InterpreterError> {
@@ -932,17 +932,23 @@ impl Interpreter {
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
         let mut output = HashMap::new();
+        dbg!(&expr);
         for i in expr {
+            dbg!(&i);
             let tuple = i
                 .as_tuple()
                 .ok_or(InterpreterError::ExpectedTuple(self.state.call_stack()))?;
+            dbg!(&i);
             self.state.write(key, tuple.first());
             self.state.write(value, tuple.second());
             let key_result = self.evaluate_expr(key_body)?;
             let value_result = self.evaluate_expr(value_body)?;
             output.insert(key_result, value_result);
         }
-        Ok(ExprResult::Dict(Container::new(Dict::new(output))))
+        Ok(ExprResult::Dict(Container::new(Dict::new(
+            self.clone(),
+            output,
+        ))))
     }
 
     fn evaluate_for_in_loop(
@@ -3442,8 +3448,9 @@ t = type(slice)
                 );
                 assert_eq!(
                     interpreter.state.read("p"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
                             (
                                 ExprResult::String(Str::new("c".to_string())),
                                 ExprResult::Integer(3.store())
@@ -3452,8 +3459,8 @@ t = type(slice)
                                 ExprResult::String(Str::new("d".to_string())),
                                 ExprResult::Integer(4.store())
                             ),
-                        ]
-                    )))))
+                        ])
+                    ))))
                 );
                 assert_eq!(
                     interpreter.state.read("q").unwrap().as_class().unwrap(),
@@ -4241,8 +4248,9 @@ a = { "b": 4, 'c': 5 }
             Ok(_) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
                                 ExprResult::Integer(4.store())
@@ -4251,8 +4259,8 @@ a = { "b": 4, 'c': 5 }
                                 ExprResult::String(Str::new("c".to_string())),
                                 ExprResult::Integer(5.store())
                             ),
-                        ]
-                    )))))
+                        ])
+                    ))))
                 );
             }
         }
@@ -4293,8 +4301,25 @@ w = { key for key, value in a.items() }
             Ok(_) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
+                            (
+                                ExprResult::String(Str::new("b".to_string())),
+                                ExprResult::Integer(4.store())
+                            ),
+                            (
+                                ExprResult::String(Str::new("c".to_string())),
+                                ExprResult::Integer(5.store())
+                            ),
+                        ])
+                    ))))
+                );
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::DictItems(DictItems::new(
+                        interpreter.clone(),
+                        vec![
                             (
                                 ExprResult::String(Str::new("b".to_string())),
                                 ExprResult::Integer(4.store())
@@ -4304,25 +4329,13 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(5.store())
                             ),
                         ]
-                    )))))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::DictItems(DictItems::new(vec![
-                        (
-                            ExprResult::String(Str::new("b".to_string())),
-                            ExprResult::Integer(4.store())
-                        ),
-                        (
-                            ExprResult::String(Str::new("c".to_string())),
-                            ExprResult::Integer(5.store())
-                        ),
-                    ])))
+                    )))
                 );
                 assert_eq!(
                     interpreter.state.read("c"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
                                 ExprResult::Integer(8.store())
@@ -4331,13 +4344,14 @@ w = { key for key, value in a.items() }
                                 ExprResult::String(Str::new("c".to_string())),
                                 ExprResult::Integer(10.store())
                             ),
-                        ]
-                    )))))
+                        ])
+                    ))))
                 );
                 assert_eq!(
                     interpreter.state.read("d"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
                                 ExprResult::Integer(4.store())
@@ -4346,13 +4360,14 @@ w = { key for key, value in a.items() }
                                 ExprResult::String(Str::new("c".to_string())),
                                 ExprResult::Integer(5.store())
                             ),
-                        ]
-                    )))))
+                        ])
+                    ))))
                 );
                 assert_eq!(
                     interpreter.state.read("e"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::from(
-                        [
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
                                 ExprResult::Integer(4.store())
@@ -4361,8 +4376,8 @@ w = { key for key, value in a.items() }
                                 ExprResult::String(Str::new("c".to_string())),
                                 ExprResult::Integer(5.store())
                             ),
-                        ]
-                    )))))
+                        ])
+                    ))))
                 );
                 assert_eq!(
                     interpreter.state.read("f"),
@@ -4370,11 +4385,14 @@ w = { key for key, value in a.items() }
                 );
                 assert_eq!(
                     interpreter.state.read("g"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(HashMap::new()))))
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        interpreter.clone(),
+                        HashMap::new()
+                    ))))
                 );
                 assert_eq!(
                     interpreter.state.read("h"),
-                    Some(ExprResult::DictItems(DictItems::new(vec![])))
+                    Some(ExprResult::DictItems(DictItems::default()))
                 );
                 assert!(matches!(
                     interpreter.state.read("q"),

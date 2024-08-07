@@ -1,9 +1,12 @@
 use std::{
     collections::HashMap,
-    fmt::{Display, Error, Formatter},
+    fmt::{Debug, Display, Error, Formatter},
+    hash::{Hash, Hasher},
 };
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container, resolved_args, treewalk::Interpreter, types::errors::InterpreterError,
+};
 
 use super::{
     builtins::utils,
@@ -13,9 +16,98 @@ use super::{
     DictItems, ExprResult,
 };
 
+#[derive(Clone)]
+pub struct HashableKey {
+    pub key: ExprResult,
+    interpreter: Interpreter, // pointer to the interpreter (because of Hash/Eq traits)
+}
+
+impl HashableKey {
+    pub fn new(key: ExprResult, interpreter: Interpreter) -> Self {
+        Self { key, interpreter }
+    }
+
+    /// Use the interpreter to evaluate equality
+    fn equals(&self, other: &Self) -> bool {
+        self.interpreter
+            .evaluate_method(
+                self.key.clone(),
+                Dunder::Eq.value(),
+                &resolved_args!(other.key.clone()),
+            )
+            .unwrap()
+            == ExprResult::Boolean(true)
+    }
+
+    /// Use the interpreter to evaluate the hash
+    fn hash(&self) -> u64 {
+        if let ExprResult::Integer(hash_val) = self
+            .interpreter
+            .evaluate_method(self.key.clone(), Dunder::Hash.value(), &resolved_args!())
+            .unwrap()
+        {
+            *hash_val.borrow() as u64
+        } else {
+            panic!("__hash__ method did not return an integer");
+        }
+    }
+}
+
+impl Display for HashableKey {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{}", self.key)
+    }
+}
+
+impl Debug for HashableKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.key)
+    }
+}
+
+impl PartialEq for HashableKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.equals(other)
+    }
+}
+
+impl Eq for HashableKey {}
+
+impl Hash for HashableKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash());
+    }
+}
+
+pub struct HashablePair((HashableKey, ExprResult));
+
+impl HashablePair {
+    pub fn new(key: HashableKey, value: ExprResult) -> Self {
+        Self((key, value))
+    }
+
+    pub fn first(&self) -> &HashableKey {
+        &self.0 .0
+    }
+
+    pub fn first_resolved(&self) -> &ExprResult {
+        &self.0 .0.key
+    }
+
+    pub fn second(&self) -> &ExprResult {
+        &self.0 .1
+    }
+}
+
+impl Display for HashablePair {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{}", self.0 .0)
+    }
+}
+
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Dict {
-    pub items: HashMap<ExprResult, ExprResult>,
+    pub items: HashMap<HashableKey, ExprResult>,
 }
 
 impl Dict {
@@ -32,21 +124,39 @@ impl Dict {
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn new(items: HashMap<ExprResult, ExprResult>) -> Self {
+    fn new_inner(items: HashMap<HashableKey, ExprResult>) -> Self {
         Self { items }
     }
 
-    fn get(&self, key: ExprResult, default: Option<ExprResult>) -> ExprResult {
+    #[allow(clippy::mutable_key_type)]
+    pub fn new(interpreter: Interpreter, items: HashMap<ExprResult, ExprResult>) -> Self {
+        let mut new_hash = HashMap::default();
+        for (key, value) in items {
+            let new_key = HashableKey::new(key.clone(), interpreter.clone());
+            new_hash.insert(new_key, value);
+        }
+
+        Self::new_inner(new_hash)
+    }
+
+    fn get(
+        &self,
+        interpreter: Interpreter,
+        key: ExprResult,
+        default: Option<ExprResult>,
+    ) -> ExprResult {
         let default = default.unwrap_or(ExprResult::None);
+        let key = HashableKey::new(key.clone(), interpreter);
         self.items.get(&key).unwrap_or(&default).clone()
     }
 
-    pub fn has(&self, key: &ExprResult) -> bool {
-        self.items.contains_key(key)
+    pub fn has(&self, interpreter: Interpreter, key: &ExprResult) -> bool {
+        let key = HashableKey::new(key.clone(), interpreter);
+        self.items.contains_key(&key)
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn raw(&self) -> HashMap<ExprResult, ExprResult> {
+    pub fn raw(&self) -> HashMap<HashableKey, ExprResult> {
         self.items.clone()
     }
 }
@@ -54,29 +164,35 @@ impl Dict {
 impl IndexRead for Container<Dict> {
     fn getitem(
         &self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        Ok(self.borrow().items.get(&index).cloned())
+        if self.borrow().has(interpreter.clone(), &index) {
+            Ok(Some(self.borrow().get(interpreter.clone(), index, None)))
+        } else {
+            Ok(None)
+        }
     }
 }
 
 impl IndexWrite for Container<Dict> {
     fn setitem(
         &mut self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
+        let index = HashableKey::new(index.clone(), interpreter.clone());
         self.borrow_mut().items.insert(index, value);
         Ok(())
     }
 
     fn delitem(
         &mut self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<(), InterpreterError> {
+        let index = HashableKey::new(index.clone(), interpreter.clone());
         self.borrow_mut().items.remove(&index);
         Ok(())
     }
@@ -84,19 +200,13 @@ impl IndexWrite for Container<Dict> {
 
 impl From<DictItems> for Dict {
     fn from(dict: DictItems) -> Self {
-        #[allow(clippy::mutable_key_type)]
-        let mut items: HashMap<ExprResult, ExprResult> = HashMap::new();
+        let mut items = HashMap::new();
 
-        for i in dict {
-            match i {
-                ExprResult::Tuple(tuple) => {
-                    items.insert(tuple.first(), tuple.second());
-                }
-                _ => panic!("expected a tuple!"),
-            }
+        for pair in dict {
+            items.insert(pair.first().clone(), pair.second().clone());
         }
 
-        Dict::new(items)
+        Dict::new_inner(items)
     }
 }
 
@@ -297,7 +407,7 @@ impl Callable for GetBuiltin {
         let default = args.get_arg_optional(1);
 
         let d = dict.borrow().clone();
-        Ok(d.get(key, default))
+        Ok(d.get(interpreter.clone(), key, default))
     }
 
     fn name(&self) -> String {

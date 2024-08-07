@@ -30,6 +30,7 @@ impl Object {
             Box::new(NewBuiltin),
             Box::new(EqBuiltin),
             Box::new(NeBuiltin),
+            Box::new(HashBuiltin),
             Box::new(StrBuiltin),
         ]
     }
@@ -211,7 +212,10 @@ impl MemberWriter for Container<Object> {
                 interpreter.state.call_stack(),
             ))?
             .borrow()
-            .has(&ExprResult::String(Str::new(name.to_owned())))
+            .has(
+                interpreter.clone(),
+                &ExprResult::String(Str::new(name.to_owned())),
+            )
         {
             return Err(InterpreterError::AttributeError(
                 result.get_class(interpreter).borrow().name.clone(),
@@ -349,28 +353,39 @@ impl Callable for EqBuiltin {
     ) -> Result<ExprResult, InterpreterError> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let a = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?
-            .as_object()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?;
+        let a = args.get_self().ok_or(InterpreterError::ExpectedObject(
+            interpreter.state.call_stack(),
+        ))?;
 
-        let b = args
-            .get_arg(0)
-            .as_object()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?;
+        let b = args.get_arg(0);
 
-        Ok(ExprResult::Boolean(a.same_identity(&b)))
+        Ok(ExprResult::Boolean(a == b))
     }
 
     fn name(&self) -> String {
         Dunder::Eq.into()
+    }
+}
+
+struct HashBuiltin;
+
+impl Callable for HashBuiltin {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+
+        let object = args.get_self().ok_or(InterpreterError::ExpectedObject(
+            interpreter.state.call_stack(),
+        ))?;
+
+        Ok(ExprResult::Integer(Container::new(object.hash() as i64)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Hash.into()
     }
 }
 
@@ -438,7 +453,7 @@ impl NonDataDescriptor for DictDescriptor {
                 .clone(),
             None => owner.borrow().scope.clone(),
         };
-        Ok(ExprResult::Dict(scope.as_dict()))
+        Ok(ExprResult::Dict(scope.as_dict(interpreter.clone())))
     }
 
     fn name(&self) -> String {
