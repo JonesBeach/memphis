@@ -172,7 +172,7 @@ impl ToPyObject for ExprResult {
     fn to_object(&self, py: Python) -> PyObject {
         match self {
             ExprResult::Integer(val) => val.borrow().to_object(py),
-            ExprResult::String(s) => s.0.as_str().to_object(py),
+            ExprResult::String(s) => s.as_str().to_object(py),
             ExprResult::Function(_) => {
                 // This still doesn't actually do anything.
                 let callback =

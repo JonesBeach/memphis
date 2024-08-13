@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::fmt::{Display, Error, Formatter};
 
+use crate::resolved_args;
 use crate::{
     core::{log, Container, LogLevel},
     parser::{
@@ -211,7 +212,7 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let decorator_result = interpreter.evaluate_expr(decorator)?;
 
-            let arguments = ResolvedArguments::default().add_arg(result);
+            let arguments = resolved_args!(result);
 
             let function =
                 decorator_result
@@ -545,7 +546,7 @@ impl NonDataDescriptor for DictDescriptor {
                 .clone(),
             None => owner.borrow().scope.clone(),
         };
-        Ok(ExprResult::Dict(scope.as_dict()))
+        Ok(ExprResult::Dict(scope.as_dict(interpreter.clone())))
     }
 
     fn name(&self) -> String {

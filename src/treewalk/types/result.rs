@@ -1,6 +1,8 @@
-use std::fmt;
-use std::fmt::{Display, Error, Formatter};
-use std::hash::{Hash, Hasher};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Display, Error, Formatter},
+    hash::{Hash, Hasher},
+};
 
 #[cfg(feature = "c_stdlib")]
 use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
@@ -106,7 +108,7 @@ impl PartialEq for ExprResult {
             (ExprResult::None, ExprResult::None) => true,
             (ExprResult::Integer(a), ExprResult::Integer(b)) => a == b,
             (ExprResult::FloatingPoint(a), ExprResult::FloatingPoint(b)) => a == b,
-            (ExprResult::String(a), ExprResult::String(b)) => a.0 == b.0,
+            (ExprResult::String(a), ExprResult::String(b)) => a == b,
             (ExprResult::Bytes(a), ExprResult::Bytes(b)) => a == b,
             (ExprResult::ByteArray(a), ExprResult::ByteArray(b)) => a == b,
             (ExprResult::Boolean(a), ExprResult::Boolean(b)) => a == b,
@@ -123,13 +125,7 @@ impl PartialEq for ExprResult {
             (ExprResult::Tuple(a), ExprResult::Tuple(b)) => a == b,
             (ExprResult::Function(a), ExprResult::Function(b)) => a == b,
             (ExprResult::Class(a), ExprResult::Class(b)) => a == b,
-            // This uses `Dunder::Eq` and is handled in [`Interpreter::evaluate_binary_operation`].
-            (ExprResult::Object(_), ExprResult::Object(_)) => {
-                // TODO this is very dangerous. we are ending up here because of `Dict.get`, which
-                // uses a HashMap and therefore checks the equality of keys on a collision. We
-                // should really be using `Dunder::Eq` here like is mentioned in the comment above.
-                true
-            } //unreachable!(),
+            (ExprResult::Object(a), ExprResult::Object(b)) => a.same_identity(b),
             (ExprResult::Exception(a), ExprResult::Exception(b)) => a == b,
             (ExprResult::BuiltinMethod(a), ExprResult::BuiltinMethod(b)) => a.same_identity(b),
             (ExprResult::DataDescriptor(a), ExprResult::DataDescriptor(b)) => a.same_identity(b),
@@ -154,6 +150,23 @@ impl Hash for ExprResult {
                 i.as_integer().unwrap().borrow().hash(state)
             }
         }
+    }
+}
+
+impl Ord for ExprResult {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ExprResult::String(s1), ExprResult::String(s2)) => s1.cmp(s2),
+            (ExprResult::Integer(n1), ExprResult::Integer(n2)) => n1.cmp(n2),
+            _ => todo!(),
+        }
+    }
+}
+
+// Implement the PartialOrd trait, required by Ord
+impl PartialOrd for ExprResult {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -187,6 +200,13 @@ impl ExprResult {
         Ok(object)
     }
 
+    pub fn hash(&self) -> usize {
+        match self {
+            ExprResult::Object(o) => o.address(),
+            _ => 0,
+        }
+    }
+
     fn minimized_display(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
             ExprResult::Void => unreachable!(),
@@ -213,7 +233,7 @@ impl ExprResult {
             ExprResult::BuiltinMethod(_) => write!(f, "<built-in method>"),
             ExprResult::Integer(i) => write!(f, "{}", i),
             ExprResult::FloatingPoint(i) => write!(f, "{}", i),
-            ExprResult::String(s) => write!(f, "{}", s.0),
+            ExprResult::String(s) => write!(f, "{}", s),
             ExprResult::Bytes(b) => write!(f, "b'{:?}'", b),
             ExprResult::ByteArray(b) => write!(f, "bytearray(b'{:?}')", b),
             ExprResult::Boolean(b) => {
@@ -379,7 +399,7 @@ impl ExprResult {
     pub fn as_integer(&self) -> Option<Container<i64>> {
         match self {
             ExprResult::Integer(i) => Some(i.clone()),
-            ExprResult::String(s) => match s.0.parse::<i64>() {
+            ExprResult::String(s) => match s.parse::<i64>() {
                 Ok(i) => Some(Container::new(i)),
                 Err(_) => None,
             },
@@ -605,7 +625,7 @@ impl ExprResult {
         match self {
             ExprResult::Boolean(i) => *i,
             ExprResult::List(i) => i.borrow().len() > 0,
-            ExprResult::String(i) => !i.0.is_empty(),
+            ExprResult::String(i) => !i.is_empty(),
             ExprResult::Integer(i) => *i.borrow() != 0,
             ExprResult::None => false,
             _ => true,
@@ -640,13 +660,18 @@ impl ExprResult {
         }
     }
 
-    pub fn as_dict(&self) -> Option<Container<Dict>> {
+    pub fn as_dict(&self, interpreter: &Interpreter) -> Option<Container<Dict>> {
         match self {
             ExprResult::Dict(i) => Some(i.clone()),
             ExprResult::List(list) => {
-                let di: DictItems = list.clone().into();
-                let d: Dict = di.into();
-                Some(Container::new(d))
+                let mut pairs = vec![];
+                for item in list.clone() {
+                    let tuple = item.as_tuple()?;
+                    pairs.push((tuple.first(), tuple.second()));
+                }
+                Some(Container::new(
+                    DictItems::new(interpreter.clone(), pairs).into(),
+                ))
             }
             _ => None,
         }
@@ -671,7 +696,7 @@ impl ExprResult {
 
     pub fn as_string(&self) -> Option<String> {
         match self {
-            ExprResult::String(i) => Some(i.0.to_string()),
+            ExprResult::String(i) => Some(i.to_string()),
             ExprResult::Integer(i) => Some(i.to_string()),
             _ => None,
         }

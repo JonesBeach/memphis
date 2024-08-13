@@ -99,19 +99,14 @@ impl Scope {
         }
 
         if let Some(ref kwargs_var) = function_args.kwargs_var {
-            let kwargs_value = ExprResult::Dict(Container::new(Dict::new(arguments.get_kwargs())));
+            let kwargs_value = ExprResult::Dict(Container::new(Dict::new(
+                interpreter.clone(),
+                arguments.get_kwargs(),
+            )));
             scope.insert(kwargs_var.as_str(), kwargs_value);
         }
 
         Ok(Container::new(scope.to_owned()))
-    }
-
-    fn from_hash(symbol_table: HashMap<String, ExprResult>) -> Self {
-        Self {
-            symbol_table,
-            global_vars: HashSet::new(),
-            nonlocal_vars: HashSet::new(),
-        }
     }
 
     pub fn get(&self, name: &str) -> Option<ExprResult> {
@@ -156,25 +151,42 @@ impl Scope {
         self.nonlocal_vars.contains(name)
     }
 
-    pub fn as_dict(&self) -> Container<Dict> {
+    pub fn as_dict(&self, interpreter: Interpreter) -> Container<Dict> {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
             items.insert(ExprResult::String(Str::new(key.clone())), value.clone());
         }
 
-        Container::new(Dict::new(items))
+        Container::new(Dict::new(interpreter, items))
     }
+}
 
-    pub fn from_dict(dict: DictItems) -> Self {
+impl From<HashMap<String, ExprResult>> for Scope {
+    fn from(value: HashMap<String, ExprResult>) -> Self {
+        Self {
+            symbol_table: value,
+            global_vars: HashSet::new(),
+            nonlocal_vars: HashSet::new(),
+        }
+    }
+}
+
+pub struct ScopeParsingError;
+
+impl TryFrom<Dict> for Scope {
+    type Error = ScopeParsingError;
+
+    fn try_from(value: Dict) -> Result<Self, Self::Error> {
         let mut symbol_table = HashMap::new();
-        for item in dict.into_iter() {
-            let tuple = item.as_tuple().unwrap();
-            let key = tuple.first().as_string().unwrap();
+        let dict_items = DictItems::try_from(value).map_err(|_| ScopeParsingError)?;
+        for pair in dict_items {
+            let tuple = pair.as_tuple().ok_or(ScopeParsingError)?;
+            let key = tuple.first().as_string().ok_or(ScopeParsingError)?;
             let value = tuple.second();
             symbol_table.insert(key, value);
         }
 
-        Self::from_hash(symbol_table)
+        Ok(Self::from(symbol_table))
     }
 }

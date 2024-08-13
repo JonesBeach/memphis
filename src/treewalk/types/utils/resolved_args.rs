@@ -57,18 +57,19 @@ impl ResolvedArguments {
         #[allow(clippy::mutable_key_type)]
         let second_kwarg_values = if let Some(ref kwargs_var) = arguments.kwargs_var {
             let kwargs_var_value = interpreter.evaluate_expr(kwargs_var)?;
-            let kwargs_dict = kwargs_var_value
-                .as_dict()
-                .ok_or(InterpreterError::ExpectedDict(
-                    interpreter.state.call_stack(),
-                ))?;
-            kwargs_dict.clone().borrow().raw()
+            let kwargs_dict =
+                kwargs_var_value
+                    .as_dict(interpreter)
+                    .ok_or(InterpreterError::ExpectedDict(
+                        interpreter.state.call_stack(),
+                    ))?;
+            HashMap::from(kwargs_dict.clone().borrow().clone())
         } else {
             HashMap::new()
         };
 
         for (key, value) in second_kwarg_values {
-            if kwarg_values.insert(key.clone(), value).is_some() {
+            if kwarg_values.insert((*key).clone(), value).is_some() {
                 return Err(InterpreterError::KeyError(
                     key.to_string(),
                     interpreter.state.call_stack(),
@@ -155,4 +156,20 @@ impl ResolvedArguments {
         base.append(&mut self.args.clone());
         base
     }
+}
+
+/// This macro is useful when you only need positional arguments.
+#[macro_export]
+macro_rules! resolved_args {
+    // Double curly braces ensure that the entire macro expands into a single expression, which is
+    // necessary since we are returning a value from this macro.
+    ( $( $arg:expr ),* ) => {{
+        // When no args are pass, this gives an unused mut warning
+        #[allow(unused_mut)]
+        let mut args = ResolvedArguments::default();
+        $(
+            args = args.add_arg($arg);
+        )*
+        args
+    }};
 }

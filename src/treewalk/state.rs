@@ -12,6 +12,7 @@ use crate::treewalk::{
 
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::CPythonModule;
+use super::Interpreter;
 
 pub struct State {
     module_loader: ModuleLoader,
@@ -176,13 +177,17 @@ impl Container<State> {
         self.borrow().scope_manager.read_captured_env()
     }
 
-    pub fn read_globals(&self) -> Container<Dict> {
-        self.borrow()
+    pub fn read_globals(&self, interpreter: Interpreter) -> Container<Dict> {
+        let scope = self
+            .borrow()
             .scope_manager
             .read_module()
             .borrow()
             .scope
-            .as_dict()
+            .clone();
+        // This will make another function call to hash the keys so we do this in a separate
+        // statement to avoid a mutable borrow error.
+        scope.as_dict(interpreter)
     }
 
     pub fn mark_nonlocal(&self, name: &str) {

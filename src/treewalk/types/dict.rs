@@ -1,21 +1,22 @@
 use std::{
-    collections::HashMap,
-    fmt::{Display, Error, Formatter},
+    collections::{hash_map::Keys, HashMap},
+    fmt::{Debug, Display, Error, Formatter},
 };
 
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     builtins::utils,
+    dict_items::ContextualDictItemsIterator,
     iterators::DictKeysIterator,
     traits::{Callable, IndexRead, IndexWrite},
-    utils::{Dunder, ResolvedArguments},
-    DictItems, ExprResult,
+    utils::{Contextual, Dunder, ResolvedArguments},
+    DictItems, DictValues, ExprResult,
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Dict {
-    pub items: HashMap<ExprResult, ExprResult>,
+    items: HashMap<Contextual<ExprResult>, ExprResult>,
 }
 
 impl Dict {
@@ -32,71 +33,94 @@ impl Dict {
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn new(items: HashMap<ExprResult, ExprResult>) -> Self {
+    fn new_inner(items: HashMap<Contextual<ExprResult>, ExprResult>) -> Self {
         Self { items }
     }
 
-    fn get(&self, key: ExprResult, default: Option<ExprResult>) -> ExprResult {
+    #[allow(clippy::mutable_key_type)]
+    pub fn new(interpreter: Interpreter, items: HashMap<ExprResult, ExprResult>) -> Self {
+        let mut new_hash = HashMap::default();
+        for (key, value) in items {
+            let new_key = Contextual::new(key, interpreter.clone());
+            new_hash.insert(new_key, value);
+        }
+
+        Self::new_inner(new_hash)
+    }
+
+    pub fn keys(&self) -> Keys<Contextual<ExprResult>, ExprResult> {
+        self.items.keys()
+    }
+
+    fn get(
+        &self,
+        interpreter: Interpreter,
+        key: ExprResult,
+        default: Option<ExprResult>,
+    ) -> ExprResult {
         let default = default.unwrap_or(ExprResult::None);
+        let key = Contextual::new(key, interpreter);
         self.items.get(&key).unwrap_or(&default).clone()
     }
 
-    pub fn has(&self, key: &ExprResult) -> bool {
-        self.items.contains_key(key)
+    pub fn has(&self, interpreter: Interpreter, key: &ExprResult) -> bool {
+        let key = Contextual::new(key.clone(), interpreter);
+        self.items.contains_key(&key)
     }
+}
 
-    #[allow(clippy::mutable_key_type)]
-    pub fn raw(&self) -> HashMap<ExprResult, ExprResult> {
-        self.items.clone()
+impl From<Dict> for HashMap<Contextual<ExprResult>, ExprResult> {
+    fn from(value: Dict) -> Self {
+        value.items
     }
 }
 
 impl IndexRead for Container<Dict> {
     fn getitem(
         &self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        Ok(self.borrow().items.get(&index).cloned())
+        if self.borrow().has(interpreter.clone(), &index) {
+            Ok(Some(self.borrow().get(interpreter.clone(), index, None)))
+        } else {
+            Ok(None)
+        }
     }
 }
 
 impl IndexWrite for Container<Dict> {
     fn setitem(
         &mut self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
+        let index = Contextual::new(index, interpreter.clone());
         self.borrow_mut().items.insert(index, value);
         Ok(())
     }
 
     fn delitem(
         &mut self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<(), InterpreterError> {
+        let index = Contextual::new(index, interpreter.clone());
         self.borrow_mut().items.remove(&index);
         Ok(())
     }
 }
 
 impl From<DictItems> for Dict {
-    fn from(dict: DictItems) -> Self {
+    fn from(dict_items: DictItems) -> Self {
         #[allow(clippy::mutable_key_type)]
-        let mut items: HashMap<ExprResult, ExprResult> = HashMap::new();
-
-        for i in dict {
-            match i {
-                ExprResult::Tuple(tuple) => {
-                    items.insert(tuple.first(), tuple.second());
-                }
-                _ => panic!("expected a tuple!"),
-            }
+        let mut items = HashMap::new();
+        for pair in ContextualDictItemsIterator::new(dict_items) {
+            items.insert(pair.first().clone(), pair.second().clone());
         }
 
-        Dict::new(items)
+        Dict::new_inner(items)
     }
 }
 
@@ -145,12 +169,14 @@ impl Callable for DictItemsBuiltin {
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
 
-        Ok(ExprResult::DictItems(dict.clone().borrow().clone().into()))
+        let dict_items = DictItems::try_from(dict.clone().borrow().clone())
+            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
+        Ok(ExprResult::DictItems(dict_items))
     }
 
     fn name(&self) -> String {
@@ -171,7 +197,7 @@ impl Callable for DictKeysBuiltin {
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
@@ -197,12 +223,14 @@ impl Callable for DictValuesBuiltin {
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
 
-        Ok(ExprResult::DictValues(dict.clone().borrow().clone().into()))
+        let dict_values = DictValues::try_from(dict.clone().borrow().clone())
+            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
+        Ok(ExprResult::DictValues(dict_values))
     }
 
     fn name(&self) -> String {
@@ -251,14 +279,14 @@ impl Callable for InitBuiltin {
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
 
         let input = args
             .get_arg(0)
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
@@ -288,7 +316,7 @@ impl Callable for GetBuiltin {
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?;
@@ -297,7 +325,7 @@ impl Callable for GetBuiltin {
         let default = args.get_arg_optional(1);
 
         let d = dict.borrow().clone();
-        Ok(d.get(key, default))
+        Ok(d.get(interpreter.clone(), key, default))
     }
 
     fn name(&self) -> String {

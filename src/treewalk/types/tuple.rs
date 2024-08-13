@@ -112,7 +112,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 
@@ -147,6 +147,6 @@ impl Callable for InitBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::Init.value().into()
+        Dunder::Init.into()
     }
 }

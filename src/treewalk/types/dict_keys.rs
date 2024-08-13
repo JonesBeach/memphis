@@ -15,12 +15,12 @@ impl DictKeys {
 
 impl From<Dict> for DictKeys {
     fn from(dict: Dict) -> Self {
-        let mut items: Vec<ExprResult> = vec![];
-        for i in dict.items.keys() {
-            items.push(i.clone());
+        let mut items = vec![];
+        for item in dict.keys() {
+            // Dereference `i` twice to get `ExprResult` (because `Deref` returns &ExprResult)
+            items.push((**item).clone());
         }
-        // TODO this should support non-strings
-        items.sort_by_key(|a| a.as_string().unwrap());
+        items.sort();
         DictKeys::new(items)
     }
 }

@@ -21,6 +21,10 @@ impl<T> Container<T> {
     pub fn same_identity(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
+
+    pub fn address(&self) -> usize {
+        self.0.as_ptr() as usize
+    }
 }
 
 /// When we print the pointer value of a `Container<T>` we are usually interested in the pointer

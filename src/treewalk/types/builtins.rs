@@ -108,7 +108,9 @@ impl Callable for GlobalsBuiltin {
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-        Ok(ExprResult::Dict(interpreter.state.read_globals()))
+        Ok(ExprResult::Dict(
+            interpreter.state.read_globals(interpreter.clone()),
+        ))
     }
 
     fn name(&self) -> String {

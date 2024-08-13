@@ -34,7 +34,7 @@ struct MroAttribute;
 impl NonDataDescriptor for DictAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError> {
@@ -44,7 +44,7 @@ impl NonDataDescriptor for DictAttribute {
         };
 
         Ok(ExprResult::MappingProxy(Container::new(MappingProxy::new(
-            scope.as_dict(),
+            scope.as_dict(interpreter.clone()),
         ))))
     }
 
@@ -121,18 +121,21 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let namespace = args
-            .get_arg(3)
-            .as_dict()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
+        let namespace =
+            args.get_arg(3)
+                .as_dict(interpreter)
+                .ok_or(InterpreterError::ExpectedDict(
+                    interpreter.state.call_stack(),
+                ))?;
+
+        let scope = Scope::try_from(namespace.clone().borrow().clone())
+            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
 
         Ok(ExprResult::Class(Class::new_base(
             name,
             parent_classes,
             Some(mcls),
-            Scope::from_dict(namespace.clone().borrow().clone().into()),
+            scope,
         )))
     }
 

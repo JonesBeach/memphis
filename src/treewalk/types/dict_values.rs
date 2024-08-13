@@ -1,6 +1,8 @@
 use std::fmt::{Display, Error, Formatter};
 
-use super::{Dict, ExprResult};
+use crate::core::Container;
+
+use super::{traits::IndexRead as _, Dict, ExprResult};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictValues {
@@ -13,15 +15,23 @@ impl DictValues {
     }
 }
 
-impl From<Dict> for DictValues {
-    fn from(dict: Dict) -> Self {
-        let mut items: Vec<ExprResult> = vec![];
-        for i in dict.items.keys() {
-            items.push(dict.items[i].clone());
+pub struct DictValuesError;
+
+impl TryFrom<Dict> for DictValues {
+    type Error = DictValuesError;
+
+    fn try_from(dict: Dict) -> Result<Self, Self::Error> {
+        let mut items = vec![];
+        let stored = Container::new(dict.clone());
+        for item in dict.keys() {
+            let value = stored
+                .getitem(item.interpreter(), (**item).clone())
+                .map_err(|_| DictValuesError)?
+                .ok_or(DictValuesError)?;
+            items.push(value);
         }
-        // TODO this should support non-integer
-        items.sort_by_key(|a| *a.as_integer().unwrap().borrow());
-        DictValues::new(items)
+        items.sort();
+        Ok(DictValues::new(items))
     }
 }
 

@@ -1,3 +1,8 @@
+use std::{
+    fmt::{Display, Error, Formatter},
+    ops::Deref,
+};
+
 use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
@@ -6,8 +11,8 @@ use super::{
     ExprResult, Slice,
 };
 
-#[derive(Clone)]
-pub struct Str(pub String);
+#[derive(Clone, PartialEq)]
+pub struct Str(String);
 
 impl Str {
     pub fn get_methods() -> Vec<Box<dyn Callable>> {
@@ -27,6 +32,20 @@ impl Str {
         .join("");
 
         Str::new(sliced_string)
+    }
+}
+
+impl Display for Str {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for Str {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

@@ -2,6 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    resolved_args,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
 };
@@ -29,6 +30,7 @@ impl Object {
             Box::new(NewBuiltin),
             Box::new(EqBuiltin),
             Box::new(NeBuiltin),
+            Box::new(HashBuiltin),
             Box::new(StrBuiltin),
         ]
     }
@@ -61,7 +63,7 @@ impl IndexWrite for Container<Object> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::SetItem.value(),
-            &ResolvedArguments::default().add_arg(index).add_arg(value),
+            &resolved_args!(index, value),
         )?;
 
         Ok(())
@@ -75,7 +77,7 @@ impl IndexWrite for Container<Object> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::DelItem.value(),
-            &ResolvedArguments::default().add_arg(index),
+            &resolved_args!(index),
         )?;
 
         Ok(())
@@ -91,7 +93,7 @@ impl IndexRead for Container<Object> {
         let result = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::GetItem.value(),
-            &ResolvedArguments::default().add_arg(index),
+            &resolved_args!(index),
         )?;
 
         Ok(Some(result))
@@ -205,12 +207,15 @@ impl MemberWriter for Container<Object> {
                 name.to_string(),
                 interpreter.state.call_stack(),
             ))?
-            .as_dict()
+            .as_dict(interpreter)
             .ok_or(InterpreterError::ExpectedDict(
                 interpreter.state.call_stack(),
             ))?
             .borrow()
-            .has(&ExprResult::String(Str::new(name.to_owned())))
+            .has(
+                interpreter.clone(),
+                &ExprResult::String(Str::new(name.to_owned())),
+            )
         {
             return Err(InterpreterError::AttributeError(
                 result.get_class(interpreter).borrow().name.clone(),
@@ -238,9 +243,10 @@ impl NonDataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Get.value(),
-            &ResolvedArguments::default()
-                .add_arg(instance.unwrap_or(ExprResult::None))
-                .add_arg(ExprResult::Class(owner)),
+            &resolved_args!(
+                instance.unwrap_or(ExprResult::None),
+                ExprResult::Class(owner)
+            ),
         )
     }
 
@@ -262,9 +268,7 @@ impl DataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Set.value(),
-            &ResolvedArguments::default()
-                .add_arg(instance)
-                .add_arg(value),
+            &resolved_args!(instance, value),
         )?;
 
         Ok(())
@@ -278,7 +282,7 @@ impl DataDescriptor for Container<Object> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
             Dunder::Delete.value(),
-            &ResolvedArguments::default().add_arg(instance),
+            &resolved_args!(instance),
         )?;
 
         Ok(())
@@ -349,28 +353,39 @@ impl Callable for EqBuiltin {
     ) -> Result<ExprResult, InterpreterError> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let a = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?
-            .as_object()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?;
+        let a = args.get_self().ok_or(InterpreterError::ExpectedObject(
+            interpreter.state.call_stack(),
+        ))?;
 
-        let b = args
-            .get_arg(0)
-            .as_object()
-            .ok_or(InterpreterError::ExpectedObject(
-                interpreter.state.call_stack(),
-            ))?;
+        let b = args.get_arg(0);
 
-        Ok(ExprResult::Boolean(a.same_identity(&b)))
+        Ok(ExprResult::Boolean(a == b))
     }
 
     fn name(&self) -> String {
         Dunder::Eq.into()
+    }
+}
+
+struct HashBuiltin;
+
+impl Callable for HashBuiltin {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+
+        let object = args.get_self().ok_or(InterpreterError::ExpectedObject(
+            interpreter.state.call_stack(),
+        ))?;
+
+        Ok(ExprResult::Integer(Container::new(object.hash() as i64)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Hash.into()
     }
 }
 
@@ -390,7 +405,7 @@ impl Callable for NeBuiltin {
         let result = interpreter.evaluate_method(
             receiver,
             Dunder::Eq.value(),
-            &ResolvedArguments::default().add_arg(args.get_arg(0)),
+            &resolved_args!(args.get_arg(0)),
         )?;
 
         Ok(result.inverted())
@@ -438,7 +453,7 @@ impl NonDataDescriptor for DictDescriptor {
                 .clone(),
             None => owner.borrow().scope.clone(),
         };
-        Ok(ExprResult::Dict(scope.as_dict()))
+        Ok(ExprResult::Dict(scope.as_dict(interpreter.clone())))
     }
 
     fn name(&self) -> String {

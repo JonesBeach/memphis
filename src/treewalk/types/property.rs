@@ -1,5 +1,6 @@
 use crate::{
     core::Container,
+    resolved_args,
     treewalk::{types::builtins::utils, Interpreter},
     types::errors::InterpreterError,
 };
@@ -60,10 +61,7 @@ impl NonDataDescriptor for Property {
             panic!("No instance for descriptor!");
         };
 
-        interpreter.call(
-            self.0.clone(),
-            &ResolvedArguments::default().add_arg(instance),
-        )
+        interpreter.call(self.0.clone(), &resolved_args!(instance))
     }
 
     fn name(&self) -> String {

@@ -2,6 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    resolved_args,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
 };
@@ -49,11 +50,12 @@ impl Class {
             ExprResult::Tuple(Container::new(Tuple::new(bases)))
         };
 
-        let args = &ResolvedArguments::default()
-            .add_arg(ExprResult::Class(metaclass.clone()))
-            .add_arg(ExprResult::String(Str::new(name.into())))
-            .add_arg(bases)
-            .add_arg(ExprResult::Dict(Scope::default().as_dict()));
+        let args = &resolved_args!(
+            ExprResult::Class(metaclass.clone()),
+            ExprResult::String(Str::new(name.into())),
+            bases,
+            ExprResult::Dict(Scope::default().as_dict(interpreter.clone()))
+        );
         interpreter
             .evaluate_method(ExprResult::Class(metaclass), Dunder::New.value(), args)?
             .as_class()

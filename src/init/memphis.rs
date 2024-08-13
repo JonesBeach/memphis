@@ -1,5 +1,3 @@
-use std::process;
-
 use super::Builder as MemphisBuilder;
 #[cfg(feature = "llvm_backend")]
 use crate::llvm_backend::compile_ast_to_llvm;
@@ -15,10 +13,7 @@ impl Memphis {
 
                 match interpreter.run(&mut parser) {
                     Ok(_) => {}
-                    Err(err) => {
-                        eprintln!("{}", err);
-                        process::exit(1);
-                    }
+                    Err(err) => interpreter.handle_runtime_error(err),
                 }
             }
             Engine::BytecodeVm => {
@@ -26,10 +21,7 @@ impl Memphis {
 
                 match interpreter.run(&mut parser) {
                     Ok(_) => {}
-                    Err(err) => {
-                        eprintln!("{}", err);
-                        process::exit(1);
-                    }
+                    Err(err) => interpreter.handle_runtime_error(err),
                 }
             }
             #[cfg(feature = "llvm_backend")]
