@@ -4,9 +4,12 @@ use crate::core::Container;
 use crate::parser::types::Statement;
 use crate::{
     treewalk::types::{
-        builtins::utils,
+        domain::{
+            builtins::utils,
+            traits::{Callable, MethodProvider, Typed},
+            Type,
+        },
         pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
-        traits::Callable,
         utils::ResolvedArguments,
         ExprResult, Function,
     },
@@ -30,11 +33,19 @@ pub struct Coroutine {
     return_val: Option<ExprResult>,
 }
 
-impl Coroutine {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Coroutine {
+    fn get_type() -> Type {
+        Type::Coroutine
+    }
+}
+
+impl MethodProvider for Coroutine {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(CloseBuiltin)]
     }
+}
 
+impl Coroutine {
     pub fn new(scope: Container<Scope>, function: Container<Function>) -> Self {
         let frame = Frame::new(function.borrow().clone().body);
 

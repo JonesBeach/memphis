@@ -1,10 +1,14 @@
-use crate::core::Container;
-use crate::treewalk::types::{
-    iterators::StringIterator, traits::Callable, utils::ResolvedArguments, ExprResult,
+use crate::{
+    core::Container,
+    treewalk::{
+        types::{
+            domain::traits::Callable, iterators::StringIterator, utils::ResolvedArguments,
+            ExprResult, List, Str,
+        },
+        Interpreter,
+    },
+    types::errors::InterpreterError,
 };
-use crate::treewalk::types::{List, Str};
-use crate::treewalk::Interpreter;
-use crate::types::errors::InterpreterError;
 
 pub struct CallableBuiltin;
 pub struct DirBuiltin;

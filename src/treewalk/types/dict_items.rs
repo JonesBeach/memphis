@@ -2,7 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{core::Container, treewalk::Interpreter};
 
-use super::{traits::IndexRead as _, utils::Contextual, Dict, ExprResult, Tuple};
+use super::{domain::traits::IndexRead as _, utils::Contextual, Dict, ExprResult, Tuple};
 
 /// A helper to hold a pair of `ExprResult` objects but which enforces the first hold a reference
 /// to its interpreter via a `ContextualExprResult`. We need this for `DictItems` since the first

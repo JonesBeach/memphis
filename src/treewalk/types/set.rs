@@ -6,9 +6,12 @@ use std::{
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    builtins::utils,
+    domain::{
+        builtins::utils,
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     iterators::ListIterator,
-    traits::Callable,
     utils::{Dunder, ResolvedArguments},
     ExprResult, FrozenSet, List, Range, Tuple,
 };
@@ -18,15 +21,23 @@ pub struct Set {
     pub items: HashSet<ExprResult>,
 }
 
-impl Set {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Set {
+    fn get_type() -> Type {
+        Type::Set
+    }
+}
+
+impl MethodProvider for Set {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![
             Box::new(NewBuiltin),
             Box::new(InitBuiltin),
             Box::new(AddBuiltin),
         ]
     }
+}
 
+impl Set {
     #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<ExprResult>) -> Self {
         Self { items }
@@ -94,7 +105,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 
@@ -136,7 +147,7 @@ impl Callable for InitBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::Init.value().into()
+        Dunder::Init.into()
     }
 }
 

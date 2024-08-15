@@ -2,7 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::core::Container;
 
-use super::{traits::IndexRead as _, Dict, ExprResult};
+use super::{domain::traits::IndexRead as _, Dict, ExprResult};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictValues {

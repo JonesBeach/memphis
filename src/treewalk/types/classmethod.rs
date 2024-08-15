@@ -1,8 +1,11 @@
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    builtins::utils,
-    traits::{Callable, NonDataDescriptor},
+    domain::{
+        builtins::utils,
+        traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     Class, ExprResult, Method,
 };
@@ -10,11 +13,19 @@ use super::{
 #[derive(Clone)]
 pub struct Classmethod(Container<Box<dyn Callable>>);
 
-impl Classmethod {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Classmethod {
+    fn get_type() -> Type {
+        Type::Classmethod
+    }
+}
+
+impl MethodProvider for Classmethod {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Classmethod {
     fn new(func: Container<Box<dyn Callable>>) -> Self {
         Self(func)
     }

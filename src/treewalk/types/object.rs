@@ -8,10 +8,13 @@ use crate::{
 };
 
 use super::{
-    builtins::utils,
-    traits::{
-        Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, MemberWriter,
-        NonDataDescriptor,
+    domain::{
+        builtins::utils,
+        traits::{
+            Callable, DataDescriptor, DataDescriptorProvider, DescriptorProvider, IndexRead,
+            IndexWrite, MemberReader, MemberWriter, MethodProvider, NonDataDescriptor, Typed,
+        },
+        Type,
     },
     utils::{Dunder, ResolvedArguments},
     Class, ExprResult, Str,
@@ -23,8 +26,14 @@ pub struct Object {
     scope: Scope,
 }
 
-impl Object {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Object {
+    fn get_type() -> Type {
+        Type::Object
+    }
+}
+
+impl MethodProvider for Object {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![
             Box::new(InitBuiltin),
             Box::new(NewBuiltin),
@@ -34,15 +43,21 @@ impl Object {
             Box::new(StrBuiltin),
         ]
     }
+}
 
-    pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
+impl DescriptorProvider for Object {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![]
     }
+}
 
-    pub fn get_data_descriptors() -> Vec<Box<dyn DataDescriptor>> {
+impl DataDescriptorProvider for Object {
+    fn get_data_descriptors() -> Vec<Box<dyn DataDescriptor>> {
         vec![Box::new(DictDescriptor)]
     }
+}
 
+impl Object {
     /// Create the object with an empty symbol table. This is also called by the [`Dunder::New`]
     /// for [`Type::Object`] builtin.
     fn new_object_base(class: Container<Class>) -> Result<Container<Object>, InterpreterError> {
@@ -62,7 +77,7 @@ impl IndexWrite for Container<Object> {
     ) -> Result<(), InterpreterError> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::SetItem.value(),
+            &Dunder::SetItem,
             &resolved_args!(index, value),
         )?;
 
@@ -76,7 +91,7 @@ impl IndexWrite for Container<Object> {
     ) -> Result<(), InterpreterError> {
         let _ = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::DelItem.value(),
+            &Dunder::DelItem,
             &resolved_args!(index),
         )?;
 
@@ -92,7 +107,7 @@ impl IndexRead for Container<Object> {
     ) -> Result<Option<ExprResult>, InterpreterError> {
         let result = interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::GetItem.value(),
+            &Dunder::GetItem,
             &resolved_args!(index),
         )?;
 
@@ -201,7 +216,7 @@ impl MemberWriter for Container<Object> {
         let result = ExprResult::Object(self.clone());
         if !result
             .as_member_reader(interpreter)
-            .get_member(interpreter, Dunder::Dict.value())?
+            .get_member(interpreter, &Dunder::Dict)?
             .ok_or(InterpreterError::AttributeError(
                 result.get_type().to_string(),
                 name.to_string(),
@@ -242,7 +257,7 @@ impl NonDataDescriptor for Container<Object> {
     ) -> Result<ExprResult, InterpreterError> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::Get.value(),
+            &Dunder::Get,
             &resolved_args!(
                 instance.unwrap_or(ExprResult::None),
                 ExprResult::Class(owner)
@@ -267,7 +282,7 @@ impl DataDescriptor for Container<Object> {
     ) -> Result<(), InterpreterError> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::Set.value(),
+            &Dunder::Set,
             &resolved_args!(instance, value),
         )?;
 
@@ -281,7 +296,7 @@ impl DataDescriptor for Container<Object> {
     ) -> Result<(), InterpreterError> {
         interpreter.evaluate_method(
             ExprResult::Object(self.clone()),
-            Dunder::Delete.value(),
+            &Dunder::Delete,
             &resolved_args!(instance),
         )?;
 
@@ -402,11 +417,8 @@ impl Callable for NeBuiltin {
         let receiver = args.get_self().ok_or(InterpreterError::ExpectedObject(
             interpreter.state.call_stack(),
         ))?;
-        let result = interpreter.evaluate_method(
-            receiver,
-            Dunder::Eq.value(),
-            &resolved_args!(args.get_arg(0)),
-        )?;
+        let result =
+            interpreter.evaluate_method(receiver, &Dunder::Eq, &resolved_args!(args.get_arg(0)))?;
 
         Ok(result.inverted())
     }

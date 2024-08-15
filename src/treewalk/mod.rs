@@ -10,6 +10,7 @@ mod scope_manager;
 mod state;
 mod type_registry;
 pub mod types;
+pub mod typing;
 
 pub use call_stack::{CallStack, StackFrame};
 pub use execution_context::ExecutionContextManager;

@@ -6,8 +6,11 @@ use std::{
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     iterators::ListIterator,
-    traits::Callable,
     utils::{Dunder, ResolvedArguments},
     ExprResult, Set,
 };
@@ -17,11 +20,19 @@ pub struct FrozenSet {
     pub items: HashSet<ExprResult>,
 }
 
-impl FrozenSet {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for FrozenSet {
+    fn get_type() -> Type {
+        Type::FrozenSet
+    }
+}
+
+impl MethodProvider for FrozenSet {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(ContainsBuiltin)]
     }
+}
 
+impl FrozenSet {
     #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<ExprResult>) -> Self {
         Self { items }

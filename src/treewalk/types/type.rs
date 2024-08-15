@@ -5,22 +5,33 @@ use crate::{
 };
 
 use super::{
-    builtins::utils,
-    traits::{Callable, NonDataDescriptor},
+    domain::{
+        builtins::utils,
+        traits::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
-    Class, ExprResult, MappingProxy, Tuple, Type,
+    Class, ExprResult, MappingProxy, Tuple,
 };
 
 /// This represents the callable class `type` in Python. For an enum of all the builtin types, see
 /// `types::interpreter::Type`.
 pub struct TypeClass;
 
-impl TypeClass {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for TypeClass {
+    fn get_type() -> Type {
+        Type::Type
+    }
+}
+
+impl MethodProvider for TypeClass {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
-    pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
+impl DescriptorProvider for TypeClass {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![Box::new(DictAttribute), Box::new(MroAttribute)]
     }
 }
@@ -140,6 +151,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

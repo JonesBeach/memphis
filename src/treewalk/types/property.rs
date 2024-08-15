@@ -1,12 +1,13 @@
 use crate::{
-    core::Container,
-    resolved_args,
-    treewalk::{types::builtins::utils, Interpreter},
-    types::errors::InterpreterError,
+    core::Container, resolved_args, treewalk::Interpreter, types::errors::InterpreterError,
 };
 
 use super::{
-    traits::{Callable, NonDataDescriptor},
+    domain::{
+        builtins::utils,
+        traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     Class, ExprResult,
 };
@@ -14,11 +15,19 @@ use super::{
 #[derive(Clone)]
 pub struct Property(Container<Box<dyn Callable>>);
 
-impl Property {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Property {
+    fn get_type() -> Type {
+        Type::Property
+    }
+}
+
+impl MethodProvider for Property {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Property {
     fn new(function: Container<Box<dyn Callable>>) -> Self {
         Self(function)
     }

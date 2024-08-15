@@ -1,7 +1,7 @@
 use crate::{
     core::{log, Container, LogLevel},
     treewalk::{
-        types::{traits::MemberReader, Class, ExprResult},
+        types::{domain::traits::MemberReader, Class, ExprResult},
         Interpreter,
     },
     types::errors::InterpreterError,

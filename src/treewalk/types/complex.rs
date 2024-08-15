@@ -1,11 +1,12 @@
-use crate::{
-    treewalk::{types::builtins::utils::validate_args, Interpreter},
-    types::errors::InterpreterError,
-};
+use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 use std::fmt::{Display, Error, Formatter};
 
 use super::{
-    traits::Callable,
+    domain::{
+        builtins::utils::validate_args,
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -19,11 +20,19 @@ pub struct Complex {
     im: f64,
 }
 
-impl Complex {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Complex {
+    fn get_type() -> Type {
+        Type::Complex
+    }
+}
+
+impl MethodProvider for Complex {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Complex {
     pub fn new(re: f64, im: f64) -> Self {
         Self { re, im }
     }

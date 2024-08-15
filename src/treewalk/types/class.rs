@@ -8,9 +8,12 @@ use crate::{
 };
 
 use super::{
-    traits::{Callable, MemberReader, MemberWriter},
+    domain::{
+        traits::{Callable, MemberReader, MemberWriter},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
-    ExprResult, Str, Tuple, Type,
+    ExprResult, Str, Tuple,
 };
 
 #[derive(Debug, PartialEq)]
@@ -57,7 +60,7 @@ impl Class {
             ExprResult::Dict(Scope::default().as_dict(interpreter.clone()))
         );
         interpreter
-            .evaluate_method(ExprResult::Class(metaclass), Dunder::New.value(), args)?
+            .evaluate_method(ExprResult::Class(metaclass), &Dunder::New, args)?
             .as_class()
             .ok_or(InterpreterError::ExpectedClass(
                 interpreter.state.call_stack(),
@@ -86,7 +89,7 @@ impl Class {
         parent_classes: Vec<Container<Class>>,
     ) -> Container<Self> {
         Container::new(Self {
-            name: name.value().to_string(),
+            name: name.to_string(),
             parent_classes,
             metaclass,
             scope: Scope::default(),

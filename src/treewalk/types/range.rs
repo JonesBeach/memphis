@@ -3,7 +3,10 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::Callable,
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -15,8 +18,14 @@ pub struct Range {
     pub step: usize,
 }
 
-impl Range {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Range {
+    fn get_type() -> Type {
+        Type::Range
+    }
+}
+
+impl MethodProvider for Range {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
     }
 }
@@ -87,7 +96,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 
@@ -173,6 +182,6 @@ impl Callable for InitBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::Init.value().into()
+        Dunder::Init.into()
     }
 }

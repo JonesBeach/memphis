@@ -1,11 +1,15 @@
 use crate::{
     core::{Container, Storable},
-    treewalk::{types::builtins::utils, Interpreter},
+    treewalk::Interpreter,
     types::errors::InterpreterError,
 };
 
 use super::{
-    traits::{Callable, IndexRead},
+    domain::{
+        builtins::utils,
+        traits::{Callable, IndexRead, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult, List,
 };
@@ -17,11 +21,19 @@ pub struct ReversedIterator {
     current_index: usize,
 }
 
-impl ReversedIterator {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for ReversedIterator {
+    fn get_type() -> Type {
+        Type::ReversedIterator
+    }
+}
+
+impl MethodProvider for ReversedIterator {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl ReversedIterator {
     pub fn new(interpreter: Interpreter, list_ref: Container<List>) -> Self {
         let current_index = list_ref.borrow().len();
         Self {
@@ -74,6 +86,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

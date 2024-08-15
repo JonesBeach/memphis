@@ -1,8 +1,11 @@
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    builtins::utils,
-    traits::{Callable, NonDataDescriptor},
+    domain::{
+        builtins::utils,
+        traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     Class, ExprResult,
 };
@@ -10,11 +13,19 @@ use super::{
 #[derive(Clone)]
 pub struct Staticmethod(Box<ExprResult>);
 
-impl Staticmethod {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Staticmethod {
+    fn get_type() -> Type {
+        Type::Staticmethod
+    }
+}
+
+impl MethodProvider for Staticmethod {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Staticmethod {
     fn new(func: Box<ExprResult>) -> Self {
         Self(func)
     }
@@ -39,7 +50,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 

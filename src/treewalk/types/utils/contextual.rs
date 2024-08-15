@@ -72,7 +72,7 @@ impl Contextual<ExprResult> {
     fn equals(&self, other: &Self) -> bool {
         let result = self.interpreter.evaluate_method(
             self.value.clone(),
-            Dunder::Eq.value(),
+            &Dunder::Eq,
             &resolved_args!(other.value.clone()),
         );
 
@@ -87,11 +87,9 @@ impl Contextual<ExprResult> {
 
     /// Use the interpreter to evaluate the hash
     fn hash(&self) -> u64 {
-        let result = self.interpreter.evaluate_method(
-            self.value.clone(),
-            Dunder::Hash.value(),
-            &resolved_args!(),
-        );
+        let result =
+            self.interpreter
+                .evaluate_method(self.value.clone(), &Dunder::Hash, &resolved_args!());
 
         match result {
             Ok(ExprResult::Integer(hash_val)) => *hash_val.borrow() as u64,

@@ -6,22 +6,28 @@ use std::{
 
 #[cfg(feature = "c_stdlib")]
 use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
-use super::traits::MemberWriter;
-use crate::core::{Container, Voidable};
-use crate::treewalk::Interpreter;
-use crate::types::errors::InterpreterError;
+use crate::{
+    core::{Container, Voidable},
+    treewalk::{typing::TypeExpr, Interpreter},
+    types::errors::InterpreterError,
+};
 
 use super::{
+    domain::{
+        traits::{
+            Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, MemberWriter,
+            NonDataDescriptor,
+        },
+        Type,
+    },
     iterators::{
         DictItemsIterator, DictKeysIterator, DictValuesIterator, GeneratorIterator, ListIterator,
         RangeIterator, ReversedIterator, StringIterator, ZipIterator,
     },
-    traits::{Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, NonDataDescriptor},
-    types::TypeExpr,
     utils::{BuiltinObject, Dunder, ResolvedArguments},
     ByteArray, Bytes, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
     DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
-    Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple, Type,
+    Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
 };
 
 #[derive(Clone)]
@@ -189,13 +195,10 @@ impl ExprResult {
         // never bound.
         let mut new_args = arguments.clone();
         new_args.bind_new(ExprResult::Class(class.clone()));
-        let object = interpreter.evaluate_method(
-            ExprResult::Class(class),
-            Dunder::New.value(),
-            &new_args,
-        )?;
+        let object =
+            interpreter.evaluate_method(ExprResult::Class(class), &Dunder::New, &new_args)?;
 
-        interpreter.evaluate_method(object.clone(), Dunder::Init.value(), &arguments)?;
+        interpreter.evaluate_method(object.clone(), &Dunder::Init, &arguments)?;
 
         Ok(object)
     }
@@ -473,7 +476,7 @@ impl ExprResult {
 
     fn hasattr(&self, interpreter: &Interpreter, attr: Dunder) -> bool {
         self.as_member_reader(interpreter)
-            .get_member(interpreter, attr.value())
+            .get_member(interpreter, &attr)
             .unwrap()
             .is_some()
     }
@@ -496,7 +499,7 @@ impl ExprResult {
                 .map_hasattr(interpreter, Dunder::GetItem)
                 .map(|_| Box::new(i.clone()) as Box<dyn IndexRead>),
             #[cfg(feature = "c_stdlib")]
-            ExprResult::CPythonObject(o) => match o.hasattr(Dunder::GetItem.value()) {
+            ExprResult::CPythonObject(o) => match o.hasattr(Dunder::GetItem) {
                 true => Some(Box::new(o.clone())),
                 false => None,
             },
@@ -512,7 +515,7 @@ impl ExprResult {
                 .map_hasattr(interpreter, Dunder::SetItem)
                 .map(|_| Box::new(i.clone()) as Box<dyn IndexWrite>),
             #[cfg(feature = "c_stdlib")]
-            ExprResult::CPythonObject(o) => match o.hasattr(Dunder::SetItem.value()) {
+            ExprResult::CPythonObject(o) => match o.hasattr(Dunder::SetItem) {
                 true => Some(Box::new(o.clone())),
                 false => None,
             },
@@ -576,7 +579,7 @@ impl ExprResult {
         if let Some(callable) = self.as_callable() {
             // The new method is never bound. When called explicitly inside other metaclasses, the
             // class must be passed in by the calling metaclass.
-            if callable.borrow().name() == Dunder::New.value() {
+            if callable.borrow().name() == String::from(Dunder::New) {
                 return Ok(self.clone());
             }
 
@@ -804,6 +807,6 @@ impl IntoIterator for ExprResult {
     fn into_iter(self) -> Self::IntoIter {
         let type_ = &self.get_type();
         self.try_into_iter()
-            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", type_.value()))
+            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", type_))
     }
 }

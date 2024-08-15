@@ -1,15 +1,24 @@
 use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::Callable,
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
 
 pub struct Bool;
 
-impl Bool {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Bool {
+    fn get_type() -> Type {
+        Type::Bool
+    }
+}
+
+impl MethodProvider for Bool {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
 }
@@ -37,6 +46,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

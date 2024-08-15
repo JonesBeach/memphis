@@ -4,24 +4,28 @@ use std::fmt::Write;
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::BUILTIN_MODULE_NAMES;
 use super::{evaluators, Scope, StackFrame, State};
-use crate::core::{log, Container, InterpreterEntrypoint, LogLevel};
-use crate::parser::types::{
-    BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
-    ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp, LoopIndex,
-    ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport, Statement, TypeNode,
-    UnaryOp, Variable,
+use crate::{
+    core::{log, Container, InterpreterEntrypoint, LogLevel},
+    parser::{
+        types::{
+            BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
+            ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
+            LoopIndex, ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport,
+            Statement, TypeNode, UnaryOp, Variable,
+        },
+        Parser,
+    },
+    resolved_args,
+    treewalk::types::{
+        domain::traits::{Callable, MemberReader},
+        function::FunctionType,
+        iterators::GeneratorIterator,
+        utils::{Dunder, ResolvedArguments},
+        Bytes, Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice,
+        Str, Tuple,
+    },
+    types::errors::{InterpreterError, MemphisError},
 };
-use crate::parser::Parser;
-use crate::resolved_args;
-use crate::treewalk::types::{
-    function::FunctionType,
-    iterators::GeneratorIterator,
-    traits::{Callable, MemberReader},
-    utils::{Dunder, ResolvedArguments},
-    Bytes, Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
-    Tuple,
-};
-use crate::types::errors::{InterpreterError, MemphisError};
 
 #[derive(Clone)]
 pub struct Interpreter {
@@ -190,7 +194,7 @@ impl Interpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.evaluate_method(left, dunder.value(), &resolved_args!(right))
+            self.evaluate_method(left, &dunder, &resolved_args!(right))
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
@@ -1084,19 +1088,16 @@ impl Interpreter {
             .as_object()
             .ok_or(InterpreterError::ExpectedObject(self.state.call_stack()))?;
 
-        if object.get_member(self, Dunder::Enter.value())?.is_none()
-            || object.get_member(self, Dunder::Exit.value())?.is_none()
+        if object.get_member(self, &Dunder::Enter)?.is_none()
+            || object.get_member(self, &Dunder::Exit)?.is_none()
         {
             return Err(InterpreterError::MissingContextManagerProtocol(
                 self.state.call_stack(),
             ));
         }
 
-        let result = self.evaluate_method(
-            expr_result.clone(),
-            Dunder::Enter.value(),
-            &resolved_args!(),
-        )?;
+        let result =
+            self.evaluate_method(expr_result.clone(), &Dunder::Enter, &resolved_args!())?;
 
         if let Some(variable) = variable {
             self.state.write(variable, result);
@@ -1105,7 +1106,7 @@ impl Interpreter {
 
         self.evaluate_method(
             expr_result.clone(),
-            Dunder::Exit.value(),
+            &Dunder::Exit,
             &resolved_args!(ExprResult::None, ExprResult::None, ExprResult::None),
         )?;
 
@@ -1397,12 +1398,14 @@ mod tests {
     use std::any::Any;
 
     use super::*;
-    use crate::core::Storable;
-    use crate::init::Builder;
-    use crate::treewalk::types::{
-        ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet, Type,
+    use crate::{
+        core::Storable,
+        init::Builder,
+        treewalk::types::{
+            domain::Type, ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet,
+        },
+        types::errors::ParserError,
     };
-    use crate::types::errors::ParserError;
 
     fn downcast<T: InterpreterEntrypoint + 'static>(input: T) -> Interpreter {
         let any_ref: &dyn Any = &input as &dyn Any;

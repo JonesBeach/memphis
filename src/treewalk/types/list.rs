@@ -11,10 +11,13 @@ use crate::{
 };
 
 use super::{
-    builtins::utils::validate_args,
+    domain::{
+        builtins::utils::validate_args,
+        traits::{Callable, IndexRead, IndexWrite, MethodProvider, Typed},
+        Type,
+    },
     generator::GeneratorIterator,
     result::ExprResultIterator,
-    traits::{Callable, IndexRead, IndexWrite},
     utils::{Dunder, ResolvedArguments},
     ExprResult, Range, Set, Slice, Tuple,
 };
@@ -24,15 +27,23 @@ pub struct List {
     items: Vec<ExprResult>,
 }
 
-impl List {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for List {
+    fn get_type() -> Type {
+        Type::List
+    }
+}
+
+impl MethodProvider for List {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![
             Box::new(NewBuiltin),
             Box::new(AppendBuiltin),
             Box::new(ExtendBuiltin),
         ]
     }
+}
 
+impl List {
     pub fn new(items: Vec<ExprResult>) -> Self {
         Self { items }
     }
@@ -244,7 +255,7 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }
 

@@ -3,15 +3,24 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::Callable,
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
 
 pub struct Int;
 
-impl Int {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Int {
+    fn get_type() -> Type {
+        Type::Int
+    }
+}
+
+impl MethodProvider for Int {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
     }
 }

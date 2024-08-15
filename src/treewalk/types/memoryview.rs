@@ -1,7 +1,10 @@
 use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::Callable,
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -10,8 +13,14 @@ use super::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Memoryview;
 
-impl Memoryview {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Memoryview {
+    fn get_type() -> Type {
+        Type::Memoryview
+    }
+}
+
+impl MethodProvider for Memoryview {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
 }
@@ -28,6 +37,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

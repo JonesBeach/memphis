@@ -1,51 +1,73 @@
 use std::collections::HashMap;
 
-use crate::core::Container;
-use crate::treewalk::types::{
-    iterators::{ReversedIterator, ZipIterator},
-    traits::{Callable, NonDataDescriptor},
-    Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception, ExprResult,
-    FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice, Staticmethod,
-    Str, Super, Traceback, Tuple, Type, TypeClass,
+use crate::{
+    core::Container,
+    treewalk::types::{
+        domain::{
+            traits::{
+                Callable, DataDescriptorProvider, DescriptorProvider, MethodProvider,
+                NonDataDescriptor,
+            },
+            Type,
+        },
+        iterators::{ReversedIterator, ZipIterator},
+        Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
+        ExprResult, FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set,
+        Slice, Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
+    },
 };
 
-/// [`Type::Type`] and [`Type::Object`] are excluded here because they are initialized separately.
-fn builtin_methods() -> HashMap<Type, impl Iterator<Item = Box<dyn Callable>>> {
-    HashMap::from([
-        (Type::Super, Super::get_methods().into_iter()),
-        (Type::Bool, Bool::get_methods().into_iter()),
-        (Type::Int, Int::get_methods().into_iter()),
-        (Type::Str, Str::get_methods().into_iter()),
-        (Type::List, List::get_methods().into_iter()),
-        (Type::Set, Set::get_methods().into_iter()),
-        (Type::FrozenSet, FrozenSet::get_methods().into_iter()),
-        (Type::Tuple, Tuple::get_methods().into_iter()),
-        (Type::Dict, Dict::get_methods().into_iter()),
-        (Type::Range, Range::get_methods().into_iter()),
-        (Type::Slice, Slice::get_methods().into_iter()),
-        (Type::Zip, ZipIterator::get_methods().into_iter()),
-        (
-            Type::ReversedIterator,
-            ReversedIterator::get_methods().into_iter(),
-        ),
-        (Type::Bytes, Bytes::get_methods().into_iter()),
-        (Type::Complex, Complex::get_methods().into_iter()),
-        (Type::ByteArray, ByteArray::get_methods().into_iter()),
-        (Type::Memoryview, Memoryview::get_methods().into_iter()),
-        (Type::Coroutine, Coroutine::get_methods().into_iter()),
-        (Type::Classmethod, Classmethod::get_methods().into_iter()),
-        (Type::Staticmethod, Staticmethod::get_methods().into_iter()),
-        (Type::Property, Property::get_methods().into_iter()),
-    ])
+fn register_methods<T: MethodProvider>(methods: &mut HashMap<Type, Vec<Box<dyn Callable>>>) {
+    methods.insert(T::get_type(), T::get_methods());
 }
 
-/// [`Type::Type`] and [`Type::Object`] are excluded here because they are initialized separately.
-fn descriptors() -> HashMap<Type, impl Iterator<Item = Box<dyn NonDataDescriptor>>> {
-    HashMap::from([
-        (Type::Function, Function::get_descriptors().into_iter()),
-        (Type::Exception, Exception::get_descriptors().into_iter()),
-        (Type::Traceback, Traceback::get_descriptors().into_iter()),
-    ])
+fn register_descriptors<T: DescriptorProvider>(
+    methods: &mut HashMap<Type, Vec<Box<dyn NonDataDescriptor>>>,
+) {
+    methods.insert(T::get_type(), T::get_descriptors());
+}
+
+/// Register methods for each type that implements `MethodProvider`. [`Type::Type`] and
+/// [`Type::Object`] are excluded here because they are initialized separately.
+fn builtin_methods() -> HashMap<Type, Vec<Box<dyn Callable>>> {
+    let mut methods = HashMap::new();
+
+    register_methods::<Dict>(&mut methods);
+    register_methods::<Super>(&mut methods);
+    register_methods::<Bool>(&mut methods);
+    register_methods::<Int>(&mut methods);
+    register_methods::<Str>(&mut methods);
+    register_methods::<List>(&mut methods);
+    register_methods::<Set>(&mut methods);
+    register_methods::<FrozenSet>(&mut methods);
+    register_methods::<Tuple>(&mut methods);
+    register_methods::<Dict>(&mut methods);
+    register_methods::<Range>(&mut methods);
+    register_methods::<Slice>(&mut methods);
+    register_methods::<ZipIterator>(&mut methods);
+    register_methods::<ReversedIterator>(&mut methods);
+    register_methods::<Bytes>(&mut methods);
+    register_methods::<Complex>(&mut methods);
+    register_methods::<ByteArray>(&mut methods);
+    register_methods::<Memoryview>(&mut methods);
+    register_methods::<Coroutine>(&mut methods);
+    register_methods::<Classmethod>(&mut methods);
+    register_methods::<Staticmethod>(&mut methods);
+    register_methods::<Property>(&mut methods);
+
+    methods
+}
+
+/// Register attributes that implement `DescriptorProvider`. [`Type::Type`] and
+/// [`Type::Object`] are excluded here because they are initialized separately.
+fn descriptors() -> HashMap<Type, Vec<Box<dyn NonDataDescriptor>>> {
+    let mut methods = HashMap::new();
+
+    register_descriptors::<Function>(&mut methods);
+    register_descriptors::<Exception>(&mut methods);
+    register_descriptors::<Traceback>(&mut methods);
+
+    methods
 }
 
 /// A list of all the variants of [`Type`] which should have a type class created. As of 2024-02-16,
@@ -56,94 +78,90 @@ fn descriptors() -> HashMap<Type, impl Iterator<Item = Box<dyn NonDataDescriptor
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-fn all_types() -> Vec<Type> {
-    vec![
-        Type::Super,
-        Type::GetSetDescriptor,
-        Type::MemberDescriptor,
-        Type::Method,
-        Type::Function,
-        Type::BuiltinFunction,
-        Type::BuiltinMethod,
-        Type::Generator,
-        Type::Coroutine,
-        Type::None,
-        Type::Ellipsis,
-        Type::NotImplemented,
-        Type::Bool,
-        Type::Int,
-        Type::Str,
-        Type::List,
-        Type::Set,
-        Type::FrozenSet,
-        Type::Zip,
-        Type::Tuple,
-        Type::Range,
-        Type::Slice,
-        Type::Complex,
-        Type::Bytes,
-        Type::ByteArray,
-        Type::Memoryview,
-        Type::Dict,
-        Type::DictItems,
-        Type::DictKeys,
-        Type::DictValues,
-        Type::MappingProxy,
-        Type::DictItemIterator,
-        Type::DictKeyIterator,
-        Type::DictValueIterator,
-        Type::BytesIterator,
-        Type::ByteArrayIterator,
-        Type::RangeIterator,
-        Type::StringIterator,
-        Type::ListIterator,
-        Type::ReversedIterator,
-        Type::SetIterator,
-        Type::TupleIterator,
-        Type::Exception,
-        Type::Traceback,
-        Type::Frame,
-        Type::Module,
-        Type::Cell,
-        Type::Code,
-        Type::Classmethod,
-        Type::Staticmethod,
-        Type::Property,
-    ]
-}
+static ALL_TYPES: [Type; 51] = [
+    Type::Super,
+    Type::GetSetDescriptor,
+    Type::MemberDescriptor,
+    Type::Method,
+    Type::Function,
+    Type::BuiltinFunction,
+    Type::BuiltinMethod,
+    Type::Generator,
+    Type::Coroutine,
+    Type::None,
+    Type::Ellipsis,
+    Type::NotImplemented,
+    Type::Bool,
+    Type::Int,
+    Type::Str,
+    Type::List,
+    Type::Set,
+    Type::FrozenSet,
+    Type::Zip,
+    Type::Tuple,
+    Type::Range,
+    Type::Slice,
+    Type::Complex,
+    Type::Bytes,
+    Type::ByteArray,
+    Type::Memoryview,
+    Type::Dict,
+    Type::DictItems,
+    Type::DictKeys,
+    Type::DictValues,
+    Type::MappingProxy,
+    Type::DictItemIterator,
+    Type::DictKeyIterator,
+    Type::DictValueIterator,
+    Type::BytesIterator,
+    Type::ByteArrayIterator,
+    Type::RangeIterator,
+    Type::StringIterator,
+    Type::ListIterator,
+    Type::ReversedIterator,
+    Type::SetIterator,
+    Type::TupleIterator,
+    Type::Exception,
+    Type::Traceback,
+    Type::Frame,
+    Type::Module,
+    Type::Cell,
+    Type::Code,
+    Type::Classmethod,
+    Type::Staticmethod,
+    Type::Property,
+];
 
 /// These types are callable and behave like a builtin function.
-fn callable_types() -> Vec<Type> {
-    vec![
-        Type::Type,
-        Type::Object,
-        Type::Super,
-        Type::Bool,
-        Type::Int,
-        Type::Str,
-        Type::List,
-        Type::Dict,
-        Type::Set,
-        Type::FrozenSet,
-        Type::Tuple,
-        Type::Range,
-        Type::Slice,
-        Type::Complex,
-        //Type::Float,
-        Type::Bytes,
-        Type::ByteArray,
-        Type::Memoryview,
-        Type::Zip, // this refers to the iterator itself
-        Type::ReversedIterator,
-        Type::Classmethod,
-        Type::Staticmethod,
-        Type::Property,
-        // ----------------------------------------------------------------------------------------
-        // Technically not a builtin, but it is callable. We may need to handle builtin class such
-        // as these separately.
-        Type::Exception,
-    ]
-}
+static CALLABLE_TYPES: [Type; 23] = [
+    Type::Type,
+    Type::Object,
+    Type::Super,
+    Type::Bool,
+    Type::Int,
+    Type::Str,
+    Type::List,
+    Type::Dict,
+    Type::Set,
+    Type::FrozenSet,
+    Type::Tuple,
+    Type::Range,
+    Type::Slice,
+    Type::Complex,
+    //Type::Float,
+    Type::Bytes,
+    Type::ByteArray,
+    Type::Memoryview,
+    Type::Zip, // this refers to the iterator itself
+    Type::ReversedIterator,
+    Type::Classmethod,
+    Type::Staticmethod,
+    Type::Property,
+    // ----------------------------------------------------------------------------------------
+    // Technically not a builtin, but it is callable. We may need to handle builtin class such
+    // as these separately.
+    Type::Exception,
+];
 
 /// Create the [`Type::Type`] class which is the metaclass to all classes, including itself.
 ///
@@ -242,16 +260,20 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
     // Create all the other type classes using `Type::Type` and `Type::Object`.
     let mut methods = builtin_methods();
     let mut attributes = descriptors();
-    for type_ in all_types() {
-        let class = Class::new_builtin(type_, Some(type_class.clone()), vec![object_class.clone()]);
+    for type_ in ALL_TYPES.iter() {
+        let class = Class::new_builtin(
+            type_.clone(),
+            Some(type_class.clone()),
+            vec![object_class.clone()],
+        );
         let builtin_type = class.borrow().builtin_type();
 
         // Add the builtin methods for this type class.
         //
         // Calling `.remove` here allows us to transfer ownership of the methods to the class,
         // which is what we want since this is just initialization code.
-        if let Some(mut methods_for_type) = methods.remove(&builtin_type) {
-            for method in methods_for_type.by_ref() {
+        if let Some(methods_for_type) = methods.remove(&builtin_type) {
+            for method in methods_for_type.into_iter().by_ref() {
                 class.set_on_class(
                     &method.name(),
                     ExprResult::BuiltinMethod(Container::new(method)),
@@ -260,8 +282,8 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
         }
 
         // Add the dynamic attributes for this type class.
-        if let Some(mut attributes_for_type) = attributes.remove(&builtin_type) {
-            for attr in attributes_for_type.by_ref() {
+        if let Some(attributes_for_type) = attributes.remove(&builtin_type) {
+            for attr in attributes_for_type.into_iter().by_ref() {
                 class.set_on_class(
                     &attr.name(),
                     ExprResult::NonDataDescriptor(Container::new(attr)),
@@ -293,19 +315,14 @@ impl TypeRegistry {
     pub fn get_type_class(&self, type_: Type) -> Container<Class> {
         self.type_classes
             .get(&type_)
-            .unwrap_or_else(|| {
-                panic!(
-                    "TypeRegistry initialization failed for <{}>!",
-                    type_.value()
-                )
-            })
+            .unwrap_or_else(|| panic!("TypeRegistry initialization failed for <{}>!", type_))
             .clone()
     }
 
     /// We need a way to expose the builtin types so they can be stored in the builtin scope inside
     /// the `ScopeManager`.
     pub fn get_callable_builtin_types(&self) -> Vec<Container<Class>> {
-        callable_types()
+        CALLABLE_TYPES
             .iter()
             .map(|callable_type| self.get_type_class(callable_type.clone()))
             .collect()

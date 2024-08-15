@@ -3,7 +3,7 @@ use crate::{
     types::errors::InterpreterError,
 };
 
-use super::{traits::MemberReader, ExprResult};
+use super::{domain::traits::MemberReader, ExprResult};
 
 /// This corresponds to the Python internal `Cell` class, which is returned for values captured in
 /// a closure.

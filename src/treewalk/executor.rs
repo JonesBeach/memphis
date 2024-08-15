@@ -1,8 +1,10 @@
 use crate::{
     core::Container,
     treewalk::types::{
-        builtins::utils, pausable::Pausable, traits::Callable, utils::ResolvedArguments, Coroutine,
-        ExprResult,
+        domain::{builtins::utils, traits::Callable},
+        pausable::Pausable,
+        utils::ResolvedArguments,
+        Coroutine, ExprResult,
     },
     types::errors::InterpreterError,
 };

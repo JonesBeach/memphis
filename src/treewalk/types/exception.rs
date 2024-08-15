@@ -1,12 +1,25 @@
 use crate::{core::Container, types::errors::InterpreterError};
 
-use super::{traits::NonDataDescriptor, utils::Dunder, Class, ExprResult};
+use super::{
+    domain::{
+        traits::{DescriptorProvider, NonDataDescriptor, Typed},
+        Type,
+    },
+    utils::Dunder,
+    Class, ExprResult,
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Exception;
 
-impl Exception {
-    pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
+impl Typed for Exception {
+    fn get_type() -> Type {
+        Type::Exception
+    }
+}
+
+impl DescriptorProvider for Exception {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![Box::new(TracebackAttribute)]
     }
 }
@@ -31,8 +44,14 @@ impl NonDataDescriptor for TracebackAttribute {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Traceback;
 
-impl Traceback {
-    pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
+impl Typed for Traceback {
+    fn get_type() -> Type {
+        Type::Traceback
+    }
+}
+
+impl DescriptorProvider for Traceback {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![Box::new(FrameAttribute)]
     }
 }

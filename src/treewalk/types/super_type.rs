@@ -5,7 +5,10 @@ use crate::{
 };
 
 use super::{
-    traits::{Callable, MemberReader},
+    domain::{
+        traits::{Callable, MemberReader, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -13,11 +16,19 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct Super(ExprResult);
 
-impl Super {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Super {
+    fn get_type() -> Type {
+        Type::Super
+    }
+}
+
+impl MethodProvider for Super {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Super {
     pub fn new(receiver: ExprResult) -> Self {
         Self(receiver)
     }
@@ -74,7 +85,7 @@ impl Callable for NewBuiltin {
                     .state
                     .current_function()
                     .ok_or(InterpreterError::Exception(interpreter.state.call_stack()))?;
-                assert_eq!(function.borrow().name, Dunder::New.value());
+                assert_eq!(function.borrow().name, String::from(Dunder::New));
                 let class = function
                     .borrow()
                     .clone()
@@ -90,6 +101,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

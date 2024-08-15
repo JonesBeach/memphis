@@ -1,23 +1,29 @@
-use std::any::Any;
-use std::fmt::{Display, Error, Formatter};
+use std::{
+    any::Any,
+    fmt::{Display, Error, Formatter},
+};
 
-use crate::resolved_args;
 use crate::{
     core::{log, Container, LogLevel},
     parser::{
         static_analysis::{FunctionAnalysisVisitor, YieldDetector},
         types::{Block, Closure, Expr, ParsedArgDefinitions},
     },
+    resolved_args,
     treewalk::{Interpreter, Scope, State},
     types::errors::InterpreterError,
 };
 
-use super::traits::{DataDescriptor, MemberWriter};
-use super::Str;
 use super::{
-    traits::{Callable, MemberReader, NonDataDescriptor},
+    domain::{
+        traits::{
+            Callable, DataDescriptor, DescriptorProvider, MemberReader, MemberWriter,
+            NonDataDescriptor, Typed,
+        },
+        Type,
+    },
     utils::{Dunder, EnvironmentFrame, ResolvedArguments},
-    Cell, Class, Dict, ExprResult, Module, Tuple, Type,
+    Cell, Class, Dict, ExprResult, Module, Str, Tuple,
 };
 
 /// How we evaluate a [`Function`] depends on whether it is async or a generator or a
@@ -47,8 +53,14 @@ pub struct Function {
     pub closure: Closure,
 }
 
-impl Function {
-    pub fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
+impl Typed for Function {
+    fn get_type() -> Type {
+        Type::Function
+    }
+}
+
+impl DescriptorProvider for Function {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
         vec![
             Box::new(CodeAttribute),
             Box::new(DictDescriptor),
@@ -62,7 +74,9 @@ impl Function {
             Box::new(TypeParamsAttribute),
         ]
     }
+}
 
+impl Function {
     pub fn new(
         state: Container<State>,
         name: String,

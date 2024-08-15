@@ -2,7 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
-use super::{traits::IndexRead, Dict, ExprResult};
+use super::{domain::traits::IndexRead, Dict, ExprResult};
 
 /// A read-only view into a `Dict`. This is used by Python for things like `Dunder::Dict`.
 #[derive(PartialEq)]

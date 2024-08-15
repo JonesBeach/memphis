@@ -1,13 +1,17 @@
-use std::fmt::{Display, Error, Formatter};
-use std::path::PathBuf;
+use std::{
+    fmt::{Display, Error, Formatter},
+    path::PathBuf,
+};
 
-use crate::core::{log, Container, InterpreterEntrypoint, LogLevel};
-use crate::init::Builder;
-use crate::parser::types::ImportPath;
-use crate::treewalk::{Interpreter, LoadedModule, Scope};
-use crate::types::errors::{InterpreterError, MemphisError};
+use crate::{
+    core::{log, Container, InterpreterEntrypoint, LogLevel},
+    init::Builder,
+    parser::types::ImportPath,
+    treewalk::{Interpreter, LoadedModule, Scope},
+    types::errors::{InterpreterError, MemphisError},
+};
 
-use super::{traits::MemberReader, ExprResult};
+use super::{domain::traits::MemberReader, ExprResult};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {

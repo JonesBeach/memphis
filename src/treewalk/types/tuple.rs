@@ -3,9 +3,12 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    builtins::utils,
+    domain::{
+        builtins::utils,
+        traits::{Callable, IndexRead, MethodProvider, Typed},
+        Type,
+    },
     iterators::ListIterator,
-    traits::{Callable, IndexRead},
     utils::{Dunder, ResolvedArguments},
     ExprResult, List, Range, Set,
 };
@@ -15,11 +18,19 @@ pub struct Tuple {
     items: Vec<ExprResult>,
 }
 
-impl Tuple {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Tuple {
+    fn get_type() -> Type {
+        Type::Tuple
+    }
+}
+
+impl MethodProvider for Tuple {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
     }
+}
 
+impl Tuple {
     pub fn new(items: Vec<ExprResult>) -> Self {
         Self { items }
     }

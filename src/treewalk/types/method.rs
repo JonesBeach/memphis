@@ -2,7 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
-use super::{traits::Callable, utils::ResolvedArguments, ExprResult};
+use super::{domain::traits::Callable, utils::ResolvedArguments, ExprResult};
 
 #[derive(Debug, Clone)]
 pub struct Method {
@@ -16,7 +16,7 @@ impl Method {
     }
 
     pub fn name(&self) -> String {
-        self.function.borrow().name() + " of " + &self.receiver.to_string()
+        format!("{} of {}", self.function.borrow().name(), &self.receiver)
     }
 
     pub fn receiver(&self) -> ExprResult {

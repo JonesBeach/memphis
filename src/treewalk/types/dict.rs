@@ -6,10 +6,13 @@ use std::{
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    builtins::utils,
     dict_items::ContextualDictItemsIterator,
+    domain::{
+        builtins::utils,
+        traits::{Callable, IndexRead, IndexWrite, MethodProvider, Typed},
+        Type,
+    },
     iterators::DictKeysIterator,
-    traits::{Callable, IndexRead, IndexWrite},
     utils::{Contextual, Dunder, ResolvedArguments},
     DictItems, DictValues, ExprResult,
 };
@@ -19,8 +22,14 @@ pub struct Dict {
     items: HashMap<Contextual<ExprResult>, ExprResult>,
 }
 
-impl Dict {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Dict {
+    fn get_type() -> Type {
+        Type::Dict
+    }
+}
+
+impl MethodProvider for Dict {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![
             Box::new(NewBuiltin),
             Box::new(InitBuiltin),
@@ -31,7 +40,9 @@ impl Dict {
             Box::new(FromKeysBuiltin),
         ]
     }
+}
 
+impl Dict {
     #[allow(clippy::mutable_key_type)]
     fn new_inner(items: HashMap<Contextual<ExprResult>, ExprResult>) -> Self {
         Self { items }

@@ -9,8 +9,11 @@ use std::{
 };
 
 use super::{
-    builtins::utils::validate_args,
-    traits::Callable,
+    domain::{
+        builtins::utils::validate_args,
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -22,11 +25,19 @@ pub struct Slice {
     pub step: Option<i64>,
 }
 
-impl Slice {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Slice {
+    fn get_type() -> Type {
+        Type::Slice
+    }
+}
+
+impl MethodProvider for Slice {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl Slice {
     pub fn new(start: Option<i64>, stop: Option<i64>, step: Option<i64>) -> Self {
         Self { start, stop, step }
     }
@@ -178,6 +189,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

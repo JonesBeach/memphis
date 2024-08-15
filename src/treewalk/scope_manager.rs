@@ -2,11 +2,13 @@ use crate::core::{Container, Stack};
 use crate::domain::Context;
 use crate::treewalk::executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin};
 use crate::treewalk::types::{
-    builtins::{
-        CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, IsinstanceBuiltin,
-        IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin, PrintBuiltin,
+    domain::{
+        builtins::{
+            CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, IsinstanceBuiltin,
+            IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin, PrintBuiltin,
+        },
+        traits::Callable,
     },
-    traits::Callable,
     utils::EnvironmentFrame,
     ExprResult, Module,
 };
@@ -104,7 +106,7 @@ impl ScopeManager {
     pub fn register_callable_builtin_types(&mut self, registry: &TypeRegistry) {
         for builtin_class in registry.get_callable_builtin_types() {
             self.builtin_scope.insert(
-                builtin_class.borrow().builtin_type().value(),
+                builtin_class.borrow().builtin_type().into(),
                 ExprResult::Class(builtin_class.clone()),
             );
         }

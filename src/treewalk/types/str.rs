@@ -6,7 +6,10 @@ use std::{
 use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::{Callable, IndexRead},
+    domain::{
+        traits::{Callable, IndexRead, MethodProvider, Typed},
+        Type,
+    },
     utils::ResolvedArguments,
     ExprResult, Slice,
 };
@@ -14,11 +17,19 @@ use super::{
 #[derive(Clone, PartialEq)]
 pub struct Str(String);
 
-impl Str {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for Str {
+    fn get_type() -> Type {
+        Type::Str
+    }
+}
+
+impl MethodProvider for Str {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(JoinBuiltin), Box::new(MaketransBuiltin)]
     }
+}
 
+impl Str {
     pub fn new(str: String) -> Self {
         Self(str)
     }

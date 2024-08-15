@@ -1,8 +1,11 @@
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     iterators::{ExprResultIterator, ListIterator},
-    traits::Callable,
     utils::{Dunder, ResolvedArguments},
     ExprResult, List, Str, Tuple,
 };
@@ -10,11 +13,19 @@ use super::{
 #[derive(Clone)]
 pub struct ZipIterator(Vec<ExprResultIterator>);
 
-impl ZipIterator {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for ZipIterator {
+    fn get_type() -> Type {
+        Type::Zip
+    }
+}
+
+impl MethodProvider for ZipIterator {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl ZipIterator {
     pub fn new(items: Vec<ExprResultIterator>) -> Self {
         Self(items)
     }
@@ -102,6 +113,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

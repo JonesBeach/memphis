@@ -1,5 +1,4 @@
 mod bool;
-pub mod builtins;
 mod bytearray;
 mod bytes;
 mod cell;
@@ -13,6 +12,7 @@ mod dict;
 mod dict_items;
 mod dict_keys;
 mod dict_values;
+pub mod domain;
 mod exception;
 mod frozenset;
 pub mod function;
@@ -34,11 +34,8 @@ mod slice;
 mod staticmethod;
 mod str;
 mod super_type;
-pub mod traits;
 mod tuple;
 mod r#type;
-#[allow(clippy::module_inception)]
-pub mod types;
 pub mod utils;
 mod zip;
 
@@ -75,7 +72,6 @@ pub use staticmethod::Staticmethod;
 pub use str::Str;
 pub use super_type::Super;
 pub use tuple::Tuple;
-pub use types::Type;
 
 pub mod iterators {
     pub use super::dict_items::DictItemsIterator;

@@ -1,7 +1,10 @@
 use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
-    traits::Callable,
+    domain::{
+        traits::{Callable, MethodProvider, Typed},
+        Type,
+    },
     utils::{Dunder, ResolvedArguments},
     ExprResult,
 };
@@ -10,11 +13,19 @@ use super::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct ByteArray(pub Vec<u8>);
 
-impl ByteArray {
-    pub fn get_methods() -> Vec<Box<dyn Callable>> {
+impl Typed for ByteArray {
+    fn get_type() -> Type {
+        Type::ByteArray
+    }
+}
+
+impl MethodProvider for ByteArray {
+    fn get_methods() -> Vec<Box<dyn Callable>> {
         vec![Box::new(NewBuiltin)]
     }
+}
 
+impl ByteArray {
     pub fn new(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }
@@ -53,6 +64,6 @@ impl Callable for NewBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::New.value().into()
+        Dunder::New.into()
     }
 }

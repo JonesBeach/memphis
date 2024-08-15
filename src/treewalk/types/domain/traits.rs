@@ -3,9 +3,16 @@ use std::{
     fmt::{Debug, Error, Formatter},
 };
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
-
-use super::{function::FunctionType, utils::ResolvedArguments, Class, ExprResult};
+use crate::{
+    core::Container,
+    treewalk::{
+        types::{
+            domain::Type, function::FunctionType, utils::ResolvedArguments, Class, ExprResult,
+        },
+        Interpreter,
+    },
+    types::errors::InterpreterError,
+};
 
 pub trait Callable {
     fn call(
@@ -122,3 +129,19 @@ pub trait IndexWrite {
 }
 
 // pub trait IndexAccessor: IndexRead + IndexWrite {}
+
+pub trait Typed {
+    fn get_type() -> Type;
+}
+
+pub trait MethodProvider: Typed {
+    fn get_methods() -> Vec<Box<dyn Callable>>;
+}
+
+pub trait DescriptorProvider: Typed {
+    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>>;
+}
+
+pub trait DataDescriptorProvider: Typed {
+    fn get_data_descriptors() -> Vec<Box<dyn DataDescriptor>>;
+}

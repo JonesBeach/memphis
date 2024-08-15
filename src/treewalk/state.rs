@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::core::Container;
 use crate::parser::types::{ImportPath, LoopIndex};
 use crate::treewalk::types::{
-    utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module, Type,
+    domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module,
 };
 use crate::treewalk::{
     CallStack, ExecutionContextManager, Executor, LoadedModule, ModuleLoader, Scope, ScopeManager,
