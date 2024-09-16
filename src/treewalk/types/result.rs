@@ -196,9 +196,9 @@ impl ExprResult {
         let mut new_args = arguments.clone();
         new_args.bind_new(ExprResult::Class(class.clone()));
         let object =
-            interpreter.evaluate_method(ExprResult::Class(class), &Dunder::New, &new_args)?;
+            interpreter.invoke_method(ExprResult::Class(class), &Dunder::New, &new_args)?;
 
-        interpreter.evaluate_method(object.clone(), &Dunder::Init, &arguments)?;
+        interpreter.invoke_method(object.clone(), &Dunder::Init, &arguments)?;
 
         Ok(object)
     }
@@ -206,6 +206,8 @@ impl ExprResult {
     pub fn hash(&self) -> usize {
         match self {
             ExprResult::Object(o) => o.address(),
+            ExprResult::Class(o) => o.address(),
+            ExprResult::Integer(i) => *i.borrow() as usize,
             _ => 0,
         }
     }

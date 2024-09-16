@@ -1,16 +1,21 @@
-use crate::core::{Container, Stack};
-use crate::domain::Context;
-use crate::treewalk::executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin};
-use crate::treewalk::types::{
-    domain::{
-        builtins::{
-            CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, IsinstanceBuiltin,
-            IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin, PrintBuiltin,
+use crate::{
+    core::{Container, Stack},
+    domain::Context,
+    treewalk::{
+        executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
+        types::{
+            domain::{
+                builtins::{
+                    CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, HashBuiltin,
+                    IsinstanceBuiltin, IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin,
+                    PrintBuiltin,
+                },
+                traits::Callable,
+            },
+            utils::EnvironmentFrame,
+            ExprResult, Module,
         },
-        traits::Callable,
     },
-    utils::EnvironmentFrame,
-    ExprResult, Module,
 };
 
 use super::{LoadedModule, Scope, TypeRegistry};
@@ -29,6 +34,7 @@ fn get_builtins() -> Vec<Box<dyn Callable>> {
         Box::new(DirBuiltin),
         Box::new(GetattrBuiltin),
         Box::new(GlobalsBuiltin),
+        Box::new(HashBuiltin),
         Box::new(IsinstanceBuiltin),
         Box::new(IssubclassBuiltin),
         Box::new(IterBuiltin),

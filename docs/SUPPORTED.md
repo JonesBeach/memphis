@@ -82,7 +82,7 @@
 |`getattr`|✅|
 |`globals`|✅|
 |`hasattr`||
-|`hash`||
+|`hash`|✅|
 |`help`||
 |`hex`||
 |`id`||

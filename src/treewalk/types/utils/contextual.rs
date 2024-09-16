@@ -70,7 +70,39 @@ where
 impl Contextual<ExprResult> {
     /// Use the interpreter to evaluate equality
     fn equals(&self, other: &Self) -> bool {
-        let result = self.interpreter.evaluate_method(
+        // This isn't technically correct, but the idea here is that we should fallback to the
+        // default behavior (comparing identity) if we are unable to call Dunder::Eq. We are unable
+        // to call this because for class objects, this is unbound: complex.__eq__(complex). The
+        // way Python actually detects this is not whether the method call is unbound or not, but
+        // whether that method has been overridden (i.e. exists before 'object' in the MRO).
+        //
+        // The correct pseudocode is:
+        //
+        // if obj1 has an overridden __eq__ method:
+        //    return obj1.__eq__(obj2)
+        // else:
+        //    return id(obj1) == id(obj2)
+        //
+        // Python handles an extra optimization here by comparing identity for objects without an
+        // overridden __eq__ method, but we just handle that as the fallback implementation of
+        // object.__eq__ which is discovered via the MRO.
+        //
+        // "obj1 has an overridden __eq__ method" will always evaluate to false when obj1 is a
+        // class, which is what we detect by checking for the unbound case (receiver().is_none()).
+        let eq = match self
+            .interpreter
+            .resolve_method(self.value.clone(), &Dunder::Eq)
+        {
+            Err(e) => self
+                .interpreter
+                .handle_runtime_error(MemphisError::Interpreter(e)),
+            Ok(eq) => eq,
+        };
+        if eq.borrow().receiver().is_none() {
+            return self.value == other.value;
+        }
+
+        let result = self.interpreter.invoke_method(
             self.value.clone(),
             &Dunder::Eq,
             &resolved_args!(other.value.clone()),
@@ -87,9 +119,9 @@ impl Contextual<ExprResult> {
 
     /// Use the interpreter to evaluate the hash
     fn hash(&self) -> u64 {
-        let result =
-            self.interpreter
-                .evaluate_method(self.value.clone(), &Dunder::Hash, &resolved_args!());
+        let result = self
+            .interpreter
+            .call_function("hash", &resolved_args![self.value.clone()]);
 
         match result {
             Ok(ExprResult::Integer(hash_val)) => *hash_val.borrow() as u64,

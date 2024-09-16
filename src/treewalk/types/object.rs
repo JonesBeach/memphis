@@ -75,7 +75,7 @@ impl IndexWrite for Container<Object> {
         index: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let _ = interpreter.evaluate_method(
+        let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::SetItem,
             &resolved_args!(index, value),
@@ -89,7 +89,7 @@ impl IndexWrite for Container<Object> {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let _ = interpreter.evaluate_method(
+        let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::DelItem,
             &resolved_args!(index),
@@ -105,7 +105,7 @@ impl IndexRead for Container<Object> {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        let result = interpreter.evaluate_method(
+        let result = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::GetItem,
             &resolved_args!(index),
@@ -136,7 +136,11 @@ impl MemberReader for Container<Object> {
 
         if let Some(attr) = self.borrow().class.get_from_class(name) {
             log(LogLevel::Debug, || {
-                format!("Found: {}::{} on class", self.borrow().class, name)
+                format!(
+                    "Found: {}::{} on class [from object]",
+                    self.borrow().class,
+                    name
+                )
             });
             let instance = ExprResult::Object(self.clone());
             let owner = instance.get_class(interpreter);
@@ -255,7 +259,7 @@ impl NonDataDescriptor for Container<Object> {
         instance: Option<ExprResult>,
         owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError> {
-        interpreter.evaluate_method(
+        interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::Get,
             &resolved_args!(
@@ -280,7 +284,7 @@ impl DataDescriptor for Container<Object> {
         instance: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
-        interpreter.evaluate_method(
+        interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::Set,
             &resolved_args!(instance, value),
@@ -294,7 +298,7 @@ impl DataDescriptor for Container<Object> {
         interpreter: &Interpreter,
         instance: ExprResult,
     ) -> Result<(), InterpreterError> {
-        interpreter.evaluate_method(
+        interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             &Dunder::Delete,
             &resolved_args!(instance),
@@ -418,7 +422,7 @@ impl Callable for NeBuiltin {
             interpreter.state.call_stack(),
         ))?;
         let result =
-            interpreter.evaluate_method(receiver, &Dunder::Eq, &resolved_args!(args.get_arg(0)))?;
+            interpreter.invoke_method(receiver, &Dunder::Eq, &resolved_args!(args.get_arg(0)))?;
 
         Ok(result.inverted())
     }

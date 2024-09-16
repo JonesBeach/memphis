@@ -60,7 +60,7 @@ impl Class {
             ExprResult::Dict(Scope::default().as_dict(interpreter.clone()))
         );
         interpreter
-            .evaluate_method(ExprResult::Class(metaclass), &Dunder::New, args)?
+            .invoke_method(ExprResult::Class(metaclass), &Dunder::New, args)?
             .as_class()
             .ok_or(InterpreterError::ExpectedClass(
                 interpreter.state.call_stack(),
@@ -220,7 +220,7 @@ impl Container<Class> {
 
     /// Use the class MRO to search for an attribute. This does not consider metaclasses but it
     /// does consider the class itself.
-    fn search(&self, iterable: Vec<Container<Class>>, name: &str) -> Option<ExprResult> {
+    fn search(iterable: &[Container<Class>], name: &str) -> Option<ExprResult> {
         for class in iterable {
             if let Some(attr) = class.borrow().scope.get(name) {
                 return Some(attr);
@@ -231,7 +231,7 @@ impl Container<Class> {
     }
 
     fn search_mro(&self, name: &str) -> Option<ExprResult> {
-        self.search(self.mro(), name)
+        Self::search(&self.mro(), name)
     }
 
     pub fn get_from_class(&self, name: &str) -> Option<ExprResult> {
@@ -250,6 +250,8 @@ impl Container<Class> {
         self.borrow().metaclass().search_mro(name)
     }
 
+    /// Insert into the class scope. Used by `MemberWriter` or anywhere we do not have an
+    /// `Interpreter`, like in the `TypeRegistry` on startup.
     pub fn set_on_class(&self, name: &str, value: ExprResult) {
         self.borrow_mut().scope.insert(name, value);
     }
@@ -268,7 +270,7 @@ impl MemberReader for Container<Class> {
     ) -> Result<Option<ExprResult>, InterpreterError> {
         if let Some(attr) = self.get_from_class(name) {
             log(LogLevel::Debug, || {
-                format!("Found: {}::{} on class", self, name)
+                format!("Found: {}::{} on class [from class]", self, name)
             });
             return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
@@ -301,8 +303,7 @@ impl MemberWriter for Container<Class> {
         self.borrow_mut().scope.delete(name);
 
         // TODO support delete attributes from parent classes?
-
-        Ok(())
+        todo!();
     }
 
     fn set_member(

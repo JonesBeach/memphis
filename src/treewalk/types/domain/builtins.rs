@@ -1,8 +1,11 @@
 use crate::{
-    core::Container,
+    core::{Container, Storable},
+    resolved_args,
     treewalk::{
         types::{
-            domain::traits::Callable, iterators::StringIterator, utils::ResolvedArguments,
+            domain::traits::Callable,
+            iterators::StringIterator,
+            utils::{Dunder, ResolvedArguments},
             ExprResult, List, Str,
         },
         Interpreter,
@@ -14,6 +17,7 @@ pub struct CallableBuiltin;
 pub struct DirBuiltin;
 pub struct GetattrBuiltin;
 pub struct GlobalsBuiltin;
+pub struct HashBuiltin;
 pub struct IsinstanceBuiltin;
 pub struct IssubclassBuiltin;
 pub struct IterBuiltin;
@@ -122,8 +126,34 @@ impl Callable for GlobalsBuiltin {
     }
 }
 
-fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
-    vec1.iter().any(|item| vec2.contains(item))
+impl Callable for HashBuiltin {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+
+        let arg = args.get_arg(0);
+        if arg.as_class().is_some() {
+            return Ok(ExprResult::Integer((arg.hash() as i64).store()));
+        }
+
+        let result = interpreter.invoke_method(arg, &Dunder::Hash, &resolved_args!())?;
+
+        if let ExprResult::Integer(_) = result {
+            Ok(result)
+        } else {
+            Err(InterpreterError::TypeError(
+                Some(format!("{} method should return an integer", Dunder::Hash)),
+                interpreter.state.call_stack(),
+            ))
+        }
+    }
+
+    fn name(&self) -> String {
+        "hash".into()
+    }
 }
 
 impl Callable for IsinstanceBuiltin {
@@ -160,9 +190,9 @@ impl Callable for IsinstanceBuiltin {
         };
 
         let isinstance = if args.get_arg(0).is_class() {
-            has_overlap(&reference_class, &instance_class.borrow().metaclass().mro())
+            utils::has_overlap(&reference_class, &instance_class.borrow().metaclass().mro())
         } else {
-            has_overlap(&reference_class, &instance_class.mro())
+            utils::has_overlap(&reference_class, &instance_class.mro())
         };
 
         Ok(ExprResult::Boolean(isinstance))
@@ -356,5 +386,9 @@ pub mod utils {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
+        vec1.iter().any(|item| vec2.contains(item))
     }
 }

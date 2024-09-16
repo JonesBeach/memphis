@@ -42,96 +42,175 @@ impl Interpreter {
         callable: Container<Box<dyn Callable>>,
         arguments: &ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        match self._call(callable, arguments) {
+        let mut bound_args = arguments.clone();
+        if let Some(receiver) = callable.borrow().receiver() {
+            bound_args.bind(receiver);
+        }
+
+        match callable.borrow().call(self, bound_args) {
             Err(InterpreterError::EncounteredReturn(result)) => Ok(result),
             Err(e) => Err(e),
             Ok(result) => Ok(result),
         }
     }
 
-    fn _call(
+    pub fn call_function(
         &self,
-        callable: Container<Box<dyn Callable>>,
+        name: &str,
         arguments: &ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        let mut bound_args = arguments.clone();
-        if let Some(receiver) = callable.borrow().receiver() {
-            bound_args.bind(receiver);
+        let function = self.read_callable(name)?;
+        self.call_function_inner(function, arguments)
+    }
+
+    pub fn invoke_function(
+        &self,
+        function: Container<Function>,
+        scope: Container<Scope>,
+    ) -> Result<ExprResult, InterpreterError> {
+        let cross_module = !self
+            .state
+            .current_module()
+            .same_identity(&function.borrow().module);
+        if cross_module {
+            self.state.push_module(function.borrow().module.clone());
+        }
+        self.state
+            .push_captured_env(function.borrow().captured_env.clone());
+        self.state.push_local(scope);
+        self.state
+            .push_context(StackFrame::new_function(function.borrow().clone()));
+        self.state.push_function(function.clone());
+
+        // We do not propagate errors here because we still must restore the scopes and things
+        // before returning.
+        let result = self.evaluate_block(&function.borrow().body);
+
+        // If an error is thrown, we should return that immediately without restoring any state.
+        if matches!(result, Ok(_) | Err(InterpreterError::EncounteredReturn(_))) {
+            self.state.pop_context();
+            self.state.pop_function();
+            self.state.pop_local();
+            self.state.pop_captured_env();
+            if cross_module {
+                self.state.pop_module();
+            }
         }
 
-        callable.borrow().call(self, bound_args)
+        result
     }
 
-    fn import_module(&self, import_path: &ImportPath) -> Result<ExprResult, InterpreterError> {
-        // is this useful? is it valuable to read a module directly from the scope as opposed from
-        // the module cache
-        if let Some(module) = self.state.read(&import_path.as_str()) {
-            return Ok(module);
+    pub fn resolve_method(
+        &self,
+        receiver: ExprResult,
+        name: &str,
+    ) -> Result<Container<Box<dyn Callable>>, InterpreterError> {
+        self.evaluate_member_access_inner(&receiver, name)?
+            .as_callable()
+            .ok_or(InterpreterError::MethodNotFound(
+                name.to_string(),
+                self.state.call_stack(),
+            ))
+    }
+
+    pub fn invoke_method(
+        &self,
+        receiver: ExprResult,
+        name: &str,
+        arguments: &ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        log(LogLevel::Debug, || {
+            format!("Calling method {}.{}", receiver, name)
+        });
+        log(LogLevel::Trace, || {
+            format!("... from module: {}", self.state.current_module())
+        });
+        log(LogLevel::Trace, || {
+            format!(
+                "... from path: {}",
+                self.state.current_module().borrow().path().display()
+            )
+        });
+        if let Some(class) = self.state.current_class() {
+            log(LogLevel::Trace, || format!("... from class: {}", class));
         }
 
-        #[cfg(feature = "c_stdlib")]
-        if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
-            return Ok(ExprResult::CPythonModule(
-                self.state.import_builtin_module(import_path),
-            ));
+        let method = self.resolve_method(receiver, name)?;
+        self.call(method, arguments)
+    }
+
+    fn call_function_inner(
+        &self,
+        function: Container<Box<dyn Callable>>,
+        arguments: &ResolvedArguments,
+    ) -> Result<ExprResult, InterpreterError> {
+        let function_type = function.borrow().function_type();
+        match function_type {
+            FunctionType::Generator => {
+                // TODO we may want to support builtin generators in the future. For now, we only
+                // support user-defined so we are safe to downcast to `Container<Function>`.
+                let function = function
+                    .borrow()
+                    .as_any()
+                    .downcast_ref::<Container<Function>>()
+                    .cloned()
+                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
+                let scope = Scope::new(self, &function, arguments)?;
+                let generator_function = Generator::new(scope, function);
+                let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
+                Ok(ExprResult::Generator(Container::new(generator_iterator)))
+            }
+            FunctionType::Async => {
+                let function = function
+                    .borrow()
+                    .as_any()
+                    .downcast_ref::<Container<Function>>()
+                    .cloned()
+                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
+                let scope = Scope::new(self, &function, arguments)?;
+                let coroutine = Coroutine::new(scope, function);
+                Ok(ExprResult::Coroutine(Container::new(coroutine)))
+            }
+            FunctionType::Regular => self.call(function, arguments),
         }
-
-        Ok(ExprResult::Module(Module::import(self, import_path)?))
     }
 
-    fn evaluate_variable(&self, name: &str) -> Result<ExprResult, InterpreterError> {
-        self.state.read(name).ok_or(InterpreterError::NameError(
-            name.to_owned(),
-            self.state.call_stack(),
-        ))
+    // -----------------------------
+    // End of higher-order functions
+    // -----------------------------
+
+    fn read_callable(&self, name: &str) -> Result<Container<Box<dyn Callable>>, InterpreterError> {
+        self.state
+            .read(name)
+            .and_then(|val| val.as_callable())
+            .ok_or(InterpreterError::FunctionNotFound(
+                name.to_string(),
+                self.state.call_stack(),
+            ))
     }
 
-    fn evaluate_unary_operation(
+    fn read_index(
         &self,
-        op: &UnaryOp,
-        right: &Expr,
+        object: ExprResult,
+        index: ExprResult,
     ) -> Result<ExprResult, InterpreterError> {
-        let right = self.evaluate_expr(right)?;
-        evaluators::evaluate_unary_operation(op, right, self.state.call_stack())
+        object
+            .as_index_read(self)
+            .ok_or(InterpreterError::TypeError(
+                Some(format!(
+                    "'{}' object is not subscriptable",
+                    object.get_type()
+                )),
+                self.state.call_stack(),
+            ))?
+            .getitem(self, index.clone())?
+            .ok_or(InterpreterError::KeyError(
+                index.to_string(),
+                self.state.call_stack(),
+            ))
     }
 
-    fn evaluate_ternary_operation(
-        &self,
-        condition: &Expr,
-        if_value: &Expr,
-        else_value: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
-        if self.evaluate_expr(condition)?.as_boolean() {
-            self.evaluate_expr(if_value)
-        } else {
-            self.evaluate_expr(else_value)
-        }
-    }
-
-    fn evaluate_logical_operation(
-        &self,
-        left: &Expr,
-        op: &LogicalOp,
-        right: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
-        let left = self.evaluate_expr(left)?.as_boolean();
-        let right = self.evaluate_expr(right)?.as_boolean();
-        evaluators::evaluate_logical_op(left, op, right)
-    }
-
-    fn evaluate_binary_operation_outer(
-        &self,
-        left: &Expr,
-        op: &BinOp,
-        right: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
-        let left = self.evaluate_expr(left)?;
-        let right = self.evaluate_expr(right)?;
-
-        self.evaluate_binary_operation(left, op, right)
-    }
-
-    fn evaluate_binary_operation(
+    fn evaluate_binary_operation_inner(
         &self,
         left: ExprResult,
         op: &BinOp,
@@ -194,19 +273,10 @@ impl Interpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.evaluate_method(left, &dunder, &resolved_args!(right))
+            self.invoke_method(left, &dunder, &resolved_args!(right))
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
-    }
-
-    fn evaluate_member_access(
-        &self,
-        object: &Expr,
-        field: &str,
-    ) -> Result<ExprResult, InterpreterError> {
-        let result = self.evaluate_expr(object)?;
-        self.evaluate_member_access_inner(&result, field)
     }
 
     fn evaluate_member_access_inner(
@@ -227,6 +297,91 @@ impl Interpreter {
             ))
     }
 
+    // -----------------------------
+    // End of medium-order functions
+    // -----------------------------
+
+    fn evaluate_module_import(
+        &self,
+        import_path: &ImportPath,
+    ) -> Result<ExprResult, InterpreterError> {
+        // is this useful? is it valuable to read a module directly from the scope as opposed from
+        // the module cache
+        if let Some(module) = self.state.read(&import_path.as_str()) {
+            return Ok(module);
+        }
+
+        #[cfg(feature = "c_stdlib")]
+        if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
+            return Ok(ExprResult::CPythonModule(
+                self.state.import_builtin_module(import_path),
+            ));
+        }
+
+        Ok(ExprResult::Module(Module::import(self, import_path)?))
+    }
+
+    fn evaluate_variable(&self, name: &str) -> Result<ExprResult, InterpreterError> {
+        self.state.read(name).ok_or(InterpreterError::NameError(
+            name.to_owned(),
+            self.state.call_stack(),
+        ))
+    }
+
+    fn evaluate_unary_operation(
+        &self,
+        op: &UnaryOp,
+        right: &Expr,
+    ) -> Result<ExprResult, InterpreterError> {
+        let right = self.evaluate_expr(right)?;
+        evaluators::evaluate_unary_operation(op, right, self.state.call_stack())
+    }
+
+    fn evaluate_ternary_operation(
+        &self,
+        condition: &Expr,
+        if_value: &Expr,
+        else_value: &Expr,
+    ) -> Result<ExprResult, InterpreterError> {
+        if self.evaluate_expr(condition)?.as_boolean() {
+            self.evaluate_expr(if_value)
+        } else {
+            self.evaluate_expr(else_value)
+        }
+    }
+
+    fn evaluate_logical_operation(
+        &self,
+        left: &Expr,
+        op: &LogicalOp,
+        right: &Expr,
+    ) -> Result<ExprResult, InterpreterError> {
+        let left = self.evaluate_expr(left)?.as_boolean();
+        let right = self.evaluate_expr(right)?.as_boolean();
+        evaluators::evaluate_logical_op(left, op, right)
+    }
+
+    fn evaluate_binary_operation(
+        &self,
+        left: &Expr,
+        op: &BinOp,
+        right: &Expr,
+    ) -> Result<ExprResult, InterpreterError> {
+        let left = self.evaluate_expr(left)?;
+        let right = self.evaluate_expr(right)?;
+
+        self.evaluate_binary_operation_inner(left, op, right)
+    }
+
+    fn evaluate_member_access(
+        &self,
+        object: &Expr,
+        field: &str,
+    ) -> Result<ExprResult, InterpreterError> {
+        let result = self.evaluate_expr(object)?;
+        self.evaluate_member_access_inner(&result, field)
+    }
+
     fn evaluate_slice_operation(
         &self,
         object: &Expr,
@@ -235,20 +390,7 @@ impl Interpreter {
         let object_result = self.evaluate_expr(object)?;
         let slice = Slice::resolve(self, params)?;
 
-        object_result
-            .as_index_read(self)
-            .ok_or(InterpreterError::TypeError(
-                Some(format!(
-                    "'{}' object is not subscriptable",
-                    object_result.get_type()
-                )),
-                self.state.call_stack(),
-            ))?
-            .getitem(self, ExprResult::Slice(slice.clone()))?
-            .ok_or(InterpreterError::KeyError(
-                slice.to_string(),
-                self.state.call_stack(),
-            ))
+        self.read_index(object_result, ExprResult::Slice(slice))
     }
 
     fn evaluate_index_access(
@@ -256,23 +398,10 @@ impl Interpreter {
         object: &Expr,
         index: &Expr,
     ) -> Result<ExprResult, InterpreterError> {
-        let index_result = self.evaluate_expr(index)?;
         let object_result = self.evaluate_expr(object)?;
+        let index_result = self.evaluate_expr(index)?;
 
-        object_result
-            .as_index_read(self)
-            .ok_or(InterpreterError::TypeError(
-                Some(format!(
-                    "'{}' object is not subscriptable",
-                    object_result.get_type()
-                )),
-                self.state.call_stack(),
-            ))?
-            .getitem(self, index_result.clone())?
-            .ok_or(InterpreterError::KeyError(
-                index_result.to_string(),
-                self.state.call_stack(),
-            ))
+        self.read_index(object_result, index_result)
     }
 
     fn evaluate_list(&self, items: &[Expr]) -> Result<ExprResult, InterpreterError> {
@@ -356,7 +485,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_delete(&self, exprs: &Vec<Expr>) -> Result<(), InterpreterError> {
+    fn evaluate_delete(&self, exprs: &[Expr]) -> Result<(), InterpreterError> {
         for expr in exprs {
             match expr {
                 Expr::Variable(name) => {
@@ -458,114 +587,10 @@ impl Interpreter {
                     InterpreterError::FunctionNotFound("<callee>".into(), self.state.call_stack()),
                 )?
             } else {
-                self.state
-                    .read(name)
-                    .and_then(|val| val.as_callable())
-                    .ok_or(InterpreterError::FunctionNotFound(
-                        name.to_string(),
-                        self.state.call_stack(),
-                    ))?
+                self.read_callable(name)?
             };
 
-        let function_type = function.borrow().function_type();
-        match function_type {
-            FunctionType::Generator => {
-                // TODO we may want to support builtin generators in the future. For now, we only
-                // support user-defined so we are safe to downcast to `Container<Function>`.
-                let function = function
-                    .borrow()
-                    .as_any()
-                    .downcast_ref::<Container<Function>>()
-                    .cloned()
-                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
-                let scope = Scope::new(self, &function, &arguments)?;
-                let generator_function = Generator::new(scope, function);
-                let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
-                Ok(ExprResult::Generator(Container::new(generator_iterator)))
-            }
-            FunctionType::Async => {
-                let function = function
-                    .borrow()
-                    .as_any()
-                    .downcast_ref::<Container<Function>>()
-                    .cloned()
-                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
-                let scope = Scope::new(self, &function, &arguments)?;
-                let coroutine = Coroutine::new(scope, function);
-                Ok(ExprResult::Coroutine(Container::new(coroutine)))
-            }
-            FunctionType::Regular => self.call(function, &arguments),
-        }
-    }
-
-    pub fn invoke_function(
-        &self,
-        function: Container<Function>,
-        scope: Container<Scope>,
-    ) -> Result<ExprResult, InterpreterError> {
-        let cross_module = !self
-            .state
-            .current_module()
-            .same_identity(&function.borrow().module);
-        if cross_module {
-            self.state.push_module(function.borrow().module.clone());
-        }
-        self.state
-            .push_captured_env(function.borrow().captured_env.clone());
-        self.state.push_local(scope);
-        self.state
-            .push_context(StackFrame::new_function(function.borrow().clone()));
-        self.state.push_function(function.clone());
-
-        // We do not propagate errors here because we still must restore the scopes and things
-        // before returning.
-        let result = self.evaluate_block(&function.borrow().body);
-
-        // If an error is thrown, we should return that immediately without restoring any state.
-        if matches!(result, Ok(_) | Err(InterpreterError::EncounteredReturn(_))) {
-            self.state.pop_context();
-            self.state.pop_function();
-            self.state.pop_local();
-            self.state.pop_captured_env();
-            if cross_module {
-                self.state.pop_module();
-            }
-        }
-
-        result
-    }
-
-    pub fn evaluate_method(
-        &self,
-        receiver: ExprResult,
-        name: &str,
-        arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        log(LogLevel::Debug, || {
-            format!("Calling method {}.{}", receiver, name)
-        });
-        log(LogLevel::Trace, || {
-            format!("... from module: {}", self.state.current_module())
-        });
-        log(LogLevel::Trace, || {
-            format!(
-                "... from path: {}",
-                self.state.current_module().borrow().path().display()
-            )
-        });
-        if let Some(class) = self.state.current_class() {
-            log(LogLevel::Trace, || format!("... from class: {}", class));
-        }
-
-        let function = self
-            .evaluate_member_access_inner(&receiver, name)?
-            .as_callable()
-            .ok_or(InterpreterError::MethodNotFound(
-                name.to_string(),
-                self.state.call_stack(),
-            ))?;
-
-        self.call(function, arguments)
+        self.call_function_inner(function, &arguments)
     }
 
     fn evaluate_method_call(
@@ -577,7 +602,7 @@ impl Interpreter {
         let arguments = ResolvedArguments::from(self, arguments)?;
         let result = self.evaluate_expr(obj)?;
 
-        self.evaluate_method(result, name, &arguments)
+        self.invoke_method(result, name, &arguments)
     }
 
     fn evaluate_class_instantiation(
@@ -623,7 +648,7 @@ impl Interpreter {
         value: &Expr,
     ) -> Result<(), InterpreterError> {
         let bin_op = BinOp::from(operator);
-        let result = self.evaluate_binary_operation_outer(target, &bin_op, value)?;
+        let result = self.evaluate_binary_operation(target, &bin_op, value)?;
         self.evaluate_assignment_inner(target, result)
     }
 
@@ -999,7 +1024,7 @@ impl Interpreter {
         alias: &Option<String>,
     ) -> Result<(), InterpreterError> {
         // A mutable ExprResult::Module that will be updated on each loop iteration
-        let mut inner_module = self.import_module(import_path)?;
+        let mut inner_module = self.evaluate_module_import(import_path)?;
 
         // This is a case where it's simpler if we have an alias: just make the module available
         // at the alias.
@@ -1035,12 +1060,13 @@ impl Interpreter {
         arguments: &[ImportedItem],
         wildcard: &bool,
     ) -> Result<(), InterpreterError> {
-        let module = self.import_module(import_path)?.as_module().ok_or(
-            InterpreterError::ModuleNotFound(
+        let module = self
+            .evaluate_module_import(import_path)?
+            .as_module()
+            .ok_or(InterpreterError::ModuleNotFound(
                 import_path.as_str().to_string(),
                 self.state.call_stack(),
-            ),
-        )?;
+            ))?;
 
         let mapped_imports = arguments
             .iter()
@@ -1096,15 +1122,14 @@ impl Interpreter {
             ));
         }
 
-        let result =
-            self.evaluate_method(expr_result.clone(), &Dunder::Enter, &resolved_args!())?;
+        let result = self.invoke_method(expr_result.clone(), &Dunder::Enter, &resolved_args!())?;
 
         if let Some(variable) = variable {
             self.state.write(variable, result);
         }
         let block_result = self.evaluate_block(block);
 
-        self.evaluate_method(
+        self.invoke_method(
             expr_result.clone(),
             &Dunder::Exit,
             &resolved_args!(ExprResult::None, ExprResult::None, ExprResult::None),
@@ -1263,7 +1288,7 @@ impl Interpreter {
             } => self.evaluate_dict_comprehension(key, value, range, key_body, value_body),
             Expr::UnaryOperation { op, right } => self.evaluate_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
-                self.evaluate_binary_operation_outer(left, op, right)
+                self.evaluate_binary_operation(left, op, right)
             }
             Expr::Await { right } => self.evaluate_await(right),
             Expr::FunctionCall { name, args, callee } => {
@@ -7140,7 +7165,7 @@ except Exception as e:
                             interpreter.state.call_stack()
                         ))
                     ),
-                    _ => panic!(),
+                    _ => panic!("Expected error!"),
                 }
             }
         }
@@ -8944,6 +8969,64 @@ del my['one']
                 let my = interpreter.state.read("my").unwrap().as_object().unwrap();
                 let inner = my.get_member(&interpreter, "inner").unwrap().unwrap();
                 assert_eq!(inner, ExprResult::Dict(Container::new(Dict::default())));
+            }
+        }
+    }
+
+    #[test]
+    fn hash_builtin() {
+        let input = r#"
+a = hash(5)
+b = hash(complex)
+
+class Foo:
+    def __hash__(self):
+        return 4.5
+
+c = hash(Foo)
+
+the_dict = {}
+the_dict[complex] = True
+d = the_dict[complex]
+
+try:
+    hash(Foo())
+except Exception as e:
+    the_exp = e
+"#;
+
+        let (mut parser, mut interpreter) = init(input);
+
+        match interpreter.run(&mut parser) {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(_) => {
+                assert_eq!(
+                    interpreter.state.read("a"),
+                    Some(ExprResult::Integer(5.store()))
+                );
+                match interpreter.state.read("b") {
+                    Some(ExprResult::Integer(a)) => {
+                        assert!(a.borrow().clone() != 0);
+                    }
+                    _ => panic!("Unexpected type!"),
+                }
+                match interpreter.state.read("c") {
+                    Some(ExprResult::Integer(a)) => {
+                        assert!(a.borrow().clone() != 0);
+                    }
+                    _ => panic!("Unexpected type!"),
+                }
+                assert_eq!(interpreter.state.read("d"), Some(ExprResult::Boolean(true)));
+                match interpreter.state.read("the_exp") {
+                    Some(ExprResult::Exception(e)) => assert_eq!(
+                        e,
+                        Box::new(InterpreterError::TypeError(
+                            Some("__hash__ method should return an integer".into()),
+                            interpreter.state.call_stack()
+                        ))
+                    ),
+                    _ => panic!("Expected error!"),
+                }
             }
         }
     }

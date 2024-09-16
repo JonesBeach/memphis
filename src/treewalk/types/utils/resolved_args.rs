@@ -158,7 +158,8 @@ impl ResolvedArguments {
     }
 }
 
-/// This macro is useful when you only need positional arguments.
+/// This macro is useful to create `ResolvedArguments` when you only need positional arguments.
+/// When kwargs are needed, you can use `ResolvedArguments::new`.
 #[macro_export]
 macro_rules! resolved_args {
     // Double curly braces ensure that the entire macro expands into a single expression, which is
