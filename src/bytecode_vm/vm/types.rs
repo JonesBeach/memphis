@@ -14,7 +14,6 @@ pub type Namespace = HashMap<String, Reference>;
 /// [`StackValue::ConstantRef`] items reference an immutable object in the constant pool.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Reference {
-    Void,
     Int(i64),
     Bool(bool),
     ObjectRef(ObjectTableIndex),
@@ -30,7 +29,6 @@ impl Display for Reference {
 impl From<Value> for Reference {
     fn from(value: Value) -> Self {
         match value {
-            Value::Void => Reference::Void,
             Value::Integer(i) => Reference::Int(i),
             Value::Boolean(i) => Reference::Bool(i),
             _ => unimplemented!(),

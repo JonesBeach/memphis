@@ -113,7 +113,7 @@ impl Pausable for Container<Coroutine> {
         result: ExprResult,
     ) -> Result<ExprResult, InterpreterError> {
         self.borrow_mut().set_return_val(result.clone());
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn handle_step(
@@ -162,7 +162,7 @@ impl Container<Coroutine> {
         } else {
             // We return `Void` here because this is the return type of all statements (with a few
             // exceptions that we don't have to worry about here).
-            Ok(Poll::Ready(ExprResult::Void))
+            Ok(Poll::Ready(ExprResult::None))
         }
     }
 }
@@ -179,7 +179,7 @@ impl Callable for CloseBuiltin {
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {

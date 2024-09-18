@@ -128,7 +128,7 @@ impl Callable for InitBuiltin {
 
             range.borrow_mut().stop = *stop.borrow() as usize;
 
-            Ok(ExprResult::Void)
+            Ok(ExprResult::None)
         } else if args.len() == 2 {
             let start = args
                 .get_arg(0)
@@ -146,7 +146,7 @@ impl Callable for InitBuiltin {
             range.borrow_mut().start = *start.borrow() as usize;
             range.borrow_mut().stop = *stop.borrow() as usize;
 
-            Ok(ExprResult::Void)
+            Ok(ExprResult::None)
         } else if args.len() == 3 {
             let start = args
                 .get_arg(0)
@@ -171,7 +171,7 @@ impl Callable for InitBuiltin {
             range.borrow_mut().stop = *stop.borrow() as usize;
             range.borrow_mut().step = *step.borrow() as usize;
 
-            Ok(ExprResult::Void)
+            Ok(ExprResult::None)
         } else {
             Err(InterpreterError::WrongNumberOfArguments(
                 1,

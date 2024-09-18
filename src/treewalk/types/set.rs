@@ -126,7 +126,7 @@ impl Callable for InitBuiltin {
             ))?;
 
         if args.is_empty() {
-            Ok(ExprResult::Void)
+            Ok(ExprResult::None)
         } else if args.len() == 1 {
             let input_set = args
                 .get_arg(0)
@@ -136,7 +136,7 @@ impl Callable for InitBuiltin {
                 ))?;
 
             *output_set.borrow_mut() = input_set.borrow().clone();
-            Ok(ExprResult::Void)
+            Ok(ExprResult::None)
         } else {
             Err(InterpreterError::WrongNumberOfArguments(
                 1,

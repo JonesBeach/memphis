@@ -250,7 +250,8 @@ impl Callable for PrintBuiltin {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        Ok(ExprResult::Void)
+
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {

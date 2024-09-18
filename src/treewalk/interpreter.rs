@@ -1398,6 +1398,7 @@ impl Interpreter {
 
         // Return an error if one is thrown, otherwise all statements will return void.
         result?;
+
         Ok(ExprResult::None)
     }
 }
