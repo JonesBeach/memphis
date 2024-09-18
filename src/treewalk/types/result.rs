@@ -738,7 +738,7 @@ impl ExprResult {
 }
 
 impl Voidable for ExprResult {
-    fn is_void(&self) -> bool {
+    fn is_none(&self) -> bool {
         matches!(self, ExprResult::None)
     }
 }

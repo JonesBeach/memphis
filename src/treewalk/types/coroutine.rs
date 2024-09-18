@@ -160,7 +160,7 @@ impl Container<Coroutine> {
                 Err(e) => Err(e),
             }
         } else {
-            // We return `Void` here because this is the return type of all statements (with a few
+            // We return `None` here because this is the return type of all statements (with a few
             // exceptions that we don't have to worry about here).
             Ok(Poll::Ready(ExprResult::None))
         }

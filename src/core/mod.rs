@@ -10,9 +10,9 @@ pub use stack::Stack;
 
 use crate::{parser::Parser, types::errors::MemphisError};
 
-/// Return types which Void are used internally, but should never be displayed to the developer.
+/// Return types which None are used internally, but should never be displayed to the developer.
 pub trait Voidable {
-    fn is_void(&self) -> bool;
+    fn is_none(&self) -> bool;
 }
 
 pub trait InterpreterEntrypoint {

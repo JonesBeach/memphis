@@ -26,7 +26,7 @@ impl Default for Value {
 }
 
 impl Voidable for Value {
-    fn is_void(&self) -> bool {
+    fn is_none(&self) -> bool {
         matches!(self, Value::None)
     }
 }

@@ -1396,7 +1396,7 @@ impl Interpreter {
             } => self.evaluate_context_manager(expr, variable, block),
         };
 
-        // Return an error if one is thrown, otherwise all statements will return void.
+        // Return an error if one is thrown, otherwise all statements will return None.
         result?;
 
         Ok(ExprResult::None)

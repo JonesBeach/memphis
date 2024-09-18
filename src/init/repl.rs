@@ -75,7 +75,7 @@ impl Repl {
                 let mut parser = Parser::new(lexer.tokens(), state.clone());
                 match interpreter.run(&mut parser) {
                     Ok(i) => {
-                        if !i.is_void() {
+                        if !i.is_none() {
                             println!("{}", i);
                         }
                     }
