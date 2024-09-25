@@ -1,17 +1,28 @@
-use std::io;
-use std::io::Write;
-use std::process;
+use std::{
+    io::{self, Write},
+    process,
+};
 
-use crate::core::{Container, InterpreterEntrypoint, Voidable};
-use crate::init::Builder;
-use crate::lexer::Lexer;
-use crate::parser::Parser;
-use crate::treewalk::State;
-use crate::types::errors::MemphisError;
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode},
+    terminal, ExecutableCommand,
+};
+
+use crate::{
+    core::{Container, InterpreterEntrypoint, Voidable},
+    init::Builder,
+    lexer::Lexer,
+    parser::Parser,
+    types::errors::MemphisError,
+};
 
 pub struct Repl {
     in_block: bool,
     errors: Vec<MemphisError>,
+    input: String,
+    history: Vec<String>,
+    history_index: Option<usize>,
 }
 
 impl Default for Repl {
@@ -27,10 +38,13 @@ impl Repl {
             // working fine for now
             in_block: false,
             errors: vec![],
+            input: String::new(),
+            history: vec![],
+            history_index: None,
         }
     }
 
-    fn marker(&mut self) -> String {
+    fn marker(&self) -> String {
         if !self.in_block {
             ">>>".to_string()
         } else {
@@ -44,56 +58,84 @@ impl Repl {
             env!("CARGO_PKG_VERSION")
         );
 
-        let state = Container::new(State::new());
+        let (_, mut interpreter) = Builder::default().build();
+        let mut line = String::new();
 
-        let (_, mut interpreter) = Builder::new().state(state.clone()).text("").build();
-        let mut input = String::new();
+        // Enable raw mode to handle individual keypresses
+        terminal::enable_raw_mode().unwrap();
+        io::stdout()
+            .execute(terminal::Clear(terminal::ClearType::All))
+            .unwrap();
 
         loop {
+            io::stdout().execute(cursor::MoveTo(0, 0)).unwrap();
             print!("{} ", self.marker());
-            io::stdout().flush().expect("Failed to flush stdout");
+            io::stdout().flush().unwrap();
 
-            let mut line = String::new();
-            io::stdin()
-                .read_line(&mut line)
-                .expect("Failed to read line");
-
-            if line.trim_end() == "exit()" {
-                println!("Exiting...");
-
-                let error_code = match self.errors.len() {
-                    0 => 0,
-                    _ => 1,
-                };
-                process::exit(error_code);
-            }
-
-            input.push_str(&line);
-
-            if self.should_interpret(&input) {
-                let lexer = Lexer::new(&input);
-                let mut parser = Parser::new(lexer.tokens(), state.clone());
-                match interpreter.run(&mut parser) {
-                    Ok(i) => {
-                        if !i.is_none() {
-                            println!("{}", i);
+            if let Event::Key(event) = event::read().unwrap() {
+                match event.code {
+                    KeyCode::Char(c) => {
+                        line.push(c);
+                        print!("{}", c); // Print the character
+                        io::stdout().flush().unwrap();
+                    }
+                    KeyCode::Backspace => {
+                        if !line.is_empty() {
+                            line.pop();
+                            print!("\x08 \x08"); // Handle backspace
+                            io::stdout().flush().unwrap();
                         }
                     }
-                    Err(err) => {
-                        self.errors.push(err.clone());
-                        eprintln!("{}", err);
+                    KeyCode::Enter => {
+                        println!();
+                        self.history.push(line.clone());
+                        self.history_index = None;
+                        self.process_line(&line);
+                        line.clear();
                     }
-                }
+                    KeyCode::Up => {
+                        if let Some(index) = self.history_index {
+                            if index > 0 {
+                                self.history_index = Some(index - 1);
+                            }
+                        } else if !self.history.is_empty() {
+                            self.history_index = Some(self.history.len() - 1);
+                        }
 
-                input.clear();
-                self.in_block = false;
-            } else {
-                self.in_block = true;
+                        if let Some(index) = self.history_index {
+                            line = self.history[index].clone();
+                            self.redraw_input(&line);
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let Some(index) = self.history_index {
+                            if index < self.history.len() - 1 {
+                                self.history_index = Some(index + 1);
+                            } else {
+                                self.history_index = None;
+                                line.clear();
+                            }
+
+                            if let Some(index) = self.history_index {
+                                line = self.history[index].clone();
+                            } else {
+                                line.clear();
+                            }
+
+                            self.redraw_input(&line);
+                        }
+                    }
+                    KeyCode::Right => break,
+                    _ => {}
+                }
             }
         }
+
+        // Don't forget to disable raw mode at the end
+        terminal::disable_raw_mode().unwrap();
     }
 
-    fn should_interpret(&mut self, input: &str) -> bool {
+    fn should_interpret(&self, input: &str) -> bool {
         let last_two = &input[input.len() - 2..];
         if !self.in_block {
             // The start of blocks always begin with : and a newline
@@ -101,6 +143,47 @@ impl Repl {
         } else {
             // The end of blocks are indicated by an empty line
             last_two == "\n\n"
+        }
+    }
+
+    /// Clear current input and redraw it
+    fn redraw_input(&self, line: &str) {
+        print!("\r{} {}", self.marker(), line);
+        io::stdout().flush().unwrap();
+    }
+
+    fn process_line(&mut self, line: &str) {
+        if line.trim_end() == "exit()" {
+            println!("Exiting...");
+
+            let error_code = match self.errors.len() {
+                0 => 0,
+                _ => 1,
+            };
+            process::exit(error_code);
+        }
+
+        self.input.push_str(&line);
+
+        if self.should_interpret(&self.input) {
+            let lexer = Lexer::new(&self.input);
+            let mut parser = Parser::new(lexer.tokens(), self.state.clone());
+            match self.interpreter.run(&mut parser) {
+                Ok(i) => {
+                    if !i.is_none() {
+                        println!("{}", i);
+                    }
+                }
+                Err(err) => {
+                    self.errors.push(err.clone());
+                    eprintln!("{}", err);
+                }
+            }
+
+            self.input.clear();
+            self.in_block = false;
+        } else {
+            self.in_block = true;
         }
     }
 }
