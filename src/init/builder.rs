@@ -74,6 +74,13 @@ impl Builder {
         self
     }
 
+    fn init_text(&mut self) {
+        self.text = match self.text.clone() {
+            Some(s) => Some(s),
+            None => Some("".to_string()),
+        };
+    }
+
     fn init_state(&mut self) {
         self.state = match self.state.clone() {
             Some(s) => Some(s),
@@ -101,6 +108,8 @@ impl Builder {
     }
 
     pub fn build_treewalk_expl(&mut self) -> (Parser, Interpreter) {
+        self.init_text();
+        self.init_state();
         (self.parser(), Interpreter::new(self.state.clone().unwrap()))
     }
 

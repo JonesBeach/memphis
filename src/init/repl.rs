@@ -1,6 +1,6 @@
 use std::{
     io::{self, Write},
-    process,
+    panic, process,
 };
 
 use crossterm::{
@@ -10,14 +10,17 @@ use crossterm::{
 };
 
 use crate::{
-    core::{Container, InterpreterEntrypoint, Voidable},
+    core::{InterpreterEntrypoint, Voidable},
     init::Builder,
     lexer::Lexer,
     parser::Parser,
+    treewalk::Interpreter,
     types::errors::MemphisError,
 };
 
 pub struct Repl {
+    /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
+    /// now
     in_block: bool,
     errors: Vec<MemphisError>,
     input: String,
@@ -34,8 +37,6 @@ impl Default for Repl {
 impl Repl {
     pub fn new() -> Self {
         Repl {
-            // this may need to become a state for a FSM, but this seems to be
-            // working fine for now
             in_block: false,
             errors: vec![],
             input: String::new(),
@@ -44,11 +45,10 @@ impl Repl {
         }
     }
 
-    fn marker(&self) -> String {
-        if !self.in_block {
-            ">>>".to_string()
-        } else {
-            "...".to_string()
+    fn marker(&self) -> &str {
+        match self.in_block {
+            false => ">>>",
+            true => "...",
         }
     }
 
@@ -58,40 +58,48 @@ impl Repl {
             env!("CARGO_PKG_VERSION")
         );
 
-        let (_, mut interpreter) = Builder::default().build();
+        // Install a panic hook to ensure raw mode is disabled on panic
+        panic::set_hook(Box::new(|info| {
+            let _ = terminal::disable_raw_mode();
+            eprintln!("Panic occurred: {:?}", info);
+            process::exit(1);
+        }));
+
+        let (_, mut interpreter) = Builder::default().build_treewalk_expl();
         let mut line = String::new();
 
-        // Enable raw mode to handle individual keypresses
-        terminal::enable_raw_mode().unwrap();
-        io::stdout()
-            .execute(terminal::Clear(terminal::ClearType::All))
-            .unwrap();
+        // Enable raw mode to handle individual keypresses. This must be disabled during all
+        // expected or unexpected exits!
+        let _ = terminal::enable_raw_mode();
 
+        print!("{} ", self.marker());
+        io::stdout().flush().unwrap();
         loop {
-            io::stdout().execute(cursor::MoveTo(0, 0)).unwrap();
-            print!("{} ", self.marker());
-            io::stdout().flush().unwrap();
-
             if let Event::Key(event) = event::read().unwrap() {
                 match event.code {
                     KeyCode::Char(c) => {
                         line.push(c);
-                        print!("{}", c); // Print the character
+                        print!("{}", c);
                         io::stdout().flush().unwrap();
                     }
                     KeyCode::Backspace => {
                         if !line.is_empty() {
                             line.pop();
-                            print!("\x08 \x08"); // Handle backspace
+                            print!("\x08 \x08"); // Escape sequence to emit a backspace char
                             io::stdout().flush().unwrap();
+                            io::stdout().execute(cursor::MoveLeft(1)).unwrap();
                         }
                     }
                     KeyCode::Enter => {
-                        println!();
                         self.history.push(line.clone());
                         self.history_index = None;
-                        self.process_line(&line);
+                        self.process_line(&mut interpreter, &line);
                         line.clear();
+
+                        println!();
+                        io::stdout().execute(cursor::MoveToNextLine(1)).unwrap();
+                        print!("{} ", self.marker());
+                        io::stdout().flush().unwrap();
                     }
                     KeyCode::Up => {
                         if let Some(index) = self.history_index {
@@ -131,18 +139,17 @@ impl Repl {
             }
         }
 
-        // Don't forget to disable raw mode at the end
-        terminal::disable_raw_mode().unwrap();
+        unreachable!()
     }
 
-    fn should_interpret(&self, input: &str) -> bool {
+    fn end_of_statement(&self, input: &str) -> bool {
         let last_two = &input[input.len() - 2..];
-        if !self.in_block {
+        match self.in_block {
             // The start of blocks always begin with : and a newline
-            last_two != ":\n"
-        } else {
+            false => last_two != ":\n",
+
             // The end of blocks are indicated by an empty line
-            last_two == "\n\n"
+            true => last_two == "\n\n",
         }
     }
 
@@ -152,10 +159,11 @@ impl Repl {
         io::stdout().flush().unwrap();
     }
 
-    fn process_line(&mut self, line: &str) {
+    fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
         if line.trim_end() == "exit()" {
-            println!("Exiting...");
+            print!("\n\rExiting...\n\r");
 
+            let _ = terminal::disable_raw_mode();
             let error_code = match self.errors.len() {
                 0 => 0,
                 _ => 1,
@@ -163,15 +171,15 @@ impl Repl {
             process::exit(error_code);
         }
 
-        self.input.push_str(&line);
+        self.input.push_str(line);
 
-        if self.should_interpret(&self.input) {
+        if self.end_of_statement(&self.input) {
             let lexer = Lexer::new(&self.input);
-            let mut parser = Parser::new(lexer.tokens(), self.state.clone());
-            match self.interpreter.run(&mut parser) {
+            let mut parser = Parser::new(lexer.tokens(), interpreter.state.clone());
+            match interpreter.run(&mut parser) {
                 Ok(i) => {
                     if !i.is_none() {
-                        println!("{}", i);
+                        print!("\n\r{}", i);
                     }
                 }
                 Err(err) => {
