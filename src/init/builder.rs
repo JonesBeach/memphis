@@ -73,12 +73,12 @@ impl Builder {
         self.state = Some(state);
         self
     }
-
-    fn init_text(&mut self) {
-        if self.text.is_none() {
-            self.text = Some(String::default());
-        }
-    }
+    //
+    // fn init_text(&mut self) {
+    //     if self.text.is_none() {
+    //         self.text = Some(String::default());
+    //     }
+    // }
 
     fn init_state(&mut self) {
         if self.state.is_none() {
@@ -106,7 +106,8 @@ impl Builder {
     }
 
     pub fn build_treewalk_expl(&mut self) -> (Parser, Interpreter) {
-        self.init_text();
+        // TODO this shouldn't be necessary, but we have to setup the call stack right now
+        self.text("");
         self.init_state();
         (self.parser(), Interpreter::new(self.state.clone().unwrap()))
     }
