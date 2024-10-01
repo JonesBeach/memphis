@@ -169,7 +169,8 @@ impl Display for InterpreterError {
             }
             InterpreterError::NameError(name, call_stack) => {
                 write!(f, "{}", call_stack)?;
-                write!(f, "NameError: name '{}' is not defined", name)
+                // TODO remove this carriage return!!!!
+                write!(f, "\rNameError: name '{}' is not defined", name)
             }
             InterpreterError::AttributeError(class_name, field, call_stack) => {
                 write!(f, "{}", call_stack)?;

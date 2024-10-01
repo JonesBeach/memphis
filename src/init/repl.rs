@@ -5,8 +5,10 @@ use std::{
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode},
-    terminal, ExecutableCommand,
+    event::{self, Event, KeyCode, KeyModifiers},
+    execute,
+    terminal::{self, Clear, ClearType},
+    ExecutableCommand,
 };
 
 use crate::{
@@ -88,6 +90,18 @@ impl Repl {
         io::stdout().flush().unwrap();
         loop {
             if let Event::Key(event) = event::read().unwrap() {
+                match (event.code, event.modifiers) {
+                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                        println!("Ctrl-C detected!");
+                        panic!();
+                    }
+                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                        println!("Ctrl-D detected!");
+                        panic!();
+                    }
+                    _ => {}
+                }
+
                 match event.code {
                     KeyCode::Char(c) => {
                         line.push(c);
@@ -97,9 +111,7 @@ impl Repl {
                     KeyCode::Backspace => {
                         if !line.is_empty() {
                             line.pop();
-                            print!("\x08 \x08"); // Escape sequence to emit a backspace char
-                            io::stdout().flush().unwrap();
-                            io::stdout().execute(cursor::MoveLeft(1)).unwrap();
+                            self.redraw_input(&line);
                         }
                     }
                     KeyCode::Enter => {
@@ -171,6 +183,7 @@ impl Repl {
 
     /// Clear current input and redraw it
     fn redraw_input(&self, line: &str) {
+        execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
         print!("\r{} {}", self.marker(), line);
         io::stdout().flush().unwrap();
     }
@@ -200,7 +213,7 @@ impl Repl {
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    eprintln!("{}", err);
+                    eprint!("\n\r{}", err);
                 }
             }
 
