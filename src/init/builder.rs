@@ -75,17 +75,15 @@ impl Builder {
     }
 
     fn init_text(&mut self) {
-        self.text = match self.text.clone() {
-            Some(s) => Some(s),
-            None => Some("".to_string()),
-        };
+        if self.text.is_none() {
+            self.text = Some(String::default());
+        }
     }
 
     fn init_state(&mut self) {
-        self.state = match self.state.clone() {
-            Some(s) => Some(s),
-            None => Some(Container::new(State::new())),
-        };
+        if self.state.is_none() {
+            self.state = Some(Container::new(State::default()));
+        }
     }
 
     pub fn parser(&mut self) -> Parser {
