@@ -155,13 +155,17 @@ impl Repl {
     }
 
     fn end_of_statement(&self, input: &str) -> bool {
-        let last_two = &input[input.len() - 2..];
-        match self.in_block {
-            // The start of blocks always begin with : and a newline
-            false => last_two != ":\n",
+        if let Some(last_char) = input.chars().last() {
+            match self.in_block {
+                // The start of blocks always begin with : and a newline
+                false => last_char != ':',
 
-            // The end of blocks are indicated by an empty line
-            true => last_two == "\n\n",
+                // The end of blocks are indicated by an empty line
+                true => last_char == '\n',
+            }
+        } else {
+            // empty string
+            true
         }
     }
 
@@ -185,7 +189,7 @@ impl Repl {
 
         self.input.push_str(line);
 
-        if self.end_of_statement(&self.input) {
+        if self.end_of_statement(line) {
             let lexer = Lexer::new(&self.input);
             let mut parser = Parser::new(lexer.tokens(), interpreter.state.clone());
             match interpreter.run(&mut parser) {
