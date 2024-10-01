@@ -61,7 +61,19 @@ impl Repl {
         // Install a panic hook to ensure raw mode is disabled on panic
         panic::set_hook(Box::new(|info| {
             let _ = terminal::disable_raw_mode();
-            eprintln!("Panic occurred: {:?}", info);
+            if let Some(s) = info.payload().downcast_ref::<&str>() {
+                eprintln!("\n\rPanic: {s:?}");
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                eprintln!("\n\rPanic: {s:?}");
+            } else {
+                eprintln!("\n\rPanic occurred!");
+            }
+
+            if let Some(location) = info.location() {
+                println!("in file '{}' at line {}", location.file(), location.line(),);
+            } else {
+                println!("in an unknown location.");
+            }
             process::exit(1);
         }));
 
