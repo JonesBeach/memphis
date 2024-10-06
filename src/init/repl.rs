@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     io::{self, Write},
     panic, process,
 };
@@ -19,6 +20,27 @@ use crate::{
     treewalk::Interpreter,
     types::errors::MemphisError,
 };
+
+fn process_output_for_raw_mode(output: &str) -> String {
+    if terminal::is_raw_mode_enabled().unwrap() {
+        output.replace("\n", "\n\r")
+    } else {
+        output.to_string()
+    }
+}
+
+fn normalize<T: Display>(err: &T) -> String {
+    let formatted = format!("\n{}", err);
+    process_output_for_raw_mode(&formatted)
+}
+
+fn print_error<T: Display>(err: &T) {
+    eprint!("{}", normalize(err));
+}
+
+fn print_std<T: Display>(val: &T) {
+    print!("{}", normalize(val));
+}
 
 pub struct Repl {
     /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
@@ -190,7 +212,7 @@ impl Repl {
 
     fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
         if line.trim_end() == "exit()" {
-            print!("\n\rExiting...\n\r");
+            print_std(&"Exiting...\n");
 
             let _ = terminal::disable_raw_mode();
             let error_code = match self.errors.len() {
@@ -208,12 +230,12 @@ impl Repl {
             match interpreter.run(&mut parser) {
                 Ok(i) => {
                     if !i.is_none() {
-                        print!("\n\r{}", i);
+                        print_std(&i);
                     }
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    eprint!("\n\r{}", err);
+                    print_error(&err);
                 }
             }
 

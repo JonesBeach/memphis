@@ -125,8 +125,7 @@ impl Display for CallStack {
         for frame in &self.frames {
             writeln!(
                 f,
-                // TODO remove this carriage return!!!!
-                "\r  File \"{}\", line {}, in {}",
+                "  File \"{}\", line {}, in {}",
                 frame.file_path_str(),
                 frame.line_number,
                 frame.function_name()
