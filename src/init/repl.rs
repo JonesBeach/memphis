@@ -5,11 +5,9 @@ use std::{
 };
 
 use crossterm::{
-    cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{self, Clear, ClearType},
-    ExecutableCommand,
 };
 
 use crate::{
@@ -30,16 +28,13 @@ fn process_output_for_raw_mode(output: &str) -> String {
 }
 
 fn normalize<T: Display>(err: &T) -> String {
-    let formatted = format!("\n{}", err);
+    let formatted = format!("{}", err);
     process_output_for_raw_mode(&formatted)
-}
-
-fn print_error<T: Display>(err: &T) {
-    eprint!("{}", normalize(err));
 }
 
 fn print_std<T: Display>(val: &T) {
     print!("{}", normalize(val));
+    io::stdout().flush().unwrap();
 }
 
 pub struct Repl {
@@ -71,8 +66,8 @@ impl Repl {
 
     fn marker(&self) -> &str {
         match self.in_block {
-            false => ">>>",
-            true => "...",
+            false => ">>> ",
+            true => "... ",
         }
     }
 
@@ -86,11 +81,11 @@ impl Repl {
         panic::set_hook(Box::new(|info| {
             let _ = terminal::disable_raw_mode();
             if let Some(s) = info.payload().downcast_ref::<&str>() {
-                eprintln!("\n\rPanic: {s:?}");
+                eprintln!("\nPanic: {s:?}");
             } else if let Some(s) = info.payload().downcast_ref::<String>() {
-                eprintln!("\n\rPanic: {s:?}");
+                eprintln!("\nPanic: {s:?}");
             } else {
-                eprintln!("\n\rPanic occurred!");
+                eprintln!("\nPanic occurred!");
             }
 
             if let Some(location) = info.location() {
@@ -108,18 +103,15 @@ impl Repl {
         // expected or unexpected exits!
         let _ = terminal::enable_raw_mode();
 
-        print!("{} ", self.marker());
-        io::stdout().flush().unwrap();
+        print_std(&self.marker());
         loop {
             if let Event::Key(event) = event::read().unwrap() {
                 match (event.code, event.modifiers) {
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        println!("Ctrl-C detected!");
-                        panic!();
+                        panic!("Ctrl-C detected!");
                     }
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                        println!("Ctrl-D detected!");
-                        panic!();
+                        panic!("^D");
                     }
                     _ => {}
                 }
@@ -127,8 +119,7 @@ impl Repl {
                 match event.code {
                     KeyCode::Char(c) => {
                         line.push(c);
-                        print!("{}", c);
-                        io::stdout().flush().unwrap();
+                        print_std(&c);
                     }
                     KeyCode::Backspace => {
                         if !line.is_empty() {
@@ -142,10 +133,7 @@ impl Repl {
                         self.process_line(&mut interpreter, &line);
                         line.clear();
 
-                        println!();
-                        io::stdout().execute(cursor::MoveToNextLine(1)).unwrap();
-                        print!("{} ", self.marker());
-                        io::stdout().flush().unwrap();
+                        print_std(&self.marker());
                     }
                     KeyCode::Up => {
                         if let Some(index) = self.history_index {
@@ -180,6 +168,7 @@ impl Repl {
                         }
                     }
                     KeyCode::Right => break,
+                    KeyCode::Left => break,
                     _ => {}
                 }
             }
@@ -206,14 +195,14 @@ impl Repl {
     /// Clear current input and redraw it
     fn redraw_input(&self, line: &str) {
         execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
-        print!("\r{} {}", self.marker(), line);
-        io::stdout().flush().unwrap();
+        print_std(&"\r");
+        print_std(&self.marker());
+        print_std(&line);
     }
 
     fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
+        print_std(&"\n");
         if line.trim_end() == "exit()" {
-            print_std(&"Exiting...\n");
-
             let _ = terminal::disable_raw_mode();
             let error_code = match self.errors.len() {
                 0 => 0,
@@ -231,11 +220,13 @@ impl Repl {
                 Ok(i) => {
                     if !i.is_none() {
                         print_std(&i);
+                        print_std(&"\n");
                     }
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    print_error(&err);
+                    print_std(&err);
+                    print_std(&"\n");
                 }
             }
 
