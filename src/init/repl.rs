@@ -111,7 +111,11 @@ impl Repl {
             if let Event::Key(event) = event::read().unwrap() {
                 match (event.code, event.modifiers) {
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        panic!("Ctrl-C detected!");
+                        line.clear();
+                        line_index = 0;
+                        print_std(&"\n");
+                        print_std(&self.marker());
+                        continue;
                     }
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
                         panic!("^D");
