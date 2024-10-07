@@ -256,6 +256,10 @@ impl Repl {
             self.input.clear();
             self.in_block = false;
         } else {
+            // This wasn't the end of a statement, so add a newline. We could do this in the
+            // handling for `KeyEvent::Enter` above, but that would add complexity to
+            // `end_of_statement`. Trade-offs!
+            self.input.push('\n');
             self.in_block = true;
         }
     }
