@@ -212,13 +212,11 @@ impl Repl {
     /// Clear current input and redraw it
     fn redraw_input(&self, line: &str) {
         execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
-        print_std(&"\r");
-        print_std(&self.marker());
-        print_std(&line);
+        print_std(&format!("\r{}{}", self.marker(), line));
     }
 
     fn redraw_and_position(&self, line: &str, line_index: usize) {
-        self.redraw_input(&line);
+        self.redraw_input(line);
         let cursor_col = (line_index + self.marker().len()) as u16;
         execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
     }
@@ -242,14 +240,12 @@ impl Repl {
             match interpreter.run(&mut parser) {
                 Ok(i) => {
                     if !i.is_none() {
-                        print_std(&i);
-                        print_std(&"\n");
+                        print_std(&format!("{}\n", i));
                     }
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    print_std(&err);
-                    print_std(&"\n");
+                    print_std(&format!("{}\n", err));
                 }
             }
 
