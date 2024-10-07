@@ -5,6 +5,7 @@ use std::{
 };
 
 use crossterm::{
+    cursor,
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{self, Clear, ClearType},
@@ -98,6 +99,7 @@ impl Repl {
 
         let (_, mut interpreter) = Builder::default().build_treewalk_expl();
         let mut line = String::new();
+        let mut line_index = 0;
 
         // Enable raw mode to handle individual keypresses. This must be disabled during all
         // expected or unexpected exits!
@@ -118,13 +120,21 @@ impl Repl {
 
                 match event.code {
                     KeyCode::Char(c) => {
-                        line.push(c);
-                        print_std(&c);
+                        line.insert(line_index, c);
+                        line_index += 1;
+
+                        self.redraw_input(&line);
+                        let new_col = (line_index + self.marker().len()) as u16;
+                        execute!(io::stdout(), cursor::MoveToColumn(new_col)).unwrap();
                     }
                     KeyCode::Backspace => {
-                        if !line.is_empty() {
-                            line.pop();
+                        if line_index > 0 {
+                            line_index -= 1;
+                            line.remove(line_index);
+
                             self.redraw_input(&line);
+                            let new_col = (line_index + self.marker().len()) as u16;
+                            execute!(io::stdout(), cursor::MoveToColumn(new_col)).unwrap();
                         }
                     }
                     KeyCode::Enter => {
@@ -132,6 +142,7 @@ impl Repl {
                         self.history_index = None;
                         self.process_line(&mut interpreter, &line);
                         line.clear();
+                        line_index = 0;
 
                         print_std(&self.marker());
                     }
@@ -146,6 +157,8 @@ impl Repl {
 
                         if let Some(index) = self.history_index {
                             line = self.history[index].clone();
+
+                            line_index = line.len();
                             self.redraw_input(&line);
                         }
                     }
@@ -164,17 +177,26 @@ impl Repl {
                                 line.clear();
                             }
 
+                            line_index = line.len();
                             self.redraw_input(&line);
                         }
                     }
-                    KeyCode::Right => break,
-                    KeyCode::Left => break,
+                    KeyCode::Right => {
+                        if line_index < line.len() {
+                            execute!(io::stdout(), cursor::MoveRight(0)).unwrap();
+                            line_index += 1;
+                        }
+                    }
+                    KeyCode::Left => {
+                        if line_index > 0 {
+                            execute!(io::stdout(), cursor::MoveLeft(0)).unwrap();
+                            line_index -= 1;
+                        }
+                    }
                     _ => {}
                 }
             }
         }
-
-        unreachable!()
     }
 
     fn end_of_statement(&self, input: &str) -> bool {
