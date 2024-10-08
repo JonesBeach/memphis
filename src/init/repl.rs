@@ -72,6 +72,7 @@ fn install_custom_panic_hook() {
     }));
 }
 
+/// The Memphis Read-Evaluate-Print-Loop (REPL).
 pub struct Repl {
     /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
     /// now.
@@ -104,6 +105,7 @@ impl Default for Repl {
 }
 
 impl Repl {
+    /// Initialize an empty REPL.
     pub fn new() -> Self {
         Repl {
             in_block: false,
@@ -116,13 +118,7 @@ impl Repl {
         }
     }
 
-    fn marker(&self) -> &str {
-        match self.in_block {
-            false => ">>> ",
-            true => "... ",
-        }
-    }
-
+    /// The primary entrypoint to the REPL.
     pub fn run(&mut self) {
         println!(
             "memphis {} REPL (Type 'exit()' to quit)",
@@ -225,6 +221,16 @@ impl Repl {
         }
     }
 
+    /// Gives the indicator for the start of the given line, based on whether or not the most
+    /// recent line provided by the user completed a statement or not.
+    fn prompt(&self) -> &str {
+        match self.in_block {
+            false => ">>> ",
+            true => "... ",
+        }
+    }
+
+    /// Check if the provided input str indicates the end of a statement.
     fn end_of_statement(&self, input: &str) -> bool {
         if let Some(last_char) = input.chars().last() {
             match self.in_block {
@@ -240,26 +246,29 @@ impl Repl {
         }
     }
 
+    /// Clear the REPL prompt to prepare for user input.
     fn initialize_prompt(&mut self, add_new_line: bool) {
         self.line.clear();
         self.line_index = 0;
         if add_new_line {
             print_raw(&"\n");
         }
-        print_raw(&self.marker());
+        print_raw(&self.prompt());
     }
 
     /// Clear the current input, redraw it, and align the cursor to the proper column.
     fn redraw_and_position(&self) {
         // Redraw
         execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
-        print_raw(&format!("\r{}{}", self.marker(), self.line));
+        print_raw(&format!("\r{}{}", self.prompt(), self.line));
 
         // Position
-        let cursor_col = (self.line_index + self.marker().len()) as u16;
+        let cursor_col = (self.line_index + self.prompt().len()) as u16;
         execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
     }
 
+    /// Append the provided line to the constructed statement and evaluate it through the
+    /// `Interpreter`.
     fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
         if line.trim_end() == "exit()" {
             let _ = terminal::disable_raw_mode();
