@@ -20,31 +20,46 @@ use crate::{
     types::errors::MemphisError,
 };
 
-fn process_output_for_raw_mode(output: &str) -> String {
+/// When the terminal is in raw mode, we must emit a carriage return in addition to a newline,
+/// because that does not happen automatically.
+fn normalize<T: Display>(err: &T) -> String {
+    let formatted = format!("{}", err);
     if terminal::is_raw_mode_enabled().unwrap() {
-        output.replace("\n", "\n\r")
+        formatted.replace("\n", "\n\r")
     } else {
-        output.to_string()
+        formatted.to_string()
     }
 }
 
-fn normalize<T: Display>(err: &T) -> String {
-    let formatted = format!("{}", err);
-    process_output_for_raw_mode(&formatted)
-}
-
-fn print_std<T: Display>(val: &T) {
+fn print_raw<T: Display>(val: &T) {
     print!("{}", normalize(val));
     io::stdout().flush().unwrap();
 }
 
+fn println_raw<T: Display>(val: &T) {
+    print_raw(&format!("{}\n", val));
+}
+
 pub struct Repl {
     /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
-    /// now
+    /// now.
     in_block: bool,
     errors: Vec<MemphisError>,
+
+    /// The current line being manipulated by the user.
+    line: String,
+
+    /// The current cursor position on the current line. This _excludes_ the `marker`.
+    line_index: usize,
+
+    /// The current statement being constructed. This will consist of the last 1 or more `line`
+    /// values.
     input: String,
+
+    /// A list of all the lines (_not_ statements) recording during this REPL session.
     history: Vec<String>,
+
+    /// If Up/Down has been pressed, the index in `history` the user is currently selecting.
     history_index: Option<usize>,
 }
 
@@ -59,6 +74,8 @@ impl Repl {
         Repl {
             in_block: false,
             errors: vec![],
+            line: String::new(),
+            line_index: 0,
             input: String::new(),
             history: vec![],
             history_index: None,
@@ -80,7 +97,10 @@ impl Repl {
 
         // Install a panic hook to ensure raw mode is disabled on panic
         panic::set_hook(Box::new(|info| {
+            // This is critical!! The rest of this function is just debug info, but without this
+            // line, your shell will become unusable on an unexpected panic.
             let _ = terminal::disable_raw_mode();
+
             if let Some(s) = info.payload().downcast_ref::<&str>() {
                 eprintln!("\nPanic: {s:?}");
             } else if let Some(s) = info.payload().downcast_ref::<String>() {
@@ -90,10 +110,11 @@ impl Repl {
             }
 
             if let Some(location) = info.location() {
-                println!("in file '{}' at line {}", location.file(), location.line(),);
+                eprintln!("in file '{}' at line {}", location.file(), location.line());
             } else {
-                println!("in an unknown location.");
+                eprintln!("in an unknown location.");
             }
+
             process::exit(1);
         }));
 
@@ -103,18 +124,12 @@ impl Repl {
         // expected or unexpected exits!
         let _ = terminal::enable_raw_mode();
 
-        let mut line = String::new();
-        let mut line_index = 0;
-        print_std(&self.marker());
-
+        self.initialize_prompt(false);
         loop {
             if let Event::Key(event) = event::read().unwrap() {
                 match (event.code, event.modifiers) {
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        line.clear();
-                        line_index = 0;
-                        print_std(&"\n");
-                        print_std(&self.marker());
+                        self.initialize_prompt(true);
                         continue;
                     }
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
@@ -125,25 +140,26 @@ impl Repl {
 
                 match event.code {
                     KeyCode::Char(c) => {
-                        line.insert(line_index, c);
-                        line_index += 1;
-                        self.redraw_and_position(&line, line_index);
+                        self.line.insert(self.line_index, c);
+                        self.line_index += 1;
+                        self.redraw_and_position();
                     }
                     KeyCode::Backspace => {
-                        if line_index > 0 {
-                            line_index -= 1;
-                            line.remove(line_index);
-                            self.redraw_and_position(&line, line_index);
+                        if self.line_index > 0 {
+                            self.line_index -= 1;
+                            self.line.remove(self.line_index);
+                            self.redraw_and_position();
                         }
                     }
                     KeyCode::Enter => {
-                        self.history.push(line.clone());
+                        self.history.push(self.line.clone());
                         self.history_index = None;
-                        self.process_line(&mut interpreter, &line);
 
-                        line.clear();
-                        line_index = 0;
-                        print_std(&self.marker());
+                        // This newline simulates the user pressing the enter key
+                        println_raw(&"");
+                        self.process_line(&mut interpreter, &self.line.clone());
+
+                        self.initialize_prompt(false);
                     }
                     KeyCode::Up => {
                         if let Some(index) = self.history_index {
@@ -155,10 +171,9 @@ impl Repl {
                         }
 
                         if let Some(index) = self.history_index {
-                            line = self.history[index].clone();
-
-                            line_index = line.len();
-                            self.redraw_input(&line);
+                            self.line = self.history[index].clone();
+                            self.line_index = self.line.len();
+                            self.redraw_input();
                         }
                     }
                     KeyCode::Down => {
@@ -167,29 +182,29 @@ impl Repl {
                                 self.history_index = Some(index + 1);
                             } else {
                                 self.history_index = None;
-                                line.clear();
+                                self.line.clear();
                             }
 
                             if let Some(index) = self.history_index {
-                                line = self.history[index].clone();
+                                self.line = self.history[index].clone();
                             } else {
-                                line.clear();
+                                self.line.clear();
                             }
 
-                            line_index = line.len();
-                            self.redraw_and_position(&line, line_index);
+                            self.line_index = self.line.len();
+                            self.redraw_and_position();
                         }
                     }
                     KeyCode::Right => {
-                        if line_index < line.len() {
-                            line_index += 1;
-                            self.redraw_and_position(&line, line_index);
+                        if self.line_index < self.line.len() {
+                            self.line_index += 1;
+                            self.redraw_and_position();
                         }
                     }
                     KeyCode::Left => {
-                        if line_index > 0 {
-                            line_index -= 1;
-                            self.redraw_and_position(&line, line_index);
+                        if self.line_index > 0 {
+                            self.line_index -= 1;
+                            self.redraw_and_position();
                         }
                     }
                     _ => {}
@@ -213,20 +228,28 @@ impl Repl {
         }
     }
 
-    /// Clear current input and redraw it
-    fn redraw_input(&self, line: &str) {
-        execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
-        print_std(&format!("\r{}{}", self.marker(), line));
+    fn initialize_prompt(&mut self, add_new_line: bool) {
+        self.line.clear();
+        self.line_index = 0;
+        if add_new_line {
+            print_raw(&"\n");
+        }
+        print_raw(&self.marker());
     }
 
-    fn redraw_and_position(&self, line: &str, line_index: usize) {
-        self.redraw_input(line);
-        let cursor_col = (line_index + self.marker().len()) as u16;
+    /// Clear current input and redraw it
+    fn redraw_input(&self) {
+        execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
+        print_raw(&format!("\r{}{}", self.marker(), self.line));
+    }
+
+    fn redraw_and_position(&self) {
+        self.redraw_input();
+        let cursor_col = (self.line_index + self.marker().len()) as u16;
         execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
     }
 
     fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
-        print_std(&"\n");
         if line.trim_end() == "exit()" {
             let _ = terminal::disable_raw_mode();
             let error_code = match self.errors.len() {
@@ -242,14 +265,14 @@ impl Repl {
             let lexer = Lexer::new(&self.input);
             let mut parser = Parser::new(lexer.tokens(), interpreter.state.clone());
             match interpreter.run(&mut parser) {
-                Ok(i) => {
-                    if !i.is_none() {
-                        print_std(&format!("{}\n", i));
+                Ok(result) => {
+                    if !result.is_none() {
+                        println_raw(&result);
                     }
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    print_std(&format!("{}\n", err));
+                    println_raw(&err);
                 }
             }
 
