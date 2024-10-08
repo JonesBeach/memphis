@@ -31,19 +31,53 @@ fn normalize<T: Display>(err: &T) -> String {
     }
 }
 
+/// Print command which will normalize newlines + carriage returns before printing.
 fn print_raw<T: Display>(val: &T) {
     print!("{}", normalize(val));
     io::stdout().flush().unwrap();
 }
 
+/// Print command which will normalize newlines + carriage returns before printing and include a
+/// newline at the end of the value.
 fn println_raw<T: Display>(val: &T) {
     print_raw(&format!("{}\n", val));
+}
+
+/// Install a panic hook to ensure raw mode is disabled on panic.
+fn install_custom_panic_hook() {
+    panic::set_hook(Box::new(|info| {
+        // This line is critical!! The rest of this function is just debug info, but without this
+        // line, your shell will become unusable on an unexpected panic.
+        let _ = terminal::disable_raw_mode();
+
+        if let Some(s) = info.payload().downcast_ref::<&str>() {
+            eprintln!("\nPanic: {s:?}");
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            eprintln!("\nPanic: {s:?}");
+        } else {
+            eprintln!("\nPanic occurred!");
+        }
+
+        if let Some(location) = info.location() {
+            eprintln!(
+                "  in file '{}' at line {}",
+                location.file(),
+                location.line()
+            );
+        } else {
+            eprintln!("  in an unknown location.");
+        }
+
+        process::exit(1);
+    }));
 }
 
 pub struct Repl {
     /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
     /// now.
     in_block: bool,
+
+    /// Track any interpreter errors so that we can properly emit an useful exit code.
     errors: Vec<MemphisError>,
 
     /// The current line being manipulated by the user.
@@ -95,33 +129,11 @@ impl Repl {
             env!("CARGO_PKG_VERSION")
         );
 
-        // Install a panic hook to ensure raw mode is disabled on panic
-        panic::set_hook(Box::new(|info| {
-            // This is critical!! The rest of this function is just debug info, but without this
-            // line, your shell will become unusable on an unexpected panic.
-            let _ = terminal::disable_raw_mode();
-
-            if let Some(s) = info.payload().downcast_ref::<&str>() {
-                eprintln!("\nPanic: {s:?}");
-            } else if let Some(s) = info.payload().downcast_ref::<String>() {
-                eprintln!("\nPanic: {s:?}");
-            } else {
-                eprintln!("\nPanic occurred!");
-            }
-
-            if let Some(location) = info.location() {
-                eprintln!("in file '{}' at line {}", location.file(), location.line());
-            } else {
-                eprintln!("in an unknown location.");
-            }
-
-            process::exit(1);
-        }));
-
         let (_, mut interpreter) = Builder::default().build_treewalk_expl();
 
         // Enable raw mode to handle individual keypresses. This must be disabled during all
         // expected or unexpected exits!
+        install_custom_panic_hook();
         let _ = terminal::enable_raw_mode();
 
         self.initialize_prompt(false);
@@ -173,7 +185,7 @@ impl Repl {
                         if let Some(index) = self.history_index {
                             self.line = self.history[index].clone();
                             self.line_index = self.line.len();
-                            self.redraw_input();
+                            self.redraw_and_position();
                         }
                     }
                     KeyCode::Down => {
@@ -237,14 +249,13 @@ impl Repl {
         print_raw(&self.marker());
     }
 
-    /// Clear current input and redraw it
-    fn redraw_input(&self) {
+    /// Clear the current input, redraw it, and align the cursor to the proper column.
+    fn redraw_and_position(&self) {
+        // Redraw
         execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
         print_raw(&format!("\r{}{}", self.marker(), self.line));
-    }
 
-    fn redraw_and_position(&self) {
-        self.redraw_input();
+        // Position
         let cursor_col = (self.line_index + self.marker().len()) as u16;
         execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
     }
