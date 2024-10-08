@@ -51,7 +51,7 @@ impl Builder {
     pub fn text(&mut self, text: &str) -> &mut Self {
         self.init_state();
 
-        // hmm this shouldn't be necessary, especially for VM runs
+        // TODO figure out how to deal with StackFrames for VM mode
         let stack_frame = StackFrame::new_module(LoadedModule::new_virtual(text));
         self.state.clone().unwrap().push_context(stack_frame);
         self.text = Some(text.into());
@@ -73,12 +73,12 @@ impl Builder {
         self.state = Some(state);
         self
     }
-    //
-    // fn init_text(&mut self) {
-    //     if self.text.is_none() {
-    //         self.text = Some(String::default());
-    //     }
-    // }
+
+    fn init_text(&mut self) {
+        if self.text.is_none() {
+            self.text(&String::default());
+        }
+    }
 
     fn init_state(&mut self) {
         if self.state.is_none() {
@@ -87,12 +87,8 @@ impl Builder {
     }
 
     pub fn parser(&mut self) -> Parser {
-        if self.state.is_none() {
-            panic!("State never set! Did you forget to call `text` or `path`?");
-        }
-        if self.text.is_none() {
-            panic!("Text never set! Did you forget to call `text` or `path`?");
-        }
+        self.init_text();
+        self.init_state();
         let lexer = Lexer::new(&self.text.clone().unwrap());
         Parser::new(lexer.tokens(), self.state.clone().unwrap())
     }
@@ -106,9 +102,6 @@ impl Builder {
     }
 
     pub fn build_treewalk_expl(&mut self) -> (Parser, Interpreter) {
-        // TODO this shouldn't be necessary, but we have to setup the call stack right now
-        self.text("");
-        self.init_state();
         (self.parser(), Interpreter::new(self.state.clone().unwrap()))
     }
 
