@@ -1,5 +1,7 @@
-use std::io::{Error, ErrorKind, Result};
-use std::process::{Command, Stdio};
+use std::{
+    io::{Error, ErrorKind, Result},
+    process::{Command, Stdio},
+};
 
 fn run_repl_with_pipe() -> Result<bool> {
     let cat_cmd = Command::new("cat")
