@@ -6,7 +6,7 @@ use std::{
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{self, Clear, ClearType},
 };
@@ -146,78 +146,83 @@ impl Repl {
                     _ => {}
                 }
 
-                match event.code {
-                    KeyCode::Char(c) => {
-                        self.line.insert(self.line_index, c);
-                        self.line_index += 1;
-                        self.redraw_and_position();
-                    }
-                    KeyCode::Backspace => {
-                        if self.line_index > 0 {
-                            self.line_index -= 1;
-                            self.line.remove(self.line_index);
-                            self.redraw_and_position();
-                        }
-                    }
-                    KeyCode::Enter => {
-                        self.history.push(self.line.clone());
-                        self.history_index = None;
+                self.handle_key_event(&mut interpreter, event);
+            }
+        }
+    }
 
-                        // This newline simulates the user pressing the enter key
-                        println_raw(&"");
-                        self.process_line(&mut interpreter, &self.line.clone());
-
-                        self.initialize_prompt(false);
-                    }
-                    KeyCode::Up => {
-                        if let Some(index) = self.history_index {
-                            if index > 0 {
-                                self.history_index = Some(index - 1);
-                            }
-                        } else if !self.history.is_empty() {
-                            self.history_index = Some(self.history.len() - 1);
-                        }
-
-                        if let Some(index) = self.history_index {
-                            self.line = self.history[index].clone();
-                            self.line_index = self.line.len();
-                            self.redraw_and_position();
-                        }
-                    }
-                    KeyCode::Down => {
-                        if let Some(index) = self.history_index {
-                            if index < self.history.len() - 1 {
-                                self.history_index = Some(index + 1);
-                            } else {
-                                self.history_index = None;
-                                self.line.clear();
-                            }
-
-                            if let Some(index) = self.history_index {
-                                self.line = self.history[index].clone();
-                            } else {
-                                self.line.clear();
-                            }
-
-                            self.line_index = self.line.len();
-                            self.redraw_and_position();
-                        }
-                    }
-                    KeyCode::Right => {
-                        if self.line_index < self.line.len() {
-                            self.line_index += 1;
-                            self.redraw_and_position();
-                        }
-                    }
-                    KeyCode::Left => {
-                        if self.line_index > 0 {
-                            self.line_index -= 1;
-                            self.redraw_and_position();
-                        }
-                    }
-                    _ => {}
+    /// Update the terminal and interpreter state based on the given `KeyEvent`.
+    fn handle_key_event(&mut self, interpreter: &mut Interpreter, event: KeyEvent) {
+        match event.code {
+            KeyCode::Char(c) => {
+                self.line.insert(self.line_index, c);
+                self.line_index += 1;
+                self.redraw_and_position();
+            }
+            KeyCode::Backspace => {
+                if self.line_index > 0 {
+                    self.line_index -= 1;
+                    self.line.remove(self.line_index);
+                    self.redraw_and_position();
                 }
             }
+            KeyCode::Enter => {
+                self.history.push(self.line.clone());
+                self.history_index = None;
+
+                // This newline simulates the user pressing the enter key
+                println_raw(&"");
+                self.process_line(interpreter, &self.line.clone());
+
+                self.initialize_prompt(false);
+            }
+            KeyCode::Up => {
+                if let Some(index) = self.history_index {
+                    if index > 0 {
+                        self.history_index = Some(index - 1);
+                    }
+                } else if !self.history.is_empty() {
+                    self.history_index = Some(self.history.len() - 1);
+                }
+
+                if let Some(index) = self.history_index {
+                    self.line = self.history[index].clone();
+                    self.line_index = self.line.len();
+                    self.redraw_and_position();
+                }
+            }
+            KeyCode::Down => {
+                if let Some(index) = self.history_index {
+                    if index < self.history.len() - 1 {
+                        self.history_index = Some(index + 1);
+                    } else {
+                        self.history_index = None;
+                        self.line.clear();
+                    }
+
+                    if let Some(index) = self.history_index {
+                        self.line = self.history[index].clone();
+                    } else {
+                        self.line.clear();
+                    }
+
+                    self.line_index = self.line.len();
+                    self.redraw_and_position();
+                }
+            }
+            KeyCode::Right => {
+                if self.line_index < self.line.len() {
+                    self.line_index += 1;
+                    self.redraw_and_position();
+                }
+            }
+            KeyCode::Left => {
+                if self.line_index > 0 {
+                    self.line_index -= 1;
+                    self.redraw_and_position();
+                }
+            }
+            _ => {}
         }
     }
 
