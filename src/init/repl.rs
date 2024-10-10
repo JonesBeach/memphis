@@ -24,7 +24,7 @@ use crate::{
 /// because that does not happen automatically.
 fn normalize<T: Display>(err: &T) -> String {
     let formatted = format!("{}", err);
-    if terminal::is_raw_mode_enabled().unwrap() {
+    if terminal::is_raw_mode_enabled().expect("Failed to query terminal raw mode") {
         formatted.replace("\n", "\n\r")
     } else {
         formatted.to_string()
@@ -34,7 +34,7 @@ fn normalize<T: Display>(err: &T) -> String {
 /// Print command which will normalize newlines + carriage returns before printing.
 fn print_raw<T: Display>(val: &T) {
     print!("{}", normalize(val));
-    io::stdout().flush().unwrap();
+    io::stdout().flush().expect("Failed to flush stdout");
 }
 
 /// Print command which will normalize newlines + carriage returns before printing and include a
@@ -134,7 +134,7 @@ impl Repl {
 
         self.initialize_prompt(false);
         loop {
-            if let Event::Key(event) = event::read().unwrap() {
+            if let Event::Key(event) = event::read().expect("Failed to read key event") {
                 match (event.code, event.modifiers) {
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                         self.initialize_prompt(true);
@@ -259,12 +259,14 @@ impl Repl {
     /// Clear the current input, redraw it, and align the cursor to the proper column.
     fn redraw_and_position(&self) {
         // Redraw
-        execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
+        execute!(io::stdout(), Clear(ClearType::CurrentLine))
+            .expect("Failed to execute terminal command");
         print_raw(&format!("\r{}{}", self.prompt(), self.line));
 
         // Position
         let cursor_col = (self.line_index + self.prompt().len()) as u16;
-        execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
+        execute!(io::stdout(), cursor::MoveToColumn(cursor_col))
+            .expect("Failed to execute terminal command");
     }
 
     /// Append the provided line to the constructed statement and evaluate it through the
