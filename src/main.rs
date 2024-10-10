@@ -1,7 +1,9 @@
 use std::{env, process};
 
-use memphis::init::{Memphis, Repl};
-use memphis::Engine;
+use memphis::{
+    init::{CrosstermIO, Memphis, Repl},
+    Engine,
+};
 
 /// I could see the default becoming [`Engine::BytecodeVm`] in the future once it supports more.
 const DEFAULT_ENGINE: Engine = Engine::TreeWalk;
@@ -22,7 +24,7 @@ fn main() {
     };
 
     match args.len() {
-        1 => Repl::new().run(),
+        1 => Repl::new().run(&mut CrosstermIO),
         2 | 3 => Memphis::start(&args[1], engine),
         _ => {
             eprintln!("Usage: memphis [<filename>]");

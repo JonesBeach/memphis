@@ -20,9 +20,36 @@ use crate::{
     types::errors::MemphisError,
 };
 
+pub trait TerminalIO {
+    fn read_event(&mut self) -> Result<Event, io::Error>;
+    fn write<T: Display>(&mut self, output: T) -> io::Result<()>;
+    fn writeln<T: Display>(&mut self, output: T) -> io::Result<()>;
+}
+
+pub struct CrosstermIO;
+
+impl TerminalIO for CrosstermIO {
+    /// Use `crossterm` to read events
+    fn read_event(&mut self) -> Result<Event, io::Error> {
+        event::read()
+    }
+
+    /// Emit output to stdout, normalizing for any needed carriage returns
+    fn write<T: Display>(&mut self, output: T) -> io::Result<()> {
+        print_raw(output);
+        Ok(())
+    }
+
+    /// Same as `write_output` but with a `\n` char at the end.
+    fn writeln<T: Display>(&mut self, output: T) -> io::Result<()> {
+        println_raw(output);
+        Ok(())
+    }
+}
+
 /// When the terminal is in raw mode, we must emit a carriage return in addition to a newline,
 /// because that does not happen automatically.
-fn normalize<T: Display>(err: &T) -> String {
+fn normalize<T: Display>(err: T) -> String {
     let formatted = format!("{}", err);
     if terminal::is_raw_mode_enabled().expect("Failed to query terminal raw mode") {
         formatted.replace("\n", "\n\r")
@@ -32,15 +59,15 @@ fn normalize<T: Display>(err: &T) -> String {
 }
 
 /// Print command which will normalize newlines + carriage returns before printing.
-fn print_raw<T: Display>(val: &T) {
+fn print_raw<T: Display>(val: T) {
     print!("{}", normalize(val));
     io::stdout().flush().expect("Failed to flush stdout");
 }
 
 /// Print command which will normalize newlines + carriage returns before printing and include a
 /// newline at the end of the value.
-fn println_raw<T: Display>(val: &T) {
-    print_raw(&format!("{}\n", val));
+fn println_raw<T: Display>(val: T) {
+    print_raw(format!("{}\n", val));
 }
 
 /// Install a panic hook to ensure raw mode is disabled on panic.
@@ -119,11 +146,11 @@ impl Repl {
     }
 
     /// The primary entrypoint to the REPL.
-    pub fn run(&mut self) {
-        println!(
+    pub fn run<T: TerminalIO>(&mut self, terminal_io: &mut T) {
+        let _ = terminal_io.writeln(format!(
             "memphis {} REPL (Type 'exit()' to quit)",
             env!("CARGO_PKG_VERSION")
-        );
+        ));
 
         let (_, mut interpreter) = Builder::default().build_treewalk_expl();
 
@@ -132,38 +159,53 @@ impl Repl {
         install_custom_panic_hook();
         let _ = terminal::enable_raw_mode();
 
-        self.initialize_prompt(false);
+        self.initialize_prompt(terminal_io, false);
         loop {
-            if let Event::Key(event) = event::read().expect("Failed to read key event") {
-                match (event.code, event.modifiers) {
-                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        self.initialize_prompt(true);
-                        continue;
+            match terminal_io.read_event() {
+                Ok(Event::Key(event)) => {
+                    match (event.code, event.modifiers) {
+                        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            self.initialize_prompt(terminal_io, true);
+                            continue;
+                        }
+                        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                            panic!("^D");
+                        }
+                        _ => {}
                     }
-                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                        panic!("^D");
-                    }
-                    _ => {}
-                }
 
-                self.handle_key_event(&mut interpreter, event);
+                    self.handle_key_event(terminal_io, &mut interpreter, event);
+                }
+                Ok(_) => {}
+                Err(_) => break,
             }
         }
+
+        // We should only get here during the tests when we throw an io error because there are no
+        // more events. In interactive mode, we will exit via a panic (and the custom panic handler
+        // above) or by typing exit().
+        let _ = terminal::disable_raw_mode();
+        let _ = panic::take_hook();
     }
 
     /// Update the terminal and interpreter state based on the given `KeyEvent`.
-    fn handle_key_event(&mut self, interpreter: &mut Interpreter, event: KeyEvent) {
+    fn handle_key_event<T: TerminalIO>(
+        &mut self,
+        terminal_io: &mut T,
+        interpreter: &mut Interpreter,
+        event: KeyEvent,
+    ) {
         match event.code {
             KeyCode::Char(c) => {
                 self.line.insert(self.line_index, c);
                 self.line_index += 1;
-                self.redraw_and_position();
+                self.redraw_and_position(terminal_io);
             }
             KeyCode::Backspace => {
                 if self.line_index > 0 {
                     self.line_index -= 1;
                     self.line.remove(self.line_index);
-                    self.redraw_and_position();
+                    self.redraw_and_position(terminal_io);
                 }
             }
             KeyCode::Enter => {
@@ -171,10 +213,10 @@ impl Repl {
                 self.history_index = None;
 
                 // This newline simulates the user pressing the enter key
-                println_raw(&"");
-                self.process_line(interpreter, &self.line.clone());
+                let _ = terminal_io.writeln("");
+                self.process_line(terminal_io, interpreter, &self.line.clone());
 
-                self.initialize_prompt(false);
+                self.initialize_prompt(terminal_io, false);
             }
             KeyCode::Up => {
                 if let Some(index) = self.history_index {
@@ -188,7 +230,7 @@ impl Repl {
                 if let Some(index) = self.history_index {
                     self.line = self.history[index].clone();
                     self.line_index = self.line.len();
-                    self.redraw_and_position();
+                    self.redraw_and_position(terminal_io);
                 }
             }
             KeyCode::Down => {
@@ -207,19 +249,19 @@ impl Repl {
                     }
 
                     self.line_index = self.line.len();
-                    self.redraw_and_position();
+                    self.redraw_and_position(terminal_io);
                 }
             }
             KeyCode::Right => {
                 if self.line_index < self.line.len() {
                     self.line_index += 1;
-                    self.redraw_and_position();
+                    self.redraw_and_position(terminal_io);
                 }
             }
             KeyCode::Left => {
                 if self.line_index > 0 {
                     self.line_index -= 1;
-                    self.redraw_and_position();
+                    self.redraw_and_position(terminal_io);
                 }
             }
             _ => {}
@@ -252,21 +294,21 @@ impl Repl {
     }
 
     /// Clear the REPL prompt to prepare for user input.
-    fn initialize_prompt(&mut self, add_new_line: bool) {
+    fn initialize_prompt<T: TerminalIO>(&mut self, terminal_io: &mut T, add_new_line: bool) {
         self.line.clear();
         self.line_index = 0;
         if add_new_line {
-            print_raw(&"\n");
+            let _ = terminal_io.writeln("");
         }
-        print_raw(&self.prompt());
+        let _ = terminal_io.write(self.prompt());
     }
 
     /// Clear the current input, redraw it, and align the cursor to the proper column.
-    fn redraw_and_position(&self) {
+    fn redraw_and_position<T: TerminalIO>(&self, terminal_io: &mut T) {
         // Redraw
         execute!(io::stdout(), Clear(ClearType::CurrentLine))
             .expect("Failed to execute terminal command");
-        print_raw(&format!("\r{}{}", self.prompt(), self.line));
+        let _ = terminal_io.write(format!("\r{}{}", self.prompt(), self.line));
 
         // Position
         let cursor_col = (self.line_index + self.prompt().len()) as u16;
@@ -276,7 +318,12 @@ impl Repl {
 
     /// Append the provided line to the constructed statement and evaluate it through the
     /// `Interpreter`.
-    fn process_line(&mut self, interpreter: &mut Interpreter, line: &str) {
+    fn process_line<T: TerminalIO>(
+        &mut self,
+        terminal_io: &mut T,
+        interpreter: &mut Interpreter,
+        line: &str,
+    ) {
         if line.trim_end() == "exit()" {
             let _ = terminal::disable_raw_mode();
             let error_code = match self.errors.len() {
@@ -294,12 +341,12 @@ impl Repl {
             match interpreter.run(&mut parser) {
                 Ok(result) => {
                     if !result.is_none() {
-                        println_raw(&result);
+                        let _ = terminal_io.writeln(&result);
                     }
                 }
                 Err(err) => {
                     self.errors.push(err.clone());
-                    println_raw(&err);
+                    let _ = terminal_io.writeln(&err);
                 }
             }
 
@@ -312,5 +359,70 @@ impl Repl {
             self.input.push('\n');
             self.in_block = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A mock for testing that doesn't use `crossterm`.
+    struct MockTerminalIO {
+        /// Predefined events for testing
+        events: Vec<Event>,
+
+        /// Captured output for assertions
+        output: Vec<String>,
+    }
+
+    impl TerminalIO for MockTerminalIO {
+        fn read_event(&mut self) -> Result<Event, io::Error> {
+            if self.events.is_empty() {
+                Err(io::Error::new(io::ErrorKind::Other, "No more events"))
+            } else {
+                // remove from the front (semantically similar to VecDequeue::pop_front).
+                Ok(self.events.remove(0))
+            }
+        }
+
+        fn write<T: Display>(&mut self, output: T) -> io::Result<()> {
+            self.output.push(format!("{}", output));
+            Ok(())
+        }
+
+        fn writeln<T: Display>(&mut self, output: T) -> io::Result<()> {
+            self.write(output)?;
+            self.write("\n")?;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_repl_run_commands() {
+        let mut mock_terminal = MockTerminalIO {
+            events: vec![
+                Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            ],
+            output: vec![],
+        };
+
+        let mut repl = Repl::new();
+        repl.run(&mut mock_terminal);
+
+        // End of the output will be similar to this, which is why we look for the 3rd to last
+        // element.
+        //
+        // "Traceback....NameError...",
+        // "\n",
+        // ">>> ",
+        let third_from_last = mock_terminal
+            .output
+            .len()
+            .checked_sub(3)
+            .and_then(|index| mock_terminal.output.get(index))
+            .expect("Not enough elements in output");
+
+        assert!(third_from_last.contains("NameError: name 'e' is not defined"));
     }
 }
