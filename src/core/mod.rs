@@ -12,6 +12,8 @@ use crate::{parser::Parser, types::errors::MemphisError};
 
 /// Return types which None are used internally, but should never be displayed to the developer.
 pub trait Voidable {
+    // This is only used in the REPL right now, but it is referenced other places.
+    #[allow(dead_code)]
     fn is_none(&self) -> bool;
 }
 
