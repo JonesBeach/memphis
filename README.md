@@ -7,14 +7,17 @@ A starter Python interpreter written in Rust. This is intended as a learning exe
 
 ## Overview
 `memphis` contains a few execution modes, each for learning about a different aspect of interpreter/compiler development:
-1. treewalk (default) - farthest along in development
-1. bytecode VM - foundation complete, missing most Python features
-1. LLVM JIT compiler - very early, contains only a single hardcoded 
-
+1. treewalk (default): farthest along in development.
+1. bytecode VM: foundation complete, but missing many Python features.
+1. LLVM JIT compiler: very _very_ early, contains only a single hardcoded example.
+ 
 See [SUPPORTED.md](docs/SUPPORTED.md) for details on specific features.
 
 ## Design Goals
-- Zero-ish dependencies. The exceptions are `pyo3` for stdlib components implemented in C and `inkwell` for LLVM APIs. This means you can run Python code which does not call the stdlib (limiting, I know) through the treewalk interpreter or bytecode VM using no third-party Rust code.
+- Minimal dependencies. Uses zero dependencies by default, or enable the REPL, Python stdlib, or LLVM backend as needed. This means you can run Python code which does not call the stdlib (limiting, I know) through the treewalk interpreter or bytecode VM using no third-party Rust code. I find this kinda neat and worth preserving.
+  - `pyo3`: Only needed for c_stdlib functionality.
+  - `crossterm`: Only needed for REPL support.
+  - `inkwell`: Only needed if using the LLVM backend.
 - No shortcuts. This is a learning exercise, so try to do things the "right" way, even if it takes a few tries.
 
 ## Installation

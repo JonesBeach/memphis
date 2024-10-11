@@ -14,9 +14,21 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        # Each feature flag combination
+        features:
+          - ""
+          - "c_stdlib"
+          - "repl"
+          - "c_stdlib repl"
+
     steps:
     - uses: actions/checkout@v3
     - name: Run tests
-      run: cargo test --verbose
-    - name: Run tests C stdlib enabled (no LLVM backend)
-      run: cargo test --features c_stdlib
+      run: |
+        if [ -z "${{ matrix.features }}" ]; then
+          cargo test --verbose
+        else
+          cargo test --verbose --features "${{ matrix.features }}"
+        fi

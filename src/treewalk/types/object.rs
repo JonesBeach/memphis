@@ -352,7 +352,7 @@ impl Callable for InitBuiltin {
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {

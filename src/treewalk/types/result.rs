@@ -32,9 +32,6 @@ use super::{
 
 #[derive(Clone)]
 pub enum ExprResult {
-    /// This represents the return value for statements, which, unlike expressions, do not return a
-    /// value.
-    Void,
     None,
     Ellipsis,
     NotImplemented,
@@ -110,7 +107,6 @@ pub enum ExprResult {
 impl PartialEq for ExprResult {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ExprResult::Void, ExprResult::Void) => true,
             (ExprResult::None, ExprResult::None) => true,
             (ExprResult::Integer(a), ExprResult::Integer(b)) => a == b,
             (ExprResult::FloatingPoint(a), ExprResult::FloatingPoint(b)) => a == b,
@@ -214,7 +210,6 @@ impl ExprResult {
 
     fn minimized_display(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            ExprResult::Void => unreachable!(),
             ExprResult::None => write!(f, "None"),
             ExprResult::Ellipsis => write!(f, "Ellipsis"),
             ExprResult::NotImplemented => write!(f, "NotImplemented"),
@@ -326,7 +321,6 @@ impl ExprResult {
 
     pub fn get_type(&self) -> Type {
         match self {
-            ExprResult::Void => unreachable!(),
             ExprResult::None => Type::None,
             ExprResult::Ellipsis => Type::Ellipsis,
             ExprResult::NotImplemented => Type::NotImplemented,
@@ -744,8 +738,8 @@ impl ExprResult {
 }
 
 impl Voidable for ExprResult {
-    fn is_void(&self) -> bool {
-        matches!(self, ExprResult::Void)
+    fn is_none(&self) -> bool {
+        matches!(self, ExprResult::None)
     }
 }
 

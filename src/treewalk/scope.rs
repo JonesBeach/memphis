@@ -54,10 +54,10 @@ impl Scope {
                     Some(default_value) => interpreter.evaluate_expr(default_value)?,
                     None => {
                         missing_args.push(arg_definition.arg.clone());
-                        // We use Void here only because if we hit this case, we will return an
+                        // We use None here only because if we hit this case, we will return an
                         // error shortly after this loop. We can't do it here because we need to
                         // find all the missing args first.
-                        ExprResult::Void
+                        ExprResult::None
                     }
                 }
             };

@@ -51,7 +51,7 @@ impl Builder {
     pub fn text(&mut self, text: &str) -> &mut Self {
         self.init_state();
 
-        // hmm this shouldn't be necessary, especially for VM runs
+        // TODO figure out how to deal with StackFrames for VM mode
         let stack_frame = StackFrame::new_module(LoadedModule::new_virtual(text));
         self.state.clone().unwrap().push_context(stack_frame);
         self.text = Some(text.into());
@@ -74,20 +74,21 @@ impl Builder {
         self
     }
 
+    fn init_text(&mut self) {
+        if self.text.is_none() {
+            self.text(&String::default());
+        }
+    }
+
     fn init_state(&mut self) {
-        self.state = match self.state.clone() {
-            Some(s) => Some(s),
-            None => Some(Container::new(State::new())),
-        };
+        if self.state.is_none() {
+            self.state = Some(Container::new(State::default()));
+        }
     }
 
     pub fn parser(&mut self) -> Parser {
-        if self.state.is_none() {
-            panic!("State never set! Did you forget to call `text` or `path`?");
-        }
-        if self.text.is_none() {
-            panic!("Text never set! Did you forget to call `text` or `path`?");
-        }
+        self.init_text();
+        self.init_state();
         let lexer = Lexer::new(&self.text.clone().unwrap());
         Parser::new(lexer.tokens(), self.state.clone().unwrap())
     }

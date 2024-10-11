@@ -279,7 +279,7 @@ impl Callable for AppendBuiltin {
 
         list.borrow_mut().append(args.get_arg(0).clone());
 
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {
@@ -307,7 +307,7 @@ impl Callable for ExtendBuiltin {
 
         list.borrow_mut().extend(args.get_arg(0).into_iter());
 
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {

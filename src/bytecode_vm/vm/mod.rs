@@ -165,7 +165,7 @@ impl VirtualMachine {
             }
         }
 
-        Value::Void
+        Value::None
     }
 
     /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
@@ -200,7 +200,7 @@ impl VirtualMachine {
     pub fn take(&mut self, reference: Reference) -> Value {
         match reference {
             Reference::ObjectRef(index) => {
-                mem::replace(&mut self.object_table[*index], Value::Void)
+                mem::replace(&mut self.object_table[*index], Value::None)
             }
             Reference::ConstantRef(index) => self.constant_pool.get(*index).unwrap().into(),
             _ => reference.into(),
@@ -211,7 +211,7 @@ impl VirtualMachine {
     /// all other types.
     fn create(&mut self, value: Value) -> Reference {
         match value {
-            Value::Integer(_) | Value::Boolean(_) | Value::Void => value.into(),
+            Value::Integer(_) | Value::Boolean(_) => value.into(),
             _ => {
                 let index = Index::new(self.object_table.len());
                 self.object_table.push(value);
@@ -431,7 +431,8 @@ impl VirtualMachine {
                     self.execute_method(method.as_method().clone(), args);
                 }
                 Opcode::ReturnValue => {
-                    let return_value = self.pop().unwrap_or(Reference::Void);
+                    // TODO is reference of 0 a safe default here?
+                    let return_value = self.pop().unwrap_or(Reference::Int(0));
 
                     // Exit the loop if there are no more frames
                     if self.call_stack.is_empty() {

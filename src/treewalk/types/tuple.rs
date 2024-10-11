@@ -154,7 +154,7 @@ impl Callable for InitBuiltin {
 
         *output.borrow_mut() = input.borrow().clone();
 
-        Ok(ExprResult::Void)
+        Ok(ExprResult::None)
     }
 
     fn name(&self) -> String {

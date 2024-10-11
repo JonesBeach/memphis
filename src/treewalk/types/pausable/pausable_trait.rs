@@ -197,7 +197,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::Void);
+                            break Ok(ExprResult::None);
                         }
                     };
                 }
@@ -222,7 +222,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::Void);
+                            break Ok(ExprResult::None);
                         }
                     };
                 }
@@ -241,7 +241,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::Void);
+                            break Ok(ExprResult::None);
                         }
                     };
                 }
@@ -260,7 +260,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::Void);
+                            break Ok(ExprResult::None);
                         }
                     };
 

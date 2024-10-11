@@ -7,7 +7,6 @@ use super::vm::types::{Class, FunctionObject, Method, Object, Reference};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Value {
-    Void,
     None,
     Integer(i64),
     String(String),
@@ -22,20 +21,19 @@ pub enum Value {
 
 impl Default for Value {
     fn default() -> Self {
-        Self::Void
+        Self::None
     }
 }
 
 impl Voidable for Value {
-    fn is_void(&self) -> bool {
-        matches!(self, Value::Void)
+    fn is_none(&self) -> bool {
+        matches!(self, Value::None)
     }
 }
 
 impl From<Reference> for Value {
     fn from(value: Reference) -> Self {
         match value {
-            Reference::Void => Value::Void,
             Reference::Int(i) => Value::Integer(i),
             Reference::Bool(i) => Value::Boolean(i),
             // These require a lookup using VM state and must be converted before this function.
@@ -58,7 +56,6 @@ impl From<&Constant> for Value {
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Value::Void => unreachable!(),
             Value::None => write!(f, "None"),
             Value::Integer(i) => write!(f, "{}", i),
             Value::String(i) => write!(f, "{}", i),

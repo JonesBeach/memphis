@@ -6,7 +6,6 @@ use crate::treewalk::types::ExprResult;
 /// provided the [`From`] trait is implemented.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TestValue {
-    Void,
     None,
     Integer(i64),
     String(String),
@@ -16,7 +15,6 @@ pub enum TestValue {
 impl From<Value> for TestValue {
     fn from(value: Value) -> Self {
         match value {
-            Value::Void => TestValue::Void,
             Value::None => TestValue::None,
             Value::Integer(val) => TestValue::Integer(val),
             Value::String(val) => TestValue::String(val),
@@ -32,7 +30,6 @@ impl From<Value> for TestValue {
 impl From<ExprResult> for TestValue {
     fn from(value: ExprResult) -> Self {
         match value {
-            ExprResult::Void => TestValue::Void,
             ExprResult::None => TestValue::None,
             ExprResult::Integer(_) => {
                 TestValue::Integer(value.as_integer_val().expect("failed to get integer"))
