@@ -32,8 +32,8 @@ Use `memphis` as if it were `python`/`python3` and provide the path to a Python 
 ```bash
 memphis examples/test.py
 
-# or run using the bytecode VM (many features currently unsupported)
-memphis examples/test.py vm
+# or run using the bytecode VM (WARNING: many features currently unsupported)
+MEMPHIS_ENGINE=vm memphis examples/test.py
 ```
 Or launch the REPL.
 ```bash
