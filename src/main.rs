@@ -10,7 +10,7 @@ const DEFAULT_ENGINE: Engine = Engine::TreeWalk;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let engine = if let Some(mode) = args.get(2) {
+    let engine = if let Ok(mode) = env::var("MEMPHIS_ENGINE") {
         match mode.to_lowercase().as_str() {
             "vm" | "bytecode_vm" => Engine::BytecodeVm,
             #[cfg(feature = "llvm_backend")]
@@ -30,7 +30,7 @@ fn main() {
             eprintln!("Must enable 'repl' feature flag!");
             process::exit(1);
         }
-        2 | 3 => Memphis::start(&args[1], engine),
+        2 => Memphis::start(&args[1], engine),
         _ => {
             eprintln!("Usage: memphis [<filename>]");
             process::exit(1);
