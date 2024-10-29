@@ -17,3 +17,27 @@ pub enum Engine {
     #[cfg(feature = "llvm_backend")]
     LlvmBackend,
 }
+
+#[cfg(feature = "wasm")]
+mod wasm {
+    use console_error_panic_hook::set_once;
+    use wasm_bindgen::prelude::wasm_bindgen;
+
+    use super::*;
+    use crosscheck::{InterpreterTest, TreewalkAdapter};
+
+    // Export a function to JavaScript
+    #[wasm_bindgen]
+    pub fn greet() -> String {
+        "Hello from WebAssembly!".to_string()
+    }
+
+    #[wasm_bindgen]
+    pub fn evaluate(code: String) -> String {
+        // Set the panic hook for better error messages in the browser console
+        set_once();
+
+        let result = TreewalkAdapter.execute(&code);
+        format!("{}", result)
+    }
+}

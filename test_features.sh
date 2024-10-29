@@ -3,6 +3,7 @@
 # Feature combinations to test
 features=(
     ""
+    "stdlib"
     "c_stdlib"
     "repl"
     "c_stdlib repl"

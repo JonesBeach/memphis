@@ -28,12 +28,10 @@ else:
 
 #[test]
 fn test_treewalk_control_flow() {
-    let interpreter = TreewalkAdapter {};
-    run_test(&interpreter);
+    run_test(&TreewalkAdapter);
 }
 
 #[test]
 fn test_bytecode_vm_control_flow() {
-    let interpreter = BytecodeVmAdapter {};
-    run_test(&interpreter);
+    run_test(&BytecodeVmAdapter);
 }

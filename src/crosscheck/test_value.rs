@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter, Result};
+
 use crate::bytecode_vm::types::Value;
 use crate::treewalk::types::ExprResult;
 
@@ -10,6 +12,25 @@ pub enum TestValue {
     Integer(i64),
     String(String),
     Boolean(bool),
+    List(Vec<TestValue>),
+}
+
+impl Display for TestValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            TestValue::None => write!(f, "None"),
+            TestValue::Integer(i) => write!(f, "{}", i),
+            TestValue::List(i) => {
+                let items = i
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                write!(f, "[{}]", items)
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl From<Value> for TestValue {
@@ -38,6 +59,13 @@ impl From<ExprResult> for TestValue {
                 TestValue::String(value.as_string().expect("failed to get string"))
             }
             ExprResult::Boolean(val) => TestValue::Boolean(val),
+            ExprResult::List(i) => {
+                let items = i
+                    .into_iter()
+                    .map(|item| item.into())
+                    .collect::<Vec<TestValue>>();
+                TestValue::List(items)
+            }
             _ => unimplemented!(
                 "Conversion to TestValue not implemented for type '{}'",
                 value.get_type()

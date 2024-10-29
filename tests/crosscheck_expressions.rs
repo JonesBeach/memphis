@@ -44,24 +44,20 @@ fn run_unary_expression_test<T: InterpreterTest>(interpreter: &T) {
 
 #[test]
 fn test_treewalk_binary_expression() {
-    let interpreter = TreewalkAdapter {};
-    run_binary_expression_test(&interpreter);
+    run_binary_expression_test(&TreewalkAdapter);
 }
 
 #[test]
 fn test_bytecode_vm_binary_expression() {
-    let interpreter = BytecodeVmAdapter {};
-    run_binary_expression_test(&interpreter);
+    run_binary_expression_test(&BytecodeVmAdapter);
 }
 
 #[test]
 fn test_treewalk_unary_expression() {
-    let interpreter = TreewalkAdapter {};
-    run_unary_expression_test(&interpreter);
+    run_unary_expression_test(&TreewalkAdapter);
 }
 
 #[test]
 fn test_bytecode_vm_unary_expression() {
-    let interpreter = BytecodeVmAdapter {};
-    run_unary_expression_test(&interpreter);
+    run_unary_expression_test(&BytecodeVmAdapter);
 }

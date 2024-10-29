@@ -14,8 +14,12 @@ cargo run --features repl
 ## Feature Flags
 Feature flags are needed to enable C stdlib or REPL support (or the experimental LLVM backend).
 ```bash
+# if examples/test.py depends on stdlib features
+cargo run --features stdlib examples/api.py
 # if examples/test.py depends on stdlib features implemented in C
-cargo run --features c_stdlib examples/test.py
+cargo run --features c_stdlib examples/api.py
+# it's common to use these together to get as much of the stdlib support as we currently offer
+cargo run --features stdlib,c_stdlib examples/api.py
 
 # script to run all combinations of feature flags
 ./test_features.sh
@@ -35,4 +39,15 @@ cargo build --all-features
 sudo flamegraph -v -o tw.svg -- target/debug/memphis examples/loop_perf.py
 sudo flamegraph -v -o vm.svg -- MEMPHIS_ENGINE=vm target/debug/memphis examples/loop_perf.py
 sudo flamegraph -v -o llvm.svg -- MEMPHIS_ENGINE=llvm_backend target/debug/memphis examples/loop_perf.py
+```
+
+## WebAssembly
+```bash
+cargo install wasm-pack
+
+# build for the wasm target - we must specify a feature flag because our wasm_bindgen interface
+# is behind the wasm feature flag
+wasm-pack build --target web --out-dir wasm_ui/pkg -- --features wasm
+
+# then load wasm_ui/index.html in a browser
 ```

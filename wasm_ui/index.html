@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Wasm Test</title>
+</head>
+<body>
+    <script type="module">
+        import init, { greet, evaluate } from './pkg/memphis.js';
+
+        async function run() {
+            await init();
+            console.log(greet());
+            const expr = "[ 2 * i for i in range(5) if i % 2 == 0 ]";
+            console.log(expr, "=", evaluate(expr));
+        }
+
+        run();
+    </script>
+</body>
+</html>

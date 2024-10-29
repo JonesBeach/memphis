@@ -21,12 +21,10 @@ a = foo(2, 9)
 
 #[test]
 fn test_treewalk_function_call() {
-    let interpreter = TreewalkAdapter {};
-    run_test(&interpreter);
+    run_test(&TreewalkAdapter);
 }
 
 #[test]
 fn test_bytecode_vm_function_call() {
-    let interpreter = BytecodeVmAdapter {};
-    run_test(&interpreter);
+    run_test(&BytecodeVmAdapter);
 }

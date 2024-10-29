@@ -1,52 +1,20 @@
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fs;
-use std::io::{self, ErrorKind};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::str;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+    str,
+};
 
-use crate::core::{log, Container, LogLevel};
-use crate::parser::types::ImportPath;
+use crate::{
+    core::{log, Container, LogLevel},
+    parser::types::ImportPath,
+};
 
+#[cfg(feature = "stdlib")]
+use super::stdlib::Stdlib;
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::CPythonModule;
 use super::types::{utils::Dunder, Module};
-
-fn lookup_python_site_packages(command: &str) -> Vec<PathBuf> {
-    let output = Command::new("python3")
-        .args(["-c", command])
-        .output()
-        .expect("Failed to retrieve Python site-packages path");
-
-    if !output.status.success() {
-        panic!("Failed to retrieve Python site-packages path");
-    }
-
-    let output_str = str::from_utf8(&output.stdout)
-        .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))
-        .expect("Failed to retrieve Python site-packages path");
-
-    output_str.lines().map(PathBuf::from).collect()
-}
-
-fn init_paths() -> Vec<PathBuf> {
-    // The location of any "standard-lib" modules we add ourselves. This refers to the lib
-    // directory of this repository.
-    let mut paths = vec![PathBuf::from("./lib".to_string())];
-
-    // This is the location of packages installed by pip, i.e. pendulum.
-    // TODO can we get rid of this in favor of sys.path below?
-    let mut site_packages =
-        lookup_python_site_packages("import site; print('\\n'.join(site.getsitepackages()))");
-    paths.append(&mut site_packages);
-
-    // This seems to have some overlap with the site-packages above, yet it contains the full set
-    // of paths including standard lib items, i.e. argparse.
-    let mut sys_path = lookup_python_site_packages("import sys; print('\\n'.join(sys.path))");
-    paths.append(&mut sys_path);
-    paths
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct LoadedModule {
@@ -108,9 +76,6 @@ impl LoadedModule {
 }
 
 pub struct ModuleLoader {
-    /// The [`PathBuf`] representing the directory from which memphis was invoked.
-    run_dir: PathBuf,
-
     /// The list of directories searched during each import. This will be seeded with the location
     /// of the Python stdlib present on the host system.
     paths: Vec<PathBuf>,
@@ -146,11 +111,11 @@ pub struct ModuleLoader {
 
 impl ModuleLoader {
     pub fn new() -> Self {
-        let run_dir = env::current_dir().expect("Failed to get current directory");
-
         Self {
-            run_dir,
-            paths: init_paths(),
+            #[cfg(feature = "stdlib")]
+            paths: Stdlib::init().paths().to_vec(),
+            #[cfg(not(feature = "stdlib"))]
+            paths: vec![],
             fs_cache: HashMap::default(),
             not_found_cache: HashSet::default(),
             module_cache: HashMap::default(),
@@ -175,7 +140,7 @@ impl ModuleLoader {
             log(LogLevel::Debug, || {
                 format!("Loading: {}", filepath.display())
             });
-            Some(LoadedModule::new(name, self.run_dir.join(filepath), text))
+            Some(LoadedModule::new(name, filepath, text))
         } else {
             None
         }
@@ -208,7 +173,7 @@ impl ModuleLoader {
             // get back to the directory. We could change this in the future, but this seemed
             // cleaner for the caller to provide.
             Some(p) => up_n_levels(&p, &(level + 1)),
-            None => up_n_levels(&self.run_dir, level),
+            None => up_n_levels(&PathBuf::from("."), level),
         };
 
         expand_path(base_path.as_ref()?, path_segments)

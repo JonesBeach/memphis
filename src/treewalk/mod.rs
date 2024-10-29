@@ -8,6 +8,8 @@ mod module_loader;
 mod scope;
 mod scope_manager;
 mod state;
+#[cfg(feature = "stdlib")]
+mod stdlib;
 mod type_registry;
 pub mod types;
 pub mod typing;

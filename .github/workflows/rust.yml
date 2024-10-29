@@ -19,7 +19,9 @@ jobs:
         # Each feature flag combination
         features:
           - ""
+          - "stdlib"
           - "c_stdlib"
+          - "stdlib c_stdlib"
           - "repl"
           - "c_stdlib repl"
 
