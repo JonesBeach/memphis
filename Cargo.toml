@@ -3,6 +3,8 @@ name = "memphis"
 version = "0.1.0"
 edition = "2021"
 license = "LGPL-3.0-or-later"
+description = "A starter Python interpreter written in Rust."
+repository = "https://github.com/JonesBeach/memphis"
 
 [lib]
 # cdylib: compiles the code as a C-compatible dynamic library. Used when you want to link Rust code
