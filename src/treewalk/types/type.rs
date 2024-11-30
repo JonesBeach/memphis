@@ -55,7 +55,7 @@ impl NonDataDescriptor for DictAttribute {
         };
 
         Ok(ExprResult::MappingProxy(Container::new(MappingProxy::new(
-            scope.as_dict(interpreter.clone()),
+            scope.as_dict(interpreter),
         ))))
     }
 

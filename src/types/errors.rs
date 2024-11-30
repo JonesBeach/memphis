@@ -3,8 +3,10 @@ use std::fmt::{Display, Error, Formatter};
 use crate::bytecode_vm::types::{CompilerError, VmError};
 use crate::core::{log, LogLevel};
 use crate::lexer::types::Token;
-use crate::parser::types::{ExceptionLiteral, HandledException};
-use crate::treewalk::{types::ExprResult, CallStack};
+use crate::{
+    parser::types::ExceptionLiteral,
+    treewalk::{types::ExprResult, CallStack},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum MemphisError {
@@ -76,12 +78,12 @@ impl InterpreterError {
     /// determine whether a given except clause should be run. It does this by mapping
     /// `InterpreterError` variants (from the interpreter) to `ExceptionLiteral` variants from the
     /// parser.
-    pub fn matches_except_clause(&self, handled_exceptions: &[HandledException]) -> bool {
-        if handled_exceptions.is_empty() {
+    pub fn matches_except_clause(&self, handled_exception_types: &[ExceptionLiteral]) -> bool {
+        if handled_exception_types.is_empty() {
             return true;
         }
 
-        for clause_literal in handled_exceptions.iter().map(|e| &e.literal) {
+        for clause_literal in handled_exception_types {
             // Any types match against Exception, which is considered the parent literal
             if clause_literal == &ExceptionLiteral::Exception {
                 return true;

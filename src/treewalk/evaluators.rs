@@ -5,7 +5,7 @@ use crate::{
     types::errors::InterpreterError,
 };
 
-use super::CallStack;
+use super::{types::Set, CallStack};
 
 pub(crate) fn evaluate_logical_op(
     left: bool,
@@ -169,6 +169,21 @@ pub(crate) fn evaluate_unary_operation(
                 ))?;
             Ok(ExprResult::List(list))
         }
+    }
+}
+
+pub(crate) fn evaluate_set_operation(
+    left: Container<Set>,
+    op: &BinOp,
+    right: Container<Set>,
+) -> Result<ExprResult, InterpreterError> {
+    let l = left.borrow().clone();
+    let r = right.borrow().clone();
+    match op {
+        BinOp::Equals => Ok(ExprResult::Boolean(l == r)),
+        BinOp::NotEquals => Ok(ExprResult::Boolean(l != r)),
+        BinOp::LessThanOrEqual => Ok(ExprResult::Boolean(l.subset(r))),
+        _ => unimplemented!(),
     }
 }
 

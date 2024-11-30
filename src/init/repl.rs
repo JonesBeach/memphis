@@ -9,7 +9,7 @@ use crossterm::{
 
 use crate::{
     core::{InterpreterEntrypoint, Voidable},
-    init::{Builder, TerminalIO},
+    init::{MemphisContext, TerminalIO},
     lexer::Lexer,
     parser::Parser,
     treewalk::Interpreter,
@@ -98,7 +98,14 @@ impl Repl {
             env!("CARGO_PKG_VERSION")
         ));
 
-        let (_, mut interpreter) = Builder::default().build_treewalk_expl();
+        // TODO clean up this flow for incremental evaluation
+        // we pass in "" because we need a stack from but our text/code is currently empty
+        let mut context = MemphisContext::from_text("");
+        // we need this to initialize the interpreter - again, not a clean interface
+        let _ = context.run();
+        // we should probably just pass around a mutable context, but for now, stick with the &mut
+        // Interpreter since we need to maintain the state across calls
+        let mut interpreter = context.ensure_treewalk_mut();
 
         // Enable raw mode to handle individual keypresses. This must be disabled during all
         // expected or unexpected exits!
@@ -288,7 +295,7 @@ impl Repl {
         self.input.push_str(line);
 
         if self.end_of_statement(line) {
-            let lexer = Lexer::new(&self.input);
+            let lexer = Lexer::new(self.input.clone());
             let mut parser = Parser::new(lexer.tokens(), interpreter.state.clone());
             match interpreter.run(&mut parser) {
                 Ok(result) => {

@@ -1,10 +1,16 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Error, Formatter};
-use std::hash::{Hash, Hasher};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Display, Error, Formatter},
+    hash::{Hash, Hasher},
+};
 
-use crate::parser::static_analysis::{FunctionAnalysisVisitor, Visitor};
-use crate::treewalk::types::utils::Dunder;
-use crate::types::errors::InterpreterError;
+use crate::{
+    parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
+    treewalk::types::utils::Dunder,
+    types::errors::{InterpreterError, ParserError},
+};
+
+use super::Parser;
 
 /// There are a handful of places where we reference a variable and it must be a variable name
 /// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
@@ -31,7 +37,7 @@ pub enum FormatOption {
     Ascii,
 }
 
-/// A container for an `Expr` inside braces in an f-string and an optional conversion identifier
+/// A container for an [`Expr`] inside braces in an f-string and an optional conversion identifier
 /// `FormatOption`. It's not optional in this struct because the parser defaults to
 /// `FormatOption::Str`.
 #[derive(Debug, PartialEq, Clone)]
@@ -437,14 +443,9 @@ pub struct ExceptionInstance {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExceptClause {
-    pub exception_types: Vec<HandledException>,
-    pub block: Block,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct HandledException {
-    pub literal: ExceptionLiteral,
+    pub exception_types: Vec<ExceptionLiteral>,
     pub alias: Option<String>,
+    pub block: Block,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -694,5 +695,23 @@ impl Statement {
             }
             _ => {}
         }
+    }
+}
+
+pub trait ParseNode {
+    fn parse_oneshot(parser: Parser) -> Result<Self, ParserError>
+    where
+        Self: Sized;
+}
+
+impl ParseNode for Expr {
+    fn parse_oneshot(mut parser: Parser) -> Result<Self, ParserError> {
+        parser.parse_expr()
+    }
+}
+
+impl ParseNode for Statement {
+    fn parse_oneshot(mut parser: Parser) -> Result<Self, ParserError> {
+        parser.parse_statement()
     }
 }

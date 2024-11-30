@@ -43,11 +43,15 @@ sudo flamegraph -v -o llvm.svg -- MEMPHIS_ENGINE=llvm_backend target/debug/memph
 
 ## WebAssembly
 ```bash
+# wasm-pack helps compile our Rust code to WebAssembly and bundle it with JavaScript bindings we
+# can call from our HTML/JavaScript page.
 cargo install wasm-pack
 
-# build for the wasm target - we must specify a feature flag because our wasm_bindgen interface
-# is behind the wasm feature flag
+# wasm-pack also downloads the wasm32-unknown-unknown target via rustup for us.
+# We must specify a feature flag because our wasm_bindgen interface is behind the wasm feature flag.
 wasm-pack build --target web --out-dir wasm_ui/pkg -- --features wasm
 
-# then load wasm_ui/index.html in a browser
+# Then load wasm_ui/index.html in a browser. One way is to launch a Python server and then open
+# http://localhost:8000/wasm_ui/.
+python -m http.server
 ```

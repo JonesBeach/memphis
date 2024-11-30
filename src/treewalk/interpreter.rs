@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 #[cfg(feature = "c_stdlib")]
-use super::types::cpython::BUILTIN_MODULE_NAMES;
+use super::types::cpython::import_from_cpython;
 use super::{evaluators, Scope, StackFrame, State};
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
@@ -265,9 +265,15 @@ impl Interpreter {
                         .as_list()
                         .map(|right| evaluators::evaluate_list_operation(left, op, right))
                 })
-                .ok_or(InterpreterError::ExpectedFloatingPoint(
-                    self.state.call_stack(),
-                ))?
+                .ok_or(InterpreterError::ExpectedIterable(self.state.call_stack()))?
+        } else if left.as_set().is_some() && right.as_set().is_some() {
+            left.as_set()
+                .and_then(|left| {
+                    right
+                        .as_set()
+                        .map(|right| evaluators::evaluate_set_operation(left, op, right))
+                })
+                .ok_or(InterpreterError::ExpectedSet(self.state.call_stack()))?
         } else if left.as_object().is_some()
             && right.as_object().is_some()
             && Dunder::try_from(op).is_ok()
@@ -312,10 +318,8 @@ impl Interpreter {
         }
 
         #[cfg(feature = "c_stdlib")]
-        if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
-            return Ok(ExprResult::CPythonModule(
-                self.state.import_builtin_module(import_path),
-            ));
+        if let Some(result) = import_from_cpython(self, import_path) {
+            return Ok(result);
         }
 
         Ok(ExprResult::Module(Module::import(self, import_path)?))
@@ -419,7 +423,8 @@ impl Interpreter {
             match item {
                 Expr::UnaryOperation { op, .. } => {
                     if op == &UnaryOp::Unpack {
-                        if let Some(list) = evaluated.as_list() {
+                        let maybe_list: Result<Container<List>, _> = evaluated.try_into();
+                        if let Ok(list) = maybe_list {
                             for elem in list {
                                 results.push(elem);
                             }
@@ -456,7 +461,7 @@ impl Interpreter {
             .iter()
             .map(|(key, value)| Ok((self.evaluate_expr(key)?, self.evaluate_expr(value)?)))
             .collect::<Result<HashMap<_, _>, _>>()
-            .map(|d| ExprResult::Dict(Container::new(Dict::new(self.clone(), d))))
+            .map(|d| ExprResult::Dict(Container::new(Dict::new(self, d))))
     }
 
     fn evaluate_await(&self, expr: &Expr) -> Result<ExprResult, InterpreterError> {
@@ -942,8 +947,8 @@ impl Interpreter {
         clauses: &[ForClause],
     ) -> Result<ExprResult, InterpreterError> {
         self.evaluate_list_comprehension(body, clauses)?
-            .as_set()
-            .ok_or(InterpreterError::ExpectedSet(self.state.call_stack()))
+            .try_into()
+            .map_err(|_| InterpreterError::ExpectedSet(self.state.call_stack()))
             .map(ExprResult::Set)
     }
 
@@ -971,10 +976,7 @@ impl Interpreter {
             let value_result = self.evaluate_expr(value_body)?;
             output.insert(key_result, value_result);
         }
-        Ok(ExprResult::Dict(Container::new(Dict::new(
-            self.clone(),
-            output,
-        ))))
+        Ok(ExprResult::Dict(Container::new(Dict::new(self, output))))
     }
 
     fn evaluate_for_in_loop(
@@ -1043,7 +1045,7 @@ impl Interpreter {
             let segments = import_path.segments();
             for segment in segments.iter().rev().take(segments.len() - 1) {
                 let mut new_outer_module = Module::default();
-                new_outer_module.scope.insert(segment, inner_module);
+                new_outer_module.insert(segment, inner_module);
                 inner_module = ExprResult::Module(Container::new(new_outer_module));
             }
 
@@ -1183,14 +1185,10 @@ impl Interpreter {
                 .iter()
                 .find(|clause| error.matches_except_clause(&clause.exception_types))
             {
-                except_clause
-                    .exception_types
-                    .iter()
-                    .filter_map(|et| et.alias.as_ref())
-                    .for_each(|alias| {
-                        self.state
-                            .write(alias, ExprResult::Exception(Box::new(error.clone())));
-                    });
+                if let Some(alias) = &except_clause.alias {
+                    self.state
+                        .write(alias, ExprResult::Exception(Box::new(error.clone())));
+                }
 
                 match self.evaluate_block(&except_clause.block) {
                     Err(InterpreterError::EncounteredRaise) => return Err(error),
@@ -1421,42 +1419,40 @@ impl InterpreterEntrypoint for Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
     use super::*;
     use crate::{
         core::Storable,
-        init::Builder,
+        init::MemphisContext,
         treewalk::types::{
             domain::Type, ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet,
         },
         types::errors::ParserError,
     };
 
-    fn downcast<T: InterpreterEntrypoint + 'static>(input: T) -> Interpreter {
-        let any_ref: &dyn Any = &input as &dyn Any;
-        any_ref.downcast_ref::<Interpreter>().unwrap().clone()
+    fn init_path(path: &str) -> MemphisContext {
+        MemphisContext::from_path(path)
     }
 
-    fn init_path(path: &str) -> (Parser, Interpreter) {
-        let (parser, interpreter) = Builder::new().path(path).build();
-
-        (parser, downcast(interpreter))
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::from_text(text)
     }
 
-    fn init(text: &str) -> (Parser, Interpreter) {
-        let (parser, interpreter) = Builder::new().text(text).build();
+    fn evaluate(text: &str) -> Result<ExprResult, MemphisError> {
+        init(text).evaluate_oneshot()
+    }
 
-        (parser, downcast(interpreter))
+    fn evaluate_and_expect(text: &str) -> ExprResult {
+        evaluate(text).expect("Failed to evaluate test string!")
     }
 
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
+                let interpreter = context.ensure_treewalk();
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::NameError(
@@ -1472,15 +1468,15 @@ mod tests {
     #[test]
     fn division_by_zero() {
         let input = "1 / 0";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::DivisionByZero(
                         "division by zero".into(),
-                        interpreter.state.call_stack(),
+                        context.ensure_treewalk().state.call_stack(),
                     ))
                 );
             }
@@ -1491,45 +1487,24 @@ mod tests {
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Integer(11.store()));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(11.store()));
     }
 
     #[test]
     fn integer_division() {
         let input = "2 // 3";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Integer(0.store()));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(0.store()));
 
         let input = "5 // 3";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Integer(1.store()));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(1.store()));
 
         let input = "5 // 0";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast);
-
-        assert_eq!(
-            result,
-            Err(InterpreterError::DivisionByZero(
-                "integer division or modulo by zero".into(),
-                interpreter.state.call_stack()
-            ))
-        );
+        let result = evaluate(input);
+        let Err(MemphisError::Interpreter(InterpreterError::DivisionByZero(msg, _))) = result
+        else {
+            panic!("Expected DivisionByZero error");
+        };
+        assert_eq!(msg, "integer division or modulo by zero",);
     }
 
     #[test]
@@ -1539,11 +1514,11 @@ a = 2 + 3 * 4
 b = a + 5
 c = None
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(14.store()))
@@ -1567,11 +1542,11 @@ b = type(str.join)
 c = type(a.join)
 d = type(str.maketrans)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::String(Str::new("foo".to_string())))
@@ -1595,168 +1570,68 @@ d = type(str.maketrans)
     #[test]
     fn boolean_operators() {
         let input = "True and False";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "True or False";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "not (True or False)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "True and not False";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "not False";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "not True";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
     #[test]
     fn comparison_operators() {
         let input = "2 == 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "2 == 2";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "2 != 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "2 != 2";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "2 > 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "2 < 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "1 <= 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "1 >= 1";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "4 in range(5)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "4 in range(3)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "4 not in range(5)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "4 not in range(3)";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
 
         let input = "4 is None";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
 
         let input = "4 is not None";
-        let (mut parser, interpreter) = init(input);
-
-        let ast = parser.parse_simple_expr().unwrap();
-        let result = interpreter.evaluate_expr(&ast).unwrap();
-
-        assert_eq!(result, ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
     }
 
     #[test]
@@ -1767,11 +1642,11 @@ d = type(str.maketrans)
 print(3)
 a = type(print)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::BuiltinFunction)
@@ -1791,11 +1666,11 @@ b = type(iter(""))
 for i in iter("abcde"):
     print(i)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::StringIterator(_))
@@ -1816,11 +1691,11 @@ def foo(a, b):
 
 foo(2, 3)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 let expected_name = "foo".to_string();
                 assert!(matches!(
                     interpreter.state.read("foo").unwrap().as_function().unwrap().borrow().clone(),
@@ -1870,11 +1745,11 @@ w = _f.__qualname__
 x = _f.__annotations__
 y = _f.__type_params__
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -2003,11 +1878,11 @@ def foo():
 a = foo()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -2028,11 +1903,11 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::String(Str::new("Greater than 0".to_string())))
@@ -2050,11 +1925,11 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::String(Str::new("Greater than -10".to_string())))
@@ -2072,11 +1947,11 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::String(Str::new("Greater than -20".to_string())))
@@ -2094,11 +1969,11 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::String(Str::new("Empty".to_string())))
@@ -2118,11 +1993,11 @@ elif y > -20:
 else:
     z = "Else"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::String(Str::new("Else".to_string())))
@@ -2137,11 +2012,11 @@ if 4 in range(5):
 else:
     z = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(1.store()))
@@ -2158,11 +2033,11 @@ while z < 10:
     z = z + 1
     print("done")
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(10.store()))
@@ -2182,11 +2057,11 @@ class Foo:
         print(self.x)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(interpreter.state.is_class("Foo"));
             }
         }
@@ -2203,11 +2078,11 @@ class Foo:
 foo = Foo(3)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(interpreter.state.is_class("Foo"));
                 assert!(!interpreter.state.is_class("foo"));
 
@@ -2239,11 +2114,11 @@ class Foo:
 foo = Foo(3)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(interpreter.state.is_class("Foo"));
                 assert!(!interpreter.state.is_class("foo"));
 
@@ -2284,11 +2159,11 @@ foo = Foo(3)
 x = foo.bar()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(3.store()))
@@ -2308,11 +2183,11 @@ foo = Foo()
 foo.bar()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(interpreter.state.is_class("Foo"));
                 assert!(!interpreter.state.is_class("foo"));
 
@@ -2336,11 +2211,11 @@ foo.bar()
 
     #[test]
     fn regular_import() {
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/regular_import.py");
+        let mut context = init_path("src/fixtures/imports/regular_import.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(5.store()))
@@ -2355,11 +2230,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/regular_import_b.py");
+        let mut context = init_path("src/fixtures/imports/regular_import_b.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("y"),
                     Some(ExprResult::Integer(7.store()))
@@ -2367,11 +2242,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/relative/main_b.py");
+        let mut context = init_path("src/fixtures/imports/relative/main_b.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(2.store()))
@@ -2379,11 +2254,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/relative/main_c.py");
+        let mut context = init_path("src/fixtures/imports/relative/main_c.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(2.store()))
@@ -2394,11 +2269,11 @@ foo.bar()
 
     #[test]
     fn selective_import() {
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_a.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_a.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(5.store()))
@@ -2406,11 +2281,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_b.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_b.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("y"),
                     Some(ExprResult::Integer(6.store()))
@@ -2422,26 +2297,26 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_c.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_c.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::FunctionNotFound(
                         "something_third".to_string(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
             Ok(_) => panic!("Expected an error!"),
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_d.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_d.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(8.store()))
@@ -2449,11 +2324,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_e.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_e.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(8.store()))
@@ -2461,11 +2336,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/selective_import_f.py");
+        let mut context = init_path("src/fixtures/imports/selective_import_f.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("y"),
                     Some(ExprResult::Integer(6.store()))
@@ -2477,11 +2352,11 @@ foo.bar()
             }
         }
 
-        let (mut parser, mut interpreter) = init_path("src/fixtures/imports/relative/main_a.py");
+        let mut context = init_path("src/fixtures/imports/relative/main_a.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("x"),
                     Some(ExprResult::Integer(2.store()))
@@ -2500,11 +2375,11 @@ d = 1.9 + 4
 e = d == 5.9
 f = d != 5.9
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::FloatingPoint(3.14))
@@ -2535,11 +2410,11 @@ def add(x, y):
 
 z = add(2.1, 3)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::FloatingPoint(5.1))
@@ -2562,11 +2437,11 @@ h = -(2+3)
 i = +3
 j = +(-3)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::FloatingPoint(-3.14))
@@ -2613,11 +2488,11 @@ j = +(-3)
 
     #[test]
     fn call_stack() {
-        let (mut parser, mut interpreter) = init_path("src/fixtures/call_stack/call_stack.py");
+        let mut context = init_path("src/fixtures/call_stack/call_stack.py");
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
-                let call_stack = interpreter.state.call_stack();
+                let call_stack = context.ensure_treewalk().state.call_stack();
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::FunctionNotFound(
@@ -2677,11 +2552,11 @@ a = 4
 b = 10
 c = foo()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
-                let call_stack = interpreter.state.call_stack();
+                let call_stack = context.ensure_treewalk().state.call_stack();
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::FunctionNotFound(
@@ -2740,11 +2615,11 @@ s(5)
 t = [1,2]
 t.extend([3,4])
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -2869,16 +2744,16 @@ t.extend([3,4])
         }
 
         let input = "list([1,2,3], [1,2])";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         1,
                         3,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -2903,12 +2778,15 @@ j = type(iter(set()))
 
 new_set = set()
 new_set.add("five")
-"#;
-        let (mut parser, mut interpreter) = init(input);
 
-        match interpreter.run(&mut parser) {
+k = {1} <= {1,2}
+l = {1} <= {2}
+"#;
+        let mut context = init(input);
+
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
@@ -2977,20 +2855,25 @@ new_set.add("five")
                         ExprResult::String(Str::new("five".into()))
                     ])))))
                 );
+                assert_eq!(interpreter.state.read("k"), Some(ExprResult::Boolean(true)));
+                assert_eq!(
+                    interpreter.state.read("l"),
+                    Some(ExprResult::Boolean(false))
+                );
             }
         }
 
         let input = "set({1,2,3}, {1,2})";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         1,
                         2,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -3013,11 +2896,11 @@ h = type(iter(()))
 i = (4,)
 j = 9, 10
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
@@ -3086,16 +2969,16 @@ j = 9, 10
         }
 
         let input = "tuple([1,2,3], [1,2])";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         1,
                         2,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -3115,11 +2998,11 @@ d = (1,2,3)
 e = d[0]
 f = (1,2,3)[1]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -3151,15 +3034,15 @@ f = (1,2,3)[1]
 d = (1,2,3)
 d[0] = 10
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("'tuple' object does not support item assignment".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -3170,15 +3053,15 @@ d[0] = 10
 d = (1,2,3)
 del d[0]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("'tuple' object does not support item deletion".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -3188,15 +3071,15 @@ del d[0]
         let input = r#"
 4[1]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("'int' object is not subscriptable".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -3216,11 +3099,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(20.store()))
@@ -3246,11 +3129,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(20.store()))
@@ -3276,11 +3159,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(20.store()))
@@ -3302,11 +3185,11 @@ for i in range(5):
     b = b + i
 print(b)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(10.store()))
@@ -3321,11 +3204,11 @@ for k, v in a.items():
     b = b + v
 print(b)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(3.store()))
@@ -3351,11 +3234,11 @@ for i in r:
 for i in r:
     e += i
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::RangeIterator(_))
@@ -3414,11 +3297,11 @@ s = type(NotImplemented)
 
 t = type(slice)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter
                         .state
@@ -3475,7 +3358,7 @@ t = type(slice)
                 assert_eq!(
                     interpreter.state.read("p"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("c".to_string())),
@@ -3517,11 +3400,11 @@ c = [ i * 2 for i in a if False ]
 d = [ j * 2 for j in a if j > 2 ]
 e = [x * y for x in range(1,3) for y in range(1,3)]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -3559,11 +3442,11 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
 a = [1,2,3]
 b = { i * 2 for i in a }
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
@@ -3588,11 +3471,11 @@ f = a != [8,9]
 g = a != [8,10,9]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("b"), Some(ExprResult::Boolean(true)));
                 assert_eq!(
                     interpreter.state.read("c"),
@@ -3623,11 +3506,11 @@ c = next(a)
 d = next(a)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(5.store()))
@@ -3652,14 +3535,14 @@ b = next(a)
 c = next(a)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::StopIteration(
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -3680,11 +3563,11 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(12.store()))
@@ -3701,11 +3584,11 @@ def countdown(n):
 z = [ i for i in countdown(5) ]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -3731,11 +3614,11 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(15.store()))
@@ -3753,11 +3636,11 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("z"),
                     Some(ExprResult::Integer(10.store()))
@@ -3773,11 +3656,11 @@ def countdown():
 a = list(countdown())
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -3808,11 +3691,11 @@ b = [ i for i in countdown(3) ]
 c = [ i for i in countdown(7) ]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -3856,11 +3739,11 @@ a = f.baz()
 b = f.x
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(interpreter.state.is_class("Foo"));
                 assert!(interpreter.state.is_class("Parent"));
                 assert_eq!(
@@ -3892,11 +3775,11 @@ a = f.baz()
 b = f.bar()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -3913,11 +3796,11 @@ class abstractclassmethod(classmethod):
     pass
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 // This used to throw an error based on classmethod not yet being a class. This is
                 // found in abc.py in the Python standard lib.
                 assert!(matches!(
@@ -3966,16 +3849,16 @@ class ChildTwo(Parent):
 d = ChildTwo().three()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "ChildTwo".into(),
                         "x".to_string(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -4006,11 +3889,11 @@ d = child_three.three()
 e = child_three.one()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("d"),
                     Some(ExprResult::Integer(3.store()))
@@ -4036,11 +3919,11 @@ child = Child()
 c = child.three()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("c"),
                     Some(ExprResult::Integer(3.store()))
@@ -4070,11 +3953,11 @@ e = type(b)
 f = type(c)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Super(_))
@@ -4116,11 +3999,11 @@ child = Child()
 a = child.one()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -4152,11 +4035,11 @@ a = child.one()
 b = child.two()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -4184,11 +4067,11 @@ child = Child()
 b = child.two()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(2.store()))
@@ -4214,11 +4097,11 @@ child = Child()
 b = child.two()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(12.store()))
@@ -4237,11 +4120,11 @@ class Foo(Bar, Baz): pass
 a = Foo.__mro__
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 let mro = interpreter.state.read("a").map(|a| {
                     a.as_tuple()
                         .unwrap()
@@ -4267,15 +4150,15 @@ a = Foo.__mro__
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
@@ -4320,15 +4203,15 @@ u = type({}.items())
 v = [ val for val in a ]
 w = { key for key, value in a.items() }
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
@@ -4360,7 +4243,7 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("c"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
@@ -4376,7 +4259,7 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("d"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
@@ -4392,7 +4275,7 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("e"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::from([
                             (
                                 ExprResult::String(Str::new("b".to_string())),
@@ -4412,7 +4295,7 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("g"),
                     Some(ExprResult::Dict(Container::new(Dict::new(
-                        interpreter.clone(),
+                        &interpreter,
                         HashMap::new()
                     ))))
                 );
@@ -4501,11 +4384,11 @@ b = a.get("b")
 c = a.get("d")
 d = a.get("d", 99)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(4.store()))
@@ -4524,9 +4407,9 @@ d = a.get("d", 99)
         let input = r#"
 assert True
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {}
         }
@@ -4534,14 +4417,14 @@ assert True
         let input = r#"
 assert False
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AssertionError(
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -4559,11 +4442,11 @@ except:
 finally:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -4577,11 +4460,11 @@ try:
 except:
     a = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -4595,11 +4478,11 @@ try:
 except:
     a = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -4615,11 +4498,11 @@ except:
 finally:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -4631,9 +4514,9 @@ finally:
 try:
     a = 4 / 1
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert!(matches!(e, MemphisError::Parser(ParserError::SyntaxError))),
             Ok(_) => panic!("Expected an error!"),
         }
@@ -4646,11 +4529,11 @@ except ZeroDivisionError:
 except Exception:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -4667,11 +4550,11 @@ except ZeroDivisionError:
 except Exception:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -4688,11 +4571,11 @@ except ZeroDivisionError:
 except:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -4709,11 +4592,11 @@ except ZeroDivisionError:
 except Exception as e:
     a = 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -4738,11 +4621,11 @@ try:
 except (ZeroDivisionError, Exception):
     a = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -4757,11 +4640,11 @@ try:
 except (Exception, ZeroDivisionError):
     a = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -4779,11 +4662,11 @@ except Exception as e:
 else:
     a = 4
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -4803,11 +4686,11 @@ else:
 finally:
     a = 5
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -4822,15 +4705,15 @@ try:
 except ValueError:
     a = 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::DivisionByZero(
                         "division by zero".into(),
-                        interpreter.state.call_stack(),
+                        context.ensure_treewalk().state.call_stack(),
                     ))
                 );
             }
@@ -4843,15 +4726,15 @@ try:
 except ZeroDivisionError:
     raise
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::DivisionByZero(
                         "division by zero".into(),
-                        interpreter.state.call_stack(),
+                        context.ensure_treewalk().state.call_stack(),
                     ))
                 );
             }
@@ -4865,11 +4748,11 @@ except ZeroDivisionError:
 def test_kwargs(**kwargs):
     print(kwargs['a'])
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 let expected_name = "test_kwargs".to_string();
                 let expected_args = ParsedArgDefinitions {
                     args: vec![],
@@ -4895,11 +4778,11 @@ a = test_kwargs(a=5, b=2)
 # A second test to ensure the value is not being set using b=2
 b = test_kwargs(a=5, b=2)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -4919,11 +4802,11 @@ a = test_kwargs(**{'a': 5, 'b': 2})
 c = {'a': 4, 'b': 3}
 b = test_kwargs(**c)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -4942,11 +4825,11 @@ def test_args(*args):
 c = [0, 1]
 b = test_args(*c)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(1.store()))
@@ -4961,11 +4844,11 @@ def test_args(*args):
 c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(1.store()))
@@ -4980,11 +4863,11 @@ def test_args(one, two, *args):
 c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(3.store()))
@@ -4998,15 +4881,15 @@ def test_args(one, two):
 
 b = test_args(0)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("test_args() missing 1 required positional argument: 'two'".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5019,15 +4902,15 @@ def test_args(one, two, three):
 
 b = test_args(0)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("test_args() missing 2 required positional arguments: 'two' and 'three'".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5040,16 +4923,16 @@ def test_args(one, two):
 
 b = test_args(1, 2, 3)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         2,
                         3,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5062,11 +4945,11 @@ def test_args(one, two, *args):
 
 b = test_args(1, 2)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Tuple(Container::new(Tuple::default())))
@@ -5082,11 +4965,11 @@ class Foo:
 foo = Foo(a=5)
 a = foo.a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -5107,11 +4990,11 @@ def _cell_factory():
 a = type(_cell_factory()[0])
 b = _cell_factory()[0].cell_contents
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Cell)
@@ -5135,11 +5018,11 @@ a = type(_cell_factory()[0])
 b = _cell_factory()[0].cell_contents
 c = len(_cell_factory())
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Cell)
@@ -5168,11 +5051,11 @@ a = _cell_factory()[0].cell_contents
 b = _cell_factory()[1].cell_contents
 c = len(_cell_factory())
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -5200,11 +5083,11 @@ def _cell_factory():
 
 c = len(_cell_factory())
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("c"),
                     Some(ExprResult::Integer(1.store()))
@@ -5222,11 +5105,11 @@ def _cell_factory():
 
 c = _cell_factory()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("c"), Some(ExprResult::None));
             }
         }
@@ -5256,11 +5139,11 @@ a = test_decorator(get_val_undecorated)()
 b = get_val_decorated()
 c = twice_decorated()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -5295,11 +5178,11 @@ def get_larger_val():
 a = get_val()
 b = get_larger_val()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -5328,11 +5211,11 @@ class Foo:
 f = Foo(7)
 a = f.calculate(2)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(14.store()))
@@ -5359,11 +5242,11 @@ class Foo:
 f = Foo(7)
 a = f.calculate(2)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(42.store()))
@@ -5384,11 +5267,11 @@ class Foo:
 f = Foo()
 a = f.calculate(2)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(18.store()))
@@ -5402,15 +5285,15 @@ a = f.calculate(2)
         let input = r#"
 raise TypeError
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         None,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5420,15 +5303,15 @@ raise TypeError
         let input = r#"
 raise TypeError('type is no good')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("type is no good".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5473,11 +5356,11 @@ l = type(errno)
 sys.modules['os.path'] = "os_path"
 m = sys.modules['os.path']
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(_))
@@ -5585,11 +5468,11 @@ with MyContextManager() as cm:
 
 a = cm.a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -5612,13 +5495,13 @@ class MyContextManager:
 with MyContextManager() as cm:
     cm.call()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::MissingContextManagerProtocol(
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an exception!"),
@@ -5639,13 +5522,13 @@ class MyContextManager:
 with MyContextManager() as cm:
     cm.call()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::MissingContextManagerProtocol(
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an exception!"),
@@ -5658,11 +5541,11 @@ with MyContextManager() as cm:
 a = 4
 del a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), None);
             }
         }
@@ -5672,15 +5555,15 @@ a = {'b': 1, 'c': 2}
 del a['b']
 c = a['b']
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::KeyError(
                         "b".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -5691,11 +5574,11 @@ c = a['b']
 a = [0,1,2]
 del a[1]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -5715,16 +5598,16 @@ f = Foo()
 del f.x
 a = f.x
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "Foo".into(),
                         "x".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -5739,16 +5622,16 @@ class Foo:
 f = Foo()
 del f.bar
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "Foo".into(),
                         "bar".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -5761,11 +5644,11 @@ b = 5
 c = 6
 del a, c
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), None);
                 assert_eq!(
                     interpreter.state.read("b"),
@@ -5781,11 +5664,11 @@ del a, c
         let input = r#"
 a = b'hello'
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Bytes(Container::new(Bytes::new(
@@ -5798,11 +5681,11 @@ a = b'hello'
         let input = r#"
 a = iter(b'hello')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::BytesIterator(_))
@@ -5813,11 +5696,11 @@ a = iter(b'hello')
         let input = r#"
 a = type(iter(b'hello'))
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::BytesIterator)
@@ -5831,11 +5714,11 @@ a = type(iter(b'hello'))
         let input = r#"
 a = bytearray()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::ByteArray(Container::new(ByteArray::new(
@@ -5848,11 +5731,11 @@ a = bytearray()
         let input = r#"
 a = bytearray(b'hello')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::ByteArray(Container::new(ByteArray::new(
@@ -5865,15 +5748,15 @@ a = bytearray(b'hello')
         let input = r#"
 a = bytearray('hello')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("string argument without an encoding".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -5883,11 +5766,11 @@ a = bytearray('hello')
         let input = r#"
 a = iter(bytearray())
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::ByteArrayIterator(_))
@@ -5898,11 +5781,11 @@ a = iter(bytearray())
         let input = r#"
 a = type(iter(bytearray()))
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::ByteArrayIterator)
@@ -5916,11 +5799,11 @@ a = type(iter(bytearray()))
         let input = r#"
 a = bytes()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Bytes(Container::new(Bytes::new("".into()))))
@@ -5931,11 +5814,11 @@ a = bytes()
         let input = r#"
 a = bytes(b'hello')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Bytes(Container::new(Bytes::new(
@@ -5948,15 +5831,15 @@ a = bytes(b'hello')
         let input = r#"
 a = bytes('hello')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("string argument without an encoding".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -5966,11 +5849,11 @@ a = bytes('hello')
         let input = r#"
 a = iter(bytes())
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::BytesIterator(_))
@@ -5981,11 +5864,11 @@ a = iter(bytes())
         let input = r#"
 a = type(iter(bytes()))
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::BytesIterator)
@@ -6000,11 +5883,11 @@ a = type(iter(bytes()))
 a = 5
 a += 1
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -6016,11 +5899,11 @@ a += 1
 a = 5
 a -= 1
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -6032,11 +5915,11 @@ a -= 1
 a = 5
 a *= 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(10.store()))
@@ -6048,11 +5931,11 @@ a *= 2
 a = 5
 a /= 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -6064,11 +5947,11 @@ a /= 2
 a = 0b0101
 a &= 0b0100
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(4.store()))
@@ -6080,11 +5963,11 @@ a &= 0b0100
 a = 0b0101
 a |= 0b1000
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(13.store()))
@@ -6096,11 +5979,11 @@ a |= 0b1000
 a = 0b0101
 a ^= 0b0100
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -6112,11 +5995,11 @@ a ^= 0b0100
 a = 5
 a //= 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -6128,11 +6011,11 @@ a //= 2
 a = 0b0101
 a <<= 1
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(10.store()))
@@ -6144,11 +6027,11 @@ a <<= 1
 a = 0b0101
 a >>= 1
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(2.store()))
@@ -6160,11 +6043,11 @@ a >>= 1
 a = 11
 a %= 2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -6176,11 +6059,11 @@ a %= 2
 a = 2
 a **= 3
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(8.store()))
@@ -6194,11 +6077,11 @@ a **= 3
         let input = r#"
 a = iter([1,2,3])
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::ListIterator(_))
@@ -6211,11 +6094,11 @@ b = 0
 for i in iter([1,2,3]):
     b += i
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(6.store()))
@@ -6230,11 +6113,11 @@ for i in iter([1,2,3]):
 name = "John"
 a = f"Hello {name}"
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::String(Str::new("Hello John".into())))
@@ -6253,11 +6136,11 @@ d = type(iter(reversed([])))
 
 e = [ i for i in reversed([1,2,3]) ]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::ReversedIterator(_))
@@ -6289,11 +6172,11 @@ e = [ i for i in reversed([1,2,3]) ]
     #[test]
     fn binary_operators() {
         let input = "a = 0x1010 & 0x0011";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(0x0010.store()))
@@ -6302,11 +6185,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = 0o1010 | 0o0011";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(0o1011.store()))
@@ -6315,11 +6198,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = 0b1010 ^ 0b0011";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(0b1001.store()))
@@ -6328,11 +6211,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = 23 % 5";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(3.store()))
@@ -6341,11 +6224,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = 0b0010 << 1";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(0b0100.store()))
@@ -6354,11 +6237,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = 2 * 3 << 2 + 4 & 205";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(128.store()))
@@ -6367,11 +6250,11 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = ~0b1010";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer((-11).store()))
@@ -6380,14 +6263,14 @@ e = [ i for i in reversed([1,2,3]) ]
         }
 
         let input = "a = ~5.5";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::TypeError(
                     Some("bad operand type for unary ~: 'float'".to_string()),
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an error!"),
@@ -6398,11 +6281,11 @@ e = [ i for i in reversed([1,2,3]) ]
         // NOT
         // left-associativity which gives (2 ** 3) ** 2 == 64
         let input = "a = 2 ** 3 ** 2";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(512.store()))
@@ -6420,11 +6303,11 @@ for i in [1,2,3,4,5,6]:
         break
     a += i
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -6439,11 +6322,11 @@ for i in [1,2,3,4,5,6]:
         continue
     a += i
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(17.store()))
@@ -6461,11 +6344,11 @@ while i < 6:
         break
     a += b[i-1]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -6483,11 +6366,11 @@ while i < 6:
         continue
     a += b[i-1]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(17.store()))
@@ -6504,11 +6387,11 @@ for i in [1,2,3,4,5,6]:
 else:
     a = 1024
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -6523,11 +6406,11 @@ for i in [1,2,3,4,5,6]:
 else:
     a = 1024
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1024.store()))
@@ -6551,11 +6434,11 @@ g = [ i for i in zip(range(5), range(4), range(3)) ]
 
 h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Zip(_))
@@ -6666,9 +6549,9 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
         let input = r#"
 f = [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(e, MemphisError::Interpreter(InterpreterError::RuntimeError));
             }
@@ -6686,11 +6569,11 @@ d = type(dict.__dict__['fromkeys'])
 # TODO this should fail
 e = type(object().__dict__)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Type)
@@ -6729,11 +6612,11 @@ f = int
 class MyClass:
     __class_getitem__ = classmethod(a)
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a").unwrap(),
                     ExprResult::Class(_)
@@ -6772,11 +6655,11 @@ b = Foo.a
 Foo.a = 5
 c = Foo.a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(6.store()))
@@ -6799,11 +6682,11 @@ b = Foo.a
 c = Foo().a
 d = Foo.a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(6.store()))
@@ -6831,11 +6714,11 @@ class Foo:
 
 b = Foo.make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 let foo = match interpreter.state.read("Foo") {
                     Some(ExprResult::Class(o)) => o,
                     _ => panic!("Expected an object."),
@@ -6861,11 +6744,11 @@ class Foo:
 b = Foo.make()
 c = Foo().make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(5.store()))
@@ -6893,11 +6776,11 @@ c = Foo.val
 d = Foo().val
 e = Foo().make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(10.store()))
@@ -6928,16 +6811,16 @@ class Foo:
 
 b = Foo.make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "Foo".into(),
                         "val".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -6955,16 +6838,16 @@ class Foo:
 
 b = Foo().make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "Foo".into(),
                         "val".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -6983,11 +6866,11 @@ class Foo:
 b = Foo.make()
 c = Foo().make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(5.store()))
@@ -7008,16 +6891,16 @@ class Foo:
 
 c = Foo().make()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         0,
                         1,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -7049,11 +6932,11 @@ a = singleton1.data
 b = singleton2.data
 c = singleton1 is singleton2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::String(Str::new("First".into())))
@@ -7085,11 +6968,11 @@ a = singleton1.data
 b = singleton2.data
 c = singleton1 is singleton2
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::String(Str::new("Second".into())))
@@ -7109,11 +6992,11 @@ class Foo:
 
 a = Foo()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::None));
             }
         }
@@ -7144,11 +7027,11 @@ try:
 except Exception as e:
     d = e
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -7188,11 +7071,11 @@ class ConcreteImplementation(BaseInterface):
 # This should use the metaclass implementation.
 a = ConcreteImplementation.run()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -7216,11 +7099,11 @@ class Coroutine(metaclass=ABCMeta):
 
 a = Coroutine.register()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(33.store()))
@@ -7249,11 +7132,11 @@ class Coroutine(metaclass=ChildMeta):
 
 a = Coroutine.register()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(33.store()))
@@ -7280,11 +7163,11 @@ global_modified()
 a = global_var_one
 b = global_var_two
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(10.store()))
@@ -7315,11 +7198,11 @@ def nonlocal_modified():
 a = nonlocal_shadow()
 b = nonlocal_modified()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -7348,11 +7231,11 @@ def outer():
 
 a = outer()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(20.store()))
@@ -7367,16 +7250,16 @@ def foo():
     inner()
 foo()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     // this should become a parser error but it will require adding scope
                     // context to the parser
                     MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -7388,16 +7271,16 @@ def foo():
     nonlocal a
 foo()
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     // this should become a parser error but it will require adding scope
                     // context to the parser
                     MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -7407,16 +7290,16 @@ foo()
         let input = r#"
 nonlocal a
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     // this should become a parser error but it will require adding scope
                     // context to the parser
                     MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 );
             }
@@ -7431,11 +7314,11 @@ a = object
 b = object()
 c = object().__str__
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Object)
@@ -7460,11 +7343,11 @@ b = int()
 c = int(5)
 d = int('6')
 "#;
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Int)
@@ -7511,11 +7394,11 @@ f = Child.three
 g = type(a)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Method(_))
@@ -7569,11 +7452,11 @@ e = child.three()
 f = Child.three()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -7605,14 +7488,14 @@ class Child:
 b = Child.one()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::TypeError(
                     Some("one() missing 1 required positional argument: 'self'".to_string()),
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an error!"),
@@ -7639,11 +7522,11 @@ c = child.two()
 d = Child.two()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(11.store()))
@@ -7670,11 +7553,11 @@ a = foo()
 b, c = foo()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
@@ -7697,14 +7580,14 @@ b, c = foo()
 b, c = [1, 2, 3]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::ValueError(
                     "too many values to unpack (expected 2)".into(),
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an error!"),
@@ -7714,14 +7597,14 @@ b, c = [1, 2, 3]
 a, b, c = [2, 3]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::ValueError(
                     "not enough values to unpack (expected 3, got 2)".into(),
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an error!"),
@@ -7734,11 +7617,11 @@ f, g = {1, 2}
 h, i, j = range(1, 4)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(1.store()))
@@ -7783,11 +7666,11 @@ l = [1,2]
 a = (*l,)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
@@ -7802,14 +7685,14 @@ a = (*l,)
 a = (*5)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => assert_eq!(
                 e,
                 MemphisError::Interpreter(InterpreterError::TypeError(
                     Some("Value after * must be an iterable, not int".into()),
-                    interpreter.state.call_stack()
+                    context.ensure_treewalk().state.call_stack()
                 ))
             ),
             Ok(_) => panic!("Expected an error!"),
@@ -7821,9 +7704,9 @@ a = (*5)
         // a = (*l)
         // "#;
         //
-        //         let (mut parser, mut interpreter) = init(input);
+        //         let mut context = init(input);
         //
-        //         match interpreter.run(&mut parser) {
+        //         match context.run() {
         //             Err(e) => assert_eq!(
         //                 e,
         //                 MemphisError::Interpreter(InterpreterError::ValueError(
@@ -7831,7 +7714,7 @@ a = (*5)
         //                     interpreter.state.call_stack()
         //                 ))
         //             ),
-        //             Ok(_) => panic!("Expected an error!"),
+        //             Ok(interpreter) => panic!("Expected an error!"),
         //         }
     }
 
@@ -7842,11 +7725,11 @@ a = 5 if True else 6
 b = 7 if False else 8
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))
@@ -7886,11 +7769,11 @@ p = word[:2]
 r = [2,4,6][:]
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -8007,11 +7890,11 @@ class Foo:
 a = Foo().run
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(6.store()))
@@ -8027,11 +7910,11 @@ def foo(cls, /):
     pass
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("foo"),
                     Some(ExprResult::Function(_))
@@ -8048,11 +7931,11 @@ b = globals()
 c = b['a']
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("c"),
                     Some(ExprResult::Integer(4.store()))
@@ -8073,11 +7956,11 @@ e = type(d)
 f = list(d)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(2.store()))
@@ -8118,11 +8001,11 @@ d = [ i for i in a ]
 e = frozenset().__contains__
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::FrozenSet(Container::new(FrozenSet::new(
@@ -8155,16 +8038,16 @@ e = frozenset().__contains__
         }
 
         let input = "frozenset([1,2,3], [1,2])";
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
                         1,
                         3,
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8182,11 +8065,11 @@ a = foo(88)
 b = foo()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(88.store()))
@@ -8205,15 +8088,15 @@ def foo(data_one, data_two=None):
 b = foo()
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("foo() missing 1 required positional argument: 'data_one'".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8233,11 +8116,11 @@ a = getattr(f, 'val')
 b = getattr(f, 'val_two', 33)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(44.store()))
@@ -8257,16 +8140,16 @@ f = Foo()
 b = getattr(f, 'val_two')
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::AttributeError(
                         "Foo".into(),
                         "val_two".into(),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8297,11 +8180,11 @@ k = isinstance([], (int, list))
 l = isinstance([], (int, Foo))
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Boolean(true)));
                 assert_eq!(
                     interpreter.state.read("b"),
@@ -8342,9 +8225,9 @@ l = isinstance([], (int, Foo))
 isinstance([], (int, 5))
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
@@ -8353,7 +8236,7 @@ isinstance([], (int, 5))
                             "isinstance() arg 2 must be a type, a tuple of types, or a union"
                                 .into()
                         ),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8382,11 +8265,11 @@ i = issubclass(object, object)
 j = issubclass(type, type)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Boolean(false))
@@ -8419,15 +8302,15 @@ j = issubclass(type, type)
 issubclass([], type)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
                     MemphisError::Interpreter(InterpreterError::TypeError(
                         Some("issubclass() arg 1 must be a class".into()),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8438,9 +8321,9 @@ issubclass([], type)
 issubclass(object, [])
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => {
                 assert_eq!(
                     e,
@@ -8449,7 +8332,7 @@ issubclass(object, [])
                             "issubclass() arg 2 must be a type, a tuple of types, or a union"
                                 .into()
                         ),
-                        interpreter.state.call_stack()
+                        context.ensure_treewalk().state.call_stack()
                     ))
                 )
             }
@@ -8471,11 +8354,11 @@ h = bool(0)
 i = bool(5)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Boolean(false))
@@ -8510,11 +8393,11 @@ i = bool(5)
 a = memoryview
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert!(matches!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Class(_))
@@ -8547,11 +8430,11 @@ for number in countdown_from(3, 2):
     sum += number
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("sum"),
                     Some(ExprResult::Integer(9.store()))
@@ -8570,11 +8453,11 @@ except TypeError as exc:
     b = type(exc.__traceback__.tb_frame)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Traceback)
@@ -8595,11 +8478,11 @@ b = asyncio.sleep
 c = asyncio.create_task
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 // these should probably just return Function, not BuiltinFunction
                 // testing here to confirm they do not get bound to their module
                 assert_eq!(
@@ -8624,11 +8507,11 @@ c = asyncio.create_task
 a = b = True
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Boolean(true)));
                 assert_eq!(interpreter.state.read("b"), Some(ExprResult::Boolean(true)));
             }
@@ -8646,11 +8529,11 @@ a = f == g
 b = f != g
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Boolean(false))
@@ -8670,11 +8553,11 @@ a = f == g
 b = f != g
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Boolean(false))
@@ -8699,11 +8582,11 @@ c = f.__ne__
 d = c(g)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Boolean(true)));
                 assert_eq!(
                     interpreter.state.read("b"),
@@ -8738,11 +8621,11 @@ obj = MyClass()
 a = obj.attribute
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(44.store()))
@@ -8793,11 +8676,11 @@ del obj.my_attr
 f = obj.my_attr
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::String(Str::new("default value".into())))
@@ -8844,11 +8727,11 @@ f = complex("2.1+3.1j")
 g = complex(4.1, 5.1)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Complex(Complex::new(4.0, 5.0)))
@@ -8893,11 +8776,11 @@ b = callable(foo)
 c = callable(MyClass)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Boolean(false))
@@ -8920,11 +8803,11 @@ my = MyClass()
 a = dir(my)
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::List(Container::new(List::new(vec![
@@ -8958,11 +8841,11 @@ a = my['one']
 del my['one']
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(1.store()))
@@ -8996,11 +8879,11 @@ except Exception as e:
     the_exp = e
 "#;
 
-        let (mut parser, mut interpreter) = init(input);
+        let mut context = init(input);
 
-        match interpreter.run(&mut parser) {
+        match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
+            Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
                     Some(ExprResult::Integer(5.store()))

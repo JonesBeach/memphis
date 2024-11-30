@@ -3,30 +3,35 @@ use std::collections::HashMap;
 pub mod static_analysis;
 pub mod types;
 
-use crate::core::{log, Container, LogLevel};
-use crate::lexer::types::Token;
-use crate::parser::types::{
-    Alias, BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
-    ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause, FormatOption, HandledException,
-    ImportPath, ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinition, ParsedArgDefinitions,
-    ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport, Statement, TypeNode,
-    UnaryOp, Variable,
+use crate::{
+    core::{log, Container, LogLevel},
+    lexer::types::Token,
+    parser::types::{
+        Alias, BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
+        ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause, FormatOption, ImportPath,
+        ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinition, ParsedArgDefinitions,
+        ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport, Statement, TypeNode,
+        UnaryOp, Variable,
+    },
+    treewalk::State,
+    types::errors::ParserError,
 };
-use crate::treewalk::State;
-use crate::types::errors::ParserError;
 
-pub struct Parser {
+static EOF: Token = Token::Eof;
+
+/// A recursive-descent parser which attempts to encode the full Python grammar.
+pub struct Parser<'a> {
     state: Container<State>,
-    tokens: Vec<Token>,
-    current_token: Token,
+    tokens: &'a [Token],
+    current_token: &'a Token,
     position: usize,
     line_number: usize,
     delimiter_depth: usize,
 }
 
-impl Parser {
-    pub fn new(tokens: Vec<Token>, state: Container<State>) -> Self {
-        let current_token = tokens.first().cloned().unwrap_or(Token::Eof);
+impl<'a> Parser<'a> {
+    pub fn new(tokens: &'a [Token], state: Container<State>) -> Self {
+        let current_token = tokens.first().unwrap_or(&EOF);
         Parser {
             state,
             tokens,
@@ -38,22 +43,20 @@ impl Parser {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.current_token == Token::Eof
+        self.current_token == &EOF
     }
 
     fn end_of_statement(&self) -> bool {
-        self.is_finished() || self.current_token == Token::Newline
+        self.is_finished() || self.current_token == &Token::Newline
     }
 
     fn inside_delimiter(&self) -> bool {
         self.delimiter_depth > 0
     }
 
-    fn peek(&self, ahead: usize) -> Token {
-        self.tokens
-            .get(self.position + ahead)
-            .cloned()
-            .unwrap_or(Token::Eof)
+    /// Return the token a given number ahead of the current position.
+    fn peek(&self, ahead: usize) -> &Token {
+        self.tokens.get(self.position + ahead).unwrap_or(&EOF)
     }
 
     /// Get a reference to a slice of the remaining tokens.
@@ -77,9 +80,9 @@ impl Parser {
 
     /// Check whether the next `tokens.len()` tokens matches those provided, without consuming any
     /// tokens. This is useful for multi-token operations or where extra context is needed.
-    fn peek_ahead_contains(&self, tokens: Vec<Token>) -> bool {
-        for (index, token) in tokens.into_iter().enumerate() {
-            if token != self.peek(index) {
+    fn peek_ahead_contains(&self, tokens: &[Token]) -> bool {
+        for (index, token) in tokens.iter().enumerate() {
+            if self.peek(index) != token {
                 return false;
             }
         }
@@ -90,7 +93,7 @@ impl Parser {
     /// If we are inside a string literal, we must check for newline characters rather than
     /// tokens. These are produced by `Lexer::emit_newline`.
     fn advance_line_number_if_needed(&mut self) {
-        if self.current_token == Token::Newline {
+        if self.current_token == &Token::Newline {
             self.line_number += 1;
         } else if let Token::StringLiteral(string) = &self.current_token {
             self.line_number += string.matches('\n').count();
@@ -99,14 +102,14 @@ impl Parser {
         }
     }
 
-    fn consume(&mut self, expected: Token) -> Result<(), ParserError> {
+    fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
         log(LogLevel::Trace, || {
             format!("Token: {:?}", self.current_token)
         });
 
         if self.current_token != expected {
             return Err(ParserError::ExpectedToken(
-                expected,
+                expected.clone(),
                 self.current_token.clone(),
             ));
         }
@@ -128,30 +131,26 @@ impl Parser {
         }
 
         self.position += 1;
-        self.current_token = self
-            .tokens
-            .get(self.position)
-            .cloned()
-            .unwrap_or(Token::Eof);
+        self.current_token = self.tokens.get(self.position).unwrap_or(&EOF);
 
         // Newlines are allowed freely inside delimiters (), [], {} in Python because the parser
         // expects there to be an ending coming.
         if self.inside_delimiter() {
-            self.consume_optional_many(Token::Newline);
+            self.consume_optional_many(&Token::Newline);
         }
 
         Ok(())
     }
 
-    fn consume_optional(&mut self, expected: Token) {
+    fn consume_optional(&mut self, expected: &Token) {
         if self.current_token == expected {
             let _ = self.consume(expected);
         }
     }
 
-    fn consume_optional_many(&mut self, expected: Token) {
+    fn consume_optional_many(&mut self, expected: &Token) {
         while self.current_token == expected {
-            let _ = self.consume(expected.clone());
+            let _ = self.consume(expected);
         }
     }
 
@@ -166,20 +165,20 @@ impl Parser {
     /// ```
     ///
     /// All other expression parsing is immediately delegated to `parse_simple_expr`.
-    fn parse_expr(&mut self) -> Result<Expr, ParserError> {
+    pub fn parse_expr(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_expr".to_string());
         let left = self.parse_simple_expr()?;
 
-        if self.current_token == Token::Comma {
+        if self.current_token == &Token::Comma {
             let mut items = vec![left];
-            while self.current_token == Token::Comma {
-                self.consume(Token::Comma)?;
+            while self.current_token == &Token::Comma {
+                self.consume(&Token::Comma)?;
 
                 // We need this for the case of a trailing comma, which is most often used for a
                 // tuple with a single element.
                 //
                 // The [`Token::Assign`] is when this happens on the LHS.
-                if self.end_of_statement() || self.current_token == Token::Assign {
+                if self.end_of_statement() || self.current_token == &Token::Assign {
                     break;
                 }
                 items.push(self.parse_simple_expr()?);
@@ -193,12 +192,9 @@ impl Parser {
 
     /// Parse an expression where open tuples are not expected. If you need to support this in a
     /// given context (i.e. a = 4, 5), try `parse_expr`.
-    ///
-    /// This may not need to be public, it's only being used in interpreter tests (outside of this
-    /// struct).
-    pub fn parse_simple_expr(&mut self) -> Result<Expr, ParserError> {
+    fn parse_simple_expr(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_simple_expr".to_string());
-        if self.current_token == Token::Await {
+        if self.current_token == &Token::Await {
             self.parse_await_expr()
         } else {
             self.parse_ternary_expr()
@@ -207,7 +203,7 @@ impl Parser {
 
     fn parse_await_expr(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_await_expr".to_string());
-        self.consume(Token::Await)?;
+        self.consume(&Token::Await)?;
         let right = self.parse_ternary_expr()?;
         Ok(Expr::Await {
             right: Box::new(right),
@@ -231,10 +227,10 @@ impl Parser {
         log(LogLevel::Trace, || "parse_ternary_expr".to_string());
         let if_value = self.parse_binary_expr()?;
 
-        if self.current_token == Token::If {
-            self.consume(Token::If)?;
+        if self.current_token == &Token::If {
+            self.consume(&Token::If)?;
             let condition = self.parse_binary_expr()?;
-            self.consume(Token::Else)?;
+            self.consume(&Token::Else)?;
             let else_value = self.parse_binary_expr()?;
 
             return Ok(Expr::TernaryOp {
@@ -255,8 +251,8 @@ impl Parser {
             self.current_token,
             Token::BitwiseAnd | Token::BitwiseOr | Token::BitwiseXor
         ) {
-            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token.clone())?;
+            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+            self.consume(self.current_token)?;
             let right = self.parse_bitwise_shift()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -273,8 +269,8 @@ impl Parser {
         let mut left = self.parse_logical_term()?;
 
         while matches!(self.current_token, Token::Plus | Token::Minus) {
-            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token.clone())?;
+            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+            self.consume(self.current_token)?;
             let right = self.parse_logical_term()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -291,8 +287,8 @@ impl Parser {
         let mut left = self.parse_add_sub()?;
 
         while matches!(self.current_token, Token::LeftShift | Token::RightShift) {
-            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token.clone())?;
+            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+            self.consume(self.current_token)?;
             let right = self.parse_add_sub()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -306,10 +302,10 @@ impl Parser {
 
     fn parse_member_access(&mut self, left: Expr) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_member_access".to_string());
-        self.consume(Token::Dot)?;
+        self.consume(&Token::Dot)?;
         let field = self.parse_identifier()?;
 
-        if self.current_token == Token::LParen {
+        if self.current_token == &Token::LParen {
             let args = self.parse_function_call_args()?;
 
             Ok(Expr::MethodCall {
@@ -327,21 +323,21 @@ impl Parser {
 
     fn parse_index_access(&mut self, left: Expr) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_index_access".to_string());
-        self.consume(Token::LBracket)?;
+        self.consume(&Token::LBracket)?;
         // [::2]
-        let params = if self.peek_ahead_contains(vec![Token::Colon, Token::Colon]) {
-            self.consume(Token::Colon)?;
-            self.consume(Token::Colon)?;
+        let params = if self.peek_ahead_contains(&[Token::Colon, Token::Colon]) {
+            self.consume(&Token::Colon)?;
+            self.consume(&Token::Colon)?;
             let step = Some(Box::new(self.parse_simple_expr()?));
             (true, None, None, step)
             // [:] - this syntax is useful to replace the items in a list without changing the
             // list's reference
-        } else if self.peek_ahead_contains(vec![Token::Colon, Token::RBracket]) {
-            self.consume(Token::Colon)?;
+        } else if self.peek_ahead_contains(&[Token::Colon, Token::RBracket]) {
+            self.consume(&Token::Colon)?;
             (true, None, None, None)
             // [:2]
-        } else if self.peek_ahead_contains(vec![Token::Colon]) {
-            self.consume(Token::Colon)?;
+        } else if self.peek_ahead_contains(&[Token::Colon]) {
+            self.consume(&Token::Colon)?;
             let stop = Some(Box::new(self.parse_simple_expr()?));
             (true, None, stop, None)
             // [2:]
@@ -350,7 +346,7 @@ impl Parser {
             && self.num_away(&Token::Colon)? + 1 == self.num_away(&Token::RBracket)?
         {
             let start = Some(Box::new(self.parse_simple_expr()?));
-            self.consume(Token::Colon)?;
+            self.consume(&Token::Colon)?;
             (true, start, None, None)
             // [1:1:1] or [2:5]
             // if there is a Colon before the next RBracket
@@ -358,10 +354,10 @@ impl Parser {
             && self.num_away(&Token::Colon)? < self.num_away(&Token::RBracket)?
         {
             let start = Some(Box::new(self.parse_simple_expr()?));
-            self.consume(Token::Colon)?;
+            self.consume(&Token::Colon)?;
             let stop = Some(Box::new(self.parse_simple_expr()?));
-            let step = if self.current_token == Token::Colon {
-                self.consume(Token::Colon)?;
+            let step = if self.current_token == &Token::Colon {
+                self.consume(&Token::Colon)?;
                 Some(Box::new(self.parse_simple_expr()?))
             } else {
                 None
@@ -372,7 +368,7 @@ impl Parser {
             let index = Some(Box::new(self.parse_simple_expr()?));
             (false, index, None, None)
         };
-        self.consume(Token::RBracket)?;
+        self.consume(&Token::RBracket)?;
 
         if !params.0 {
             Ok(Expr::IndexAccess {
@@ -396,8 +392,8 @@ impl Parser {
         log(LogLevel::Trace, || "parse_exponentiation".to_string());
         let mut left = self.parse_factor()?;
 
-        while self.current_token == Token::DoubleAsterisk {
-            self.consume(Token::DoubleAsterisk)?;
+        while self.current_token == &Token::DoubleAsterisk {
+            self.consume(&Token::DoubleAsterisk)?;
             let right = self.parse_exponentiation()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -421,7 +417,7 @@ impl Parser {
             };
         }
 
-        if self.current_token == Token::LParen {
+        if self.current_token == &Token::LParen {
             let args = self.parse_function_call_args()?;
             left = Expr::FunctionCall {
                 name: "<anonymous_from_callee>".into(),
@@ -438,8 +434,8 @@ impl Parser {
         let mut left = self.parse_term()?;
 
         while matches!(self.current_token, Token::And | Token::Or) {
-            let op = LogicalOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token.clone())?;
+            let op = LogicalOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+            self.consume(self.current_token)?;
             let right = self.parse_term()?;
             left = Expr::LogicalOperation {
                 left: Box::new(left),
@@ -459,8 +455,8 @@ impl Parser {
             self.current_token,
             Token::Asterisk | Token::Slash | Token::DoubleSlash | Token::Modulo | Token::AtSign
         ) {
-            let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token.clone())?;
+            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+            self.consume(self.current_token)?;
             let right = self.parse_access_operations()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -479,22 +475,22 @@ impl Parser {
                 | Token::NotEqual
                 | Token::In
                 | Token::Is
-        ) || self.peek_ahead_contains(vec![Token::Not, Token::In])
-            || self.peek_ahead_contains(vec![Token::Is, Token::Not])
+        ) || self.peek_ahead_contains(&[Token::Not, Token::In])
+            || self.peek_ahead_contains(&[Token::Is, Token::Not])
         {
             // Handle two tokens to produce one `BinOp::NotIn` operation. If this gets too messy,
             // we could look to move multi-word tokens into the lexer.
-            let op = if self.peek_ahead_contains(vec![Token::Not, Token::In]) {
-                self.consume(Token::Not)?;
-                self.consume(Token::In)?;
+            let op = if self.peek_ahead_contains(&[Token::Not, Token::In]) {
+                self.consume(&Token::Not)?;
+                self.consume(&Token::In)?;
                 BinOp::NotIn
-            } else if self.peek_ahead_contains(vec![Token::Is, Token::Not]) {
-                self.consume(Token::Is)?;
-                self.consume(Token::Not)?;
+            } else if self.peek_ahead_contains(&[Token::Is, Token::Not]) {
+                self.consume(&Token::Is)?;
+                self.consume(&Token::Not)?;
                 BinOp::IsNot
             } else {
-                let op = BinOp::try_from(&self.current_token).unwrap_or_else(|_| unreachable!());
-                self.consume(self.current_token.clone())?;
+                let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
+                self.consume(self.current_token)?;
                 op
             };
 
@@ -510,14 +506,14 @@ impl Parser {
     }
 
     fn parse_minus(&mut self) -> Result<Expr, ParserError> {
-        self.consume(Token::Minus)?;
+        self.consume(&Token::Minus)?;
         match self.current_token.clone() {
             Token::Integer(i) => {
-                self.consume(Token::Integer(i))?;
+                self.consume(&Token::Integer(i))?;
                 Ok(Expr::Integer(-(i as i64)))
             }
             Token::FloatingPoint(i) => {
-                self.consume(Token::FloatingPoint(i))?;
+                self.consume(&Token::FloatingPoint(i))?;
                 Ok(Expr::FloatingPoint(-i))
             }
             _ => {
@@ -533,14 +529,14 @@ impl Parser {
     /// The unary plus operator is a no-op for integers and floats, but exists to provide custom
     /// behaviors using `Dunder::Pos`.
     fn parse_plus(&mut self) -> Result<Expr, ParserError> {
-        self.consume(Token::Plus)?;
+        self.consume(&Token::Plus)?;
         match self.current_token.clone() {
             Token::Integer(i) => {
-                self.consume(Token::Integer(i))?;
+                self.consume(&Token::Integer(i))?;
                 Ok(Expr::Integer(i as i64))
             }
             Token::FloatingPoint(i) => {
-                self.consume(Token::FloatingPoint(i))?;
+                self.consume(&Token::FloatingPoint(i))?;
                 Ok(Expr::FloatingPoint(i))
             }
             _ => {
@@ -561,7 +557,7 @@ impl Parser {
             Token::Minus => self.parse_minus(),
             Token::Plus => self.parse_plus(),
             Token::Asterisk => {
-                self.consume(Token::Asterisk)?;
+                self.consume(&Token::Asterisk)?;
                 let right = self.parse_simple_expr()?;
                 Ok(Expr::UnaryOperation {
                     op: UnaryOp::Unpack,
@@ -569,14 +565,14 @@ impl Parser {
                 })
             }
             Token::Yield => {
-                self.consume(Token::Yield)?;
+                self.consume(&Token::Yield)?;
 
-                if self.current_token == Token::From {
-                    self.consume(Token::From)?;
+                if self.current_token == &Token::From {
+                    self.consume(&Token::From)?;
                     let expr = self.parse_simple_expr()?;
                     Ok(Expr::YieldFrom(Box::new(expr)))
                 // The [`Token::RParen`] can be found on generator lambdas.
-                } else if self.end_of_statement() || self.current_token == Token::RParen {
+                } else if self.end_of_statement() || self.current_token == &Token::RParen {
                     Ok(Expr::Yield(None))
                 } else {
                     let expr = self.parse_simple_expr()?;
@@ -584,7 +580,7 @@ impl Parser {
                 }
             }
             Token::Not => {
-                self.consume(Token::Not)?;
+                self.consume(&Token::Not)?;
                 let right = self.parse_term()?;
                 Ok(Expr::UnaryOperation {
                     op: UnaryOp::Not,
@@ -592,7 +588,7 @@ impl Parser {
                 })
             }
             Token::BitwiseNot => {
-                self.consume(Token::BitwiseNot)?;
+                self.consume(&Token::BitwiseNot)?;
                 let right = self.parse_term()?;
                 Ok(Expr::UnaryOperation {
                     op: UnaryOp::BitwiseNot,
@@ -600,31 +596,31 @@ impl Parser {
                 })
             }
             Token::None => {
-                self.consume(Token::None)?;
+                self.consume(&Token::None)?;
                 Ok(Expr::None)
             }
             Token::NotImplemented => {
-                self.consume(Token::NotImplemented)?;
+                self.consume(&Token::NotImplemented)?;
                 Ok(Expr::NotImplemented)
             }
             Token::Ellipsis => {
-                self.consume(Token::Ellipsis)?;
+                self.consume(&Token::Ellipsis)?;
                 Ok(Expr::Ellipsis)
             }
             Token::Integer(i) => {
-                self.consume(Token::Integer(i))?;
+                self.consume(&Token::Integer(i))?;
                 Ok(Expr::Integer(i as i64))
             }
             Token::FloatingPoint(i) => {
-                self.consume(Token::FloatingPoint(i))?;
+                self.consume(&Token::FloatingPoint(i))?;
                 Ok(Expr::FloatingPoint(i))
             }
             Token::BooleanLiteral(b) => {
-                self.consume(Token::BooleanLiteral(b))?;
+                self.consume(&Token::BooleanLiteral(b))?;
                 Ok(Expr::Boolean(b))
             }
             Token::Identifier(_) => {
-                if self.peek(1) == Token::LParen {
+                if self.peek(1) == &Token::LParen {
                     let name = self.parse_identifier()?;
                     let args = self.parse_function_call_args()?;
 
@@ -655,16 +651,16 @@ impl Parser {
             Token::LBrace => self.parse_set(),
             Token::Lambda => self.parse_lambda(),
             Token::StringLiteral(literal) => {
-                self.consume(Token::StringLiteral(literal.clone()))?;
+                self.consume(&Token::StringLiteral(literal.clone()))?;
                 Ok(Expr::StringLiteral(literal))
             }
             Token::RawStringLiteral(literal) => {
                 // TODO store the raw-ness here so that we do not escape characters
-                self.consume(Token::RawStringLiteral(literal.clone()))?;
+                self.consume(&Token::RawStringLiteral(literal.clone()))?;
                 Ok(Expr::StringLiteral(literal))
             }
             Token::ByteStringLiteral(literal) => {
-                self.consume(Token::ByteStringLiteral(literal.clone()))?;
+                self.consume(&Token::ByteStringLiteral(literal.clone()))?;
                 Ok(Expr::ByteStringLiteral(literal.as_bytes().to_vec()))
             }
             Token::BinaryLiteral(literal) => self.parse_binary_literal(literal),
@@ -676,15 +672,15 @@ impl Parser {
     }
 
     fn parse_indented_block(&mut self) -> Result<Block, ParserError> {
-        self.consume_optional_many(Token::Newline);
-        self.consume(Token::Indent)?;
+        self.consume_optional_many(&Token::Newline);
+        self.consume(&Token::Indent)?;
 
         let mut statements = Vec::new();
-        while self.current_token != Token::Dedent {
+        while self.current_token != &Token::Dedent {
             statements.push(self.parse_statement()?);
         }
-        self.consume(Token::Dedent)?;
-        self.consume_optional_many(Token::Newline);
+        self.consume(&Token::Dedent)?;
+        self.consume_optional_many(&Token::Newline);
 
         Ok(Block::new(statements))
     }
@@ -692,17 +688,17 @@ impl Parser {
     fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
         match self.current_token {
             Token::Dot => {
-                self.consume(Token::Dot)?;
+                self.consume(&Token::Dot)?;
                 let mut levels = 0;
-                while self.current_token == Token::Dot {
-                    self.consume(Token::Dot)?;
+                while self.current_token == &Token::Dot {
+                    self.consume(&Token::Dot)?;
                     levels += 1;
                 }
 
                 let path = if matches!(self.current_token, Token::Identifier(_)) {
                     let mut path = vec![self.parse_identifier()?];
-                    while self.current_token == Token::Dot {
-                        self.consume(Token::Dot)?;
+                    while self.current_token == &Token::Dot {
+                        self.consume(&Token::Dot)?;
                         path.push(self.parse_identifier()?);
                     }
                     path
@@ -714,8 +710,8 @@ impl Parser {
             }
             _ => {
                 let mut path = vec![self.parse_identifier()?];
-                while self.current_token == Token::Dot {
-                    self.consume(Token::Dot)?;
+                while self.current_token == &Token::Dot {
+                    self.consume(&Token::Dot)?;
                     path.push(self.parse_identifier()?);
                 }
 
@@ -725,8 +721,8 @@ impl Parser {
     }
 
     fn parse_alias(&mut self) -> Result<Option<String>, ParserError> {
-        if self.current_token == Token::As {
-            self.consume(Token::As)?;
+        if self.current_token == &Token::As {
+            self.consume(&Token::As)?;
             let alias = self.parse_identifier()?;
             Ok(Some(alias))
         } else {
@@ -735,7 +731,7 @@ impl Parser {
     }
 
     fn parse_regular_import(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Import)?;
+        self.consume(&Token::Import)?;
 
         let mut items = vec![];
         loop {
@@ -743,8 +739,8 @@ impl Parser {
             let alias = self.parse_alias()?;
             items.push(RegularImport { import_path, alias });
 
-            if self.current_token == Token::Comma {
-                self.consume(Token::Comma)?;
+            if self.current_token == &Token::Comma {
+                self.consume(&Token::Comma)?;
             } else {
                 break;
             }
@@ -754,13 +750,13 @@ impl Parser {
     }
 
     fn parse_selective_import(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::From)?;
+        self.consume(&Token::From)?;
         let import_path = self.parse_import_path()?;
 
-        self.consume(Token::Import)?;
+        self.consume(&Token::Import)?;
         let stmt = match self.current_token {
             Token::Asterisk => {
-                self.consume(Token::Asterisk)?;
+                self.consume(&Token::Asterisk)?;
                 Statement::SelectiveImport {
                     import_path,
                     items: vec![],
@@ -768,7 +764,7 @@ impl Parser {
                 }
             }
             _ => {
-                self.consume_optional(Token::LParen);
+                self.consume_optional(&Token::LParen);
 
                 let mut items = Vec::new();
                 loop {
@@ -789,11 +785,11 @@ impl Parser {
 
                     match self.current_token {
                         Token::Comma => {
-                            self.consume(Token::Comma)?;
+                            self.consume(&Token::Comma)?;
                             continue;
                         }
                         Token::RParen => {
-                            self.consume(Token::RParen)?;
+                            self.consume(&Token::RParen)?;
                             break;
                         }
                         _ => {
@@ -817,21 +813,21 @@ impl Parser {
     }
 
     fn parse_binary_literal(&mut self, literal: String) -> Result<Expr, ParserError> {
-        self.consume(Token::BinaryLiteral(literal.clone()))?;
+        self.consume(&Token::BinaryLiteral(literal.clone()))?;
 
         let result = i64::from_str_radix(&literal[2..], 2).map_err(|_| ParserError::SyntaxError)?;
         Ok(Expr::Integer(result))
     }
 
     fn parse_octal_literal(&mut self, literal: String) -> Result<Expr, ParserError> {
-        self.consume(Token::OctalLiteral(literal.clone()))?;
+        self.consume(&Token::OctalLiteral(literal.clone()))?;
 
         let result = i64::from_str_radix(&literal[2..], 8).map_err(|_| ParserError::SyntaxError)?;
         Ok(Expr::Integer(result))
     }
 
     fn parse_hex_literal(&mut self, literal: String) -> Result<Expr, ParserError> {
-        self.consume(Token::HexLiteral(literal.clone()))?;
+        self.consume(&Token::HexLiteral(literal.clone()))?;
 
         let result =
             i64::from_str_radix(&literal[2..], 16).map_err(|_| ParserError::SyntaxError)?;
@@ -845,24 +841,24 @@ impl Parser {
             let node = match self.current_token {
                 Token::Identifier(ref identifier) => match identifier.as_str() {
                     "int" => {
-                        self.consume(Token::Identifier("int".into()))?;
+                        self.consume(&Token::Identifier("int".into()))?;
                         TypeNode::Basic("int".into())
                     }
                     "str" => {
-                        self.consume(Token::Identifier("str".into()))?;
+                        self.consume(&Token::Identifier("str".into()))?;
                         TypeNode::Basic("str".into())
                     }
                     "dict" => {
-                        self.consume(Token::Identifier("dict".into()))?;
+                        self.consume(&Token::Identifier("dict".into()))?;
                         TypeNode::Basic("dict".into())
                     }
                     "list" => {
-                        self.consume(Token::Identifier("list".into()))?;
+                        self.consume(&Token::Identifier("list".into()))?;
 
-                        if self.current_token == Token::LBracket {
-                            self.consume(Token::LBracket)?;
+                        if self.current_token == &Token::LBracket {
+                            self.consume(&Token::LBracket)?;
                             let parameters = self.parse_type_node()?;
-                            self.consume(Token::RBracket)?;
+                            self.consume(&Token::RBracket)?;
 
                             TypeNode::Generic {
                                 base_type: "list".into(),
@@ -875,7 +871,7 @@ impl Parser {
                     _ => unimplemented!(),
                 },
                 Token::Ellipsis => {
-                    self.consume(Token::Ellipsis)?;
+                    self.consume(&Token::Ellipsis)?;
                     // should this be modeled in a better way?
                     // this is from _collections_abc.py: EllipsisType = type(...)
                     TypeNode::Basic("...".into())
@@ -885,10 +881,10 @@ impl Parser {
 
             nodes.push(node);
 
-            if self.current_token != Token::BitwiseOr {
+            if self.current_token != &Token::BitwiseOr {
                 break;
             }
-            self.consume(Token::BitwiseOr)?;
+            self.consume(&Token::BitwiseOr)?;
         }
 
         if nodes.len() == 1 {
@@ -904,16 +900,16 @@ impl Parser {
     }
 
     fn parse_context_manager(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::With)?;
+        self.consume(&Token::With)?;
         let expr = self.parse_simple_expr()?;
 
-        let variable = if self.current_token == Token::As {
-            self.consume(Token::As)?;
+        let variable = if self.current_token == &Token::As {
+            self.consume(&Token::As)?;
             Some(self.parse_identifier()?)
         } else {
             None
         };
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
         let block = self.parse_indented_block()?;
 
         Ok(Statement::ContextManager {
@@ -924,20 +920,20 @@ impl Parser {
     }
 
     fn parse_raise(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Raise)?;
+        self.consume(&Token::Raise)?;
 
         let instance = if matches!(self.current_token, Token::Identifier(_)) {
             let literal = self.parse_exception_literal()?;
 
-            let args = if self.current_token == Token::LParen {
+            let args = if self.current_token == &Token::LParen {
                 self.parse_function_call_args()?
             } else {
                 ParsedArguments::empty()
             };
 
             // TODO support exception chaining here and in the interpreter
-            if self.current_token == Token::From {
-                self.consume(Token::From)?;
+            if self.current_token == &Token::From {
+                self.consume(&Token::From)?;
                 let _from = self.parse_simple_expr()?;
             }
             Some(ExceptionInstance { literal, args })
@@ -949,72 +945,63 @@ impl Parser {
     }
 
     fn parse_try_except(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Try)?;
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Try)?;
+        self.consume(&Token::Colon)?;
         let try_block = self.parse_indented_block()?;
 
         let mut except_clauses: Vec<ExceptClause> = vec![];
-        while self.current_token == Token::Except {
-            self.consume(Token::Except)?;
-            if self.current_token == Token::Colon {
-                self.consume(Token::Colon)?;
+        while self.current_token == &Token::Except {
+            self.consume(&Token::Except)?;
+            if self.current_token == &Token::Colon {
+                self.consume(&Token::Colon)?;
                 let except_block = self.parse_indented_block()?;
                 except_clauses.push(ExceptClause {
                     exception_types: vec![],
+                    alias: None,
                     block: except_block,
                 });
-            } else if self.current_token == Token::LParen {
-                self.consume(Token::LParen)?;
+            } else if self.current_token == &Token::LParen {
+                self.consume(&Token::LParen)?;
                 let mut literals = vec![];
-                while self.current_token != Token::RParen {
+                while self.current_token != &Token::RParen {
                     let literal = self.parse_exception_literal()?;
-                    literals.push(HandledException {
-                        literal,
-                        alias: None,
-                    });
-                    self.consume_optional(Token::Comma);
+                    literals.push(literal);
+                    self.consume_optional(&Token::Comma);
                 }
 
-                self.consume(Token::RParen)?;
-                self.consume(Token::Colon)?;
+                self.consume(&Token::RParen)?;
+                let alias = self.parse_alias()?;
+                self.consume(&Token::Colon)?;
                 let except_block = self.parse_indented_block()?;
                 except_clauses.push(ExceptClause {
                     exception_types: literals,
+                    alias,
                     block: except_block,
                 });
             } else {
                 let literal = self.parse_exception_literal()?;
-                let exception_type = if self.current_token == Token::As {
-                    self.consume(Token::As)?;
-                    let alias = Some(self.parse_identifier()?);
-                    HandledException { literal, alias }
-                } else {
-                    HandledException {
-                        literal,
-                        alias: None,
-                    }
-                };
-
-                self.consume(Token::Colon)?;
+                let alias = self.parse_alias()?;
+                self.consume(&Token::Colon)?;
                 let except_block = self.parse_indented_block()?;
                 except_clauses.push(ExceptClause {
-                    exception_types: vec![exception_type],
+                    exception_types: vec![literal],
+                    alias,
                     block: except_block,
                 });
             }
         }
 
-        let else_block = if self.current_token == Token::Else {
-            self.consume(Token::Else)?;
-            self.consume(Token::Colon)?;
+        let else_block = if self.current_token == &Token::Else {
+            self.consume(&Token::Else)?;
+            self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
         } else {
             None
         };
 
-        let finally_block = if self.current_token == Token::Finally {
-            self.consume(Token::Finally)?;
-            self.consume(Token::Colon)?;
+        let finally_block = if self.current_token == &Token::Finally {
+            self.consume(&Token::Finally)?;
+            self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
         } else {
             None
@@ -1033,19 +1020,19 @@ impl Parser {
     }
 
     fn parse_if_else(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::If)?;
+        self.consume(&Token::If)?;
         let condition = self.parse_simple_expr()?;
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
         let if_part = ConditionalBlock {
             condition,
             block: self.parse_block()?,
         };
 
         let mut elif_parts: Vec<ConditionalBlock> = vec![];
-        while self.current_token == Token::Elif {
-            self.consume(Token::Elif)?;
+        while self.current_token == &Token::Elif {
+            self.consume(&Token::Elif)?;
             let condition = self.parse_simple_expr()?;
-            self.consume(Token::Colon)?;
+            self.consume(&Token::Colon)?;
             let elif_parts_part = ConditionalBlock {
                 condition,
                 block: self.parse_indented_block()?,
@@ -1055,9 +1042,9 @@ impl Parser {
             elif_parts.push(elif_parts_part);
         }
 
-        let else_part = if self.current_token == Token::Else {
-            self.consume(Token::Else)?;
-            self.consume(Token::Colon)?;
+        let else_part = if self.current_token == &Token::Else {
+            self.consume(&Token::Else)?;
+            self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
         } else {
             None
@@ -1071,25 +1058,25 @@ impl Parser {
     }
 
     fn parse_for_in_loop(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::For)?;
+        self.consume(&Token::For)?;
 
         let index_a = self.parse_identifier()?;
-        let index = if self.current_token == Token::Comma {
-            self.consume(Token::Comma)?;
+        let index = if self.current_token == &Token::Comma {
+            self.consume(&Token::Comma)?;
             let index_b = self.parse_identifier()?;
             LoopIndex::Tuple(vec![index_a, index_b])
         } else {
             LoopIndex::Variable(index_a)
         };
 
-        self.consume(Token::In)?;
+        self.consume(&Token::In)?;
         let range = self.parse_simple_expr()?;
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
         let body = self.parse_indented_block()?;
 
-        let else_block = if self.current_token == Token::Else {
-            self.consume(Token::Else)?;
-            self.consume(Token::Colon)?;
+        let else_block = if self.current_token == &Token::Else {
+            self.consume(&Token::Else)?;
+            self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
         } else {
             None
@@ -1104,7 +1091,7 @@ impl Parser {
     }
 
     fn parse_block(&mut self) -> Result<Block, ParserError> {
-        if self.current_token == Token::Newline {
+        if self.current_token == &Token::Newline {
             self.parse_indented_block()
         } else {
             // Support single-line functions or classes
@@ -1135,17 +1122,16 @@ impl Parser {
     }
 
     fn parse_class_definition(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Class)?;
+        self.consume(&Token::Class)?;
         let name = self.parse_identifier()?;
 
         let mut parents = vec![];
         let mut metaclass = None;
 
-        if self.current_token == Token::LParen {
-            self.consume(Token::LParen)?;
-            while self.current_token != Token::RParen {
-                if self
-                    .peek_ahead_contains(vec![Token::Identifier("metaclass".into()), Token::Assign])
+        if self.current_token == &Token::LParen {
+            self.consume(&Token::LParen)?;
+            while self.current_token != &Token::RParen {
+                if self.peek_ahead_contains(&[Token::Identifier("metaclass".into()), Token::Assign])
                 {
                     // Support for metaclasses, i.e. the `__new__` method which constructs a class
                     // (instead of an object like the normal `__new__` method).
@@ -1155,20 +1141,20 @@ impl Parser {
                     // class ABC(metaclass=ABCMeta):
                     //     pass
                     // ```
-                    self.consume(Token::Identifier("metaclass".into()))?;
-                    self.consume(Token::Assign)?;
+                    self.consume(&Token::Identifier("metaclass".into()))?;
+                    self.consume(&Token::Assign)?;
                     metaclass = Some(self.parse_identifier()?);
                     break;
                 }
 
                 parents.push(self.parse_parent_class()?);
 
-                self.consume_optional(Token::Comma);
+                self.consume_optional(&Token::Comma);
             }
-            self.consume(Token::RParen)?;
+            self.consume(&Token::RParen)?;
         }
 
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
         let body = self.parse_block()?;
 
         Ok(Statement::ClassDef {
@@ -1182,34 +1168,34 @@ impl Parser {
     fn parse_function_definition(&mut self) -> Result<Statement, ParserError> {
         let mut decorators: Vec<Expr> = vec![];
 
-        while self.current_token == Token::AtSign {
-            self.consume(Token::AtSign)?;
+        while self.current_token == &Token::AtSign {
+            self.consume(&Token::AtSign)?;
             decorators.push(self.parse_simple_expr()?);
 
             // Each decorator must be ended by 1 and only 1 newline
-            self.consume(Token::Newline)?;
+            self.consume(&Token::Newline)?;
         }
 
-        let is_async = if self.current_token == Token::Async {
-            self.consume(Token::Async)?;
+        let is_async = if self.current_token == &Token::Async {
+            self.consume(&Token::Async)?;
             true
         } else {
             false
         };
 
-        self.consume(Token::Def)?;
+        self.consume(&Token::Def)?;
         let name = self.parse_identifier()?;
-        self.consume(Token::LParen)?;
+        self.consume(&Token::LParen)?;
         let args = self.parse_function_def_args(Token::RParen)?;
-        self.consume(Token::RParen)?;
+        self.consume(&Token::RParen)?;
 
         // Support type hints in the return type
-        if self.current_token == Token::ReturnTypeArrow {
-            self.consume(Token::ReturnTypeArrow)?;
+        if self.current_token == &Token::ReturnTypeArrow {
+            self.consume(&Token::ReturnTypeArrow)?;
             let _ = self.parse_simple_expr()?;
         }
 
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
         let body = self.parse_block()?;
 
         Ok(Statement::FunctionDef {
@@ -1227,23 +1213,23 @@ impl Parser {
             let expr = self.parse_simple_expr()?;
             exprs.push(expr);
 
-            if self.current_token != Token::Comma {
+            if self.current_token != &Token::Comma {
                 break;
             }
-            self.consume(Token::Comma)?;
+            self.consume(&Token::Comma)?;
         }
 
         Ok(exprs)
     }
 
     fn parse_delete(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Del)?;
+        self.consume(&Token::Del)?;
         let exprs = self.parse_comma_separated_expr()?;
         Ok(Statement::Delete(exprs))
     }
 
     fn parse_return(&mut self) -> Result<Statement, ParserError> {
-        self.consume(Token::Return)?;
+        self.consume(&Token::Return)?;
         let exprs = if self.end_of_statement() {
             vec![]
         } else {
@@ -1264,7 +1250,7 @@ impl Parser {
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, ParserError> {
-        self.consume_optional_many(Token::Newline);
+        self.consume_optional_many(&Token::Newline);
         self.state.set_line(self.line_number);
         let stmt = match self.current_token.clone() {
             Token::Del => self.parse_delete(),
@@ -1272,39 +1258,39 @@ impl Parser {
             Token::AtSign => self.parse_function_definition(),
             Token::Async => self.parse_function_definition(),
             Token::Assert => {
-                self.consume(Token::Assert)?;
+                self.consume(&Token::Assert)?;
                 let expr = self.parse_simple_expr()?;
                 Ok(Statement::Assert(expr))
             }
             Token::Class => self.parse_class_definition(),
             Token::Return => self.parse_return(),
             Token::Pass => {
-                self.consume(Token::Pass)?;
+                self.consume(&Token::Pass)?;
                 Ok(Statement::Pass)
             }
             Token::Break => {
-                self.consume(Token::Break)?;
+                self.consume(&Token::Break)?;
                 Ok(Statement::Break)
             }
             Token::Continue => {
-                self.consume(Token::Continue)?;
+                self.consume(&Token::Continue)?;
                 Ok(Statement::Continue)
             }
             Token::Nonlocal => {
-                self.consume(Token::Nonlocal)?;
+                self.consume(&Token::Nonlocal)?;
                 let identifiers = self.parse_identifiers()?;
                 Ok(Statement::Nonlocal(identifiers))
             }
             Token::Global => {
-                self.consume(Token::Global)?;
+                self.consume(&Token::Global)?;
                 let identifiers = self.parse_identifiers()?;
                 Ok(Statement::Global(identifiers))
             }
             Token::If => self.parse_if_else(),
             Token::While => {
-                self.consume(Token::While)?;
+                self.consume(&Token::While)?;
                 let condition = self.parse_simple_expr()?;
-                self.consume(Token::Colon)?;
+                self.consume(&Token::Colon)?;
                 let body = self.parse_indented_block()?;
                 Ok(Statement::WhileLoop { condition, body })
             }
@@ -1317,15 +1303,15 @@ impl Parser {
             _ => self.parse_statement_without_starting_keyword(),
         };
 
-        self.consume_optional_many(Token::Newline);
+        self.consume_optional_many(&Token::Newline);
         stmt
     }
 
     fn parse_statement_without_starting_keyword(&mut self) -> Result<Statement, ParserError> {
         let left = self.parse_expr()?;
 
-        if self.current_token == Token::Assign {
-            self.consume(Token::Assign)?;
+        if self.current_token == &Token::Assign {
+            self.consume(&Token::Assign)?;
             match left {
                 Expr::Tuple(vars) => Ok(Statement::UnpackingAssignment {
                     left: vars,
@@ -1335,8 +1321,8 @@ impl Parser {
                     let mut left_items = vec![left];
 
                     let mut right = self.parse_expr()?;
-                    while self.current_token == Token::Assign {
-                        self.consume(Token::Assign)?;
+                    while self.current_token == &Token::Assign {
+                        self.consume(&Token::Assign)?;
                         left_items.push(right);
                         right = self.parse_expr()?;
                     }
@@ -1371,7 +1357,7 @@ impl Parser {
                 Token::ExpoEquals => CompoundOperator::Expo,
                 _ => unreachable!(),
             };
-            self.consume(self.current_token.clone())?;
+            self.consume(self.current_token)?;
 
             let value = self.parse_simple_expr()?;
             Ok(Statement::CompoundAssignment {
@@ -1385,14 +1371,14 @@ impl Parser {
     }
 
     fn parse_lambda(&mut self) -> Result<Expr, ParserError> {
-        self.consume(Token::Lambda)?;
+        self.consume(&Token::Lambda)?;
         let args = self.parse_function_def_args(Token::Colon)?;
-        self.consume(Token::Colon)?;
+        self.consume(&Token::Colon)?;
 
-        let expr = if self.current_token == Token::LParen {
-            self.consume(Token::LParen)?;
+        let expr = if self.current_token == &Token::LParen {
+            self.consume(&Token::LParen)?;
             let expr = self.parse_simple_expr()?;
-            self.consume(Token::RParen)?;
+            self.consume(&Token::RParen)?;
             expr
         } else {
             self.parse_simple_expr()?
@@ -1408,31 +1394,31 @@ impl Parser {
         log(LogLevel::Trace, || "parse_list".to_string());
         let mut items = Vec::new();
 
-        self.consume(Token::LBracket)?;
-        while self.current_token != Token::RBracket {
+        self.consume(&Token::LBracket)?;
+        while self.current_token != &Token::RBracket {
             let expr = self.parse_simple_expr()?;
             items.push(expr.clone());
 
-            if self.current_token == Token::Comma {
-                self.consume(Token::Comma)?;
+            if self.current_token == &Token::Comma {
+                self.consume(&Token::Comma)?;
 
                 // Handle trailing comma
-                if self.current_token == Token::RBracket {
-                    self.consume(Token::RBracket)?;
+                if self.current_token == &Token::RBracket {
+                    self.consume(&Token::RBracket)?;
                     return Ok(Expr::List(items));
                 }
-            } else if self.current_token == Token::RBracket {
-                self.consume(Token::RBracket)?;
+            } else if self.current_token == &Token::RBracket {
+                self.consume(&Token::RBracket)?;
                 return Ok(Expr::List(items));
             }
 
-            if self.current_token == Token::For {
+            if self.current_token == &Token::For {
                 let mut clauses = vec![];
-                while self.current_token == Token::For {
+                while self.current_token == &Token::For {
                     clauses.push(self.parse_comprehension_clause()?);
                 }
 
-                self.consume(Token::RBracket)?;
+                self.consume(&Token::RBracket)?;
 
                 return Ok(Expr::ListComprehension {
                     body: Box::new(expr),
@@ -1443,28 +1429,29 @@ impl Parser {
 
         // You should only get here if this was an empty literal.
         assert_eq!(items.len(), 0);
-        self.consume(Token::RBracket)?;
+        self.consume(&Token::RBracket)?;
         Ok(Expr::List(vec![]))
     }
 
     fn parse_f_string(&mut self) -> Result<Expr, ParserError> {
-        self.consume(Token::FStringStart)?;
+        self.consume(&Token::FStringStart)?;
 
         let mut parts = vec![];
-        while self.current_token != Token::FStringEnd {
+        while self.current_token != &Token::FStringEnd {
             match self.current_token.clone() {
                 Token::StringLiteral(s) => {
-                    self.consume(Token::StringLiteral(s.to_string()))?;
+                    self.consume(&Token::StringLiteral(s.to_string()))?;
                     parts.push(FStringPart::String(s.to_string()));
                 }
                 Token::LBrace => {
-                    self.consume(Token::LBrace)?;
+                    // Start consuming the expression within braces
+                    self.consume(&Token::LBrace)?;
                     let expr = self.parse_simple_expr()?;
 
-                    let format = if self.current_token == Token::Exclamation {
-                        self.consume(Token::Exclamation)?;
+                    let format = if self.current_token == &Token::Exclamation {
+                        self.consume(&Token::Exclamation)?;
                         if let Token::Identifier(token) = self.current_token.clone() {
-                            self.consume(Token::Identifier(token.to_string()))?;
+                            self.consume(&Token::Identifier(token.to_string()))?;
                             match token.as_str() {
                                 "r" => FormatOption::Repr,
                                 "s" => FormatOption::Str,
@@ -1482,7 +1469,7 @@ impl Parser {
                         FormatOption::Str
                     };
 
-                    self.consume(Token::RBrace)?;
+                    self.consume(&Token::RBrace)?;
                     parts.push(FStringPart::Expr(ExprFormat {
                         expr: Box::new(expr),
                         format,
@@ -1494,7 +1481,7 @@ impl Parser {
             }
         }
 
-        self.consume(Token::FStringEnd)?;
+        self.consume(&Token::FStringEnd)?;
         Ok(Expr::FString(parts))
     }
 
@@ -1502,64 +1489,64 @@ impl Parser {
         log(LogLevel::Trace, || "parse_set".to_string());
         let mut items = HashMap::new();
 
-        self.consume(Token::LBrace)?;
-        while self.current_token != Token::RBrace {
+        self.consume(&Token::LBrace)?;
+        while self.current_token != &Token::RBrace {
             let item = self.parse_simple_expr()?;
 
             match self.current_token {
                 Token::Comma => {
-                    self.consume(Token::Comma)?;
+                    self.consume(&Token::Comma)?;
                     items.insert(item.clone(), Expr::None);
 
                     // Handle trailing comma
-                    if self.current_token == Token::RBrace {
-                        self.consume(Token::RBrace)?;
+                    if self.current_token == &Token::RBrace {
+                        self.consume(&Token::RBrace)?;
                         return Ok(Expr::Set(items.keys().cloned().collect()));
                     }
                 }
                 Token::RBrace => {
-                    self.consume(Token::RBrace)?;
+                    self.consume(&Token::RBrace)?;
                     items.insert(item.clone(), Expr::None);
                     return Ok(Expr::Set(items.keys().cloned().collect()));
                 }
                 Token::For => {
                     let mut clauses = vec![];
-                    while self.current_token == Token::For {
+                    while self.current_token == &Token::For {
                         clauses.push(self.parse_comprehension_clause()?);
                     }
-                    self.consume(Token::RBrace)?;
+                    self.consume(&Token::RBrace)?;
                     return Ok(Expr::SetComprehension {
                         body: Box::new(item),
                         clauses,
                     });
                 }
                 Token::Colon => {
-                    self.consume(Token::Colon)?;
+                    self.consume(&Token::Colon)?;
                     let second = self.parse_simple_expr()?;
                     items.insert(item.clone(), second.clone());
 
                     match self.current_token {
                         Token::Comma => {
-                            self.consume(Token::Comma)?;
+                            self.consume(&Token::Comma)?;
 
                             // Handle trailing comma
-                            if self.current_token == Token::RBrace {
-                                self.consume(Token::RBrace)?;
+                            if self.current_token == &Token::RBrace {
+                                self.consume(&Token::RBrace)?;
                                 return Ok(Expr::Dict(items));
                             }
                         }
                         Token::RBrace => {
-                            self.consume(Token::RBrace)?;
+                            self.consume(&Token::RBrace)?;
                             return Ok(Expr::Dict(items));
                         }
                         Token::For => {
-                            self.consume(Token::For)?;
+                            self.consume(&Token::For)?;
                             let key = self.parse_identifier()?;
-                            self.consume(Token::Comma)?;
+                            self.consume(&Token::Comma)?;
                             let value = self.parse_identifier()?;
-                            self.consume(Token::In)?;
+                            self.consume(&Token::In)?;
                             let range = self.parse_simple_expr()?;
-                            self.consume(Token::RBrace)?;
+                            self.consume(&Token::RBrace)?;
                             return Ok(Expr::DictComprehension {
                                 key,
                                 value,
@@ -1577,7 +1564,7 @@ impl Parser {
 
         // You should only get here if this was an empty literal.
         assert_eq!(items.len(), 0);
-        self.consume(Token::RBrace)?;
+        self.consume(&Token::RBrace)?;
         Ok(Expr::Dict(HashMap::new()))
     }
 
@@ -1588,25 +1575,25 @@ impl Parser {
         let mut args = Vec::new();
         let mut args_var = None;
         let mut kwargs_var = None;
-        while self.current_token != end_token {
+        while self.current_token != &end_token {
             // This is to support positional-only parameters.
             // Context: PEP 570 (https://peps.python.org/pep-0570/)
             // TODO test positional-only parameters now that we support args/kwargs
-            if self.current_token == Token::Slash {
-                self.consume(Token::Slash)?;
+            if self.current_token == &Token::Slash {
+                self.consume(&Token::Slash)?;
 
                 // We will only see a comma if the slash isn't the last "parameter".
                 // We test this is the "slash_args" interpreter test. This is also found in
                 // types.py in the standard lib.
-                if self.current_token == Token::Comma {
-                    self.consume(Token::Comma)?;
+                if self.current_token == &Token::Comma {
+                    self.consume(&Token::Comma)?;
                 } else {
                     break;
                 }
             }
 
-            if self.current_token == Token::Asterisk {
-                self.consume(Token::Asterisk)?;
+            if self.current_token == &Token::Asterisk {
+                self.consume(&Token::Asterisk)?;
 
                 // We will see an asterisk without a trailing identifier for keyword-only
                 // parameters. TODO we do not yet enforce this.
@@ -1618,19 +1605,19 @@ impl Parser {
                 // If *args is not at the end of the args (only kwargs can come after), we must
                 // allow for a comma. This is similar to how we optionally consume a comma as the
                 // last step of each loop iteration.
-                self.consume_optional(Token::Comma);
+                self.consume_optional(&Token::Comma);
                 continue;
             }
 
-            if self.current_token == Token::DoubleAsterisk {
-                self.consume(Token::DoubleAsterisk)?;
+            if self.current_token == &Token::DoubleAsterisk {
+                self.consume(&Token::DoubleAsterisk)?;
                 kwargs_var = Some(self.parse_identifier()?);
                 break;
             }
 
             let arg = self.parse_identifier()?;
-            let default = if self.current_token == Token::Assign {
-                self.consume(Token::Assign)?;
+            let default = if self.current_token == &Token::Assign {
+                self.consume(&Token::Assign)?;
                 Some(self.parse_simple_expr()?)
             } else {
                 None
@@ -1642,12 +1629,12 @@ impl Parser {
             // themselves? Perhaps for future toolings like memphis-lsp.
             //
             // Not sure if the check for end_token here is correct or not. This is for lambdas.
-            if end_token != Token::Colon && self.current_token == Token::Colon {
-                self.consume(Token::Colon)?;
+            if end_token != Token::Colon && self.current_token == &Token::Colon {
+                self.consume(&Token::Colon)?;
                 let _type = self.parse_simple_expr()?;
             }
 
-            self.consume_optional(Token::Comma);
+            self.consume_optional(&Token::Comma);
         }
 
         Ok(ParsedArgDefinitions {
@@ -1658,21 +1645,21 @@ impl Parser {
     }
 
     fn parse_function_call_args(&mut self) -> Result<ParsedArguments, ParserError> {
-        self.consume(Token::LParen)?;
+        self.consume(&Token::LParen)?;
 
         let mut args = Vec::new();
         let mut kwargs = HashMap::new();
         let mut args_var = None;
         let mut kwargs_var = None;
-        while self.current_token != Token::RParen {
-            if self.current_token == Token::Asterisk {
-                self.consume(Token::Asterisk)?;
+        while self.current_token != &Token::RParen {
+            if self.current_token == &Token::Asterisk {
+                self.consume(&Token::Asterisk)?;
                 args_var = Some(Box::new(self.parse_simple_expr()?));
 
                 // If *args is not at the end of the args (only kwargs can come after), we must
                 // allow for a comma. This is similar to how we optionally consume a comma as the
                 // last step of each loop iteration.
-                self.consume_optional(Token::Comma);
+                self.consume_optional(&Token::Comma);
                 continue;
             }
 
@@ -1683,8 +1670,8 @@ impl Parser {
             // Python technically allows you to do both of these, but we do not support that yet.
             // If you do that, I think kwargs_var would need to become a Vec since you could have
             // more than one of a single type.
-            if self.current_token == Token::DoubleAsterisk {
-                self.consume(Token::DoubleAsterisk)?;
+            if self.current_token == &Token::DoubleAsterisk {
+                self.consume(&Token::DoubleAsterisk)?;
                 let kwargs_expr = self.parse_simple_expr()?;
                 match kwargs_expr {
                     Expr::Dict(dict) => {
@@ -1711,10 +1698,10 @@ impl Parser {
                 }
             }
 
-            self.consume_optional(Token::Comma);
+            self.consume_optional(&Token::Comma);
         }
 
-        self.consume(Token::RParen)?;
+        self.consume(&Token::RParen)?;
 
         Ok(ParsedArguments {
             args,
@@ -1729,8 +1716,8 @@ impl Parser {
     /// other cases to be safely used inside function call parsing.
     fn parse_function_call_arg(&mut self) -> Result<ParsedArgument, ParserError> {
         let expr = self.parse_simple_expr()?;
-        if self.current_token == Token::Assign {
-            self.consume(Token::Assign)?;
+        if self.current_token == &Token::Assign {
+            self.consume(&Token::Assign)?;
 
             let arg = expr.as_variable().ok_or(ParserError::SyntaxError)?.into();
 
@@ -1738,7 +1725,7 @@ impl Parser {
                 arg,
                 expr: self.parse_simple_expr()?,
             })
-        } else if self.current_token == Token::For {
+        } else if self.current_token == &Token::For {
             Ok(ParsedArgument::Positional(
                 self.parse_generator_comprehension(&expr)?,
             ))
@@ -1749,7 +1736,7 @@ impl Parser {
 
     fn parse_generator_comprehension(&mut self, body: &Expr) -> Result<Expr, ParserError> {
         let mut clauses = vec![];
-        while self.current_token == Token::For {
+        while self.current_token == &Token::For {
             clauses.push(self.parse_comprehension_clause()?);
         }
         Ok(Expr::GeneratorComprehension {
@@ -1759,13 +1746,13 @@ impl Parser {
     }
 
     fn parse_comprehension_clause(&mut self) -> Result<ForClause, ParserError> {
-        self.consume(Token::For)?;
+        self.consume(&Token::For)?;
         let mut indices = vec![self.parse_identifier()?];
-        while self.current_token == Token::Comma {
-            self.consume(Token::Comma)?;
+        while self.current_token == &Token::Comma {
+            self.consume(&Token::Comma)?;
             indices.push(self.parse_identifier()?);
         }
-        self.consume(Token::In)?;
+        self.consume(&Token::In)?;
 
         // We do not use `parse_expr` here because it can think that an expression of the
         // form `a if True` is the start of a ternary operation and expect an `else` token
@@ -1773,8 +1760,8 @@ impl Parser {
         // ternary operations are handled.
         let iterable = self.parse_binary_expr()?;
 
-        let condition = if self.current_token == Token::If {
-            self.consume(Token::If)?;
+        let condition = if self.current_token == &Token::If {
+            self.consume(&Token::If)?;
             Some(Box::new(self.parse_simple_expr()?))
         } else {
             None
@@ -1797,30 +1784,30 @@ impl Parser {
     ///
     fn parse_tuple(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_tuple".to_string());
-        self.consume(Token::LParen)?;
+        self.consume(&Token::LParen)?;
 
         let mut args = Vec::new();
         let mut is_single_element = true;
-        while self.current_token != Token::RParen {
+        while self.current_token != &Token::RParen {
             let expr = self.parse_simple_expr()?;
             args.push(expr.clone());
 
-            if self.current_token == Token::Comma {
-                self.consume(Token::Comma)?;
+            if self.current_token == &Token::Comma {
+                self.consume(&Token::Comma)?;
                 is_single_element = false;
             }
 
-            if self.current_token == Token::For {
+            if self.current_token == &Token::For {
                 // If you saw a For token, we must be in list comprehension.
                 assert_eq!(args.len(), 1);
                 let gen_comp = self.parse_generator_comprehension(&expr)?;
 
-                self.consume(Token::RParen)?;
+                self.consume(&Token::RParen)?;
                 return Ok(gen_comp);
             }
         }
 
-        self.consume(Token::RParen)?;
+        self.consume(&Token::RParen)?;
 
         if args.len() == 1 && is_single_element {
             Ok(args.into_iter().next().unwrap())
@@ -1831,8 +1818,8 @@ impl Parser {
 
     fn parse_identifiers(&mut self) -> Result<Vec<Variable>, ParserError> {
         let mut items = vec![self.parse_identifier()?];
-        while self.current_token == Token::Comma {
-            self.consume(Token::Comma)?;
+        while self.current_token == &Token::Comma {
+            self.consume(&Token::Comma)?;
             items.push(self.parse_identifier()?);
         }
         Ok(items)
@@ -1843,7 +1830,7 @@ impl Parser {
         match self.current_token.clone() {
             Token::Identifier(name) => {
                 let name_clone = name.clone();
-                self.consume(Token::Identifier(name_clone.clone()))?;
+                self.consume(&Token::Identifier(name_clone.clone()))?;
                 Ok(name_clone)
             }
             _ => Err(ParserError::UnexpectedToken(self.current_token.clone())),
@@ -1854,36 +1841,27 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::init::Builder;
-    use crate::treewalk::types::{Class, ExprResult};
-    use crate::treewalk::LoadedModule;
-    use crate::treewalk::Scope;
+    use crate::{
+        init::MemphisContext,
+        treewalk::{
+            types::{Class, ExprResult},
+            Scope,
+        },
+    };
     use std::collections::HashSet;
 
-    fn init(text: &str) -> Parser {
-        Builder::new()
-            .module(LoadedModule::new_virtual(text))
-            .build()
-            .0
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::from_text(text)
     }
 
-    fn init_state(text: &str, state: Container<State>) -> Parser {
-        Builder::new()
-            .state(state.clone())
-            .module(LoadedModule::new_virtual(text))
-            .build()
-            .0
-    }
-
-    /// Helper for parsing multiline statements.
-    fn parse(parser: &mut Parser) -> Result<Statement, ParserError> {
-        parser.parse_statement()
+    fn init_state(text: &str, state: Container<State>) -> MemphisContext {
+        MemphisContext::from_text_with_state(text, Some(state))
     }
 
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
@@ -1899,13 +1877,13 @@ mod tests {
             }),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "2 // 3";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
@@ -1913,7 +1891,7 @@ mod tests {
             right: Box::new(Expr::Integer(3)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -1922,17 +1900,17 @@ mod tests {
     #[test]
     fn string_literal() {
         let input = "\"Hello\"";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::StringLiteral("Hello".into());
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "\"\".join([])";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::MethodCall {
             object: Box::new(Expr::StringLiteral("".into())),
@@ -1945,7 +1923,7 @@ mod tests {
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -1956,14 +1934,14 @@ mod tests {
         let input = "
 a = 2
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::Integer(2),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -1971,7 +1949,7 @@ a = 2
         let input = "
 b = a + 3
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("b".to_string()),
@@ -1982,7 +1960,7 @@ b = a + 3
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -1990,7 +1968,7 @@ b = a + 3
         let input = "
 a, b = (1, 2)
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::UnpackingAssignment {
             left: vec![
@@ -2000,7 +1978,7 @@ a, b = (1, 2)
             right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2)]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2009,7 +1987,7 @@ a, b = (1, 2)
     #[test]
     fn function_call() {
         let input = "print(\"Hello, World!\")";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FunctionCall {
             name: "print".to_string(),
@@ -2022,7 +2000,7 @@ a, b = (1, 2)
             callee: None,
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2030,7 +2008,7 @@ a, b = (1, 2)
         let input = "
 a(*self.args, **self.kwargs)
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "a".into(),
@@ -2049,7 +2027,7 @@ a(*self.args, **self.kwargs)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2061,7 +2039,7 @@ a(*self.args, **self.kwargs)
 def add(x, y):
     return x + y
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "add".to_string(),
@@ -2090,7 +2068,7 @@ def add(x, y):
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2098,7 +2076,7 @@ def add(x, y):
         let input = "
 def _f(): pass
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "_f".to_string(),
@@ -2114,7 +2092,7 @@ def _f(): pass
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2122,7 +2100,7 @@ def _f(): pass
         let input = "
 lambda: 4
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
@@ -2133,7 +2111,7 @@ lambda: 4
             expr: Box::new(Expr::Integer(4)),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2141,7 +2119,7 @@ lambda: 4
         let input = "
 lambda index: 4
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
@@ -2155,7 +2133,7 @@ lambda index: 4
             expr: Box::new(Expr::Integer(4)),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2163,7 +2141,7 @@ lambda index: 4
         let input = "
 lambda index, val: 4
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
@@ -2183,7 +2161,7 @@ lambda index, val: 4
             expr: Box::new(Expr::Integer(4)),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2191,7 +2169,7 @@ lambda index, val: 4
         let input = "
 lambda: (yield)
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
@@ -2202,7 +2180,7 @@ lambda: (yield)
             expr: Box::new(Expr::Yield(None)),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2210,7 +2188,7 @@ lambda: (yield)
         let input = "
 (lambda: (yield))()
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "<anonymous_from_callee>".into(),
@@ -2230,7 +2208,7 @@ lambda: (yield)
             })),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2241,7 +2219,7 @@ def __init__(
 ):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "__init__".into(),
@@ -2264,7 +2242,7 @@ def __init__(
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2272,12 +2250,12 @@ def __init__(
         let input = "
 return a, b
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast =
             Statement::Return(vec![Expr::Variable("a".into()), Expr::Variable("b".into())]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2286,7 +2264,7 @@ return a, b
     #[test]
     fn boolean_expressions() {
         let input = "x and y\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2294,13 +2272,13 @@ return a, b
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x or y\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2308,13 +2286,13 @@ return a, b
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x or not y\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2325,13 +2303,13 @@ return a, b
             }),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "not (x or y)\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Not,
@@ -2342,7 +2320,7 @@ return a, b
             }),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2352,7 +2330,7 @@ if (a
     or b):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2369,7 +2347,7 @@ if (a
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2378,7 +2356,7 @@ if (a
     #[test]
     fn comparison_operators() {
         let input = "x == y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2386,13 +2364,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x != y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2400,13 +2378,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x < y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2414,13 +2392,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x > y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2428,13 +2406,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x >= y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2442,13 +2420,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x <= y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2456,13 +2434,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x in y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2470,13 +2448,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x not in y";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2484,13 +2462,13 @@ if (a
             right: Box::new(Expr::Variable("y".to_string())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x is None";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2498,13 +2476,13 @@ if (a
             right: Box::new(Expr::None),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x is not None";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("x".to_string())),
@@ -2512,7 +2490,7 @@ if (a
             right: Box::new(Expr::None),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2521,20 +2499,20 @@ if (a
     #[test]
     fn boolean_operators() {
         let input = "x = True\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("x".to_string()),
             right: Expr::Boolean(true),
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "True or False\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
             left: Box::new(Expr::Boolean(true)),
@@ -2542,30 +2520,30 @@ if (a
             right: Box::new(Expr::Boolean(false)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "x = None\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("x".to_string()),
             right: Expr::None,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "return None\n";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Return(vec![Expr::None]);
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2581,7 +2559,7 @@ elif x > -10:
 else:
     print("Less")
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2636,7 +2614,7 @@ else:
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2649,7 +2627,7 @@ elif x > -10:
 elif x > -20:
     print("Less")
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2714,7 +2692,7 @@ elif x > -20:
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2723,7 +2701,7 @@ elif x > -20:
 if x > 0:
     print("Greater")
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2749,7 +2727,7 @@ if x > 0:
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2757,7 +2735,7 @@ if x > 0:
         let input = r#"
 if True: return False
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2770,7 +2748,7 @@ if True: return False
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2781,7 +2759,7 @@ if (a == 1
         and c):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -2804,7 +2782,7 @@ if (a == 1
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2816,7 +2794,7 @@ if (a == 1
 while True:
     print(\"busy loop\")
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::WhileLoop {
             condition: Expr::Boolean(true),
@@ -2834,7 +2812,7 @@ while True:
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2850,7 +2828,7 @@ class Foo:
     def bar(self):
         print(self.x)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "Foo".to_string(),
@@ -2912,7 +2890,7 @@ class Foo:
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2920,7 +2898,7 @@ class Foo:
         let input = r#"
 class Foo(Bar, Baz): pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "Foo".to_string(),
@@ -2929,7 +2907,7 @@ class Foo(Bar, Baz): pass
             body: Block::new(vec![Statement::Pass]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2937,7 +2915,7 @@ class Foo(Bar, Baz): pass
         let input = r#"
 class Foo(module.Bar): pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "Foo".to_string(),
@@ -2949,7 +2927,7 @@ class Foo(module.Bar): pass
             body: Block::new(vec![Statement::Pass]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2968,7 +2946,7 @@ foo = Foo()
         let state = Container::new(State::new());
         state.push_local(Container::new(symbol_table));
 
-        let mut parser = init_state(input, state);
+        let context = init_state(input, state);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("foo".to_string()),
@@ -2978,7 +2956,7 @@ foo = Foo()
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -2996,7 +2974,7 @@ foo = Foo()
         let input = r#"
 foo = Foo()
 "#;
-        let mut parser = init_state(input, state.clone());
+        let context = init_state(input, state.clone());
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("foo".to_string()),
@@ -3006,7 +2984,7 @@ foo = Foo()
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3014,7 +2992,7 @@ foo = Foo()
         let input = r#"
 foo.bar()
 "#;
-        let mut parser = init_state(input, state);
+        let context = init_state(input, state);
 
         let expected_ast = Statement::Expression(Expr::MethodCall {
             object: Box::new(Expr::Variable("foo".to_string())),
@@ -3022,7 +3000,7 @@ foo.bar()
             args: ParsedArguments::empty(),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3031,14 +3009,14 @@ foo.bar()
     #[test]
     fn regular_import() {
         let input = "import other";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: None,
         }]);
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3047,7 +3025,7 @@ foo.bar()
 def foo():
     import other, second as third
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "foo".to_string(),
@@ -3070,7 +3048,7 @@ def foo():
 
         // We test this inside a function so that it will attempt to parse more than one statement,
         // which is what originally caught the bug related to parsing the comma and beyond.
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3079,7 +3057,7 @@ def foo():
 import other as b
 pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -3089,17 +3067,18 @@ pass
         // Before we handling Token::As processing, this test would fail, but only once it began
         // parsing the next statement. We needed to parse two statements here to produce the
         // failing test.
-        match parse(&mut parser) {
+        let mut parser = context.init_parser();
+        match parser.parse_statement() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
-        match parse(&mut parser) {
+        match parser.parse_statement() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, Statement::Pass),
         }
 
         let input = "mypackage.myothermodule.add('1', '1')";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::MethodCall {
             object: Box::new(Expr::MemberAccess {
@@ -3118,7 +3097,7 @@ pass
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3126,7 +3105,7 @@ pass
         let input = r#"
 cls._abc_registry.add(subclass)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::MethodCall {
             object: Box::new(Expr::MemberAccess {
@@ -3142,7 +3121,7 @@ cls._abc_registry.add(subclass)
             },
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3151,7 +3130,7 @@ cls._abc_registry.add(subclass)
     #[test]
     fn selective_import() {
         let input = "from other import something";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -3159,13 +3138,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from other import something, something_else";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -3176,13 +3155,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from other import *";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -3190,13 +3169,13 @@ cls._abc_registry.add(subclass)
             wildcard: true,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from other import something, something_else as imported_name";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -3210,13 +3189,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from other.module import something, something_else as imported_name";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into(), "module".into()]),
@@ -3230,13 +3209,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from . import something";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Relative(0, vec![]),
@@ -3244,13 +3223,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from .other.module import something, something_else as imported_name";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Relative(0, vec!["other".into(), "module".into()]),
@@ -3264,13 +3243,13 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "from ..other.module import something, something_else as imported_name";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
@@ -3284,7 +3263,7 @@ cls._abc_registry.add(subclass)
             wildcard: false,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3293,7 +3272,7 @@ cls._abc_registry.add(subclass)
 from ..other.module import (something,
                             something_else as imported_name)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
@@ -3307,7 +3286,7 @@ from ..other.module import (something,
             wildcard: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3316,7 +3295,7 @@ from ..other.module import (something,
 from ..other.module import (something as imported_name,
                             something_else)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
@@ -3330,7 +3309,7 @@ from ..other.module import (something as imported_name,
             wildcard: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3341,14 +3320,14 @@ from ..other.module import (something as imported_name,
         let input = r#"
 a = 3.14
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::FloatingPoint(3.14),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3356,7 +3335,7 @@ a = 3.14
         let input = r#"
 b = a + 2.5e-3
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("b".to_string()),
@@ -3367,7 +3346,7 @@ b = a + 2.5e-3
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3376,84 +3355,84 @@ b = a + 2.5e-3
     #[test]
     fn negative_numbers() {
         let input = "-3.14";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::FloatingPoint(-3.14);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "-3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Integer(-3);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "2 - 3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
             op: BinOp::Sub,
             right: Box::new(Expr::Integer(3)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "-2e-3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::FloatingPoint(-2e-3);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "2 + -3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
             op: BinOp::Add,
             right: Box::new(Expr::Integer(-3)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "-(3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Minus,
             right: Box::new(Expr::Integer(3)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "+(3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Plus,
             right: Box::new(Expr::Integer(3)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "-(2 + 3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Minus,
             right: Box::new(Expr::BinaryOperation {
@@ -3463,7 +3442,7 @@ b = a + 2.5e-3
             }),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3472,19 +3451,19 @@ b = a + 2.5e-3
     #[test]
     fn lists() {
         let input = "[1,2,3]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "[1, 2, 3]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3494,13 +3473,13 @@ a = [1,
     2,
     3
 ]"#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
             right: Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3508,19 +3487,19 @@ a = [1,
         let input = "
 a = [1, 2, 3]
 ";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "list([1, 2, 3])";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::ClassInstantiation {
             name: "list".to_string(),
             args: ParsedArguments {
@@ -3535,7 +3514,7 @@ a = [1, 2, 3]
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3544,33 +3523,33 @@ a = [1, 2, 3]
     #[test]
     fn sets() {
         let input = "{1,2,3}";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Set(HashSet::from([
             Expr::Integer(1),
             Expr::Integer(2),
             Expr::Integer(3),
         ]));
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "{1, 2, 3}";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Set(HashSet::from([
             Expr::Integer(1),
             Expr::Integer(2),
             Expr::Integer(3),
         ]));
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a = {1, 2, 3}";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::Set(HashSet::from([
@@ -3580,13 +3559,13 @@ a = [1, 2, 3]
             ])),
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "set({1, 2, 3})";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::ClassInstantiation {
             name: "set".to_string(),
             args: ParsedArguments {
@@ -3601,7 +3580,7 @@ a = [1, 2, 3]
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3612,14 +3591,14 @@ a = [1, 2, 3]
     2,
     3
 }"#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Expression(Expr::Set(HashSet::from([
             Expr::Integer(1),
             Expr::Integer(2),
             Expr::Integer(3),
         ])));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3630,14 +3609,14 @@ a = [1, 2, 3]
     2,
     3,
 }"#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Expression(Expr::Set(HashSet::from([
             Expr::Integer(1),
             Expr::Integer(2),
             Expr::Integer(3),
         ])));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3646,67 +3625,67 @@ a = [1, 2, 3]
     #[test]
     fn tuples() {
         let input = "(1,2,3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "(1, 2, 3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "1, 2, 3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
 
-        match parser.parse_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "1,";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::Tuple(vec![Expr::Integer(1)]);
 
-        match parser.parse_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a = (1, 2, 3)";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a = 1, 2, 3";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
             right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "tuple((1, 2, 3))";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::ClassInstantiation {
             name: "tuple".to_string(),
             args: ParsedArguments {
@@ -3721,7 +3700,7 @@ a = [1, 2, 3]
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3731,7 +3710,7 @@ tuple((1,
        2,
        3))
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Expression(Expr::ClassInstantiation {
             name: "tuple".to_string(),
             args: ParsedArguments {
@@ -3746,7 +3725,7 @@ tuple((1,
             },
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3755,31 +3734,31 @@ tuple((1,
     #[test]
     fn index_access() {
         let input = "a[0]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::IndexAccess {
             object: Box::new(Expr::Variable("a".to_string())),
             index: Box::new(Expr::Integer(0)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "[0,1][1]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::IndexAccess {
             object: Box::new(Expr::List(vec![Expr::Integer(0), Expr::Integer(1)])),
             index: Box::new(Expr::Integer(1)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[1] = 0";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::Assignment {
             left: Expr::IndexAccess {
                 object: Box::new(Expr::Variable("a".to_string())),
@@ -3788,7 +3767,7 @@ tuple((1,
             right: Expr::Integer(0),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3800,7 +3779,7 @@ tuple((1,
 for i in a:
     print(i)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
@@ -3819,7 +3798,7 @@ for i in a:
             else_block: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3828,7 +3807,7 @@ for i in a:
 for k, v in a.items():
     print(v)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
             iterable: Expr::MethodCall {
@@ -3851,7 +3830,7 @@ for k, v in a.items():
             else_block: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3860,7 +3839,7 @@ for k, v in a.items():
     #[test]
     fn list_comprehension() {
         let input = "[ i * 2 for i in a ]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::ListComprehension {
             body: Box::new(Expr::BinaryOperation {
                 left: Box::new(Expr::Variable("i".to_string())),
@@ -3874,13 +3853,13 @@ for k, v in a.items():
             }],
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "[i*2 for i in a if True]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::ListComprehension {
             body: Box::new(Expr::BinaryOperation {
                 left: Box::new(Expr::Variable("i".to_string())),
@@ -3894,7 +3873,7 @@ for k, v in a.items():
             }],
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3908,9 +3887,9 @@ def countdown(n):
         yield n
         n = n - 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
                 let expected_body = Block {
@@ -3948,12 +3927,12 @@ def countdown(n):
         let input = r#"
 yield from a
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast =
             Statement::Expression(Expr::YieldFrom(Box::new(Expr::Variable("a".into()))));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -3966,9 +3945,9 @@ class Foo(Parent):
     def __init__(self):
         self.x = 0
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
                 let expected_parent = vec![Expr::Variable("Parent".into())];
@@ -3983,7 +3962,7 @@ class Foo(Parent):
 class Foo(metaclass=Parent):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "Foo".to_string(),
@@ -3994,7 +3973,7 @@ class Foo(metaclass=Parent):
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4003,7 +3982,7 @@ class Foo(metaclass=Parent):
 class Foo(Bar, metaclass=Parent):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "Foo".to_string(),
@@ -4014,7 +3993,7 @@ class Foo(Bar, metaclass=Parent):
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4023,7 +4002,7 @@ class Foo(Bar, metaclass=Parent):
 class InterfaceMeta(type):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ClassDef {
             name: "InterfaceMeta".to_string(),
@@ -4034,7 +4013,7 @@ class InterfaceMeta(type):
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4045,7 +4024,7 @@ class InterfaceMeta(type):
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
@@ -4055,7 +4034,7 @@ a = { "b": 4, 'c': 5 }
             ])),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4065,7 +4044,7 @@ namespace = {
     '__name__': 4,
 }
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("namespace".to_string()),
@@ -4075,7 +4054,7 @@ namespace = {
             )])),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4088,7 +4067,7 @@ async def main():
     task_1 = asyncio.create_task(task1())
     return await task_1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "main".to_string(),
@@ -4125,7 +4104,7 @@ async def main():
             is_async: true,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4136,11 +4115,11 @@ async def main():
         let input = r#"
 assert True
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assert(Expr::Boolean(true));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4156,7 +4135,7 @@ except:
 finally:
     a = 3
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::TryExcept {
             try_block: Block {
@@ -4168,6 +4147,7 @@ finally:
             },
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
+                alias: None,
                 block: Block {
                     statements: vec![Statement::Assignment {
                         left: Expr::Variable("a".into()),
@@ -4184,7 +4164,7 @@ finally:
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4197,7 +4177,7 @@ except ZeroDivisionError as e:
 finally:
     a = 3
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::TryExcept {
             try_block: Block {
@@ -4208,10 +4188,8 @@ finally:
                 })],
             },
             except_clauses: vec![ExceptClause {
-                exception_types: vec![HandledException {
-                    literal: ExceptionLiteral::ZeroDivisionError,
-                    alias: Some("e".into()),
-                }],
+                exception_types: vec![ExceptionLiteral::ZeroDivisionError],
+                alias: Some("e".into()),
                 block: Block {
                     statements: vec![Statement::Assignment {
                         left: Expr::Variable("a".into()),
@@ -4228,7 +4206,45 @@ finally:
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"
+try:
+    4 / 0
+except (ZeroDivisionError, IOError) as e:
+    a = 2
+"#;
+        let context = init(input);
+
+        let expected_ast = Statement::TryExcept {
+            try_block: Block {
+                statements: vec![Statement::Expression(Expr::BinaryOperation {
+                    left: Box::new(Expr::Integer(4)),
+                    op: BinOp::Div,
+                    right: Box::new(Expr::Integer(0)),
+                })],
+            },
+            except_clauses: vec![ExceptClause {
+                exception_types: vec![
+                    ExceptionLiteral::ZeroDivisionError,
+                    ExceptionLiteral::IOError,
+                ],
+                alias: Some("e".into()),
+                block: Block {
+                    statements: vec![Statement::Assignment {
+                        left: Expr::Variable("a".into()),
+                        right: Expr::Integer(2),
+                    }],
+                },
+            }],
+            else_block: None,
+            finally_block: None,
+        };
+
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4243,7 +4259,7 @@ else:
 finally:
     a = 3
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::TryExcept {
             try_block: Block {
@@ -4254,10 +4270,8 @@ finally:
                 })],
             },
             except_clauses: vec![ExceptClause {
-                exception_types: vec![HandledException {
-                    literal: ExceptionLiteral::ZeroDivisionError,
-                    alias: Some("e".into()),
-                }],
+                exception_types: vec![ExceptionLiteral::ZeroDivisionError],
+                alias: Some("e".into()),
                 block: Block {
                     statements: vec![Statement::Assignment {
                         left: Expr::Variable("a".into()),
@@ -4279,7 +4293,7 @@ finally:
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4291,7 +4305,7 @@ except:
     return
 a = 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::TryExcept {
             try_block: Block {
@@ -4299,6 +4313,7 @@ a = 1
             },
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
+                alias: None,
                 block: Block {
                     statements: vec![Statement::Return(vec![])],
                 },
@@ -4307,7 +4322,7 @@ a = 1
             finally_block: None,
         };
 
-        match parser.parse_statement() {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4318,14 +4333,14 @@ a = 1
         let input = r#"
 a = 0b0010
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
             right: Expr::Integer(2),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4336,14 +4351,14 @@ a = 0b0010
         let input = r#"
 a = 0o0010
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
             right: Expr::Integer(8),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4354,14 +4369,14 @@ a = 0o0010
         let input = r#"
 a = 0x0010
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
             right: Expr::Integer(16),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4373,7 +4388,7 @@ a = 0x0010
 def test_args(*args):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "test_args".into(),
@@ -4389,7 +4404,7 @@ def test_args(*args):
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4398,7 +4413,7 @@ def test_args(*args):
 def test_args(*args, **kwargs):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "test_args".into(),
@@ -4414,7 +4429,7 @@ def test_args(*args, **kwargs):
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4423,9 +4438,9 @@ def test_args(*args, **kwargs):
 def test_kwargs(**kwargs):
     print(kwargs['a'])
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
                 let expected_args = ParsedArgDefinitions {
@@ -4444,7 +4459,7 @@ def test_kwargs(**kwargs):
 def test_default(file=None):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "test_default".into(),
@@ -4463,7 +4478,7 @@ def test_default(file=None):
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4471,7 +4486,7 @@ def test_default(file=None):
         let input = r#"
 test_kwargs(a=1, b=2)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
@@ -4487,7 +4502,7 @@ test_kwargs(a=1, b=2)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4495,7 +4510,7 @@ test_kwargs(a=1, b=2)
         let input = r#"
 test_kwargs(**{'a':1, 'b':2})
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
@@ -4511,7 +4526,7 @@ test_kwargs(**{'a':1, 'b':2})
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4519,7 +4534,7 @@ test_kwargs(**{'a':1, 'b':2})
         let input = r#"
 test_kwargs(**kwargs)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
@@ -4532,7 +4547,7 @@ test_kwargs(**kwargs)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4540,7 +4555,7 @@ test_kwargs(**kwargs)
         let input = r#"
 test_kwargs(*args)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
@@ -4553,7 +4568,7 @@ test_kwargs(*args)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4561,7 +4576,7 @@ test_kwargs(*args)
         let input = r#"
 test_kwargs(*args, **kwargs)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
@@ -4574,7 +4589,7 @@ test_kwargs(*args, **kwargs)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4583,7 +4598,7 @@ test_kwargs(*args, **kwargs)
 deprecated("collections.abc.ByteString",
 )
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "deprecated".into(),
@@ -4596,7 +4611,7 @@ deprecated("collections.abc.ByteString",
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4609,7 +4624,7 @@ deprecated("collections.abc.ByteString",
 def get_val():
     return 2
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "get_val".into(),
@@ -4625,7 +4640,7 @@ def get_val():
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4633,7 +4648,7 @@ def get_val():
         let input = r#"
 test_decorator(get_val_undecorated)()
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "<anonymous_from_callee>".into(),
@@ -4655,7 +4670,7 @@ test_decorator(get_val_undecorated)()
             })),
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4666,14 +4681,14 @@ test_decorator(get_val_undecorated)()
         let input = r#"
 raise Exception
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments::empty(),
         }));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4681,7 +4696,7 @@ raise Exception
         let input = r#"
 raise Exception("message")
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
@@ -4693,7 +4708,7 @@ raise Exception("message")
             },
         }));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4701,11 +4716,11 @@ raise Exception("message")
         let input = r#"
 raise
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Raise(None);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4713,7 +4728,7 @@ raise
         let input = r#"
 raise Exception("message") from None
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
@@ -4725,7 +4740,7 @@ raise Exception("message") from None
             },
         }));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4737,7 +4752,7 @@ raise Exception("message") from None
 with open('test.txt') as f:
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ContextManager {
             expr: Expr::FunctionCall {
@@ -4756,7 +4771,7 @@ with open('test.txt') as f:
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4765,7 +4780,7 @@ with open('test.txt') as f:
 with open('test.txt'):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::ContextManager {
             expr: Expr::FunctionCall {
@@ -4784,7 +4799,7 @@ with open('test.txt'):
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4795,7 +4810,7 @@ with open('test.txt'):
         let input = r#"
 a = list[int]
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
@@ -4805,7 +4820,7 @@ a = list[int]
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4813,7 +4828,7 @@ a = list[int]
         let input = r#"
 u = int | str
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("u".into()),
@@ -4823,7 +4838,7 @@ u = int | str
             ])),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4834,11 +4849,11 @@ u = int | str
         let input = r#"
 del a
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Delete(vec![Expr::Variable("a".into())]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4846,7 +4861,7 @@ del a
         let input = r#"
 del a, b, c
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Delete(vec![
             Expr::Variable("a".into()),
@@ -4854,7 +4869,7 @@ del a, b, c
             Expr::Variable("c".into()),
         ]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4865,14 +4880,14 @@ del a, b, c
         let input = r#"
 a = b'hello'
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
             right: Expr::ByteStringLiteral("hello".into()),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4883,7 +4898,7 @@ a = b'hello'
         let input = r#"
 a += 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Add,
@@ -4891,7 +4906,7 @@ a += 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4899,7 +4914,7 @@ a += 1
         let input = r#"
 a -= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Subtract,
@@ -4907,7 +4922,7 @@ a -= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4915,7 +4930,7 @@ a -= 1
         let input = r#"
 a *= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Multiply,
@@ -4923,7 +4938,7 @@ a *= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4931,7 +4946,7 @@ a *= 1
         let input = r#"
 a /= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Divide,
@@ -4939,7 +4954,7 @@ a /= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4947,7 +4962,7 @@ a /= 1
         let input = r#"
 a &= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::BitwiseAnd,
@@ -4955,7 +4970,7 @@ a &= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4963,7 +4978,7 @@ a &= 1
         let input = r#"
 a |= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::BitwiseOr,
@@ -4971,7 +4986,7 @@ a |= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4979,7 +4994,7 @@ a |= 1
         let input = r#"
 a ^= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::BitwiseXor,
@@ -4987,7 +5002,7 @@ a ^= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -4995,7 +5010,7 @@ a ^= 1
         let input = r#"
 a //= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::IntegerDiv,
@@ -5003,7 +5018,7 @@ a //= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5011,7 +5026,7 @@ a //= 1
         let input = r#"
 a <<= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::LeftShift,
@@ -5019,7 +5034,7 @@ a <<= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5027,7 +5042,7 @@ a <<= 1
         let input = r#"
 a >>= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::RightShift,
@@ -5035,7 +5050,7 @@ a >>= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5043,7 +5058,7 @@ a >>= 1
         let input = r#"
 a %= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Mod,
@@ -5051,7 +5066,7 @@ a %= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5059,7 +5074,7 @@ a %= 1
         let input = r#"
 a @= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::MatMul,
@@ -5067,7 +5082,7 @@ a @= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5075,7 +5090,7 @@ a @= 1
         let input = r#"
 a **= 1
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::CompoundAssignment {
             operator: CompoundOperator::Expo,
@@ -5083,45 +5098,45 @@ a **= 1
             value: Box::new(Expr::Integer(1)),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "~a";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::BitwiseNot,
             right: Box::new(Expr::Variable("a".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a % b";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
             op: BinOp::Mod,
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a @ b";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
             op: BinOp::MatMul,
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5130,7 +5145,7 @@ a **= 1
     #[test]
     fn f_strings() {
         let input = r#"f"Hello {name}.""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
@@ -5141,13 +5156,13 @@ a **= 1
             FStringPart::String(".".into()),
         ]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = r#"f"{first}{last}""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![
             FStringPart::Expr(ExprFormat {
@@ -5160,23 +5175,23 @@ a **= 1
             }),
         ]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = r#"f"Hello""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![FStringPart::String("Hello".into())]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = r#"f"Hello {name} goodbye {other}""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
@@ -5191,13 +5206,13 @@ a **= 1
             }),
         ]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = r#"f"Age: {num + 1}""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Age: ".into()),
@@ -5211,13 +5226,30 @@ a **= 1
             }),
         ]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"f"environ({{{formatted_items}}})""#;
+        let context = init(input);
+
+        let expected_ast = Expr::FString(vec![
+            FStringPart::String("environ({".into()),
+            FStringPart::Expr(ExprFormat {
+                expr: Box::new(Expr::Variable("formatted_items".to_string())),
+                format: FormatOption::Str,
+            }),
+            FStringPart::String("})".into()),
+        ]);
+
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = r#"f"Hello {name!r} goodbye {other}""#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
@@ -5232,7 +5264,7 @@ a **= 1
             }),
         ]);
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5241,7 +5273,7 @@ a **= 1
     #[test]
     fn binary_operators() {
         let input = "a & b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5249,13 +5281,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a | b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5263,13 +5295,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a ^ b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5277,13 +5309,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a << b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5291,13 +5323,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a >> b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5305,13 +5337,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a ** b";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::Variable("a".into())),
@@ -5319,13 +5351,13 @@ a **= 1
             right: Box::new(Expr::Variable("b".into())),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "2 * 3 << 2 + 4 & 205";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::BinaryOperation {
@@ -5345,7 +5377,7 @@ a **= 1
             right: Box::new(Expr::Integer(205)),
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5357,7 +5389,7 @@ a **= 1
 for i in a:
     break
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
@@ -5367,7 +5399,7 @@ for i in a:
             else_block: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5376,7 +5408,7 @@ for i in a:
 for i in a:
     continue
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
@@ -5386,7 +5418,7 @@ for i in a:
             else_block: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5397,7 +5429,7 @@ for i in a:
 else:
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
@@ -5409,7 +5441,7 @@ else:
             }),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5421,9 +5453,9 @@ else:
 def add(x: str, y: str) -> str:
     return x + y
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
                 let expected_args = vec![
@@ -5455,7 +5487,7 @@ def add(x: str, y: str) -> str:
     #[test]
     fn slices() {
         let input = "a[1:1:1]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5465,13 +5497,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[2:5]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5481,13 +5513,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[:5]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5497,13 +5529,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[3:]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5513,13 +5545,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[::2]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5529,13 +5561,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "a[:]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("a".into())),
             params: ParsedSliceParams {
@@ -5545,13 +5577,13 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
 
         let input = "new_bases[i+shift:shift+1]";
-        let mut parser = init(input);
+        let context = init(input);
         let expected_ast = Expr::SliceOperation {
             object: Box::new(Expr::Variable("new_bases".into())),
             params: ParsedSliceParams {
@@ -5569,7 +5601,7 @@ def add(x: str, y: str) -> str:
             },
         };
 
-        match parser.parse_simple_expr() {
+        match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5585,7 +5617,7 @@ def outer():
         b = 3
         print(a)
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "outer".into(),
@@ -5638,7 +5670,7 @@ def outer():
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5649,11 +5681,11 @@ def outer():
         let input = "
 nonlocal var
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Nonlocal(vec!["var".into()]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5661,11 +5693,11 @@ nonlocal var
         let input = "
 nonlocal var, var2
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Nonlocal(vec!["var".into(), "var2".into()]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5673,11 +5705,11 @@ nonlocal var, var2
         let input = "
 global var
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Global(vec!["var".into()]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5685,11 +5717,11 @@ global var
         let input = "
 global var, var2
 ";
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Global(vec!["var".into(), "var2".into()]);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5700,7 +5732,7 @@ global var, var2
         let input = r#"
 a = 4 if True else 5
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
@@ -5711,7 +5743,7 @@ a = 4 if True else 5
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5719,7 +5751,7 @@ a = 4 if True else 5
         let input = r#"
 a = 4 + x if b == 6 else 5 << 2
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
@@ -5742,7 +5774,7 @@ a = 4 + x if b == 6 else 5 << 2
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5753,11 +5785,11 @@ a = 4 + x if b == 6 else 5 << 2
         let input = r#"
 Ellipsis
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Ellipsis);
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5768,7 +5800,7 @@ Ellipsis
         let input = r#"
 a = (i * 2 for i in b)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".into()),
@@ -5786,7 +5818,7 @@ a = (i * 2 for i in b)
             },
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5794,7 +5826,7 @@ a = (i * 2 for i in b)
         let input = r#"
 foo(i * 2 for i in b)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "foo".to_string(),
@@ -5818,7 +5850,7 @@ foo(i * 2 for i in b)
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5830,7 +5862,7 @@ foo(i * 2 for i in b)
 def foo(data=None):
     pass
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::FunctionDef {
             name: "foo".into(),
@@ -5847,7 +5879,7 @@ def foo(data=None):
             is_async: false,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5858,14 +5890,14 @@ def foo(data=None):
         let input = r#"
 (*l,)
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::Tuple(vec![Expr::UnaryOperation {
             op: UnaryOp::Unpack,
             right: Box::new(Expr::Variable("l".into())),
         }]));
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5873,7 +5905,7 @@ def foo(data=None):
         let input = r#"
 foo(a, *b[1:])
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::Expression(Expr::FunctionCall {
             name: "foo".into(),
@@ -5893,7 +5925,7 @@ foo(a, *b[1:])
             callee: None,
         });
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5902,7 +5934,7 @@ foo(a, *b[1:])
 if True:
     a, b = b, a
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
@@ -5919,7 +5951,7 @@ if True:
             else_part: None,
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5927,14 +5959,14 @@ if True:
         let input = r#"
 a, = b,
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::UnpackingAssignment {
             left: vec![Expr::Variable("a".into())],
             right: Expr::Tuple(vec![Expr::Variable("b".into())]),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }
@@ -5945,14 +5977,14 @@ a, = b,
         let input = r#"
 a = b = True
 "#;
-        let mut parser = init(input);
+        let context = init(input);
 
         let expected_ast = Statement::MultipleAssignment {
             left: vec![Expr::Variable("a".into()), Expr::Variable("b".into())],
             right: Expr::Boolean(true),
         };
 
-        match parse(&mut parser) {
+        match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
         }

@@ -1,21 +1,22 @@
 use std::{
+    collections::hash_map::Iter,
     fmt::{Display, Error, Formatter},
     path::PathBuf,
 };
 
 use crate::{
-    core::{log, Container, InterpreterEntrypoint, LogLevel},
-    init::Builder,
+    core::{log, Container, LogLevel},
+    init::MemphisContext,
     parser::types::ImportPath,
     treewalk::{Interpreter, LoadedModule, Scope},
     types::errors::{InterpreterError, MemphisError},
 };
 
-use super::{domain::traits::MemberReader, ExprResult};
+use super::{domain::traits::MemberReader, Dict, ExprResult};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
-    pub scope: Scope,
+    scope: Scope,
     loaded_module: Option<LoadedModule>,
 }
 
@@ -48,15 +49,15 @@ impl Module {
                 call_stack,
             ))?;
 
-        let (mut parser, mut sub_interpreter) = Builder::new()
-            .state(interpreter.state.clone())
-            .module(loaded_module.clone())
-            .build();
+        let mut context = MemphisContext::from_module_with_state(
+            loaded_module.clone(),
+            Some(interpreter.state.clone()),
+        );
 
         interpreter
             .state
             .push_module(Container::new(Module::new(loaded_module, Scope::default())));
-        match sub_interpreter.run(&mut parser) {
+        match context.run() {
             Ok(_) => {}
             Err(MemphisError::Interpreter(e)) => return Err(e),
             Err(MemphisError::Parser(e)) => {
@@ -94,6 +95,30 @@ impl Module {
         self.loaded_module
             .clone()
             .map_or(LoadedModule::empty_name(), |m| m.name())
+    }
+
+    pub fn get(&self, name: &str) -> Option<ExprResult> {
+        self.scope.get(name)
+    }
+
+    pub fn insert(&mut self, name: &str, value: ExprResult) {
+        self.scope.insert(name, value);
+    }
+
+    pub fn delete(&mut self, name: &str) -> Option<ExprResult> {
+        self.scope.delete(name)
+    }
+
+    // Should this return an actual dict? We chose not to do that right now because a
+    // `Container<Dict>` requires a reference to the interpreter.
+    pub fn dict(&self) -> Iter<String, ExprResult> {
+        self.scope.into_iter()
+    }
+
+    // Should this return an actual dict? We chose not to do that right now because a
+    // `Container<Dict>` requires a reference to the interpreter.
+    pub fn as_dict(&self, interpreter: &Interpreter) -> Container<Dict> {
+        self.scope.as_dict(interpreter)
     }
 }
 

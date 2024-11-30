@@ -64,7 +64,7 @@ fn init_builtin_scope() -> Scope {
     scope.insert(
         "asyncio",
         ExprResult::Module(Container::new(Module::new(
-            LoadedModule::empty(),
+            LoadedModule::default(),
             asyncio_scope,
         ))),
     );
@@ -167,8 +167,8 @@ impl ScopeManager {
         // from a captured env
 
         for module in self.module_stack.iter_mut().rev() {
-            if module.borrow().scope.get(name).is_some() {
-                return module.borrow_mut().scope.delete(name);
+            if module.borrow().get(name).is_some() {
+                return module.borrow_mut().delete(name);
             }
         }
 
@@ -193,7 +193,7 @@ impl ScopeManager {
             // We really shouldn't be accessing the module scope directly here, but the `get`
             // method on either `MemberAccessor` or `ModuleInterface` requires a reference to the
             // Interpreter. We'll need to fix this at some point.
-            if let Some(value) = module.borrow().scope.get(name) {
+            if let Some(value) = module.borrow().get(name) {
                 return Some(value);
             }
         }
@@ -205,7 +205,7 @@ impl ScopeManager {
         let local_scope = self.read_local().borrow().clone();
 
         if local_scope.has_global(name) {
-            self.read_module().borrow_mut().scope.insert(name, value);
+            self.read_module().borrow_mut().insert(name, value);
         } else if local_scope.has_nonlocal(name) {
             if let Some(env) = self.read_captured_env() {
                 env.borrow_mut().write(name, value);
@@ -216,7 +216,7 @@ impl ScopeManager {
                     self.read_local().borrow_mut().insert(name, value);
                 }
                 Context::Global => {
-                    self.read_module().borrow_mut().scope.insert(name, value);
+                    self.read_module().borrow_mut().insert(name, value);
                 }
             }
         }

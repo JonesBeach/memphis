@@ -2,7 +2,7 @@ use crate::{
     core::Container,
     parser::types::Statement,
     treewalk::{
-        types::{ExprResult, Function},
+        types::{ExprResult, Function, List},
         Interpreter, Scope, StackFrame,
     },
     types::errors::InterpreterError,
@@ -148,9 +148,10 @@ pub trait Pausable {
                 body,
                 ..
             } => {
-                let items = interpreter.evaluate_expr(iterable)?.as_list().ok_or(
-                    InterpreterError::ExpectedList(interpreter.state.call_stack()),
-                )?;
+                let items: Container<List> = interpreter
+                    .evaluate_expr(iterable)?
+                    .try_into()
+                    .map_err(|_| InterpreterError::ExpectedList(interpreter.state.call_stack()))?;
 
                 let mut queue = items.borrow().as_queue();
 

@@ -1,12 +1,12 @@
+use crate::{
+    core::{log, LogLevel},
+    types::errors::LexerError,
+};
 use std::{iter::Peekable, str::Chars};
 
 pub mod types;
 
 use self::types::{MultilineString, Token};
-use crate::{
-    core::{log, LogLevel},
-    types::errors::LexerError,
-};
 
 pub struct Lexer {
     tokens: Vec<Token>,
@@ -27,21 +27,21 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(input: &str) -> Self {
-        let mut lexer = Lexer {
+    pub fn new(input: String) -> Self {
+        let mut lexer = Self {
             tokens: Vec::new(),
             error: None,
             multiline_string: None,
             multiline_context: 0,
             in_f_string_expr: false,
         };
-        let _ = lexer.tokenize(input);
+        let _ = lexer.tokenize(&input);
 
         lexer
     }
 
-    pub fn tokens(&self) -> Vec<Token> {
-        self.tokens.clone()
+    pub fn tokens(&self) -> &[Token] {
+        &self.tokens
     }
 
     /// Since we tokenize one line at a time, we must consider whether we are inside a multiline
@@ -58,14 +58,19 @@ impl Lexer {
         }
     }
 
+    /// Are we inside a multi-line string or a multi-line context (indicated by {}, (), or []). If
+    /// so, our rules for checking and emitting Indent and Dedent tokens are different/disabled.
     fn check_in_block(&self) -> bool {
         self.multiline_context == 0 && self.multiline_string.is_none()
     }
 
-    fn tokenize(&mut self, input: &str) -> Result<Vec<Token>, LexerError> {
+    fn tokenize(&mut self, input: &str) -> Result<(), LexerError> {
         self.tokens.clear();
 
-        let mut indentation_stack: Vec<usize> = vec![0];
+        // Each element here indicates the number of spaces at the beginning of the column for this
+        // indentation block. Python does not enforce a particular number of spaces, only that for
+        // a given indentation, you are consistent with the number of spaces.
+        let mut indentation_stack = vec![0];
 
         for line in input.lines() {
             if line.is_empty() {
@@ -110,8 +115,7 @@ impl Lexer {
         }
 
         self.tokens.push(Token::Eof);
-
-        Ok(self.tokens.clone())
+        Ok(())
     }
 
     fn tokenize_binary_literal(&self, chars: &mut Peekable<Chars>) -> Token {
@@ -159,24 +163,52 @@ impl Lexer {
         Token::HexLiteral(literal)
     }
 
-    fn parse_literal_in_f_string(&mut self, chars: &mut Peekable<Chars>) {
+    /// While inside of an f-string, we do not know the end of a string literal until we hit
+    /// another character.
+    fn save_string_literal(&mut self, literal: &mut String) {
+        if !literal.is_empty() {
+            self.tokens.push(Token::StringLiteral(literal.clone()));
+            literal.clear();
+        }
+    }
+
+    fn tokenize_f_string(&mut self, chars: &mut Peekable<Chars>) {
         let mut literal = String::new();
         while let Some(&c) = chars.peek() {
             if c == '{' {
-                if !literal.is_empty() {
-                    self.tokens.push(Token::StringLiteral(literal));
+                if chars.clone().nth(1) == Some('{') {
+                    // Handle escape left brace {{
+                    literal.push(c);
+                    chars.next();
+                    chars.next();
+                } else {
+                    self.save_string_literal(&mut literal);
+                    chars.next();
+                    self.tokens.push(Token::LBrace);
+                    self.in_f_string_expr = true;
+
+                    // We are now inside an f-string expression and should use our main lexing loop
+                    // to generate the tokens until we detect the end of the f-string expression.
+                    return;
                 }
-                chars.next();
-                self.tokens.push(Token::LBrace);
-                self.in_f_string_expr = true;
-                break;
             } else if matches!(c, '"' | '\'') {
-                if !literal.is_empty() {
-                    self.tokens.push(Token::StringLiteral(literal));
-                }
+                self.save_string_literal(&mut literal);
                 chars.next();
                 self.tokens.push(Token::FStringEnd);
-                break;
+
+                // We are done with the f-string.
+                return;
+            } else if c == '}' {
+                if chars.clone().nth(1) == Some('}') {
+                    // Handle escape right brace }}
+                    literal.push(c);
+                    chars.next();
+                    chars.next();
+                } else {
+                    chars.next();
+                    self.tokens.push(Token::RBrace);
+                    self.in_f_string_expr = false;
+                }
             } else {
                 literal.push(c);
                 chars.next();
@@ -184,7 +216,7 @@ impl Lexer {
         }
     }
 
-    pub fn tokenize_line(&mut self, input: &str) -> Result<(), LexerError> {
+    fn tokenize_line(&mut self, input: &str) -> Result<(), LexerError> {
         let mut chars = input.chars().peekable();
 
         while let Some(&c) = chars.peek() {
@@ -252,15 +284,12 @@ impl Lexer {
             } else if c.is_whitespace() {
                 chars.next();
             } else if self.in_f_string_expr && c == '}' {
-                chars.next();
-                self.tokens.push(Token::RBrace);
-                self.in_f_string_expr = false;
-                self.parse_literal_in_f_string(&mut chars);
+                self.tokenize_f_string(&mut chars);
             } else if matches!(c, 'f' | 'F') && matches!(chars.clone().nth(1), Some('"' | '\'')) {
                 chars.next();
                 chars.next();
                 self.tokens.push(Token::FStringStart);
-                self.parse_literal_in_f_string(&mut chars);
+                self.tokenize_f_string(&mut chars);
             } else if c == 'b' && chars.clone().nth(1) == Some('\'') {
                 chars.next();
                 chars.next();
@@ -528,10 +557,10 @@ impl Lexer {
             }
         }
 
-        if self.error.is_none() {
-            Ok(())
+        if let Some(error) = self.error.as_ref() {
+            Err(error.clone())
         } else {
-            Err(self.error.clone().unwrap())
+            Ok(())
         }
     }
 }
@@ -540,13 +569,19 @@ impl Lexer {
 mod tests {
     use super::*;
 
+    impl Lexer {
+        fn from_str(input: &str) -> Self {
+            Self::new(input.to_owned())
+        }
+    }
+
     #[test]
     fn function_definition() {
         let input = r#"
 def add(x, y):
     return x + y
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
 
         assert_eq!(
             lexer.tokens,
@@ -575,7 +610,7 @@ def add(x, y):
     #[test]
     fn invalid_character() {
         let input = "2 + $";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Integer(2), Token::Plus, Token::InvalidCharacter('$'),]
@@ -585,7 +620,7 @@ def add(x, y):
     #[test]
     fn comparison_operators() {
         let input = "a > b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -597,7 +632,7 @@ def add(x, y):
         );
 
         let input = "a < b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -609,7 +644,7 @@ def add(x, y):
         );
 
         let input = "a == b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -621,7 +656,7 @@ def add(x, y):
         );
 
         let input = "a != b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -633,7 +668,7 @@ def add(x, y):
         );
 
         let input = "a >= b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -645,7 +680,7 @@ def add(x, y):
         );
 
         let input = "a <= b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -660,7 +695,7 @@ def add(x, y):
     #[test]
     fn boolean_expressions() {
         let input = "a and b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -672,7 +707,7 @@ def add(x, y):
         );
 
         let input = "a or b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -684,7 +719,7 @@ def add(x, y):
         );
 
         let input = "a in b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -696,7 +731,7 @@ def add(x, y):
         );
 
         let input = "a is None";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -708,14 +743,14 @@ def add(x, y):
         );
 
         let input = "not b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Not, Token::Identifier("b".to_string()), Token::Eof,]
         );
 
         let input = "not (b or c)";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -733,7 +768,7 @@ def add(x, y):
     #[test]
     fn boolean_literals() {
         let input = "x = True";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -745,7 +780,7 @@ def add(x, y):
         );
 
         let input = "x = False";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -757,7 +792,7 @@ def add(x, y):
         );
 
         let input = "x = None";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -769,7 +804,7 @@ def add(x, y):
         );
 
         let input = "return None";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(lexer.tokens, vec![Token::Return, Token::None, Token::Eof,]);
     }
 
@@ -783,7 +818,7 @@ elif x > -10:
 else:
     print("Less")
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -835,7 +870,7 @@ else:
 while True:
     print("busy loop")
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -865,7 +900,7 @@ class Foo:
     def bar(self):
         return self.x
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -913,7 +948,7 @@ class Foo:
     #[test]
     fn class_instantiation() {
         let input = "foo = Foo()\n";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -930,7 +965,7 @@ class Foo:
     #[test]
     fn method_invocation() {
         let input = "foo = Foo()\nfoo.bar()";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -953,7 +988,7 @@ class Foo:
     #[test]
     fn regular_import() {
         let input = "import other";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -967,7 +1002,7 @@ class Foo:
     #[test]
     fn selective_import() {
         let input = "from other import something";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -980,7 +1015,7 @@ class Foo:
         );
 
         let input = "from other import something as something_else";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -995,7 +1030,7 @@ class Foo:
         );
 
         let input = "from other import *";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1008,7 +1043,7 @@ class Foo:
         );
 
         let input = "from other import something, something_else";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1030,7 +1065,7 @@ foo = Foo(3) # new instance
 # x = foo.baz()
 foo.bar()
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1056,7 +1091,7 @@ foo.bar()
     #[test]
     fn floating_point() {
         let input = "x = 3.14";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1068,7 +1103,7 @@ foo.bar()
         );
 
         let input = "x = 2.5e-3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1080,7 +1115,7 @@ foo.bar()
         );
 
         let input = "x = 2.5E-3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1092,7 +1127,7 @@ foo.bar()
         );
 
         let input = "x = 2E-3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1104,7 +1139,7 @@ foo.bar()
         );
 
         let input = "x = 2E3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1119,21 +1154,21 @@ foo.bar()
     #[test]
     fn negative_numbers() {
         let input = "-3.14";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Minus, Token::FloatingPoint(3.14), Token::Eof,]
         );
 
         let input = "-3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Minus, Token::Integer(3), Token::Eof,]
         );
 
         let input = "2 - 3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1145,14 +1180,14 @@ foo.bar()
         );
 
         let input = "-2e-3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Minus, Token::FloatingPoint(2e-3), Token::Eof,]
         );
 
         let input = "3-i";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1164,7 +1199,7 @@ foo.bar()
         );
 
         let input = "2 + -3";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1177,7 +1212,7 @@ foo.bar()
         );
 
         let input = "-(3)";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1190,7 +1225,7 @@ foo.bar()
         );
 
         let input = "-(2 + 3)";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1208,7 +1243,7 @@ foo.bar()
     #[test]
     fn lists() {
         let input = "[1,2,3]";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1224,7 +1259,7 @@ foo.bar()
         );
 
         let input = "[1, 2, 3]";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1240,7 +1275,7 @@ foo.bar()
         );
 
         let input = "a = [1, 2, 3]";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1258,7 +1293,7 @@ foo.bar()
         );
 
         let input = "list([1, 2, 3])";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1280,7 +1315,7 @@ foo.bar()
     #[test]
     fn sets() {
         let input = "{1,2,3}";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1296,7 +1331,7 @@ foo.bar()
         );
 
         let input = "{1, 2, 3}";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1312,7 +1347,7 @@ foo.bar()
         );
 
         let input = "a = {1, 2, 3}";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1330,7 +1365,7 @@ foo.bar()
         );
 
         let input = "set({1, 2, 3})";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1352,7 +1387,7 @@ foo.bar()
     #[test]
     fn index_access() {
         let input = "a[0]";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1365,7 +1400,7 @@ foo.bar()
         );
 
         let input = "[0,1][1]";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1388,7 +1423,7 @@ foo.bar()
 for i in a:
     print(a)
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1415,7 +1450,7 @@ for i in a:
         let input = r#"
 b = [ i * 2 for i in a ]
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1442,7 +1477,7 @@ b = [ i * 2 for i in a ]
 (1,2)
 print((1,2))
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1474,7 +1509,7 @@ def countdown(n):
         yield n
         n = n - 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1516,7 +1551,7 @@ class Foo(Parent):
     def __init__(self):
         self.x = 0
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1554,7 +1589,7 @@ class Foo(Parent):
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1582,7 +1617,7 @@ async def main():
     task_1 = asyncio.create_task(task1())
     await task_1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1622,7 +1657,7 @@ async def main():
 """
 a = 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1642,7 +1677,7 @@ a = 1
 '''
 a = 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1662,7 +1697,7 @@ a = 1
         let input = r#"
 assert True
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1684,7 +1719,7 @@ except:
 finally:
     a = 3
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1726,7 +1761,7 @@ finally:
 a = 0x0010
 b
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1746,7 +1781,7 @@ b
         let input = r#"
 a = 0o0010
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1764,7 +1799,7 @@ a = 0o0010
         let input = r#"
 a = 0b0010
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1783,7 +1818,7 @@ a = 0b0010
 def add(*args, **kwargs):
     pass
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1814,7 +1849,7 @@ def add(*args, **kwargs):
 def get_val():
     return 2
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1842,7 +1877,7 @@ def get_val():
         let input = r#"
 raise Exception
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1860,7 +1895,7 @@ raise Exception
 with open('test.txt') as f:
     f.read()
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1891,7 +1926,7 @@ with open('test.txt') as f:
         let input = r#"
 type(...)
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1907,7 +1942,7 @@ type(...)
         let input = r#"
 type(Ellipsis)
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1926,7 +1961,7 @@ type(Ellipsis)
         let input = r#"
 del a
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1943,7 +1978,7 @@ del a
         let input = r#"
 b'hello'
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1959,7 +1994,7 @@ b'hello'
         let input = r#"
 a += 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1974,7 +2009,7 @@ a += 1
         let input = r#"
 a -= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -1989,7 +2024,7 @@ a -= 1
         let input = r#"
 a *= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2004,7 +2039,7 @@ a *= 1
         let input = r#"
 a /= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2019,7 +2054,7 @@ a /= 1
         let input = r#"
 a &= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2034,7 +2069,7 @@ a &= 1
         let input = r#"
 a ^= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2049,7 +2084,7 @@ a ^= 1
         let input = r#"
 a |= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2064,7 +2099,7 @@ a |= 1
         let input = r#"
 a //= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2079,7 +2114,7 @@ a //= 1
         let input = r#"
 a <<= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2094,7 +2129,7 @@ a <<= 1
         let input = r#"
 a %= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2109,7 +2144,7 @@ a %= 1
         let input = r#"
 a @= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2124,7 +2159,7 @@ a @= 1
         let input = r#"
 a **= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2139,7 +2174,7 @@ a **= 1
         let input = r#"
 a >>= 1
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2157,7 +2192,7 @@ a >>= 1
         let input = r#"
 f"Hello {name}"
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2175,7 +2210,7 @@ f"Hello {name}"
         let input = r#"
 f'Hello {name}'
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2193,7 +2228,7 @@ f'Hello {name}'
         let input = r#"
 f"Hello"
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2208,7 +2243,7 @@ f"Hello"
         let input = r#"
 f"Hello {name} goodbye {other}."
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2231,7 +2266,7 @@ f"Hello {name} goodbye {other}."
         let input = r#"
 f"{first}{last}"
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2249,9 +2284,92 @@ f"{first}{last}"
         );
 
         let input = r#"
+f"environ({{{formatted_items}}})"
+"#;
+        let lexer = Lexer::from_str(input);
+        assert_eq!(
+            lexer.tokens,
+            vec![
+                Token::Newline,
+                Token::FStringStart,
+                Token::StringLiteral("environ({".into()),
+                Token::LBrace,
+                Token::Identifier("formatted_items".into()),
+                Token::RBrace,
+                Token::StringLiteral("})".into()),
+                Token::FStringEnd,
+                Token::Eof,
+            ]
+        );
+
+        let input = r#"
+f"environ({{{formatted_items}after}})"
+"#;
+        let lexer = Lexer::from_str(input);
+        assert_eq!(
+            lexer.tokens,
+            vec![
+                Token::Newline,
+                Token::FStringStart,
+                Token::StringLiteral("environ({".into()),
+                Token::LBrace,
+                Token::Identifier("formatted_items".into()),
+                Token::RBrace,
+                Token::StringLiteral("after})".into()),
+                Token::FStringEnd,
+                Token::Eof,
+            ]
+        );
+
+        let input = r#"
+      def __repr__():
+          return f"environ({{{formatted_items}}})"
+
+      def copy():
+          pass
+"#;
+        let lexer = Lexer::from_str(input);
+        assert_eq!(
+            lexer.tokens,
+            vec![
+                Token::Newline,
+                Token::Indent,
+                Token::Def,
+                Token::Identifier("__repr__".into()),
+                Token::LParen,
+                Token::RParen,
+                Token::Colon,
+                Token::Newline,
+                Token::Indent,
+                Token::Return,
+                Token::FStringStart,
+                Token::StringLiteral("environ({".into()),
+                Token::LBrace,
+                Token::Identifier("formatted_items".into()),
+                Token::RBrace,
+                Token::StringLiteral("})".into()),
+                Token::FStringEnd,
+                Token::Newline,
+                Token::Newline,
+                Token::Dedent,
+                Token::Def,
+                Token::Identifier("copy".into()),
+                Token::LParen,
+                Token::RParen,
+                Token::Colon,
+                Token::Newline,
+                Token::Indent,
+                Token::Pass,
+                Token::Dedent,
+                Token::Dedent,
+                Token::Eof,
+            ]
+        );
+
+        let input = r#"
 f"{first}{last!r}"
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2274,7 +2392,7 @@ f"{first}{last!r}"
     #[test]
     fn raw_strings() {
         let input = r#"r"hello""#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::RawStringLiteral("hello".into()), Token::Eof,]
@@ -2286,7 +2404,7 @@ r"""OS routines for NT or Posix depending on what system we're on.
 This exports:
 """
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2303,7 +2421,7 @@ This exports:
     #[test]
     fn binary_operators() {
         let input = "a // b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2315,7 +2433,7 @@ This exports:
         );
 
         let input = "a & b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2327,7 +2445,7 @@ This exports:
         );
 
         let input = "a | b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2339,7 +2457,7 @@ This exports:
         );
 
         let input = "a ^ b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2351,7 +2469,7 @@ This exports:
         );
 
         let input = "a % b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2363,14 +2481,14 @@ This exports:
         );
 
         let input = "~a";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::BitwiseNot, Token::Identifier("a".into()), Token::Eof,]
         );
 
         let input = "a << b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2382,7 +2500,7 @@ This exports:
         );
 
         let input = "a >> b";
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2400,7 +2518,7 @@ This exports:
 for i in a:
     continue
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2422,7 +2540,7 @@ for i in a:
 for i in a:
     break
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2446,7 +2564,7 @@ for i in a:
         let input = r#"
 lambda: 4
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2465,7 +2583,7 @@ lambda: 4
 def add(a: str, b: str) -> int:
     pass
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2498,7 +2616,7 @@ def add(a: str, b: str) -> int:
         let input = r#"
 nonlocal var
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2512,7 +2630,7 @@ nonlocal var
         let input = r#"
 global var
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
@@ -2529,7 +2647,7 @@ global var
         let input = r#"
 NotImplemented
 "#;
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![Token::Newline, Token::NotImplemented, Token::Eof,]

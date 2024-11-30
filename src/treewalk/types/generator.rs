@@ -173,7 +173,7 @@ impl Iterator for GeneratorIterator {
         match self.generator.run_until_pause(&self.interpreter) {
             Ok(result) => Some(result),
             Err(InterpreterError::StopIteration(_)) => None,
-            _ => panic!(),
+            _ => panic!("Unexpected error during generator run."),
         }
     }
 }

@@ -136,6 +136,21 @@ impl Add for List {
     }
 }
 
+impl TryFrom<ExprResult> for Container<List> {
+    type Error = InterpreterError;
+
+    fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
+        match value {
+            ExprResult::List(list) => Ok(list.clone()),
+            ExprResult::Set(set) => Ok(set.clone().into()),
+            ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
+            ExprResult::Range(range) => Ok(range.clone().into()),
+            ExprResult::Generator(g) => Ok(g.clone().into()),
+            _ => Err(InterpreterError::RuntimeError),
+        }
+    }
+}
+
 impl From<Container<Range>> for Container<List> {
     fn from(range: Container<Range>) -> Container<List> {
         let start = range.borrow().start;
@@ -243,10 +258,8 @@ impl Callable for NewBuiltin {
         if args.len() == 2 {
             let output = args
                 .get_arg(1)
-                .as_list()
-                .ok_or(InterpreterError::ExpectedList(
-                    interpreter.state.call_stack(),
-                ))?;
+                .try_into()
+                .map_err(|_| InterpreterError::ExpectedList(interpreter.state.call_stack()))?;
             Ok(ExprResult::List(output))
         } else {
             validate_args(&args, 1, interpreter.state.call_stack())?;

@@ -236,13 +236,10 @@ impl ExprResult {
             ExprResult::String(s) => write!(f, "{}", s),
             ExprResult::Bytes(b) => write!(f, "b'{:?}'", b),
             ExprResult::ByteArray(b) => write!(f, "bytearray(b'{:?}')", b),
-            ExprResult::Boolean(b) => {
-                if *b {
-                    write!(f, "True")
-                } else {
-                    write!(f, "False")
-                }
-            }
+            ExprResult::Boolean(b) => match b {
+                true => write!(f, "True"),
+                false => write!(f, "False"),
+            },
             ExprResult::List(l) => write!(f, "{}", l),
             ExprResult::Set(s) => write!(f, "{}", s),
             ExprResult::FrozenSet(s) => write!(f, "{}", s),
@@ -275,9 +272,9 @@ impl ExprResult {
             ExprResult::Frame => write!(f, "<frame>"),
             ExprResult::TypeNode(t) => write!(f, "<type {:?}>", t),
             #[cfg(feature = "c_stdlib")]
-            ExprResult::CPythonModule(i) => write!(f, "{}", i),
+            ExprResult::CPythonModule(m) => write!(f, "{}", m),
             #[cfg(feature = "c_stdlib")]
-            ExprResult::CPythonObject(_) => write!(f, "<object>"),
+            ExprResult::CPythonObject(o) => write!(f, "{}", o),
             #[cfg(feature = "c_stdlib")]
             ExprResult::CPythonClass(_) => write!(f, "<class>"),
         }
@@ -638,23 +635,20 @@ impl ExprResult {
         }
     }
 
+    /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
+    /// coercion.
     pub fn as_list(&self) -> Option<Container<List>> {
         match self {
             ExprResult::List(list) => Some(list.clone()),
-            ExprResult::Set(set) => Some(set.clone().into()),
-            ExprResult::Tuple(tuple) => Some(tuple.clone().into()),
-            ExprResult::Range(range) => Some(range.clone().into()),
-            ExprResult::Generator(g) => Some(g.clone().into()),
             _ => None,
         }
     }
 
+    /// Returns a `Container<Set>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
+    /// coercion.
     pub fn as_set(&self) -> Option<Container<Set>> {
         match self {
             ExprResult::Set(set) => Some(set.clone()),
-            ExprResult::List(list) => Some(list.clone().into()),
-            ExprResult::Tuple(tuple) => Some(tuple.clone().into()),
-            ExprResult::Range(range) => Some(range.clone().into()),
             _ => None,
         }
     }

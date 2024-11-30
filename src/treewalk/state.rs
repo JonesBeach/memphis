@@ -177,14 +177,9 @@ impl Container<State> {
         self.borrow().scope_manager.read_captured_env()
     }
 
-    pub fn read_globals(&self, interpreter: Interpreter) -> Container<Dict> {
-        let scope = self
-            .borrow()
-            .scope_manager
-            .read_module()
-            .borrow()
-            .scope
-            .clone();
+    pub fn read_globals(&self, interpreter: &Interpreter) -> Container<Dict> {
+        let scope = self.borrow().scope_manager.read_module().borrow().clone();
+
         // This will make another function call to hash the keys so we do this in a separate
         // statement to avoid a mutable borrow error.
         scope.as_dict(interpreter)

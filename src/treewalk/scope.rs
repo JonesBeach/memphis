@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Iter, HashMap, HashSet};
 
 use crate::{
     core::Container,
@@ -100,7 +100,7 @@ impl Scope {
 
         if let Some(ref kwargs_var) = function_args.kwargs_var {
             let kwargs_value = ExprResult::Dict(Container::new(Dict::new(
-                interpreter.clone(),
+                interpreter,
                 arguments.get_kwargs(),
             )));
             scope.insert(kwargs_var.as_str(), kwargs_value);
@@ -151,7 +151,7 @@ impl Scope {
         self.nonlocal_vars.contains(name)
     }
 
-    pub fn as_dict(&self, interpreter: Interpreter) -> Container<Dict> {
+    pub fn as_dict(&self, interpreter: &Interpreter) -> Container<Dict> {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
@@ -162,10 +162,20 @@ impl Scope {
     }
 }
 
+/// Implement IntoIterator for &Scope to allow iteration by reference
+impl<'a> IntoIterator for &'a Scope {
+    type Item = (&'a String, &'a ExprResult);
+    type IntoIter = Iter<'a, String, ExprResult>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.symbol_table.iter()
+    }
+}
+
 impl From<HashMap<String, ExprResult>> for Scope {
-    fn from(value: HashMap<String, ExprResult>) -> Self {
+    fn from(symbol_table: HashMap<String, ExprResult>) -> Self {
         Self {
-            symbol_table: value,
+            symbol_table,
             global_vars: HashSet::new(),
             nonlocal_vars: HashSet::new(),
         }

@@ -46,6 +46,24 @@ impl Set {
     pub fn add(&mut self, item: ExprResult) -> bool {
         self.items.insert(item)
     }
+
+    pub fn subset(&self, other: Set) -> bool {
+        self.items.is_subset(&other.items)
+    }
+}
+
+impl TryFrom<ExprResult> for Container<Set> {
+    type Error = InterpreterError;
+
+    fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
+        match value {
+            ExprResult::Set(set) => Ok(set.clone()),
+            ExprResult::List(list) => Ok(list.clone().into()),
+            ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
+            ExprResult::Range(range) => Ok(range.clone().into()),
+            _ => Err(InterpreterError::RuntimeError),
+        }
+    }
 }
 
 impl From<Container<List>> for Container<Set> {
@@ -128,12 +146,10 @@ impl Callable for InitBuiltin {
         if args.is_empty() {
             Ok(ExprResult::None)
         } else if args.len() == 1 {
-            let input_set = args
+            let input_set: Container<Set> = args
                 .get_arg(0)
-                .as_set()
-                .ok_or(InterpreterError::ExpectedSet(
-                    interpreter.state.call_stack(),
-                ))?;
+                .try_into()
+                .map_err(|_| InterpreterError::ExpectedSet(interpreter.state.call_stack()))?;
 
             *output_set.borrow_mut() = input_set.borrow().clone();
             Ok(ExprResult::None)

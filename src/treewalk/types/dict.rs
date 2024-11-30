@@ -49,7 +49,7 @@ impl Dict {
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn new(interpreter: Interpreter, items: HashMap<ExprResult, ExprResult>) -> Self {
+    pub fn new(interpreter: &Interpreter, items: HashMap<ExprResult, ExprResult>) -> Self {
         let mut new_hash = HashMap::default();
         for (key, value) in items {
             let new_key = Contextual::new(key, interpreter.clone());

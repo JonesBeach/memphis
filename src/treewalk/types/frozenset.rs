@@ -78,12 +78,10 @@ impl Callable for NewBuiltin {
         if args.len() == 1 {
             Ok(ExprResult::FrozenSet(Container::new(FrozenSet::default())))
         } else if args.len() == 2 {
-            let input_set = args
+            let input_set: Container<Set> = args
                 .get_arg(1)
-                .as_set()
-                .ok_or(InterpreterError::ExpectedSet(
-                    interpreter.state.call_stack(),
-                ))?;
+                .try_into()
+                .map_err(|_| InterpreterError::ExpectedSet(interpreter.state.call_stack()))?;
             Ok(ExprResult::FrozenSet(input_set.into()))
         } else {
             Err(InterpreterError::WrongNumberOfArguments(

@@ -23,24 +23,26 @@ pub struct LoadedModule {
     text: Option<String>,
 }
 
+impl Default for LoadedModule {
+    /// An empty module occurs when there is no Python code for a module. This can occur for a few
+    /// reasons:
+    /// 1) Rust-backed module
+    /// 2) a module created as a layer in an import such as `import mypackage.mymodule`.
+    fn default() -> Self {
+        Self {
+            name: None,
+            path: None,
+            text: None,
+        }
+    }
+}
+
 impl LoadedModule {
     pub fn new(name: &str, path: PathBuf, text: String) -> Self {
         Self {
             name: Some(name.to_string()),
             path: Some(path),
             text: Some(text),
-        }
-    }
-
-    /// An empty module occurs when there is no Python code for a module. This can occur for a few
-    /// reasons:
-    /// 1) Rust-backed module
-    /// 2) a module created as a layer in an import such as `import mypackage.mymodule`.
-    pub fn empty() -> Self {
-        Self {
-            name: None,
-            path: None,
-            text: None,
         }
     }
 
@@ -70,8 +72,12 @@ impl LoadedModule {
         self.name.clone().unwrap_or(Self::empty_name())
     }
 
-    pub fn text(&self) -> Option<String> {
-        self.text.clone()
+    pub fn empty_text() -> String {
+        "<module with no Python code>".to_string()
+    }
+
+    pub fn text(&self) -> String {
+        self.text.clone().unwrap_or(Self::empty_text())
     }
 }
 

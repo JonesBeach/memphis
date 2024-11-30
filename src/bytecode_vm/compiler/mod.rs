@@ -1015,12 +1015,10 @@ mod bytecode_tests {
 mod compiler_state_tests {
     use super::*;
 
-    use crate::{bytecode_vm::VmInterpreter, init::Builder};
+    use crate::init::MemphisContext;
 
-    fn init_interpreter(text: &str) -> (Parser, VmInterpreter) {
-        let (parser, interpreter) = Builder::new().text(text).build_vm_expl();
-
-        (parser, interpreter)
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::from_text(text)
     }
 
     fn name_map(program: &CompiledProgram, name: &str) -> usize {
@@ -1033,9 +1031,9 @@ mod compiler_state_tests {
 def foo(a, b):
     a + b
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(
@@ -1073,9 +1071,9 @@ def foo(a, b):
 def foo():
     c = 10
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(
@@ -1110,9 +1108,9 @@ def foo():
     c = 10
     return c
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(
@@ -1157,9 +1155,9 @@ def world():
 hello()
 world()
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(
@@ -1214,9 +1212,9 @@ class Foo:
     def bar(self):
         return 99
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(program.constant_pool.len(), 4);
@@ -1274,9 +1272,9 @@ class Foo:
 
 f = Foo()
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(
@@ -1308,9 +1306,9 @@ class Foo:
 f = Foo()
 b = f.bar()
 "#;
-        let (mut parser, mut interpreter) = init_interpreter(text);
+        let mut context = init(text);
 
-        match interpreter.compile(&mut parser) {
+        match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
                 assert_eq!(

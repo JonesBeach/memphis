@@ -56,12 +56,10 @@ impl InterpreterEntrypoint for VmInterpreter {
 mod tests {
     use super::*;
 
-    use crate::{bytecode_vm::vm::types::Object, init::Builder};
+    use crate::{bytecode_vm::vm::types::Object, init::MemphisContext};
 
-    fn init(text: &str) -> (Parser, VmInterpreter) {
-        let (parser, interpreter) = Builder::new().text(text).build_vm_expl();
-
-        (parser, interpreter)
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::from_text(text)
     }
 
     fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> Value {
@@ -77,9 +75,9 @@ mod tests {
     #[test]
     fn expression() {
         let text = "4 * (2 + 3)";
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(result) => {
                 assert_eq!(result, Value::Integer(20));
@@ -87,9 +85,9 @@ mod tests {
         }
 
         let text = "4 < 5";
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(result) => {
                 assert_eq!(result, Value::Boolean(true));
@@ -97,9 +95,9 @@ mod tests {
         }
 
         let text = "4 > 5";
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(result) => {
                 assert_eq!(result, Value::Boolean(false));
@@ -112,11 +110,12 @@ mod tests {
         let text = r#"
 a = 5 - 3
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
             }
         }
@@ -124,11 +123,12 @@ a = 5 - 3
         let text = r#"
 a = "Hello World"
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(
                     interpreter.take("a"),
                     Some(Value::String("Hello World".into()))
@@ -141,11 +141,12 @@ a = 5 - 3
 b = 10
 c = None
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
                 assert_eq!(interpreter.take("b"), Some(Value::Integer(10)));
                 assert_eq!(interpreter.take("c"), Some(Value::None));
@@ -156,11 +157,12 @@ c = None
 a = 5 - 3
 b = 10 + a
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
                 assert_eq!(interpreter.take("b"), Some(Value::Integer(12)));
             }
@@ -175,11 +177,12 @@ n = 4
 while i < n:
     i = i + 1
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("i"), Some(Value::Integer(4)));
             }
         }
@@ -193,11 +196,12 @@ def foo(a, b):
 
 c = foo(2, 9)
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("c"), Some(Value::Integer(11)));
             }
         }
@@ -212,11 +216,12 @@ def foo(a, b):
 
 d = foo(2, 9)
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
             }
         }
@@ -234,9 +239,9 @@ def world():
 hello()
 world()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {}
         }
@@ -249,11 +254,12 @@ class Foo:
     def bar():
         return 4
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 let Some(Value::Class(class)) = interpreter.take("Foo") else {
                     panic!("Did not find class Foo")
                 };
@@ -277,11 +283,12 @@ class Foo:
 
 f = Foo()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 let Some(Value::Object(object)) = interpreter.take("f") else {
                     panic!("Did not find object f")
                 };
@@ -307,11 +314,12 @@ class Foo:
 f = Foo()
 b = f.bar()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 let Some(Value::Integer(b)) = interpreter.take("b") else {
                     panic!("Did not find object f")
                 };
@@ -327,11 +335,12 @@ class Foo:
 f = Foo()
 b = f.bar(11)
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 let Some(Value::Integer(b)) = interpreter.take("b") else {
                     panic!("Did not find object f")
                 };
@@ -349,11 +358,12 @@ class Foo:
 f = Foo()
 f.x = 4
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let mut interpreter = context.ensure_vm();
                 let Some(Value::Object(f)) = interpreter.take("f") else {
                     panic!("Did not find object f")
                 };
@@ -372,11 +382,12 @@ class Foo:
 f = Foo()
 f.bar()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let mut interpreter = context.ensure_vm();
                 let Some(Value::Object(f)) = interpreter.take("f") else {
                     panic!("Did not find object f")
                 };
@@ -394,11 +405,12 @@ class Foo:
 
 f = Foo()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let mut interpreter = context.ensure_vm();
                 let Some(Value::Object(f)) = interpreter.take("f") else {
                     panic!("Did not find object f")
                 };
@@ -416,11 +428,12 @@ class Foo:
 
 f = Foo(33)
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let mut interpreter = context.ensure_vm();
                 let Some(Value::Object(f)) = interpreter.take("f") else {
                     panic!("Did not find object f")
                 };

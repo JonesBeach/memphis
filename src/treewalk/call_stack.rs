@@ -104,7 +104,10 @@ impl CallStack {
     }
 
     pub fn set_line(&mut self, line: usize) {
-        self.frames.last_mut().unwrap().set_line(line);
+        self.frames
+            .last_mut()
+            .expect("No stack frame! Did you properly set the state?")
+            .set_line(line);
     }
 
     /// This is useful for stack traces, so that you know what line number to begin counting from

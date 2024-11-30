@@ -57,7 +57,7 @@ impl Class {
             ExprResult::Class(metaclass.clone()),
             ExprResult::String(Str::new(name.into())),
             bases,
-            ExprResult::Dict(Scope::default().as_dict(interpreter.clone()))
+            ExprResult::Dict(Scope::default().as_dict(interpreter))
         );
         interpreter
             .invoke_method(ExprResult::Class(metaclass), &Dunder::New, args)?

@@ -23,8 +23,7 @@ mod wasm {
     use console_error_panic_hook::set_once;
     use wasm_bindgen::prelude::wasm_bindgen;
 
-    use super::*;
-    use crosscheck::{InterpreterTest, TreewalkAdapter};
+    use super::init::MemphisContext;
 
     // Export a function to JavaScript
     #[wasm_bindgen]
@@ -37,7 +36,10 @@ mod wasm {
         // Set the panic hook for better error messages in the browser console
         set_once();
 
-        let result = TreewalkAdapter.execute(&code);
+        let mut context = MemphisContext::from_text(&code);
+        let result = context
+            .evaluate_oneshot()
+            .expect("Failed to evaluate expression.");
         format!("{}", result)
     }
 }

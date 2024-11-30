@@ -500,14 +500,10 @@ impl Default for VirtualMachine {
 mod tests {
     use super::*;
 
-    use crate::{
-        bytecode_vm::VmInterpreter, core::InterpreterEntrypoint, init::Builder, parser::Parser,
-    };
+    use crate::init::MemphisContext;
 
-    fn init(text: &str) -> (Parser, VmInterpreter) {
-        let (parser, interpreter) = Builder::new().text(text).build_vm_expl();
-
-        (parser, interpreter)
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::from_text(text)
     }
 
     #[test]
@@ -521,11 +517,12 @@ class Foo:
 
 f = Foo()
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 let objects: Vec<&Value> = interpreter
                     .vm
                     .object_table
@@ -547,11 +544,12 @@ def foo(a, b):
 
 d = foo(2, 9)
 "#;
-        let (mut parser, mut interpreter) = init(text);
+        let mut context = init(text);
 
-        match interpreter.run(&mut parser) {
+        match context.run_vm() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
+                let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
                 assert_eq!(interpreter.vm.call_stack.last().unwrap().locals.len(), 0);
             }
