@@ -262,8 +262,8 @@ pub struct ParsedSliceParams {
 #[derive(Clone, PartialEq, Debug)]
 pub struct ForClause {
     pub indices: Vec<String>,
-    pub iterable: Box<Expr>,
-    pub condition: Option<Box<Expr>>,
+    pub iterable: Expr,
+    pub condition: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

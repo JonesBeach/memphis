@@ -60,7 +60,7 @@ impl Generator {
 
             let for_in_loop = Statement::ForInLoop {
                 index: LoopIndex::Variable(index.to_string()),
-                iterable: *first_clause.iterable.clone(),
+                iterable: first_clause.iterable.clone(),
                 body: loop_body,
                 else_block: None,
             };

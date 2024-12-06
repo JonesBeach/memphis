@@ -1751,22 +1751,35 @@ impl<'a> Parser<'a> {
 
     fn parse_comprehension_clause(&mut self) -> Result<ForClause, ParserError> {
         self.consume(&Token::For)?;
+
+        // The parentheses are optional here, but if one is present, both must be present
+        let mut need_rparen = false;
+        if self.current_token == &Token::LParen {
+            self.consume(&Token::LParen)?;
+            need_rparen = true;
+        }
+
         let mut indices = vec![self.parse_identifier()?];
         while self.current_token == &Token::Comma {
             self.consume(&Token::Comma)?;
             indices.push(self.parse_identifier()?);
         }
+
+        if need_rparen {
+            self.consume(&Token::RParen)?;
+        }
+
         self.consume(&Token::In)?;
 
         // We do not use `parse_expr` here because it can think that an expression of the
         // form `a if True` is the start of a ternary operation and expect an `else` token
         // next. By calling `parse_binary_expr`, we enter the parse tree below where
         // ternary operations are handled.
-        let iterable = Box::new(self.parse_binary_expr()?);
+        let iterable = self.parse_binary_expr()?;
 
         let condition = if self.current_token == &Token::If {
             self.consume(&Token::If)?;
-            Some(Box::new(self.parse_simple_expr()?))
+            Some(self.parse_simple_expr()?)
         } else {
             None
         };
@@ -3830,7 +3843,7 @@ for k, v in a.items():
             }),
             clauses: vec![ForClause {
                 indices: vec!["i".to_string()],
-                iterable: Box::new(Expr::Variable("a".to_string())),
+                iterable: Expr::Variable("a".to_string()),
                 condition: None,
             }],
         };
@@ -3850,8 +3863,8 @@ for k, v in a.items():
             }),
             clauses: vec![ForClause {
                 indices: vec!["i".to_string()],
-                iterable: Box::new(Expr::Variable("a".to_string())),
-                condition: Some(Box::new(Expr::Boolean(true))),
+                iterable: Expr::Variable("a".to_string()),
+                condition: Some(Expr::Boolean(true)),
             }],
         };
 
@@ -4081,6 +4094,50 @@ namespace = {
         match context.parse_oneshot::<Expr>() {
             Err(e) => assert_eq!(e, ParserError::SyntaxError),
             Ok(_) => panic!("Expected an error!"),
+        }
+
+        let input = r#"{ key: val * 2 for key, val in d }"#;
+        let context = init(input);
+
+        let expected_ast = Expr::DictComprehension {
+            clauses: vec![ForClause {
+                indices: vec!["key".to_string(), "val".to_string()],
+                iterable: Expr::Variable("d".to_string()),
+                condition: None,
+            }],
+            key_body: Box::new(Expr::Variable("key".to_string())),
+            value_body: Box::new(Expr::BinaryOperation {
+                left: Box::new(Expr::Variable("val".to_string())),
+                op: BinOp::Mul,
+                right: Box::new(Expr::Integer(2)),
+            }),
+        };
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"{ key: val * 2 for (key, val) in d }"#;
+        let context = init(input);
+
+        let expected_ast = Expr::DictComprehension {
+            clauses: vec![ForClause {
+                indices: vec!["key".to_string(), "val".to_string()],
+                iterable: Expr::Variable("d".to_string()),
+                condition: None,
+            }],
+            key_body: Box::new(Expr::Variable("key".to_string())),
+            value_body: Box::new(Expr::BinaryOperation {
+                left: Box::new(Expr::Variable("val".to_string())),
+                op: BinOp::Mul,
+                right: Box::new(Expr::Integer(2)),
+            }),
+        };
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
         }
     }
 
@@ -5873,7 +5930,7 @@ a = (i * 2 for i in b)
                 }),
                 clauses: vec![ForClause {
                     indices: vec!["i".into()],
-                    iterable: Box::new(Expr::Variable("b".into())),
+                    iterable: Expr::Variable("b".into()),
                     condition: None,
                 }],
             },
@@ -5900,7 +5957,7 @@ foo(i * 2 for i in b)
                     }),
                     clauses: vec![ForClause {
                         indices: vec!["i".into()],
-                        iterable: Box::new(Expr::Variable("b".into())),
+                        iterable: Expr::Variable("b".into()),
                         condition: None,
                     }],
                 }],
