@@ -8,10 +8,10 @@ use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     parser::{
         types::{
-            BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
-            ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
-            LoopIndex, ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport,
-            Statement, TypeNode, UnaryOp, Variable,
+            BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+            ExceptionInstance, ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath,
+            ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinitions, ParsedArguments,
+            ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -189,10 +189,10 @@ impl Interpreter {
             ))
     }
 
-    fn read_index(
+    pub fn read_index(
         &self,
-        object: ExprResult,
-        index: ExprResult,
+        object: &ExprResult,
+        index: &ExprResult,
     ) -> Result<ExprResult, InterpreterError> {
         object
             .as_index_read(self)
@@ -394,7 +394,7 @@ impl Interpreter {
         let object_result = self.evaluate_expr(object)?;
         let slice = Slice::resolve(self, params)?;
 
-        self.read_index(object_result, ExprResult::Slice(slice))
+        self.read_index(&object_result, &ExprResult::Slice(slice))
     }
 
     fn evaluate_index_access(
@@ -405,7 +405,7 @@ impl Interpreter {
         let object_result = self.evaluate_expr(object)?;
         let index_result = self.evaluate_expr(index)?;
 
-        self.read_index(object_result, index_result)
+        self.read_index(&object_result, &index_result)
     }
 
     fn evaluate_list(&self, items: &[Expr]) -> Result<ExprResult, InterpreterError> {
@@ -421,20 +421,13 @@ impl Interpreter {
         for item in items {
             let evaluated = self.evaluate_expr(item)?;
             match item {
-                Expr::UnaryOperation { op, .. } => {
-                    if op == &UnaryOp::Unpack {
-                        let maybe_list: Result<Container<List>, _> = evaluated.try_into();
-                        if let Ok(list) = maybe_list {
-                            for elem in list {
-                                results.push(elem);
-                            }
-                        } else {
-                            // We use a list in `evaluate_unary_operation`, so something is wrong
-                            // if we hit this case.
-                            unreachable!()
-                        }
-                    } else {
-                        results.push(evaluated);
+                Expr::UnaryOperation {
+                    op: UnaryOp::Unpack,
+                    ..
+                } => {
+                    let list: Container<List> = evaluated.try_into()?;
+                    for elem in list {
+                        results.push(elem);
                     }
                 }
                 _ => {
@@ -456,12 +449,28 @@ impl Interpreter {
             .map(ExprResult::Set)
     }
 
-    fn evaluate_dict(&self, items: &HashMap<Expr, Expr>) -> Result<ExprResult, InterpreterError> {
-        items
-            .iter()
-            .map(|(key, value)| Ok((self.evaluate_expr(key)?, self.evaluate_expr(value)?)))
-            .collect::<Result<HashMap<_, _>, _>>()
-            .map(|d| ExprResult::Dict(Container::new(Dict::new(self, d))))
+    fn evaluate_dict(&self, dict_ops: &[DictOperation]) -> Result<ExprResult, InterpreterError> {
+        // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
+        // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
+        #[allow(clippy::mutable_key_type)]
+        let mut result = HashMap::new();
+        for op in dict_ops {
+            match op {
+                DictOperation::Pair(key, value) => {
+                    let key_result = self.evaluate_expr(key)?;
+                    let value_result = self.evaluate_expr(value)?;
+                    result.insert(key_result, value_result);
+                }
+                DictOperation::Unpack(expr) => {
+                    let unpacked = self.evaluate_expr(expr)?;
+                    for key in unpacked.clone() {
+                        let value = self.read_index(&unpacked, &key)?;
+                        result.insert(key, value); // later keys overwrite earlier ones
+                    }
+                }
+            }
+        }
+        Ok(ExprResult::Dict(Container::new(Dict::new(self, result))))
     }
 
     fn evaluate_await(&self, expr: &Expr) -> Result<ExprResult, InterpreterError> {
@@ -920,8 +929,8 @@ impl Interpreter {
                     }
                 }
 
-                if let Some(condition) = first_clause.condition.clone() {
-                    if !self.evaluate_expr(&condition)?.as_boolean() {
+                if let Some(condition) = first_clause.condition.as_ref() {
+                    if !self.evaluate_expr(condition)?.as_boolean() {
                         continue;
                     }
                 }
@@ -954,24 +963,23 @@ impl Interpreter {
 
     fn evaluate_dict_comprehension(
         &self,
-        key: &str,
-        value: &str,
-        range: &Expr,
+        clauses: &[ForClause],
         key_body: &Expr,
         value_body: &Expr,
     ) -> Result<ExprResult, InterpreterError> {
-        let expr = self.evaluate_expr(range)?;
+        let first_clause = match clauses {
+            [first] => first,
+            _ => unimplemented!(),
+        };
 
         // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
         let mut output = HashMap::new();
-        for i in expr {
-            let tuple = i
-                .as_tuple()
-                .ok_or(InterpreterError::ExpectedTuple(self.state.call_stack()))?;
-            self.state.write(key, tuple.first());
-            self.state.write(value, tuple.second());
+        for i in self.evaluate_expr(&first_clause.iterable)? {
+            for (key, value) in first_clause.indices.iter().zip(i) {
+                self.state.write(key, value);
+            }
             let key_result = self.evaluate_expr(key_body)?;
             let value_result = self.evaluate_expr(value_body)?;
             output.insert(key_result, value_result);
@@ -1266,7 +1274,7 @@ impl Interpreter {
             Expr::Variable(name) => self.evaluate_variable(name),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
-            Expr::Dict(dict) => self.evaluate_dict(dict),
+            Expr::Dict(dict_ops) => self.evaluate_dict(dict_ops),
             Expr::Tuple(items) => self.evaluate_tuple(items),
             Expr::GeneratorComprehension { body, clauses } => {
                 self.evaluate_generator_comprehension(body, clauses)
@@ -1278,12 +1286,10 @@ impl Interpreter {
                 self.evaluate_set_comprehension(body, clauses)
             }
             Expr::DictComprehension {
-                key,
-                value,
-                range,
+                clauses,
                 key_body,
                 value_body,
-            } => self.evaluate_dict_comprehension(key, value, range, key_body, value_body),
+            } => self.evaluate_dict_comprehension(clauses, key_body, value_body),
             Expr::UnaryOperation { op, right } => self.evaluate_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
@@ -4400,6 +4406,67 @@ d = a.get("d", 99)
                 );
             }
         }
+
+        let input = r#"
+a = { "b": 4, 'c': 5 }
+b = { **a }
+"#;
+        let mut context = init(input);
+
+        match context.run_and_return_interpreter() {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(interpreter) => {
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        &interpreter,
+                        HashMap::from([
+                            (
+                                ExprResult::String(Str::new("b".to_string())),
+                                ExprResult::Integer(4.store())
+                            ),
+                            (
+                                ExprResult::String(Str::new("c".to_string())),
+                                ExprResult::Integer(5.store())
+                            ),
+                        ])
+                    ))))
+                );
+            }
+        }
+
+        let input = r#"
+inner = { 'key': 'inner' }
+b = { 'key': 'outer', **inner }
+c = { **inner, 'key': 'outer' }
+"#;
+        let mut context = init(input);
+
+        match context.run_and_return_interpreter() {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(interpreter) => {
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        &interpreter,
+                        HashMap::from([(
+                            ExprResult::String(Str::new("key".to_string())),
+                            ExprResult::String(Str::new("inner".to_string()))
+                        ),])
+                    ))))
+                );
+                assert_eq!(
+                    interpreter.state.read("c"),
+                    Some(ExprResult::Dict(Container::new(Dict::new(
+                        &interpreter,
+                        HashMap::from([(
+                            ExprResult::String(Str::new("key".to_string())),
+                            ExprResult::String(Str::new("outer".to_string()))
+                        ),])
+                    ))))
+                );
+            }
+        }
     }
 
     #[test]
@@ -4814,6 +4881,29 @@ b = test_kwargs(**c)
                 assert_eq!(
                     interpreter.state.read("b"),
                     Some(ExprResult::Integer(4.store()))
+                );
+            }
+        }
+
+        let input = r#"
+def test_kwargs(**kwargs):
+    return kwargs['a'], kwargs['b']
+
+first = {'a': 44 }
+second = {'b': 55 }
+b = test_kwargs(**first, **second)
+"#;
+        let mut context = init(input);
+
+        match context.run_and_return_interpreter() {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(interpreter) => {
+                assert_eq!(
+                    interpreter.state.read("b"),
+                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Integer(44.store()),
+                        ExprResult::Integer(55.store()),
+                    ]))))
                 );
             }
         }

@@ -65,18 +65,18 @@ impl FunctionAnalysisVisitor {
             Statement::UnpackingAssignment { left, .. } => {
                 for var in left.iter() {
                     if let Some(name) = var.as_variable() {
-                        self.local_vars.insert(name.into());
+                        self.local_vars.insert(name);
                     }
                 }
             }
             Statement::Assignment { left, .. } => {
                 if let Some(name) = left.as_variable() {
-                    self.local_vars.insert(name.into());
+                    self.local_vars.insert(name);
                 }
             }
             Statement::CompoundAssignment { target, .. } => {
                 if let Some(name) = target.as_variable() {
-                    self.local_vars.insert(name.into());
+                    self.local_vars.insert(name);
                 }
             }
             _ => {}
@@ -112,7 +112,7 @@ impl FunctionAnalysisVisitor {
             Statement::Expression(Expr::FunctionCall { args, .. }) => {
                 for arg in args.args.iter() {
                     if let Some(name) = arg.as_variable() {
-                        self.accessed_vars.push(name.into());
+                        self.accessed_vars.push(name);
                     }
                 }
             }

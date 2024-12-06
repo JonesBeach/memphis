@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub mod static_analysis;
 pub mod types;
@@ -7,11 +7,11 @@ use crate::{
     core::{log, Container, LogLevel},
     lexer::types::Token,
     parser::types::{
-        Alias, BinOp, Block, CompoundOperator, ConditionalBlock, ExceptClause, ExceptionInstance,
-        ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause, FormatOption, ImportPath,
-        ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinition, ParsedArgDefinitions,
-        ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport, Statement, TypeNode,
-        UnaryOp, Variable,
+        Alias, BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+        ExceptionInstance, ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause,
+        FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex,
+        ParsedArgDefinition, ParsedArgDefinitions, ParsedArgument, ParsedArguments,
+        ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
     },
     treewalk::State,
     types::errors::ParserError,
@@ -217,7 +217,7 @@ impl<'a> Parser<'a> {
     /// - Exponentiation (**) - `parse_exponentiation`
     /// - Literals, Identifiers - `parse_factor`
     /// - Member Access, Index Access - `parse_access_operations`
-    /// - Multiplication, Division, Modulo, and Comparison Operators -`parse_term`
+    /// - Multiplication, Division, Modulo, and Comparison Operators - `parse_term`
     /// - Logical operators (AND/OR) - `parse_logical_term`
     /// - Addition, Subtraction - `parse_add_sub`
     /// - Bitwise Shifts (<<, >>) - `parse_bitwise_shift`
@@ -561,6 +561,14 @@ impl<'a> Parser<'a> {
                 let right = self.parse_simple_expr()?;
                 Ok(Expr::UnaryOperation {
                     op: UnaryOp::Unpack,
+                    right: Box::new(right),
+                })
+            }
+            Token::DoubleAsterisk => {
+                self.consume(&Token::DoubleAsterisk)?;
+                let right = self.parse_simple_expr()?;
+                Ok(Expr::UnaryOperation {
+                    op: UnaryOp::DictUnpack,
                     right: Box::new(right),
                 })
             }
@@ -928,7 +936,7 @@ impl<'a> Parser<'a> {
             let args = if self.current_token == &Token::LParen {
                 self.parse_function_call_args()?
             } else {
-                ParsedArguments::empty()
+                ParsedArguments::default()
             };
 
             // TODO support exception chaining here and in the interpreter
@@ -1413,11 +1421,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.current_token == &Token::For {
-                let mut clauses = vec![];
-                while self.current_token == &Token::For {
-                    clauses.push(self.parse_comprehension_clause()?);
-                }
-
+                let clauses = self.parse_comprehension_clauses()?;
                 self.consume(&Token::RBracket)?;
 
                 return Ok(Expr::ListComprehension {
@@ -1487,72 +1491,64 @@ impl<'a> Parser<'a> {
 
     fn parse_set(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_set".to_string());
-        let mut items = HashMap::new();
+        let mut pairs = vec![];
+        let mut set = HashSet::new();
 
         self.consume(&Token::LBrace)?;
         while self.current_token != &Token::RBrace {
-            let item = self.parse_simple_expr()?;
+            let key = self.parse_simple_expr()?;
 
             match self.current_token {
-                Token::Comma => {
-                    self.consume(&Token::Comma)?;
-                    items.insert(item.clone(), Expr::None);
-
-                    // Handle trailing comma
+                // A Comma or an RBrace indicates the end of an element, which means this element
+                // will not be a key-value (i.e. have a colon). However, only an RBrace indicates
+                // an end to the entire literal.
+                Token::Comma | Token::RBrace => {
+                    match key {
+                        Expr::UnaryOperation {
+                            op: UnaryOp::DictUnpack,
+                            right,
+                        } => {
+                            pairs.push(DictOperation::Unpack(*right));
+                        }
+                        _ => {
+                            set.insert(key);
+                        }
+                    };
+                    self.consume_optional(&Token::Comma);
                     if self.current_token == &Token::RBrace {
-                        self.consume(&Token::RBrace)?;
-                        return Ok(Expr::Set(items.keys().cloned().collect()));
+                        break;
                     }
-                }
-                Token::RBrace => {
-                    self.consume(&Token::RBrace)?;
-                    items.insert(item.clone(), Expr::None);
-                    return Ok(Expr::Set(items.keys().cloned().collect()));
                 }
                 Token::For => {
-                    let mut clauses = vec![];
-                    while self.current_token == &Token::For {
-                        clauses.push(self.parse_comprehension_clause()?);
-                    }
+                    let clauses = self.parse_comprehension_clauses()?;
                     self.consume(&Token::RBrace)?;
                     return Ok(Expr::SetComprehension {
-                        body: Box::new(item),
+                        body: Box::new(key),
                         clauses,
                     });
                 }
                 Token::Colon => {
                     self.consume(&Token::Colon)?;
-                    let second = self.parse_simple_expr()?;
-                    items.insert(item.clone(), second.clone());
+                    let value = self.parse_simple_expr()?;
 
                     match self.current_token {
-                        Token::Comma => {
-                            self.consume(&Token::Comma)?;
-
-                            // Handle trailing comma
+                        // A Comma or an RBrace indicates the end of an element, which means this
+                        // element _will_ be a key-value (i.e. have a colon). Only an RBrace
+                        // indicates an end to the entire literal.
+                        Token::Comma | Token::RBrace => {
+                            pairs.push(DictOperation::Pair(key, value));
+                            self.consume_optional(&Token::Comma);
                             if self.current_token == &Token::RBrace {
-                                self.consume(&Token::RBrace)?;
-                                return Ok(Expr::Dict(items));
+                                break;
                             }
                         }
-                        Token::RBrace => {
-                            self.consume(&Token::RBrace)?;
-                            return Ok(Expr::Dict(items));
-                        }
                         Token::For => {
-                            self.consume(&Token::For)?;
-                            let key = self.parse_identifier()?;
-                            self.consume(&Token::Comma)?;
-                            let value = self.parse_identifier()?;
-                            self.consume(&Token::In)?;
-                            let range = self.parse_simple_expr()?;
+                            let clauses = self.parse_comprehension_clauses()?;
                             self.consume(&Token::RBrace)?;
                             return Ok(Expr::DictComprehension {
-                                key,
-                                value,
-                                range: Box::new(range),
-                                key_body: Box::new(item),
-                                value_body: Box::new(second),
+                                clauses,
+                                key_body: Box::new(key),
+                                value_body: Box::new(value),
                             });
                         }
                         _ => return Err(ParserError::UnexpectedToken(self.current_token.clone())),
@@ -1562,10 +1558,14 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // You should only get here if this was an empty literal.
-        assert_eq!(items.len(), 0);
         self.consume(&Token::RBrace)?;
-        Ok(Expr::Dict(HashMap::new()))
+        if set.is_empty() {
+            Ok(Expr::Dict(pairs))
+        } else if pairs.is_empty() {
+            Ok(Expr::Set(set))
+        } else {
+            Err(ParserError::SyntaxError)
+        }
     }
 
     fn parse_function_def_args(
@@ -1648,9 +1648,8 @@ impl<'a> Parser<'a> {
         self.consume(&Token::LParen)?;
 
         let mut args = Vec::new();
-        let mut kwargs = HashMap::new();
+        let mut kwargs = vec![];
         let mut args_var = None;
-        let mut kwargs_var = None;
         while self.current_token != &Token::RParen {
             if self.current_token == &Token::Asterisk {
                 self.consume(&Token::Asterisk)?;
@@ -1666,32 +1665,35 @@ impl<'a> Parser<'a> {
             // This is to support the formats
             // - foo(**{'a': 2, 'b': 1})
             // - foo(**args)
-            //
-            // Python technically allows you to do both of these, but we do not support that yet.
-            // If you do that, I think kwargs_var would need to become a Vec since you could have
-            // more than one of a single type.
             if self.current_token == &Token::DoubleAsterisk {
                 self.consume(&Token::DoubleAsterisk)?;
                 let kwargs_expr = self.parse_simple_expr()?;
                 match kwargs_expr {
-                    Expr::Dict(dict) => {
-                        for (key, value) in dict {
-                            let key_name = key.as_string().ok_or(ParserError::SyntaxError)?;
-                            kwargs.insert(key_name.clone(), value);
+                    Expr::Dict(dict_ops) => {
+                        for op in dict_ops {
+                            match op {
+                                DictOperation::Pair(key, value) => {
+                                    let key_name =
+                                        key.as_string().ok_or(ParserError::SyntaxError)?;
+                                    kwargs.push(KwargsOperation::Pair(key_name, value));
+                                }
+                                _ => unimplemented!(),
+                            }
                         }
                     }
                     Expr::Variable(_) | Expr::MemberAccess { .. } => {
-                        kwargs_var = Some(Box::new(kwargs_expr))
+                        kwargs.push(KwargsOperation::Unpacking(kwargs_expr));
                     }
                     _ => return Err(ParserError::SyntaxError),
                 };
-                break;
+                self.consume_optional(&Token::Comma);
+                continue;
             }
 
             match self.parse_function_call_arg()? {
                 // This is to support the format foo(a=2, b=1)
                 ParsedArgument::Keyword { arg, expr } => {
-                    kwargs.insert(arg, expr);
+                    kwargs.push(KwargsOperation::Pair(arg, expr));
                 }
                 ParsedArgument::Positional(expr) => {
                     args.push(expr);
@@ -1707,7 +1709,6 @@ impl<'a> Parser<'a> {
             args,
             kwargs,
             args_var,
-            kwargs_var,
         })
     }
 
@@ -1716,33 +1717,36 @@ impl<'a> Parser<'a> {
     /// other cases to be safely used inside function call parsing.
     fn parse_function_call_arg(&mut self) -> Result<ParsedArgument, ParserError> {
         let expr = self.parse_simple_expr()?;
-        if self.current_token == &Token::Assign {
-            self.consume(&Token::Assign)?;
-
-            let arg = expr.as_variable().ok_or(ParserError::SyntaxError)?.into();
-
-            Ok(ParsedArgument::Keyword {
-                arg,
-                expr: self.parse_simple_expr()?,
-            })
-        } else if self.current_token == &Token::For {
-            Ok(ParsedArgument::Positional(
+        match self.current_token {
+            Token::Assign => {
+                self.consume(&Token::Assign)?;
+                let arg = expr.as_variable().ok_or(ParserError::SyntaxError)?;
+                Ok(ParsedArgument::Keyword {
+                    arg,
+                    expr: self.parse_simple_expr()?,
+                })
+            }
+            Token::For => Ok(ParsedArgument::Positional(
                 self.parse_generator_comprehension(&expr)?,
-            ))
-        } else {
-            Ok(ParsedArgument::Positional(expr))
+            )),
+            _ => Ok(ParsedArgument::Positional(expr)),
         }
     }
 
     fn parse_generator_comprehension(&mut self, body: &Expr) -> Result<Expr, ParserError> {
-        let mut clauses = vec![];
-        while self.current_token == &Token::For {
-            clauses.push(self.parse_comprehension_clause()?);
-        }
+        let clauses = self.parse_comprehension_clauses()?;
         Ok(Expr::GeneratorComprehension {
             body: Box::new(body.clone()),
             clauses,
         })
+    }
+
+    fn parse_comprehension_clauses(&mut self) -> Result<Vec<ForClause>, ParserError> {
+        let mut clauses = vec![];
+        while self.current_token == &Token::For {
+            clauses.push(self.parse_comprehension_clause()?);
+        }
+        Ok(clauses)
     }
 
     fn parse_comprehension_clause(&mut self) -> Result<ForClause, ParserError> {
@@ -1758,7 +1762,7 @@ impl<'a> Parser<'a> {
         // form `a if True` is the start of a ternary operation and expect an `else` token
         // next. By calling `parse_binary_expr`, we enter the parse tree below where
         // ternary operations are handled.
-        let iterable = self.parse_binary_expr()?;
+        let iterable = Box::new(self.parse_binary_expr()?);
 
         let condition = if self.current_token == &Token::If {
             self.consume(&Token::If)?;
@@ -1769,7 +1773,7 @@ impl<'a> Parser<'a> {
 
         Ok(ForClause {
             indices,
-            iterable: Box::new(iterable),
+            iterable,
             condition,
         })
     }
@@ -1840,7 +1844,7 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{types::KwargsOperation, *};
     use crate::{
         init::MemphisContext,
         treewalk::{
@@ -1848,7 +1852,6 @@ mod tests {
             Scope,
         },
     };
-    use std::collections::HashSet;
 
     fn init(text: &str) -> MemphisContext {
         MemphisContext::from_text(text)
@@ -1917,9 +1920,8 @@ mod tests {
             name: "join".into(),
             args: ParsedArguments {
                 args: vec![Expr::List(vec![])],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
@@ -1993,9 +1995,8 @@ a, b = (1, 2)
             name: "print".to_string(),
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("Hello, World!".to_string())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: None,
         };
@@ -2014,14 +2015,13 @@ a(*self.args, **self.kwargs)
             name: "a".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![KwargsOperation::Unpacking(Expr::MemberAccess {
+                    object: Box::new(Expr::Variable("self".into())),
+                    field: "kwargs".into(),
+                })],
                 args_var: Some(Box::new(Expr::MemberAccess {
                     object: Box::new(Expr::Variable("self".into())),
                     field: "args".into(),
-                })),
-                kwargs_var: Some(Box::new(Expr::MemberAccess {
-                    object: Box::new(Expr::Variable("self".into())),
-                    field: "kwargs".into(),
                 })),
             },
             callee: None,
@@ -2194,9 +2194,8 @@ lambda: (yield)
             name: "<anonymous_from_callee>".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: Some(Box::new(Expr::Lambda {
                 args: Box::new(ParsedArgDefinitions {
@@ -2573,9 +2572,8 @@ else:
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: HashMap::new(),
+                            kwargs: vec![],
                             args_var: None,
-                            kwargs_var: None,
                         },
                         callee: None,
                     })],
@@ -2592,9 +2590,8 @@ else:
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Medium".to_string())],
-                            kwargs: HashMap::new(),
+                            kwargs: vec![],
                             args_var: None,
-                            kwargs_var: None,
                         },
                         callee: None,
                     })],
@@ -2605,9 +2602,8 @@ else:
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("Less".to_string())],
-                        kwargs: HashMap::new(),
+                        kwargs: vec![],
                         args_var: None,
-                        kwargs_var: None,
                     },
                     callee: None,
                 })],
@@ -2641,9 +2637,8 @@ elif x > -20:
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: HashMap::new(),
+                            kwargs: vec![],
                             args_var: None,
-                            kwargs_var: None,
                         },
                         callee: None,
                     })],
@@ -2661,9 +2656,8 @@ elif x > -20:
                             name: "print".to_string(),
                             args: ParsedArguments {
                                 args: vec![Expr::StringLiteral("Medium".to_string())],
-                                kwargs: HashMap::new(),
+                                kwargs: vec![],
                                 args_var: None,
-                                kwargs_var: None,
                             },
                             callee: None,
                         })],
@@ -2680,9 +2674,8 @@ elif x > -20:
                             name: "print".to_string(),
                             args: ParsedArguments {
                                 args: vec![Expr::StringLiteral("Less".to_string())],
-                                kwargs: HashMap::new(),
+                                kwargs: vec![],
                                 args_var: None,
-                                kwargs_var: None,
                             },
                             callee: None,
                         })],
@@ -2715,9 +2708,8 @@ if x > 0:
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: HashMap::new(),
+                            kwargs: vec![],
                             args_var: None,
-                            kwargs_var: None,
                         },
                         callee: None,
                     })],
@@ -2803,9 +2795,8 @@ while True:
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("busy loop".to_string())],
-                        kwargs: HashMap::new(),
+                        kwargs: vec![],
                         args_var: None,
-                        kwargs_var: None,
                     },
                     callee: None,
                 })],
@@ -2876,9 +2867,8 @@ class Foo:
                                         object: Box::new(Expr::Variable("self".to_string())),
                                         field: "x".to_string(),
                                     }],
-                                    kwargs: HashMap::new(),
+                                    kwargs: vec![],
                                     args_var: None,
-                                    kwargs_var: None,
                                 },
                                 callee: None,
                             })],
@@ -2952,7 +2942,7 @@ foo = Foo()
             left: Expr::Variable("foo".to_string()),
             right: Expr::ClassInstantiation {
                 name: "Foo".to_string(),
-                args: ParsedArguments::empty(),
+                args: ParsedArguments::default(),
             },
         };
 
@@ -2980,7 +2970,7 @@ foo = Foo()
             left: Expr::Variable("foo".to_string()),
             right: Expr::ClassInstantiation {
                 name: "Foo".to_string(),
-                args: ParsedArguments::empty(),
+                args: ParsedArguments::default(),
             },
         };
 
@@ -2997,7 +2987,7 @@ foo.bar()
         let expected_ast = Statement::Expression(Expr::MethodCall {
             object: Box::new(Expr::Variable("foo".to_string())),
             name: "bar".to_string(),
-            args: ParsedArguments::empty(),
+            args: ParsedArguments::default(),
         });
 
         match context.parse_oneshot::<Statement>() {
@@ -3091,9 +3081,8 @@ pass
                     Expr::StringLiteral("1".into()),
                     Expr::StringLiteral("1".into()),
                 ],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
@@ -3115,9 +3104,8 @@ cls._abc_registry.add(subclass)
             name: "add".into(),
             args: ParsedArguments {
                 args: vec![Expr::Variable("subclass".into())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         });
 
@@ -3508,9 +3496,8 @@ a = [1, 2, 3]
                     Expr::Integer(2),
                     Expr::Integer(3),
                 ])],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
@@ -3574,9 +3561,8 @@ a = [1, 2, 3]
                     Expr::Integer(2),
                     Expr::Integer(3),
                 ]))],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
@@ -3694,9 +3680,8 @@ a = [1, 2, 3]
                     Expr::Integer(2),
                     Expr::Integer(3),
                 ])],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
@@ -3719,9 +3704,8 @@ tuple((1,
                     Expr::Integer(2),
                     Expr::Integer(3),
                 ])],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         });
 
@@ -3788,9 +3772,8 @@ for i in a:
                     name: "print".into(),
                     args: ParsedArguments {
                         args: vec![Expr::Variable("i".into())],
-                        kwargs: HashMap::new(),
+                        kwargs: vec![],
                         args_var: None,
-                        kwargs_var: None,
                     },
                     callee: None,
                 })],
@@ -3813,16 +3796,15 @@ for k, v in a.items():
             iterable: Expr::MethodCall {
                 object: Box::new(Expr::Variable("a".into())),
                 name: "items".into(),
-                args: ParsedArguments::empty(),
+                args: ParsedArguments::default(),
             },
             body: Block {
                 statements: vec![Statement::Expression(Expr::FunctionCall {
                     name: "print".into(),
                     args: ParsedArguments {
                         args: vec![Expr::Variable("v".into())],
-                        kwargs: HashMap::new(),
+                        kwargs: vec![],
                         args_var: None,
-                        kwargs_var: None,
                     },
                     callee: None,
                 })],
@@ -4028,10 +4010,10 @@ a = { "b": 4, 'c': 5 }
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("a".to_string()),
-            right: Expr::Dict(HashMap::from([
-                (Expr::StringLiteral("b".to_string()), Expr::Integer(4)),
-                (Expr::StringLiteral("c".to_string()), Expr::Integer(5)),
-            ])),
+            right: Expr::Dict(vec![
+                DictOperation::Pair(Expr::StringLiteral("b".to_string()), Expr::Integer(4)),
+                DictOperation::Pair(Expr::StringLiteral("c".to_string()), Expr::Integer(5)),
+            ]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4048,15 +4030,57 @@ namespace = {
 
         let expected_ast = Statement::Assignment {
             left: Expr::Variable("namespace".to_string()),
-            right: Expr::Dict(HashMap::from([(
+            right: Expr::Dict(vec![DictOperation::Pair(
                 Expr::StringLiteral("__name__".to_string()),
                 Expr::Integer(4),
-            )])),
+            )]),
         };
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"{ **first, **second }"#;
+        let context = init(input);
+
+        let expected_ast = Expr::Dict(vec![
+            DictOperation::Unpack(Expr::Variable("first".to_string())),
+            DictOperation::Unpack(Expr::Variable("second".to_string())),
+        ]);
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"{ **first, **second, }"#;
+        let context = init(input);
+
+        let expected_ast = Expr::Dict(vec![
+            DictOperation::Unpack(Expr::Variable("first".to_string())),
+            DictOperation::Unpack(Expr::Variable("second".to_string())),
+        ]);
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"{ 2, **second }"#;
+        let context = init(input);
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => assert_eq!(e, ParserError::SyntaxError),
+            Ok(_) => panic!("Expected an error!"),
+        }
+
+        let input = r#"{ 2, **second, }"#;
+        let context = init(input);
+
+        match context.parse_oneshot::<Expr>() {
+            Err(e) => assert_eq!(e, ParserError::SyntaxError),
+            Ok(_) => panic!("Expected an error!"),
         }
     }
 
@@ -4086,12 +4110,11 @@ async def main():
                             args: ParsedArguments {
                                 args: vec![Expr::FunctionCall {
                                     name: "task1".to_string(),
-                                    args: ParsedArguments::empty(),
+                                    args: ParsedArguments::default(),
                                     callee: None,
                                 }],
-                                kwargs: HashMap::new(),
+                                kwargs: vec![],
                                 args_var: None,
-                                kwargs_var: None,
                             },
                         },
                     },
@@ -4492,12 +4515,11 @@ test_kwargs(a=1, b=2)
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::from([
-                    ("b".into(), Expr::Integer(2)),
-                    ("a".into(), Expr::Integer(1)),
-                ]),
+                kwargs: vec![
+                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
+                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
+                ],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: None,
         });
@@ -4516,12 +4538,58 @@ test_kwargs(**{'a':1, 'b':2})
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::from([
-                    ("b".into(), Expr::Integer(2)),
-                    ("a".into(), Expr::Integer(1)),
-                ]),
+                kwargs: vec![
+                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
+                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
+                ],
                 args_var: None,
-                kwargs_var: None,
+            },
+            callee: None,
+        });
+
+        match context.parse_oneshot::<Statement>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"
+test_kwargs(**{'a':1, 'b':2}, **{'c': 3})
+"#;
+        let context = init(input);
+
+        let expected_ast = Statement::Expression(Expr::FunctionCall {
+            name: "test_kwargs".into(),
+            args: ParsedArguments {
+                args: vec![],
+                kwargs: vec![
+                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
+                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
+                    KwargsOperation::Pair("c".into(), Expr::Integer(3)),
+                ],
+                args_var: None,
+            },
+            callee: None,
+        });
+
+        match context.parse_oneshot::<Statement>() {
+            Err(e) => panic!("Parser error: {:?}", e),
+            Ok(ast) => assert_eq!(ast, expected_ast),
+        }
+
+        let input = r#"
+test_kwargs(**first, **second)
+"#;
+        let context = init(input);
+
+        let expected_ast = Statement::Expression(Expr::FunctionCall {
+            name: "test_kwargs".into(),
+            args: ParsedArguments {
+                args: vec![],
+                kwargs: vec![
+                    KwargsOperation::Unpacking(Expr::Variable("first".to_string())),
+                    KwargsOperation::Unpacking(Expr::Variable("second".to_string())),
+                ],
+                args_var: None,
             },
             callee: None,
         });
@@ -4540,9 +4608,10 @@ test_kwargs(**kwargs)
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![KwargsOperation::Unpacking(Expr::Variable(
+                    "kwargs".to_string(),
+                ))],
                 args_var: None,
-                kwargs_var: Some(Box::new(Expr::Variable("kwargs".into()))),
             },
             callee: None,
         });
@@ -4561,9 +4630,8 @@ test_kwargs(*args)
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: Some(Box::new(Expr::Variable("args".into()))),
-                kwargs_var: None,
             },
             callee: None,
         });
@@ -4582,9 +4650,10 @@ test_kwargs(*args, **kwargs)
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![KwargsOperation::Unpacking(Expr::Variable(
+                    "kwargs".to_string(),
+                ))],
                 args_var: Some(Box::new(Expr::Variable("args".into()))),
-                kwargs_var: Some(Box::new(Expr::Variable("kwargs".into()))),
             },
             callee: None,
         });
@@ -4604,9 +4673,8 @@ deprecated("collections.abc.ByteString",
             name: "deprecated".into(),
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("collections.abc.ByteString".into())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: None,
         });
@@ -4654,17 +4722,15 @@ test_decorator(get_val_undecorated)()
             name: "<anonymous_from_callee>".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: Some(Box::new(Expr::FunctionCall {
                 name: "test_decorator".into(),
                 args: ParsedArguments {
                     args: vec![Expr::Variable("get_val_undecorated".into())],
-                    kwargs: HashMap::new(),
+                    kwargs: vec![],
                     args_var: None,
-                    kwargs_var: None,
                 },
                 callee: None,
             })),
@@ -4685,7 +4751,7 @@ raise Exception
 
         let expected_ast = Statement::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
-            args: ParsedArguments::empty(),
+            args: ParsedArguments::default(),
         }));
 
         match context.parse_oneshot::<Statement>() {
@@ -4702,9 +4768,8 @@ raise Exception("message")
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("message".into())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         }));
 
@@ -4734,9 +4799,8 @@ raise Exception("message") from None
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("message".into())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         }));
 
@@ -4759,9 +4823,8 @@ with open('test.txt') as f:
                 name: "open".into(),
                 args: ParsedArguments {
                     args: vec![Expr::StringLiteral("test.txt".into())],
-                    kwargs: HashMap::new(),
+                    kwargs: vec![],
                     args_var: None,
-                    kwargs_var: None,
                 },
                 callee: None,
             },
@@ -4787,9 +4850,8 @@ with open('test.txt'):
                 name: "open".into(),
                 args: ParsedArguments {
                     args: vec![Expr::StringLiteral("test.txt".into())],
-                    kwargs: HashMap::new(),
+                    kwargs: vec![],
                     args_var: None,
-                    kwargs_var: None,
                 },
                 callee: None,
             },
@@ -5653,9 +5715,8 @@ def outer():
                                     name: "print".into(),
                                     args: ParsedArguments {
                                         args: vec![Expr::Variable("a".into())],
-                                        kwargs: HashMap::new(),
+                                        kwargs: vec![],
                                         args_var: None,
-                                        kwargs_var: None,
                                     },
                                     callee: None,
                                 }),
@@ -5843,9 +5904,8 @@ foo(i * 2 for i in b)
                         condition: None,
                     }],
                 }],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: None,
         });
@@ -5911,7 +5971,7 @@ foo(a, *b[1:])
             name: "foo".into(),
             args: ParsedArguments {
                 args: vec![Expr::Variable("a".into())],
-                kwargs: HashMap::default(),
+                kwargs: vec![],
                 args_var: Some(Box::new(Expr::SliceOperation {
                     object: Box::new(Expr::Variable("b".into())),
                     params: ParsedSliceParams {
@@ -5920,7 +5980,6 @@ foo(a, *b[1:])
                         step: None,
                     },
                 })),
-                kwargs_var: None,
             },
             callee: None,
         });

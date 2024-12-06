@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    parser::types::ParsedArguments,
+    parser::types::{KwargsOperation, ParsedArguments},
     treewalk::{
         types::{ExprResult, Str},
         Interpreter,
@@ -29,17 +29,32 @@ impl ResolvedArguments {
             .iter()
             .map(|arg| interpreter.evaluate_expr(arg))
             .collect::<Result<Vec<_>, _>>()?;
+
         #[allow(clippy::mutable_key_type)]
-        let mut kwarg_values: HashMap<ExprResult, ExprResult> = arguments
-            .kwargs
-            .iter()
-            .map(|(key, value)| {
-                Ok((
-                    ExprResult::String(Str::new(key.into())),
-                    interpreter.evaluate_expr(value)?,
-                ))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()?;
+        let mut kwargs: HashMap<ExprResult, ExprResult> = HashMap::default();
+        for kwarg in arguments.kwargs.iter() {
+            match kwarg {
+                KwargsOperation::Pair(key, value) => {
+                    kwargs.insert(
+                        ExprResult::String(Str::new(key.to_string())),
+                        interpreter.evaluate_expr(value)?,
+                    );
+                }
+                KwargsOperation::Unpacking(expr) => {
+                    let unpacked = interpreter.evaluate_expr(expr)?;
+                    for key in unpacked.clone() {
+                        if kwargs.contains_key(&key) {
+                            return Err(InterpreterError::KeyError(
+                                key.to_string(),
+                                interpreter.state.call_stack(),
+                            ));
+                        }
+                        let value = interpreter.read_index(&unpacked, &key)?;
+                        kwargs.insert(key, value);
+                    }
+                }
+            }
+        }
 
         let mut second_arg_values = if let Some(ref args_var) = arguments.args_var {
             let args_var_value = interpreter.evaluate_expr(args_var)?;
@@ -54,30 +69,7 @@ impl ResolvedArguments {
         };
         arg_values.append(&mut second_arg_values);
 
-        #[allow(clippy::mutable_key_type)]
-        let second_kwarg_values = if let Some(ref kwargs_var) = arguments.kwargs_var {
-            let kwargs_var_value = interpreter.evaluate_expr(kwargs_var)?;
-            let kwargs_dict =
-                kwargs_var_value
-                    .as_dict(interpreter)
-                    .ok_or(InterpreterError::ExpectedDict(
-                        interpreter.state.call_stack(),
-                    ))?;
-            HashMap::from(kwargs_dict.clone().borrow().clone())
-        } else {
-            HashMap::new()
-        };
-
-        for (key, value) in second_kwarg_values {
-            if kwarg_values.insert((*key).clone(), value).is_some() {
-                return Err(InterpreterError::KeyError(
-                    key.to_string(),
-                    interpreter.state.call_stack(),
-                ));
-            }
-        }
-
-        Ok(Self::new(arg_values, kwarg_values))
+        Ok(Self::new(arg_values, kwargs))
     }
 
     #[allow(clippy::mutable_key_type)]

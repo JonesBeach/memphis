@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fmt::{Display, Error, Formatter},
     hash::{Hash, Hasher},
 };
@@ -16,6 +16,12 @@ use super::Parser;
 /// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
 /// here works, but we create a [`Variable`] to be more expressive and add type-safety.
 pub type Variable = String;
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum DictOperation {
+    Pair(Expr, Expr),
+    Unpack(Expr),
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TypeNode {
@@ -143,7 +149,8 @@ pub enum UnaryOp {
     Minus,
     Plus,
     BitwiseNot,
-    Unpack,
+    Unpack,     // single asterisk *
+    DictUnpack, // double asterisk **
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -211,8 +218,16 @@ pub enum ParsedArgument {
     Positional(Expr),
 }
 
-/// All the information provided when a function is called (besides of the name of the function).
 #[derive(Clone, PartialEq, Debug)]
+// This is similar to DictOperation, but where the keys are required to be strings. This matches
+// the Python rules and simplifies usage.
+pub enum KwargsOperation {
+    Unpacking(Expr),    // Represents **kwargs_var
+    Pair(String, Expr), // Represents a key-value pair
+}
+
+/// All the information provided when a function is called (besides of the name of the function).
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct ParsedArguments {
     /// Any args passed in positionally.
     /// ```python
@@ -220,12 +235,13 @@ pub struct ParsedArguments {
     /// ```
     pub args: Vec<Expr>,
 
-    /// Any keyword arguments passed in as literals. For example,
+    /// Any keyword arguments passed in as literals or variables. For example,
     /// ```python
     /// foo(a=1, b=2)
     /// foo(**{'a': 1, 'b': 2})
+    /// foo(**kwargs)
     /// ```
-    pub kwargs: HashMap<Variable, Expr>,
+    pub kwargs: Vec<KwargsOperation>,
 
     /// Any variable-arity arguments passed in through a variable. For example,
     /// ```python
@@ -234,25 +250,6 @@ pub struct ParsedArguments {
     /// ```
     /// The `Expr` here references a variable which will be read during the interpreter stage.
     pub args_var: Option<Box<Expr>>,
-
-    /// Any keyword arguments passed in through a variable. For example,
-    /// ```python
-    /// kwargs = {'a': 1, 'b': 2}
-    /// foo(**kwargs)
-    /// ```
-    /// The `Expr` here references a variable which will be read during the interpreter stage.
-    pub kwargs_var: Option<Box<Expr>>,
-}
-
-impl ParsedArguments {
-    pub fn empty() -> Self {
-        Self {
-            args: vec![],
-            kwargs: HashMap::new(),
-            args_var: None,
-            kwargs_var: None,
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -282,7 +279,7 @@ pub enum Expr {
     ByteStringLiteral(Vec<u8>),
     List(Vec<Expr>),
     Set(HashSet<Expr>),
-    Dict(HashMap<Expr, Expr>),
+    Dict(Vec<DictOperation>),
     Tuple(Vec<Expr>),
     FString(Vec<FStringPart>),
     Yield(Option<Box<Expr>>),
@@ -336,21 +333,19 @@ pub enum Expr {
         args: ParsedArguments,
     },
     GeneratorComprehension {
-        body: Box<Expr>,
         clauses: Vec<ForClause>,
+        body: Box<Expr>,
     },
     ListComprehension {
-        body: Box<Expr>,
         clauses: Vec<ForClause>,
+        body: Box<Expr>,
     },
     SetComprehension {
-        body: Box<Expr>,
         clauses: Vec<ForClause>,
+        body: Box<Expr>,
     },
     DictComprehension {
-        key: String,
-        value: String,
-        range: Box<Expr>,
+        clauses: Vec<ForClause>,
         key_body: Box<Expr>,
         value_body: Box<Expr>,
     },
@@ -362,16 +357,16 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn as_variable(&self) -> Option<&String> {
+    pub fn as_variable(&self) -> Option<String> {
         match self {
-            Expr::Variable(name) => Some(name),
+            Expr::Variable(name) => Some(name.to_string()),
             _ => None,
         }
     }
 
-    pub fn as_string(&self) -> Option<&String> {
+    pub fn as_string(&self) -> Option<String> {
         match self {
-            Expr::StringLiteral(name) => Some(name),
+            Expr::StringLiteral(name) => Some(name.to_string()),
             _ => None,
         }
     }

@@ -169,6 +169,9 @@ pub(crate) fn evaluate_unary_operation(
                 ))?;
             Ok(ExprResult::List(list))
         }
+        UnaryOp::DictUnpack => {
+            todo!()
+        }
     }
 }
 

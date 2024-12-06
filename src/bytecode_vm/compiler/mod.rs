@@ -374,9 +374,8 @@ impl Compiler {
             if args.args[0].as_string().is_none() {
                 unimplemented!("Non-string args not yet supported for print in the bytecode VM.")
             }
-            let index = self.get_or_set_constant_index(Constant::String(
-                args.args[0].as_string().unwrap().to_owned(),
-            ));
+            let index =
+                self.get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()));
             Ok(vec![Opcode::PrintConst(index)])
         } else {
             let index = self.get_var_index(name);
@@ -956,9 +955,8 @@ mod bytecode_tests {
             name: "foo".into(),
             args: ParsedArguments {
                 args: vec![Expr::Variable("a".into()), Expr::Variable("b".into())],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
             callee: None,
         };
@@ -987,9 +985,8 @@ mod bytecode_tests {
             name: "bar".to_string(),
             args: ParsedArguments {
                 args: vec![Expr::Integer(88), Expr::Integer(99)],
-                kwargs: HashMap::new(),
+                kwargs: vec![],
                 args_var: None,
-                kwargs_var: None,
             },
         };
 
