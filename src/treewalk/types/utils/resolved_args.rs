@@ -31,7 +31,7 @@ impl ResolvedArguments {
             .collect::<Result<Vec<_>, _>>()?;
 
         #[allow(clippy::mutable_key_type)]
-        let mut kwargs: HashMap<ExprResult, ExprResult> = HashMap::default();
+        let mut kwargs = HashMap::default();
         for kwarg in arguments.kwargs.iter() {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {

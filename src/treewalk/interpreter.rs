@@ -457,9 +457,7 @@ impl Interpreter {
         for op in dict_ops {
             match op {
                 DictOperation::Pair(key, value) => {
-                    let key_result = self.evaluate_expr(key)?;
-                    let value_result = self.evaluate_expr(value)?;
-                    result.insert(key_result, value_result);
+                    result.insert(self.evaluate_expr(key)?, self.evaluate_expr(value)?);
                 }
                 DictOperation::Unpack(expr) => {
                     let unpacked = self.evaluate_expr(expr)?;
