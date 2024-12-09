@@ -115,7 +115,7 @@ impl Display for MemphisError {
             MemphisError::Parser(e) => write!(f, "{}", e),
             MemphisError::Interpreter(e) => write!(f, "{}", e),
             MemphisError::Vm(_) => unimplemented!(),
-            MemphisError::Compiler(_) => unimplemented!(),
+            MemphisError::Compiler(e) => write!(f, "{}", e),
         }
     }
 }

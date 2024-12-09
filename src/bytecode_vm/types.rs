@@ -137,5 +137,15 @@ pub enum VmError {
 pub enum CompilerError {
     NameError(String),
     SyntaxError(String),
-    RuntimeError,
+}
+
+impl Display for CompilerError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Self::NameError(name) => {
+                write!(f, "NameError: name '{}' is not defined", name)
+            }
+            _ => unimplemented!("Unsupported error type in bytecode VM"),
+        }
+    }
 }

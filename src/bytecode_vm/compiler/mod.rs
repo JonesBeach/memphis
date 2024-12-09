@@ -298,10 +298,7 @@ impl Compiler {
             };
             Ok(vec![opcode])
         } else {
-            Err(CompilerError::NameError(format!(
-                "name '{}' is not defined",
-                name
-            )))
+            Err(CompilerError::NameError(name.to_string()))
         }
     }
 
@@ -783,10 +780,7 @@ mod bytecode_tests {
 
         match compiler.compile_stmt(&stmt) {
             Err(e) => {
-                assert_eq!(
-                    e,
-                    CompilerError::NameError("name 'b' is not defined".into())
-                );
+                assert_eq!(e, CompilerError::NameError("b".into()));
             }
             Ok(_) => panic!("Expected an error!"),
         }
