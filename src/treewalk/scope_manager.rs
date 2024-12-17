@@ -243,11 +243,8 @@ impl ScopeManager {
     }
 
     /// This assumes we always have a context stack.
-    fn read_context(&self) -> Context {
-        self.context_stack
-            .last()
-            .expect("failed to find context")
-            .clone()
+    fn read_context(&self) -> &Context {
+        self.context_stack.last().expect("failed to find context")
     }
 
     /// Used during the parsing process to determine whether to insert a `Expr::FunctionCall` or
