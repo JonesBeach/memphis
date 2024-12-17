@@ -506,11 +506,10 @@ impl Compiler {
     }
 
     /// This assumes we always have a context stack.
-    fn ensure_context(&self) -> Context {
+    fn ensure_context(&self) -> &Context {
         self.context_stack
             .last()
             .expect("Internal Compiler Error: failed to find context.")
-            .clone()
     }
 
     fn ensure_code_object(&mut self) -> &mut CodeObject {
