@@ -2,7 +2,7 @@ pub mod types;
 
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
-    core::{log, LogLevel, RwStack},
+    core::{log, LogLevel},
     domain::Context,
     parser::types::{
         Ast, BinOp, Block, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments,
@@ -23,7 +23,7 @@ pub struct Compiler {
     /// (i.e. variable names).
     code_stack: Vec<CodeObject>,
 
-    context_stack: RwStack<Context>,
+    context_stack: Vec<Context>,
 }
 
 impl Compiler {
@@ -32,7 +32,7 @@ impl Compiler {
         Self {
             constant_pool: vec![],
             code_stack: vec![code],
-            context_stack: RwStack::with_initial(Context::Global),
+            context_stack: vec![Context::Global],
         }
     }
 
@@ -508,8 +508,9 @@ impl Compiler {
     /// This assumes we always have a context stack.
     fn ensure_context(&self) -> Context {
         self.context_stack
-            .top()
+            .last()
             .expect("Internal Compiler Error: failed to find context.")
+            .clone()
     }
 
     fn ensure_code_object(&mut self) -> &mut CodeObject {

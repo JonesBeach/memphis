@@ -7,7 +7,7 @@ use crate::{
         types::{Value, VmError},
         Opcode,
     },
-    core::{log, log_impure, LogLevel, RwStack},
+    core::{log, log_impure, LogLevel},
     treewalk::types::utils::Dunder,
 };
 
@@ -45,7 +45,7 @@ pub struct VirtualMachine {
     /// We must keep a stack of class definitions that we have begun so that when they finish, we
     /// know with which name to associate the namespace. The index here references a name from the
     /// constant pool.
-    class_stack: RwStack<String>,
+    class_stack: Vec<String>,
 }
 
 impl VirtualMachine {
@@ -56,7 +56,7 @@ impl VirtualMachine {
             index_map: HashMap::new(),
             global_store: vec![],
             object_table: vec![],
-            class_stack: RwStack::default(),
+            class_stack: vec![],
         }
     }
 

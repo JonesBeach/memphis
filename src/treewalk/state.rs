@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use crate::core::Container;
-use crate::parser::types::{ImportPath, LoopIndex};
-use crate::treewalk::types::{
-    domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module,
-};
-use crate::treewalk::{
-    CallStack, ExecutionContextManager, Executor, LoadedModule, ModuleLoader, Scope, ScopeManager,
-    StackFrame, TypeRegistry,
+use crate::{
+    core::Container,
+    parser::types::{ImportPath, LoopIndex},
+    treewalk::{
+        types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
+        CallStack, ExecutionContextManager, Executor, LoadedModule, ModuleLoader, Scope,
+        ScopeManager, StackFrame, TypeRegistry,
+    },
 };
 
 #[cfg(feature = "c_stdlib")]
