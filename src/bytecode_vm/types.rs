@@ -128,14 +128,30 @@ impl Value {
 pub enum VmError {
     StackUnderflow,
     StackOverflow,
-    VariableNotFound,
+    NameError(String),
     RuntimeError,
+}
+
+impl Display for VmError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Self::NameError(name) => {
+                write!(f, "NameError: name '{}' is not defined", name)
+            }
+            _ => unimplemented!("Unsupported error type in bytecode VM"),
+        }
+    }
 }
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
-    NameError(String),
     SyntaxError(String),
-    RuntimeError,
+    StackUnderflow,
+}
+
+impl Display for CompilerError {
+    fn fmt(&self, _f: &mut Formatter) -> Result<(), Error> {
+        unimplemented!("Unsupported error type in bytecode VM")
+    }
 }

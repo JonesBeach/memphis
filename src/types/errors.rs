@@ -114,8 +114,8 @@ impl Display for MemphisError {
         match self {
             MemphisError::Parser(e) => write!(f, "{}", e),
             MemphisError::Interpreter(e) => write!(f, "{}", e),
-            MemphisError::Vm(_) => unimplemented!(),
-            MemphisError::Compiler(_) => unimplemented!(),
+            MemphisError::Vm(e) => write!(f, "{}", e),
+            MemphisError::Compiler(e) => write!(f, "{}", e),
         }
     }
 }

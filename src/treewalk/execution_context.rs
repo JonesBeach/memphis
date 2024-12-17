@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, Stack},
+    core::{Container, RwStack},
     treewalk::types::{Class, ExprResult, Function},
 };
 
@@ -7,26 +7,26 @@ use crate::{
 pub struct ExecutionContextManager {
     /// A stack to hold the current [`Class`] being defined (i.e. its lexical scope). We need this
     /// so we can associate a function with its class.
-    lexical_class_stack: Stack<Container<Class>>,
+    lexical_class_stack: RwStack<Container<Class>>,
 
     /// A stack to hold the current [`Function`] being evaluated. A method will push something onto
     /// this stack and the receiver stack below.
-    current_function_stack: Stack<Container<Function>>,
+    current_function_stack: RwStack<Container<Function>>,
 
     /// A stack to hold the current [`ExprResult`] being evaluated on. We need this for whenver
     /// `super()` is called.
     ///
     /// We do not need a container here because the [`Object`] and [`Class`] variants of
     /// [`ExprResult`] already are wrapped in a [`Container`].
-    current_receiver_stack: Stack<ExprResult>,
+    current_receiver_stack: RwStack<ExprResult>,
 }
 
 impl ExecutionContextManager {
     pub fn new() -> Self {
         Self {
-            lexical_class_stack: Stack::default(),
-            current_function_stack: Stack::default(),
-            current_receiver_stack: Stack::default(),
+            lexical_class_stack: RwStack::default(),
+            current_function_stack: RwStack::default(),
+            current_receiver_stack: RwStack::default(),
         }
     }
 

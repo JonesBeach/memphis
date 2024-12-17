@@ -1,10 +1,11 @@
 use std::sync::RwLock;
 
-pub struct Stack<T> {
+/// This is soon to be DEPRECATED.
+pub struct RwStack<T> {
     elements: RwLock<Vec<T>>,
 }
 
-impl<T> Stack<T>
+impl<T> RwStack<T>
 where
     T: Clone,
 {
@@ -63,7 +64,7 @@ where
     }
 }
 
-impl<T> Default for Stack<T>
+impl<T> Default for RwStack<T>
 where
     T: Clone,
 {

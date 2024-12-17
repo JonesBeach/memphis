@@ -1,7 +1,9 @@
-use std::any;
-use std::fmt::{Debug, Display, Error, Formatter};
-use std::marker::PhantomData;
-use std::ops::Deref;
+use std::{
+    any,
+    fmt::{Debug, Display, Error, Formatter},
+    marker::PhantomData,
+    ops::Deref,
+};
 
 /// An unsigned integer wrapper which provides type safety. This is particularly useful when
 /// dealing with indices used across the bytecode compiler and the VM as common integer values such

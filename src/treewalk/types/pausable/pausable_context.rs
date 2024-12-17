@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    core::{Container, Stack},
+    core::{Container, RwStack},
     parser::types::{Expr, LoopIndex, Statement},
     treewalk::types::ExprResult,
 };
@@ -41,11 +41,11 @@ impl PausableToken {
 
 /// The context that allows a [`Pausable`] to be paused and resumed. This represents a stack of
 /// [`PausableToken`] objects.
-pub struct PausableContext(Stack<PausableToken>);
+pub struct PausableContext(RwStack<PausableToken>);
 
 impl PausableContext {
     pub(crate) fn new(initial_frame: Frame) -> Container<Self> {
-        Container::new(Self(Stack::new(vec![PausableToken::new(
+        Container::new(Self(RwStack::new(vec![PausableToken::new(
             initial_frame,
             PausableState::Created,
         )])))

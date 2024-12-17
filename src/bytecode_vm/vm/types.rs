@@ -1,5 +1,8 @@
-use std::fmt::{Display, Error, Formatter};
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    fmt::{Display, Error, Formatter},
+};
 
 use crate::bytecode_vm::{
     compiler::types::CodeObject,
@@ -10,8 +13,8 @@ use crate::bytecode_vm::{
 pub type Namespace = HashMap<String, Reference>;
 
 /// Primitive values live directly on the stack.
-/// [`StackValue::ObjectRef`] items reference an object in the object table.
-/// [`StackValue::ConstantRef`] items reference an immutable object in the constant pool.
+/// [`Reference::ObjectRef`] items reference an object in the object table.
+/// [`Reference::ConstantRef`] items reference an immutable object in the constant pool.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Reference {
     Int(i64),
@@ -94,13 +97,12 @@ impl<'a> Object {
 /// defined at the class level.
 #[derive(Clone, PartialEq, Debug)]
 pub struct FunctionObject {
-    pub name: String,
-    pub code: CodeObject,
+    pub code_object: CodeObject,
 }
 
 impl FunctionObject {
-    pub fn new(name: String, code: CodeObject) -> Self {
-        Self { name, code }
+    pub fn new(code_object: CodeObject) -> Self {
+        Self { code_object }
     }
 }
 

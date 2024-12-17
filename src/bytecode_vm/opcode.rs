@@ -40,10 +40,10 @@ pub enum Opcode {
     LoadGlobal(BytecodeIndex),
     /// Pop an object off the stack, find the attribute name specified by the given index, look up
     /// the attribute with that name off the object, and push it onto the stack.
-    LoadAttr(ConstantIndex),
+    LoadAttr(BytecodeIndex),
     /// Pop a value and object off the stack and set the attribute of the object to that value. The
     /// attribute name is specified by the given index.
-    SetAttr(ConstantIndex),
+    SetAttr(BytecodeIndex),
     /// Pushes `__build_class__` onto the stack. It is later called by the VM to construct a class,
     /// NOT instantiate an object of that class. This is directly inspired by how CPython does it.
     LoadBuildClass,

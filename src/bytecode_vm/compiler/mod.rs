@@ -1,30 +1,20 @@
-use std::collections::HashMap;
-
 pub mod types;
 
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
-    core::Stack,
+    core::{log, LogLevel, RwStack},
     domain::Context,
-    parser::{
-        types::{
-            BinOp, Block, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments, Statement,
-            UnaryOp,
-        },
-        Parser,
+    parser::types::{
+        Ast, BinOp, Block, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments,
+        Statement, UnaryOp,
     },
-    types::errors::MemphisError,
 };
 
-use self::types::{Bytecode, BytecodeNameMap, CodeObject, CompiledProgram, Constant};
+use self::types::{Bytecode, CodeObject, CompiledProgram, Constant};
 
 use super::indices::{BytecodeIndex, ConstantIndex, Index};
 
 pub struct Compiler {
-    /// Variables defined in global scope, this maps their name to an index for use by the VM.
-    /// Variables defined in the local scope will be mapped inside of a [`CodeObject`].
-    name_map: BytecodeNameMap,
-
     /// Constants discovered during compilation. These will be compiled into the
     /// [`CompiledProgram`] which is handed off to the VM.
     constant_pool: Vec<Constant>,
@@ -33,41 +23,32 @@ pub struct Compiler {
     /// (i.e. variable names).
     code_stack: Vec<CodeObject>,
 
-    context_stack: Stack<Context>,
+    context_stack: RwStack<Context>,
 }
 
 impl Compiler {
     pub fn new() -> Self {
+        let code = CodeObject::new("__main__".to_string());
         Self {
-            name_map: HashMap::new(),
             constant_pool: vec![],
-            code_stack: vec![],
-            context_stack: Stack::with_initial(Context::Global),
+            code_stack: vec![code],
+            context_stack: RwStack::with_initial(Context::Global),
         }
     }
 
-    pub fn compile(&mut self, parser: &mut Parser) -> Result<CompiledProgram, MemphisError> {
-        let parsed_program = parser.parse().map_err(MemphisError::Parser)?;
-
+    pub fn compile(&mut self, ast: Ast) -> Result<CompiledProgram, CompilerError> {
         let mut bytecode = vec![];
-        for stmt in parsed_program.iter() {
-            let opcodes = self.compile_stmt(stmt).map_err(MemphisError::Compiler)?;
+        for stmt in ast.iter() {
+            let opcodes = self.compile_stmt(stmt)?;
             bytecode.extend(opcodes);
         }
         bytecode.push(Opcode::Halt);
 
-        let code = CodeObject {
-            name: "__main__".into(),
-            bytecode,
-            arg_count: 0,
-            varnames: vec![],
-        };
+        let mut code = self.code_stack.pop().ok_or(CompilerError::StackUnderflow)?;
 
-        Ok(CompiledProgram::new(
-            code,
-            self.constant_pool.clone(),
-            self.name_map.clone(),
-        ))
+        code.bytecode = bytecode;
+
+        Ok(CompiledProgram::new(code, self.constant_pool.clone()))
     }
 
     fn compile_block(&mut self, block: &Block) -> Result<Bytecode, CompilerError> {
@@ -90,8 +71,12 @@ impl Compiler {
     }
 
     fn compile_store(&mut self, name: &str) -> Opcode {
-        let index = self.get_or_set_var_index(name);
-        match self.read_context() {
+        let index = self.get_or_set_local_index(name);
+        self.compile_store_to_index(index)
+    }
+
+    fn compile_store_to_index(&mut self, index: BytecodeIndex) -> Opcode {
+        match self.ensure_context() {
             Context::Global => Opcode::StoreGlobal(index),
             Context::Local => Opcode::StoreFast(index),
         }
@@ -112,9 +97,7 @@ impl Compiler {
                 opcodes.extend(self.compile_expr(object)?);
                 // Push the value to be assigned onto the stack
                 opcodes.extend(self.compile_expr(right)?);
-                let attr_index =
-                    self.get_or_set_constant_index(Constant::String(field.to_string()));
-                // TODO this should probably use the name map instead of the constant index
+                let attr_index = self.get_or_set_nonlocal_index(field);
                 opcodes.push(Opcode::SetAttr(attr_index));
                 Ok(opcodes)
             }
@@ -208,17 +191,8 @@ impl Compiler {
 
         self.context_stack.push(Context::Local);
 
-        let mut varnames = vec![];
-        for param in args.args.iter() {
-            varnames.push(param.arg.clone());
-        }
-
-        let code_object = CodeObject {
-            name: name.to_string(),
-            bytecode: vec![],
-            arg_count: args.args.len(),
-            varnames,
-        };
+        let varnames = args.args.iter().map(|p| p.arg.clone()).collect();
+        let code_object = CodeObject::with_args(name.to_string(), varnames);
 
         self.code_stack.push(code_object);
         let bytecode = self.compile_block(body)?;
@@ -228,13 +202,12 @@ impl Compiler {
 
         code.bytecode = bytecode;
         let code_index = self.get_or_set_constant_index(Constant::Code(code));
-        let name_index = self.get_or_set_constant_index(Constant::String(name.to_string()));
+        let name_index = self.get_or_set_local_index(name);
 
         Ok(vec![
             Opcode::LoadConst(code_index),
-            Opcode::LoadConst(name_index),
             Opcode::MakeFunction,
-            self.compile_store(name),
+            self.compile_store_to_index(name_index),
         ])
     }
 
@@ -252,12 +225,7 @@ impl Compiler {
             unimplemented!("Metaclasses are not yet supported in the bytecode VM.")
         }
 
-        let code_object = CodeObject {
-            name: format!("<class '{}'>", name),
-            bytecode: vec![],
-            arg_count: 0,
-            varnames: vec![],
-        };
+        let code_object = CodeObject::new(name.to_string());
 
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
@@ -273,14 +241,13 @@ impl Compiler {
         let mut bytecode = vec![Opcode::LoadBuildClass];
         let code_index = self.get_or_set_constant_index(Constant::Code(code));
         bytecode.push(Opcode::LoadConst(code_index));
-        let name_index = self.get_or_set_constant_index(Constant::String(name.to_string()));
-        bytecode.push(Opcode::LoadConst(name_index));
 
-        // the 2 here refers to the name of the class and the class body
-        // once we support base classes, it will become 3
-        bytecode.push(Opcode::PopAndCall(2));
+        // subtract one to ignore Opcode::LoadBuildClass
+        let num_args = bytecode.len() - 1;
+        bytecode.push(Opcode::PopAndCall(num_args));
 
-        let _ = self.get_or_set_var_index(name);
+        let name_index = self.get_or_set_local_index(name);
+        bytecode.push(self.compile_store_to_index(name_index));
 
         Ok(bytecode)
     }
@@ -291,18 +258,12 @@ impl Compiler {
     }
 
     fn compile_variable(&mut self, name: &str) -> Result<Bytecode, CompilerError> {
-        if let Some(index) = self.get_var_index(name) {
-            let opcode = match self.read_context() {
-                Context::Local => Opcode::LoadFast(index),
-                Context::Global => Opcode::LoadGlobal(index),
-            };
-            Ok(vec![opcode])
-        } else {
-            Err(CompilerError::NameError(format!(
-                "name '{}' is not defined",
-                name
-            )))
-        }
+        let (context, index) = self.get_local_index(name);
+        let opcode = match context {
+            Context::Local => Opcode::LoadFast(index),
+            Context::Global => Opcode::LoadGlobal(index),
+        };
+        Ok(vec![opcode])
     }
 
     fn compile_unary_operation(
@@ -374,27 +335,25 @@ impl Compiler {
             if args.args[0].as_string().is_none() {
                 unimplemented!("Non-string args not yet supported for print in the bytecode VM.")
             }
+            if args.args.len() > 1 {
+                unimplemented!("More than 1 arg not yet supported for print in the bytecode VM.")
+            }
             let index =
                 self.get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()));
-            Ok(vec![Opcode::PrintConst(index)])
-        } else {
-            let index = self.get_var_index(name);
-            if index.is_none() {
-                unimplemented!(
-                    "{}",
-                    format!("Function '{}' not yet supported in the bytecode VM.", name)
-                )
-            }
-            let index = index.unwrap();
-            let mut opcodes = vec![];
-            // We push the args onto the stack in reverse call order so that we will pop
-            // them off in call order.
-            for arg in args.args.iter().rev() {
-                opcodes.extend(self.compile_expr(arg)?);
-            }
-            opcodes.push(Opcode::Call(index));
-            Ok(opcodes)
+            return Ok(vec![Opcode::PrintConst(index)]);
         }
+
+        let mut opcodes = vec![];
+        // We push the args onto the stack in reverse call order so that we will pop
+        // them off in call order.
+        for arg in args.args.iter().rev() {
+            opcodes.extend(self.compile_expr(arg)?);
+        }
+        let (_, index) = self.get_local_index(name);
+        // TODO how does this know if it is a global or local index? this may not be the right
+        // approach for calling a function
+        opcodes.push(Opcode::Call(index));
+        Ok(opcodes)
     }
 
     fn compile_method_call(
@@ -425,8 +384,7 @@ impl Compiler {
     ) -> Result<Bytecode, CompilerError> {
         let mut bytecode = vec![];
         bytecode.extend(self.compile_expr(object)?);
-        let attr_index = self.get_or_set_constant_index(Constant::String(field.to_string()));
-        // TODO this should probably use the name map instead of constant index
+        let attr_index = self.get_or_set_nonlocal_index(field);
         bytecode.push(Opcode::LoadAttr(attr_index));
         Ok(bytecode)
     }
@@ -486,45 +444,58 @@ impl Compiler {
         }
     }
 
-    fn get_or_set_var_index(&mut self, name: &str) -> BytecodeIndex {
-        match self.read_context() {
-            Context::Global => {
-                if let Some(index) = self.name_map.get(name) {
-                    *index
-                } else {
-                    let next_index = Index::new(self.name_map.len());
-                    self.name_map.insert(name.into(), next_index);
-                    next_index
-                }
-            }
+    fn get_or_set_local_index(&mut self, name: &str) -> BytecodeIndex {
+        match self.ensure_context() {
+            Context::Global => self.get_or_set_nonlocal_index(name),
             Context::Local => {
-                if let Some(code) = self.code_stack.last_mut() {
-                    let next_index = Index::new(code.varnames.len());
-                    code.varnames.push(name.to_string());
-                    next_index
-                } else {
-                    panic!("Not in local scope");
-                }
+                log(LogLevel::Debug, || {
+                    format!("Looking for '{}' in locals", name)
+                });
+                let code = self.ensure_code_object();
+                let next_index = Index::new(code.varnames.len());
+                code.varnames.push(name.to_string());
+                next_index
             }
         }
     }
 
-    pub fn get_var_index(&self, name: &str) -> Option<BytecodeIndex> {
-        match self.read_context() {
-            Context::Global => self.name_map.get(name).copied(),
+    fn get_local_index(&mut self, name: &str) -> (Context, BytecodeIndex) {
+        match self.ensure_context() {
+            Context::Global => (Context::Global, self.get_or_set_nonlocal_index(name)),
             Context::Local => {
-                if let Some(code) = self.code_stack.last() {
-                    if let Some(index) = find_index(&code.varnames, &name.to_string()) {
-                        return Some(Index::new(index));
-                    }
+                // Check locals first
+                log(LogLevel::Debug, || {
+                    format!("Looking for '{}' in locals", name)
+                });
+                let code = self.ensure_code_object();
+                if let Some(index) = find_index(&code.varnames, name) {
+                    return (Context::Local, Index::new(index));
                 }
 
-                None
+                // If not found locally, fall back to globals
+                (Context::Global, self.get_or_set_nonlocal_index(name))
             }
+        }
+    }
+
+    fn get_or_set_nonlocal_index(&mut self, name: &str) -> BytecodeIndex {
+        log(LogLevel::Debug, || {
+            format!("Looking for '{}' in globals", name)
+        });
+        let code = self.ensure_code_object();
+        if let Some(index) = find_index(&code.names, name) {
+            Index::new(index)
+        } else {
+            let new_index = code.names.len();
+            code.names.push(name.to_string());
+            Index::new(new_index)
         }
     }
 
     fn get_or_set_constant_index(&mut self, value: Constant) -> ConstantIndex {
+        log(LogLevel::Debug, || {
+            format!("Looking for '{}' in constants", value)
+        });
         if let Some(index) = find_index(&self.constant_pool, &value) {
             Index::new(index)
         } else {
@@ -535,12 +506,24 @@ impl Compiler {
     }
 
     /// This assumes we always have a context stack.
-    fn read_context(&self) -> Context {
-        self.context_stack.top().expect("failed to find context")
+    fn ensure_context(&self) -> Context {
+        self.context_stack
+            .top()
+            .expect("Internal Compiler Error: failed to find context.")
+    }
+
+    fn ensure_code_object(&mut self) -> &mut CodeObject {
+        self.code_stack
+            .last_mut()
+            .expect("Internal Compiler Error: failed to find current code object.")
     }
 }
 
-fn find_index<T: PartialEq>(vec: &[T], query: &T) -> Option<usize> {
+pub fn find_index<T, Q>(vec: &[T], query: &Q) -> Option<usize>
+where
+    T: PartialEq<Q>,
+    Q: ?Sized,
+{
     vec.iter().enumerate().find_map(
         |(index, value)| {
             if value == query {
@@ -753,7 +736,6 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        compiler.get_or_set_var_index("a");
         let stmt = Statement::Expression(Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
             op: BinOp::Add,
@@ -773,29 +755,11 @@ mod bytecode_tests {
                 );
             }
         }
-
-        let mut compiler = init_compiler();
-        let stmt = Statement::Expression(Expr::BinaryOperation {
-            left: Box::new(Expr::Integer(2)),
-            op: BinOp::Add,
-            right: Box::new(Expr::Variable("b".into())),
-        });
-
-        match compiler.compile_stmt(&stmt) {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    CompilerError::NameError("name 'b' is not defined".into())
-                );
-            }
-            Ok(_) => panic!("Expected an error!"),
-        }
     }
 
     #[test]
     fn member_access() {
         let mut compiler = init_compiler();
-        compiler.get_or_set_var_index("foo");
         let stmt = Statement::Assignment {
             left: Expr::MemberAccess {
                 object: Box::new(Expr::Variable("foo".into())),
@@ -812,14 +776,13 @@ mod bytecode_tests {
                     vec![
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::Push(4),
-                        Opcode::SetAttr(Index::new(0))
+                        Opcode::SetAttr(Index::new(1))
                     ]
                 );
             }
         }
 
         let mut compiler = init_compiler();
-        compiler.get_or_set_var_index("foo");
         let stmt = Statement::Expression(Expr::MemberAccess {
             object: Box::new(Expr::Variable("foo".into())),
             field: "x".into(),
@@ -832,7 +795,7 @@ mod bytecode_tests {
                     bytecode,
                     vec![
                         Opcode::LoadGlobal(Index::new(0)),
-                        Opcode::LoadAttr(Index::new(0))
+                        Opcode::LoadAttr(Index::new(1))
                     ]
                 );
             }
@@ -948,9 +911,6 @@ mod bytecode_tests {
     #[test]
     fn function_call() {
         let mut compiler = init_compiler();
-        compiler.get_or_set_var_index("a");
-        compiler.get_or_set_var_index("b");
-        compiler.get_or_set_var_index("foo");
         let expr = Expr::FunctionCall {
             name: "foo".into(),
             args: ParsedArguments {
@@ -967,8 +927,8 @@ mod bytecode_tests {
                 assert_eq!(
                     bytecode,
                     vec![
-                        Opcode::LoadGlobal(Index::new(1)),
                         Opcode::LoadGlobal(Index::new(0)),
+                        Opcode::LoadGlobal(Index::new(1)),
                         Opcode::Call(Index::new(2)),
                     ]
                 );
@@ -979,7 +939,6 @@ mod bytecode_tests {
     #[test]
     fn method_call() {
         let mut compiler = init_compiler();
-        compiler.get_or_set_var_index("foo");
         let expr = Expr::MethodCall {
             object: Box::new(Expr::Variable("foo".to_string())),
             name: "bar".to_string(),
@@ -997,7 +956,7 @@ mod bytecode_tests {
                     bytecode,
                     vec![
                         Opcode::LoadGlobal(Index::new(0)),
-                        Opcode::LoadAttr(Index::new(0)),
+                        Opcode::LoadAttr(Index::new(1)),
                         Opcode::Push(99),
                         Opcode::Push(88),
                         Opcode::CallMethod(2),
@@ -1018,8 +977,19 @@ mod compiler_state_tests {
         MemphisContext::from_text(text)
     }
 
-    fn name_map(program: &CompiledProgram, name: &str) -> usize {
-        *program.name_map.get(name).cloned().unwrap()
+    fn get_names_index(program: &CompiledProgram, name: &str) -> usize {
+        find_index(&program.code.names, name).unwrap_or_else(|| panic!("Name '{}' not found", name))
+    }
+
+    fn get_varnames_index(code: &CodeObject, name: &str) -> usize {
+        find_index(&code.varnames, name).unwrap_or_else(|| panic!("Varname '{}' not found", name))
+    }
+
+    fn get_code_at_index(program: &CompiledProgram, index: usize) -> &CodeObject {
+        let Some(Constant::Code(code)) = program.constant_pool.get(index) else {
+            panic!("Code at index {} not found!", index)
+        };
+        code
     }
 
     #[test]
@@ -1037,15 +1007,16 @@ def foo(a, b):
                     program.code.bytecode,
                     vec![
                         Opcode::LoadConst(Index::new(0)),
-                        Opcode::LoadConst(Index::new(1)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
                 );
+                assert_eq!(program.constant_pool.len(), 1);
+                let foo = get_code_at_index(&program, 0);
                 assert_eq!(
-                    program.constant_pool[0],
-                    Constant::Code(CodeObject {
+                    foo,
+                    &CodeObject {
                         name: "foo".into(),
                         bytecode: vec![
                             Opcode::LoadFast(Index::new(0)),
@@ -1054,10 +1025,10 @@ def foo(a, b):
                         ],
                         arg_count: 2,
                         varnames: vec!["a".into(), "b".into()],
-                    })
+                        names: vec![],
+                    }
                 );
-                assert_eq!(program.constant_pool[1], Constant::String("foo".into()));
-                assert_eq!(name_map(&program, "foo"), 0);
+                assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
     }
@@ -1077,23 +1048,24 @@ def foo():
                     program.code.bytecode,
                     vec![
                         Opcode::LoadConst(Index::new(0)),
-                        Opcode::LoadConst(Index::new(1)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
                 );
+                assert_eq!(program.constant_pool.len(), 1);
+                let foo = get_code_at_index(&program, 0);
                 assert_eq!(
-                    program.constant_pool[0],
-                    Constant::Code(CodeObject {
+                    foo,
+                    &CodeObject {
                         name: "foo".into(),
                         bytecode: vec![Opcode::Push(10), Opcode::StoreFast(Index::new(0))],
                         arg_count: 0,
                         varnames: vec!["c".into()],
-                    })
+                        names: vec![],
+                    }
                 );
-                assert_eq!(program.constant_pool[1], Constant::String("foo".into()));
-                assert_eq!(name_map(&program, "foo"), 0);
+                assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
     }
@@ -1114,15 +1086,16 @@ def foo():
                     program.code.bytecode,
                     vec![
                         Opcode::LoadConst(Index::new(0)),
-                        Opcode::LoadConst(Index::new(1)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
                 );
+                assert_eq!(program.constant_pool.len(), 1);
+                let foo = get_code_at_index(&program, 0);
                 assert_eq!(
-                    program.constant_pool[0],
-                    Constant::Code(CodeObject {
+                    foo,
+                    &CodeObject {
                         name: "foo".into(),
                         bytecode: vec![
                             Opcode::Push(10),
@@ -1132,10 +1105,10 @@ def foo():
                         ],
                         arg_count: 0,
                         varnames: vec!["c".into()],
-                    })
+                        names: vec![],
+                    }
                 );
-                assert_eq!(program.constant_pool[1], Constant::String("foo".into()));
-                assert_eq!(name_map(&program, "foo"), 0);
+                assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
     }
@@ -1161,11 +1134,9 @@ world()
                     program.code.bytecode,
                     vec![
                         Opcode::LoadConst(Index::new(1)),
-                        Opcode::LoadConst(Index::new(2)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(0)),
-                        Opcode::LoadConst(Index::new(4)),
-                        Opcode::LoadConst(Index::new(5)),
+                        Opcode::LoadConst(Index::new(3)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(1)),
                         Opcode::Call(Index::new(0)),
@@ -1173,31 +1144,33 @@ world()
                         Opcode::Halt,
                     ]
                 );
-                assert_eq!(program.constant_pool.len(), 6);
+                assert_eq!(program.constant_pool.len(), 4);
                 assert_eq!(program.constant_pool[0], Constant::String("Hello".into()));
+                let hello = get_code_at_index(&program, 1);
                 assert_eq!(
-                    program.constant_pool[1],
-                    Constant::Code(CodeObject {
+                    hello,
+                    &CodeObject {
                         name: "hello".into(),
                         bytecode: vec![Opcode::PrintConst(Index::new(0)),],
                         arg_count: 0,
                         varnames: vec![],
-                    })
+                        names: vec![],
+                    }
                 );
-                assert_eq!(program.constant_pool[2], Constant::String("hello".into()));
-                assert_eq!(program.constant_pool[3], Constant::String("World".into()));
+                assert_eq!(program.constant_pool[2], Constant::String("World".into()));
+                let world = get_code_at_index(&program, 3);
                 assert_eq!(
-                    program.constant_pool[4],
-                    Constant::Code(CodeObject {
+                    world,
+                    &CodeObject {
                         name: "world".into(),
-                        bytecode: vec![Opcode::PrintConst(Index::new(3)),],
+                        bytecode: vec![Opcode::PrintConst(Index::new(2)),],
                         arg_count: 0,
                         varnames: vec![],
-                    })
+                        names: vec![],
+                    }
                 );
-                assert_eq!(program.constant_pool[5], Constant::String("world".into()));
-                assert_eq!(name_map(&program, "hello"), 0);
-                assert_eq!(name_map(&program, "world"), 1);
+                assert_eq!(get_names_index(&program, "hello"), 0);
+                assert_eq!(get_names_index(&program, "world"), 1);
             }
         }
     }
@@ -1214,48 +1187,98 @@ class Foo:
         match context.compile() {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(program) => {
-                assert_eq!(program.constant_pool.len(), 4);
-                let Some(Constant::Code(code)) = program.constant_pool.get(0) else {
-                    panic!()
-                };
+                assert_eq!(program.constant_pool.len(), 2);
+                let bar = get_code_at_index(&program, 0);
                 assert_eq!(
-                    code,
+                    bar,
                     &CodeObject {
                         name: "bar".into(),
                         bytecode: vec![Opcode::Push(99), Opcode::ReturnValue,],
                         arg_count: 1,
                         varnames: vec!["self".into()],
+                        names: vec![],
                     }
                 );
-                assert_eq!(program.constant_pool[1], Constant::String("bar".into()));
-                let Some(Constant::Code(code)) = program.constant_pool.get(2) else {
-                    panic!()
-                };
+                let foo = get_code_at_index(&program, 1);
                 assert_eq!(
-                    code.bytecode,
+                    foo.bytecode,
                     vec![
                         Opcode::LoadConst(Index::new(0)),
-                        Opcode::LoadConst(Index::new(1)),
                         Opcode::MakeFunction,
                         Opcode::StoreFast(Index::new(0)),
                         Opcode::EndClass,
                     ]
                 );
-                assert_eq!(code.varnames.len(), 1);
-                assert_eq!(code.varnames[0], "bar");
-                assert_eq!(program.constant_pool[3], Constant::String("Foo".into()));
+                assert_eq!(foo.varnames.len(), 1);
+                assert_eq!(get_varnames_index(foo, "bar"), 0);
                 assert_eq!(
                     program.code.bytecode,
                     vec![
                         Opcode::LoadBuildClass,
-                        Opcode::LoadConst(Index::new(2)),
-                        Opcode::LoadConst(Index::new(3)),
-                        Opcode::PopAndCall(2),
+                        Opcode::LoadConst(Index::new(1)),
+                        Opcode::PopAndCall(1),
+                        Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
                 );
-                assert_eq!(program.name_map.len(), 1);
-                assert_eq!(name_map(&program, "Foo"), 0);
+                assert_eq!(program.code.names.len(), 1);
+                assert_eq!(get_names_index(&program, "Foo"), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn class_definition_member_access() {
+        let text = r#"
+class Foo:
+    def bar(self):
+        return self.val
+"#;
+        let mut context = init(text);
+
+        match context.compile() {
+            Err(e) => panic!("Unexpected error: {:?}", e),
+            Ok(program) => {
+                assert_eq!(program.constant_pool.len(), 2);
+                let bar = get_code_at_index(&program, 0);
+                assert_eq!(
+                    bar,
+                    &CodeObject {
+                        name: "bar".into(),
+                        bytecode: vec![
+                            Opcode::LoadFast(Index::new(0)),
+                            Opcode::LoadAttr(Index::new(0)),
+                            Opcode::ReturnValue,
+                        ],
+                        arg_count: 1,
+                        varnames: vec!["self".into()],
+                        names: vec!["val".into()],
+                    }
+                );
+                let foo = get_code_at_index(&program, 1);
+                assert_eq!(
+                    foo.bytecode,
+                    vec![
+                        Opcode::LoadConst(Index::new(0)),
+                        Opcode::MakeFunction,
+                        Opcode::StoreFast(Index::new(0)),
+                        Opcode::EndClass,
+                    ]
+                );
+                assert_eq!(foo.varnames.len(), 1);
+                assert_eq!(get_varnames_index(&foo, "bar"), 0);
+                assert_eq!(
+                    program.code.bytecode,
+                    vec![
+                        Opcode::LoadBuildClass,
+                        Opcode::LoadConst(Index::new(1)),
+                        Opcode::PopAndCall(1),
+                        Opcode::StoreGlobal(Index::new(0)),
+                        Opcode::Halt,
+                    ]
+                );
+                assert_eq!(program.code.names.len(), 1);
+                assert_eq!(get_names_index(&program, "Foo"), 0);
             }
         }
     }
@@ -1278,17 +1301,17 @@ f = Foo()
                     program.code.bytecode,
                     vec![
                         Opcode::LoadBuildClass,
-                        Opcode::LoadConst(Index::new(2)),
-                        Opcode::LoadConst(Index::new(3)),
-                        Opcode::PopAndCall(2),
+                        Opcode::LoadConst(Index::new(1)),
+                        Opcode::PopAndCall(1),
+                        Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Call(Index::new(0)),
                         Opcode::StoreGlobal(Index::new(1)),
                         Opcode::Halt,
                     ]
                 );
-                assert_eq!(program.name_map.len(), 2);
-                assert_eq!(name_map(&program, "Foo"), 0);
-                assert_eq!(name_map(&program, "f"), 1);
+                assert_eq!(program.code.names.len(), 2);
+                assert_eq!(get_names_index(&program, "Foo"), 0);
+                assert_eq!(get_names_index(&program, "f"), 1);
             }
         }
     }
@@ -1312,37 +1335,32 @@ b = f.bar()
                     program.code.bytecode,
                     vec![
                         Opcode::LoadBuildClass,
-                        Opcode::LoadConst(Index::new(2)),
-                        Opcode::LoadConst(Index::new(3)),
-                        Opcode::PopAndCall(2),
+                        Opcode::LoadConst(Index::new(1)),
+                        Opcode::PopAndCall(1),
+                        Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Call(Index::new(0)),
                         Opcode::StoreGlobal(Index::new(1)),
                         Opcode::LoadGlobal(Index::new(1)),
-                        Opcode::LoadAttr(Index::new(1)),
+                        Opcode::LoadAttr(Index::new(2)),
                         Opcode::CallMethod(0),
-                        Opcode::StoreGlobal(Index::new(2)),
+                        Opcode::StoreGlobal(Index::new(3)),
                         Opcode::Halt,
                     ]
                 );
-                assert_eq!(program.name_map.len(), 3);
-                assert_eq!(name_map(&program, "Foo"), 0);
-                assert_eq!(name_map(&program, "f"), 1);
-                assert_eq!(name_map(&program, "b"), 2);
-                assert_eq!(program.constant_pool.len(), 4);
+                assert_eq!(program.code.names.len(), 4);
+                assert_eq!(get_names_index(&program, "Foo"), 0);
+                assert_eq!(get_names_index(&program, "f"), 1);
+                assert_eq!(get_names_index(&program, "bar"), 2);
+                assert_eq!(get_names_index(&program, "b"), 3);
+                assert_eq!(program.constant_pool.len(), 2);
 
                 // this should be the code for the bar method
-                let Some(Constant::Code(c)) = program.constant_pool.get(0) else {
-                    panic!()
-                };
-                assert_eq!(c.bytecode, vec![Opcode::Push(99), Opcode::ReturnValue,]);
+                let bar = get_code_at_index(&program, 0);
+                assert_eq!(bar.bytecode, vec![Opcode::Push(99), Opcode::ReturnValue,]);
 
                 // this should be the code for the class definition
-                let Some(Constant::Code(_)) = program.constant_pool.get(2) else {
-                    panic!()
-                };
-
-                assert_eq!(program.constant_pool[1], Constant::String("bar".into()));
-                assert_eq!(program.constant_pool[3], Constant::String("Foo".into()));
+                let class = get_code_at_index(&program, 1);
+                assert_eq!(class.name, "Foo");
             }
         }
     }

@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, Stack},
+    core::{Container, RwStack},
     domain::Context,
     treewalk::{
         executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
@@ -78,13 +78,13 @@ fn init_builtin_scope() -> Scope {
 /// The rule of thumb for Python scoping is LEGB: local, enclosing, global (aka module), builtin.
 pub struct ScopeManager {
     /// A stack of `Scope` objects for each local (think: function) scope.
-    local_scope_stack: Stack<Container<Scope>>,
+    local_scope_stack: RwStack<Container<Scope>>,
 
     /// A stack of captured environments to support closures.
-    captured_env_stack: Stack<Container<EnvironmentFrame>>,
+    captured_env_stack: RwStack<Container<EnvironmentFrame>>,
 
     /// A stack of modules to support symbol resolution local to specific modules.
-    module_stack: Stack<Container<Module>>,
+    module_stack: RwStack<Container<Module>>,
 
     /// The read-only scope which contains builtin methods such as `print()`, `open()`, etc. There
     /// is only one of these so we do not need a stack.
@@ -92,17 +92,17 @@ pub struct ScopeManager {
 
     /// This stack allows us to know whether to search on the `local_scope_stack` or the
     /// `module_stack` when resolving a symbol.
-    context_stack: Stack<Context>,
+    context_stack: RwStack<Context>,
 }
 
 impl ScopeManager {
     pub fn new() -> Self {
         ScopeManager {
-            local_scope_stack: Stack::with_initial(Container::new(Scope::default())),
-            captured_env_stack: Stack::default(),
-            module_stack: Stack::with_initial(Container::new(Module::default())),
+            local_scope_stack: RwStack::with_initial(Container::new(Scope::default())),
+            captured_env_stack: RwStack::default(),
+            module_stack: RwStack::with_initial(Container::new(Module::default())),
             builtin_scope: init_builtin_scope(),
-            context_stack: Stack::with_initial(Context::Global),
+            context_stack: RwStack::with_initial(Context::Global),
         }
     }
 

@@ -6,7 +6,7 @@ mod stack;
 
 pub use container::{Container, Storable};
 pub use log::{log, log_impure, LogLevel};
-pub use stack::Stack;
+pub use stack::RwStack;
 
 use crate::{parser::Parser, types::errors::MemphisError};
 

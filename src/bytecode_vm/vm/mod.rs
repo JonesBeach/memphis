@@ -2,24 +2,24 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::CompiledProgram,
+        compiler::types::{CompiledProgram, Constant},
+        indices::{BytecodeIndex, ConstantIndex, GlobalStoreIndex, Index, ObjectTableIndex},
         types::{Value, VmError},
         Opcode,
     },
-    core::{log, log_impure, LogLevel, Stack},
+    core::{log, log_impure, LogLevel, RwStack},
     treewalk::types::utils::Dunder,
 };
 
 mod frame;
 pub mod types;
 
-use self::types::{Class, FunctionObject, Method, Object};
-use self::{frame::Frame, types::Reference};
-
-use super::{
-    compiler::types::{BytecodeNameMap, Constant},
-    indices::{BytecodeIndex, ConstantIndex, GlobalStoreIndex, Index, ObjectTableIndex},
+use self::{
+    frame::Frame,
+    types::{Class, FunctionObject, Method, Object, Reference},
 };
+
+use super::compiler::find_index;
 
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
@@ -27,10 +27,6 @@ pub struct VirtualMachine {
 
     /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
     constant_pool: Vec<Constant>,
-
-    /// The indices used by the compiled bytecode will not change at runtime, but they can point to
-    /// different names over the course of the execution of the program.
-    name_map: BytecodeNameMap,
 
     /// Just like its name says, we need a map to translate from the indices found in the compiled
     /// bytecode and that variables location in the global store.
@@ -49,7 +45,7 @@ pub struct VirtualMachine {
     /// We must keep a stack of class definitions that we have begun so that when they finish, we
     /// know with which name to associate the namespace. The index here references a name from the
     /// constant pool.
-    class_stack: Stack<String>,
+    class_stack: RwStack<String>,
 }
 
 impl VirtualMachine {
@@ -57,21 +53,18 @@ impl VirtualMachine {
         Self {
             call_stack: vec![],
             constant_pool: vec![],
-            name_map: HashMap::new(),
             index_map: HashMap::new(),
             global_store: vec![],
             object_table: vec![],
-            class_stack: Stack::default(),
+            class_stack: RwStack::default(),
         }
     }
 
     pub fn load(&mut self, program: CompiledProgram) {
         log(LogLevel::Debug, || format!("{}", program));
         self.constant_pool = program.constant_pool;
-        self.name_map = program.name_map;
 
-        let function = FunctionObject::new(program.code.name.clone(), program.code);
-
+        let function = FunctionObject::new(program.code);
         let new_frame = Frame::new(function, vec![]);
         self.call_stack.push(new_frame);
     }
@@ -87,11 +80,6 @@ impl VirtualMachine {
         if let Some(object_value) = self.object_table.get_mut(*index) {
             function(object_value)
         }
-    }
-
-    fn store_global_by_name(&mut self, name: &str, value: Reference) {
-        let bytecode_index = self.name_map.get(name).unwrap();
-        self.store_global(*bytecode_index, value);
     }
 
     fn store_global(&mut self, bytecode_index: BytecodeIndex, value: Reference) {
@@ -119,15 +107,41 @@ impl VirtualMachine {
         }
     }
 
-    pub fn load_global(&self, bytecode_index: BytecodeIndex) -> Option<Reference> {
-        let global_store_index = self.index_map[&bytecode_index];
-        self.global_store.get(*global_store_index).copied()
+    // this should only be used by the tests and/or after the VM has run. we should probably move
+    // this somewhere else.
+    pub fn load_global_by_name(&self, name: &str) -> Option<Reference> {
+        let frame_index = self.call_stack.len().checked_sub(1).unwrap();
+        let index = find_index(
+            &self.call_stack[frame_index].function.code_object.names,
+            name,
+        )
+        .map(Index::new)?;
+        self.load_global(index).ok()
+    }
+
+    fn load_global(&self, bytecode_index: BytecodeIndex) -> Result<Reference, VmError> {
+        let name_error_closure = Box::new(|| {
+            let frame_index = self.call_stack.len().checked_sub(1).unwrap();
+            let name = &self.call_stack[frame_index].function.code_object.names[*bytecode_index];
+            VmError::NameError(name.to_string())
+        });
+        let global_store_index = self
+            .index_map
+            .get(&bytecode_index)
+            .ok_or_else(name_error_closure.clone())?;
+
+        // is it possible to find a global_store_index and then fail to look it up? that seems more
+        // like an internal error, while the previous failure is assuredly a NameError
+        self.global_store
+            .get(**global_store_index)
+            .copied()
+            .ok_or_else(name_error_closure)
     }
 
     fn pop(&mut self) -> Result<Reference, VmError> {
         if let Some(frame) = self.call_stack.last_mut() {
             if let Some(value) = frame.locals.pop() {
-                log_impure(LogLevel::Debug, || {
+                log_impure(LogLevel::Trace, || {
                     if let Some(frame) = self.call_stack.last() {
                         println!("After pop:");
                         for (index, local) in frame.locals.iter().rev().enumerate() {
@@ -146,7 +160,7 @@ impl VirtualMachine {
         if let Some(frame) = self.call_stack.last_mut() {
             frame.locals.push(value);
         }
-        log_impure(LogLevel::Debug, || {
+        log_impure(LogLevel::Trace, || {
             if let Some(frame) = self.call_stack.last() {
                 println!("After push:");
                 for (index, local) in frame.locals.iter().rev().enumerate() {
@@ -305,16 +319,21 @@ impl VirtualMachine {
                     }
                 }
                 Opcode::LoadGlobal(bytecode_index) => {
-                    let reference = self.load_global(bytecode_index).unwrap();
+                    let reference = self.load_global(bytecode_index)?;
                     self.push(reference)?;
                 }
                 Opcode::LoadAttr(attr_index) => {
                     let reference = self.pop()?;
                     let object = self.dereference(reference);
-                    let name = self.read_constant(attr_index).unwrap();
+
+                    let name = self.call_stack[current_frame_index]
+                        .function
+                        .code_object
+                        .names[*attr_index]
+                        .clone();
                     let attr = object
                         .as_object()
-                        .read(name.as_string(), |reference| self.dereference(reference))
+                        .read(&name, |reference| self.dereference(reference))
                         .unwrap();
                     let attr_val = self.dereference(attr);
                     let bound_attr = if let Value::Function(ref function) = *attr_val {
@@ -327,15 +346,19 @@ impl VirtualMachine {
                 Opcode::SetAttr(attr_index) => {
                     let value = self.pop()?;
                     let Reference::ObjectRef(obj_index) = self.pop()? else {
-                        panic!()
+                        todo!()
                     };
 
-                    let name = self.read_constant(attr_index).unwrap();
+                    let name = self.call_stack[current_frame_index]
+                        .function
+                        .code_object
+                        .names[*attr_index]
+                        .clone();
                     self.update_fn(obj_index, |object_value| {
                         let Value::Object(object) = object_value else {
-                            panic!()
+                            todo!()
                         };
-                        object.write(name.as_string(), value);
+                        object.write(&name, value);
                     });
                 }
                 Opcode::LoadBuildClass => {
@@ -362,23 +385,19 @@ impl VirtualMachine {
                 }
                 Opcode::MakeFunction => {
                     let reference = self.pop()?;
-                    let name = self.dereference(reference).as_string().to_string();
-                    let reference = self.pop()?;
                     let code = self.dereference(reference).as_code().clone();
-                    let function = FunctionObject::new(name, code);
+                    let function = FunctionObject::new(code);
                     let reference = self.create(Value::Function(function));
                     self.push(reference)?;
                 }
                 Opcode::Call(bytecode_index) => {
-                    let reference = self
-                        .load_global(bytecode_index)
-                        .ok_or(VmError::VariableNotFound)?;
+                    let reference = self.load_global(bytecode_index)?;
                     let value = self.dereference(reference);
                     match *value {
                         Value::Function(ref function) => {
                             let function = function.clone();
                             let mut args = vec![];
-                            for _ in 0..function.code.arg_count {
+                            for _ in 0..function.code_object.arg_count {
                                 args.push(self.pop()?);
                             }
                             self.execute_function(function, args);
@@ -391,7 +410,7 @@ impl VirtualMachine {
                             if let Some(init_method) = init_method {
                                 let init = self.dereference(init_method).as_function().clone();
                                 // Subtract one to account for `self`
-                                let args = (0..init.code.arg_count - 1)
+                                let args = (0..init.code_object.arg_count - 1)
                                     .map(|_| self.pop())
                                     .collect::<Result<Vec<_>, _>>()?;
                                 let method = Method::new(reference, init);
@@ -405,7 +424,7 @@ impl VirtualMachine {
                                 self.push(reference)?;
                             }
                         }
-                        _ => panic!("not callable!"),
+                        _ => todo!("not callable! we should return an error here"),
                     }
                 }
                 Opcode::PopAndCall(argc) => {
@@ -448,16 +467,16 @@ impl VirtualMachine {
                     continue;
                 }
                 Opcode::EndClass => {
-                    // Grab the frame before it gets popped off the call stack below. Its local are
-                    // the class namespace for the class we just finished defining.
-                    let frame = self.call_stack.last().unwrap();
+                    // Grab the frame before it gets popped off the call stack below. Its locals
+                    // are the class namespace for the class we just finished defining.
+                    let frame = self.call_stack.pop().unwrap();
 
                     let name = self.class_stack.pop().expect("Failed to get class name");
                     let class = Class::new(name.clone(), frame.namespace());
-
                     let reference = self.create(Value::Class(class));
-                    // TODO this is always treated as a global, need to supported nested classes
-                    self.store_global_by_name(&name, reference);
+
+                    self.push(reference)?;
+                    continue;
                 }
                 Opcode::Halt => break,
                 // This is in an internal error that indicates a jump offset was not properly set
@@ -480,9 +499,9 @@ impl VirtualMachine {
 
     /// This is intended to be functionally equivalent to `__build_class__` in CPython.
     fn build_class(&mut self, args: Vec<Reference>) {
-        let name = self.dereference(args[0]).as_string().to_string();
-        let code = self.dereference(args[1]).as_code().clone();
-        let function = FunctionObject::new(name.clone(), code);
+        let code = self.dereference(args[0]).as_code().clone();
+        let name = code.name.clone();
+        let function = FunctionObject::new(code);
 
         self.class_stack.push(name);
         self.execute_function(function, vec![]);

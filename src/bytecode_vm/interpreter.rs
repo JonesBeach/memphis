@@ -22,16 +22,13 @@ impl VmInterpreter {
     }
 
     pub fn take(&mut self, name: &str) -> Option<Value> {
-        if let Some(bytecode_index) = self.compiler.get_var_index(name) {
-            let reference = self.vm.load_global(bytecode_index)?;
-            return Some(self.vm.take(reference));
-        }
-
-        None
+        let reference = self.vm.load_global_by_name(name)?;
+        Some(self.vm.take(reference))
     }
 
     pub fn compile(&mut self, parser: &mut Parser) -> Result<CompiledProgram, MemphisError> {
-        self.compiler.compile(parser)
+        let ast = parser.parse().map_err(MemphisError::Parser)?;
+        self.compiler.compile(ast).map_err(MemphisError::Compiler)
     }
 }
 
@@ -53,10 +50,13 @@ impl InterpreterEntrypoint for VmInterpreter {
 }
 
 #[cfg(test)]
-mod tests {
+mod vm_interpreter_tests {
     use super::*;
 
-    use crate::{bytecode_vm::vm::types::Object, init::MemphisContext};
+    use crate::{
+        bytecode_vm::{types::VmError, vm::types::Object},
+        init::MemphisContext,
+    };
 
     fn init(text: &str) -> MemphisContext {
         MemphisContext::from_text(text)
@@ -102,6 +102,26 @@ mod tests {
             Ok(result) => {
                 assert_eq!(result, Value::Boolean(false));
             }
+        }
+
+        let text = "4 > x";
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Err(e) => {
+                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+            }
+            Ok(_) => panic!("Expected an error!"),
+        }
+
+        let text = "x()";
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Err(e) => {
+                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+            }
+            Ok(_) => panic!("Expected an error!"),
         }
     }
 
@@ -269,7 +289,7 @@ class Foo:
                 else {
                     panic!("Did not find function bar")
                 };
-                assert_eq!(function.name, "bar");
+                assert_eq!(function.code_object.name, "bar");
             }
         }
     }
@@ -438,6 +458,33 @@ f = Foo(33)
                     panic!("Did not find object f")
                 };
                 assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(33));
+            }
+        }
+    }
+
+    #[test]
+    fn class_instantiation_with_constructor_and_args_again() {
+        let text = r#"
+class Foo:
+    def __init__(self, val):
+        self.val = val
+
+    def bar(self):
+        return self.val
+
+f = Foo(10)
+b = f.bar()
+"#;
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(_) => {
+                let interpreter = context.ensure_vm();
+                let Some(Value::Integer(i)) = interpreter.take("b") else {
+                    panic!("Did not find object f")
+                };
+                assert_eq!(i, 10);
             }
         }
     }

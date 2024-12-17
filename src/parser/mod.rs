@@ -7,7 +7,7 @@ use crate::{
     core::{log, Container, LogLevel},
     lexer::types::Token,
     parser::types::{
-        Alias, BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+        Alias, Ast, BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
         ExceptionInstance, ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause,
         FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex,
         ParsedArgDefinition, ParsedArgDefinitions, ParsedArgument, ParsedArguments,
@@ -1247,7 +1247,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Return the full AST. This will consume all the tokens.
-    pub fn parse(&mut self) -> Result<Vec<Statement>, ParserError> {
+    pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut stmts = vec![];
         while !self.is_finished() {
             let stmt = self.parse_statement()?;

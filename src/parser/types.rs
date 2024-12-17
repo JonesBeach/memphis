@@ -12,6 +12,8 @@ use crate::{
 
 use super::Parser;
 
+pub type Ast = Vec<Statement>;
+
 /// There are a handful of places where we reference a variable and it must be a variable name
 /// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
 /// here works, but we create a [`Variable`] to be more expressive and add type-safety.

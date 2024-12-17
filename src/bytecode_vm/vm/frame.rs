@@ -23,7 +23,7 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(function: FunctionObject, args: Vec<Reference>) -> Self {
-        let varnames = function.code.varnames.clone();
+        let varnames = function.code_object.varnames.clone();
         Frame {
             function,
             pc: 0,
@@ -33,11 +33,11 @@ impl Frame {
     }
 
     pub fn get_inst(&self) -> Opcode {
-        self.function.code.bytecode[self.pc]
+        self.function.code_object.bytecode[self.pc]
     }
 
     pub fn is_finished(&self) -> bool {
-        self.pc == self.function.code.bytecode.len()
+        self.pc == self.function.code_object.bytecode.len()
     }
 
     pub fn namespace(&self) -> Namespace {
