@@ -373,7 +373,7 @@ pub mod utils {
 
     use super::*;
 
-    pub(crate) fn validate_args(
+    pub fn validate_args(
         args: &ResolvedArguments,
         expected_length: usize,
         call_stack: CallStack,
@@ -389,7 +389,7 @@ pub mod utils {
         }
     }
 
-    pub(crate) fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
+    pub fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
         vec1.iter().any(|item| vec2.contains(item))
     }
 }

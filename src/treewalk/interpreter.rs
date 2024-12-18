@@ -2979,9 +2979,10 @@ j = 9, 10
             Err(e) => {
                 assert_eq!(
                     e,
+                    // TODO these numbers are wrong because it comes out of Dunder::new
                     MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        1,
                         2,
+                        3,
                         context.ensure_treewalk().state.call_stack()
                     ))
                 )

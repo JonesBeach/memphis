@@ -26,7 +26,7 @@ impl Typed for Tuple {
 
 impl MethodProvider for Tuple {
     fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
+        vec![Box::new(NewBuiltin)]
     }
 }
 
@@ -111,53 +111,25 @@ impl IntoIterator for Container<Tuple> {
 }
 
 struct NewBuiltin;
-struct InitBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        Ok(ExprResult::Tuple(Container::new(Tuple::default())))
-    }
-
-    fn name(&self) -> String {
-        Dunder::New.into()
-    }
-}
-
-impl Callable for InitBuiltin {
     fn call(
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
 
-        let output = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedFunction(
-                interpreter.state.call_stack(),
-            ))?
+        let tuple = args
+            .get_arg(1)
             .as_tuple()
             .ok_or(InterpreterError::ExpectedTuple(
                 interpreter.state.call_stack(),
             ))?;
-
-        let input = args
-            .get_arg(0)
-            .as_tuple()
-            .ok_or(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            ))?;
-
-        *output.borrow_mut() = input.borrow().clone();
-
-        Ok(ExprResult::None)
+        Ok(ExprResult::Tuple(tuple))
     }
 
     fn name(&self) -> String {
-        Dunder::Init.into()
+        Dunder::New.into()
     }
 }
