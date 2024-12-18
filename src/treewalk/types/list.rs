@@ -133,11 +133,11 @@ impl TryFrom<ExprResult> for Container<List> {
 
     fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
         match value {
-            ExprResult::List(list) => Ok(list.clone()),
-            ExprResult::Set(set) => Ok(set.clone().into()),
-            ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
-            ExprResult::Range(range) => Ok(range.clone().into()),
-            ExprResult::Generator(g) => Ok(g.clone().into()),
+            ExprResult::List(list) => Ok(list),
+            ExprResult::Set(set) => Ok(set.into()),
+            ExprResult::Tuple(tuple) => Ok(tuple.into()),
+            ExprResult::Range(range) => Ok(range.into()),
+            ExprResult::Generator(g) => Ok(g.into()),
             _ => Err(InterpreterError::RuntimeError),
         }
     }
