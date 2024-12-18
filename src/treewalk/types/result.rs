@@ -68,7 +68,7 @@ pub enum ExprResult {
     DictItems(DictItems),
     DictKeys(DictKeys),
     DictValues(DictValues),
-    MappingProxy(Container<MappingProxy>),
+    MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
     Exception(Box<InterpreterError>),

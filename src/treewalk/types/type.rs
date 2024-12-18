@@ -54,9 +54,9 @@ impl NonDataDescriptor for DictAttribute {
             None => owner.borrow().scope.clone(),
         };
 
-        Ok(ExprResult::MappingProxy(Container::new(MappingProxy::new(
+        Ok(ExprResult::MappingProxy(MappingProxy::new(
             scope.as_dict(interpreter),
-        ))))
+        )))
     }
 
     fn name(&self) -> String {
