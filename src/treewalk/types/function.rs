@@ -35,6 +35,8 @@ pub enum FunctionType {
 }
 
 /// This is a placeholder for what is calcuated on a functions [`Dunder::Code`].
+/// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
+/// self-modifying code or whatever this is used for.
 #[derive(Clone)]
 pub struct Code;
 

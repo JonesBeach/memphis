@@ -53,8 +53,6 @@ pub enum ExprResult {
     BuiltinMethod(Container<Box<dyn Callable>>),
     Generator(Container<GeneratorIterator>),
     Coroutine(Container<Coroutine>),
-    /// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
-    /// self-modifying code or whatever this is used for.
     Code(Container<Code>),
     Cell(Container<Cell>),
     Bytes(Vec<u8>),
@@ -87,9 +85,7 @@ pub enum ExprResult {
     // this might need a real TupleIterator, I'm not sure yet
     TupleIterator(ListIterator),
     StringIterator(StringIterator),
-    // TODO use actual iterator here
     BytesIterator(Vec<u8>),
-    // TODO use actual iterator here
     ByteArrayIterator(Vec<u8>),
     TypeNode(TypeExpr),
     #[cfg(feature = "c_stdlib")]
