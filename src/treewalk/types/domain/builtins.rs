@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, Storable},
+    core::Container,
     resolved_args,
     treewalk::{
         types::{
@@ -136,7 +136,7 @@ impl Callable for HashBuiltin {
 
         let arg = args.get_arg(0);
         if arg.as_class().is_some() {
-            return Ok(ExprResult::Integer((arg.hash() as i64).store()));
+            return Ok(ExprResult::Integer(arg.hash() as i64));
         }
 
         let result = interpreter.invoke_method(arg, &Dunder::Hash, &resolved_args!())?;
@@ -275,7 +275,7 @@ impl Callable for LenBuiltin {
                     interpreter.state.call_stack(),
                 ))?;
 
-        Ok(ExprResult::Integer(Container::new(iterator.count() as i64)))
+        Ok(ExprResult::Integer(iterator.count() as i64))
     }
 
     fn name(&self) -> String {

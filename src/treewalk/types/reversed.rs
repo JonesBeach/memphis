@@ -1,8 +1,4 @@
-use crate::{
-    core::{Container, Storable},
-    treewalk::Interpreter,
-    types::errors::InterpreterError,
-};
+use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -55,7 +51,7 @@ impl Iterator for ReversedIterator {
             self.list_ref
                 .getitem(
                     &self.interpreter,
-                    ExprResult::Integer((self.current_index as i64).store()),
+                    ExprResult::Integer(self.current_index as i64),
                 )
                 .unwrap()
         }

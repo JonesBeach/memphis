@@ -4,11 +4,7 @@ use std::{
     ops::Add,
 };
 
-use crate::{
-    core::{Container, Storable},
-    treewalk::Interpreter,
-    types::errors::InterpreterError,
-};
+use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -71,7 +67,7 @@ impl List {
 
         let sliced_items = Slice::slice(slice, len, |i| {
             receiver
-                .getitem(interpreter, ExprResult::Integer(i.store()))
+                .getitem(interpreter, ExprResult::Integer(i))
                 .unwrap()
         });
 
@@ -86,7 +82,7 @@ impl IndexRead for Container<List> {
         key: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
         Ok(match key {
-            ExprResult::Integer(i) => self.borrow().items.get(*i.borrow() as usize).cloned(),
+            ExprResult::Integer(i) => self.borrow().items.get(i as usize).cloned(),
             ExprResult::Slice(s) => Some(ExprResult::List(Container::new(
                 self.borrow().slice(interpreter, &s),
             ))),
@@ -102,11 +98,9 @@ impl IndexWrite for Container<List> {
         index: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
@@ -116,11 +110,9 @@ impl IndexWrite for Container<List> {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }
@@ -156,7 +148,7 @@ impl From<Container<Range>> for Container<List> {
         let start = range.borrow().start;
         let stop = range.borrow().stop;
         let items = (start..stop)
-            .map(|x| ExprResult::Integer(Container::new(x as i64)))
+            .map(|x| ExprResult::Integer(x as i64))
             .collect();
         Container::new(List::new(items))
     }
@@ -170,7 +162,7 @@ impl From<Container<Set>> for Container<List> {
 
         items.sort_by_key(|x| {
             match x {
-                ExprResult::Integer(i) => *i.borrow(),
+                ExprResult::Integer(i) => *i,
                 // TODO how should we sort strings here?
                 //ExprResult::String(s) => s.0,
                 _ => 0,

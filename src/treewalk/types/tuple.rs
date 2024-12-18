@@ -60,11 +60,9 @@ impl IndexRead for Tuple {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         Ok(self.get_item(i as usize))
     }
 }
@@ -74,7 +72,7 @@ impl From<Container<Set>> for Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<ExprResult> = set.into_iter().collect();
         let mut items: Vec<ExprResult> = set.borrow().items.clone().into_iter().collect();
-        items.sort_by_key(|x| *x.as_integer().unwrap().borrow());
+        items.sort_by_key(|x| x.as_integer().unwrap());
         Tuple::new(items)
     }
 }

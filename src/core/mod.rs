@@ -3,7 +3,7 @@ use std::{fmt::Display, process};
 mod container;
 mod log;
 
-pub use container::{Container, Storable};
+pub use container::Container;
 pub use log::{log, log_impure, LogLevel};
 
 use crate::{parser::Parser, types::errors::MemphisError};

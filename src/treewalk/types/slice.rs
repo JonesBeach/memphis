@@ -50,12 +50,15 @@ impl Slice {
             |expr_option: &Option<Box<Expr>>| -> Result<Option<i64>, InterpreterError> {
                 match expr_option {
                     Some(expr) => {
-                        let integer = interpreter
-                            .evaluate_expr(expr)?
-                            .as_integer_val()
-                            .ok_or_else(|| {
-                                InterpreterError::ExpectedInteger(interpreter.state.call_stack())
-                            })?;
+                        let integer =
+                            interpreter
+                                .evaluate_expr(expr)?
+                                .as_integer()
+                                .ok_or_else(|| {
+                                    InterpreterError::ExpectedInteger(
+                                        interpreter.state.call_stack(),
+                                    )
+                                })?;
                         Ok(Some(integer))
                     }
                     None => Ok(None),
@@ -137,46 +140,46 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
         if args.len() == 2 {
-            let stop =
-                args.get_arg(1)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
+            let stop = args
+                .get_arg(1)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
             Ok(ExprResult::Slice(Slice::new(None, Some(stop), None)))
         } else if args.len() == 3 {
-            let start =
-                args.get_arg(1)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
-            let stop =
-                args.get_arg(2)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
+            let start = args
+                .get_arg(1)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
+            let stop = args
+                .get_arg(2)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
             Ok(ExprResult::Slice(Slice::new(Some(start), Some(stop), None)))
         } else if args.len() == 4 {
-            let start =
-                args.get_arg(1)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
-            let stop =
-                args.get_arg(2)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
-            let step =
-                args.get_arg(3)
-                    .as_integer_val()
-                    .ok_or(InterpreterError::ExpectedInteger(
-                        interpreter.state.call_stack(),
-                    ))?;
+            let start = args
+                .get_arg(1)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
+            let stop = args
+                .get_arg(2)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
+            let step = args
+                .get_arg(3)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
             Ok(ExprResult::Slice(Slice::new(
                 Some(start),
                 Some(stop),

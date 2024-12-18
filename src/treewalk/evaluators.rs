@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, Storable},
+    core::Container,
     parser::types::{BinOp, LogicalOp, UnaryOp},
     treewalk::types::{ExprResult, List},
     types::errors::InterpreterError,
@@ -25,9 +25,9 @@ pub(crate) fn evaluate_integer_operation(
     call_stack: CallStack,
 ) -> Result<ExprResult, InterpreterError> {
     match op {
-        BinOp::Add => Ok(ExprResult::Integer(Container::new(left + right))),
-        BinOp::Sub => Ok(ExprResult::Integer(Container::new(left - right))),
-        BinOp::Mul => Ok(ExprResult::Integer(Container::new(left * right))),
+        BinOp::Add => Ok(ExprResult::Integer(left + right)),
+        BinOp::Sub => Ok(ExprResult::Integer(left - right)),
+        BinOp::Mul => Ok(ExprResult::Integer(left * right)),
         BinOp::Div => {
             if right == 0 {
                 Err(InterpreterError::DivisionByZero(
@@ -35,7 +35,7 @@ pub(crate) fn evaluate_integer_operation(
                     call_stack,
                 ))
             } else {
-                Ok(ExprResult::Integer(Container::new(left / right)))
+                Ok(ExprResult::Integer(left / right))
             }
         }
         BinOp::IntegerDiv => {
@@ -45,7 +45,7 @@ pub(crate) fn evaluate_integer_operation(
                     call_stack,
                 ))
             } else {
-                Ok(ExprResult::Integer(Container::new(left / right)))
+                Ok(ExprResult::Integer(left / right))
             }
         }
         BinOp::Mod => {
@@ -55,7 +55,7 @@ pub(crate) fn evaluate_integer_operation(
                     call_stack,
                 ))
             } else {
-                Ok(ExprResult::Integer(Container::new(left % right)))
+                Ok(ExprResult::Integer(left % right))
             }
         }
         BinOp::GreaterThan => Ok(ExprResult::Boolean(left > right)),
@@ -64,26 +64,26 @@ pub(crate) fn evaluate_integer_operation(
         BinOp::LessThanOrEqual => Ok(ExprResult::Boolean(left <= right)),
         BinOp::Equals => Ok(ExprResult::Boolean(left == right)),
         BinOp::NotEquals => Ok(ExprResult::Boolean(left != right)),
-        BinOp::BitwiseAnd => Ok(ExprResult::Integer(Container::new(left & right))),
-        BinOp::BitwiseOr => Ok(ExprResult::Integer(Container::new(left | right))),
-        BinOp::BitwiseXor => Ok(ExprResult::Integer(Container::new(left ^ right))),
+        BinOp::BitwiseAnd => Ok(ExprResult::Integer(left & right)),
+        BinOp::BitwiseOr => Ok(ExprResult::Integer(left | right)),
+        BinOp::BitwiseXor => Ok(ExprResult::Integer(left ^ right)),
         BinOp::LeftShift => {
             if right > 100 {
                 // TODO support long ranges. This is found in _collections_abc.py
                 // longrange_iterator = type(iter(range(1 << 1000)))
-                Ok(ExprResult::Integer(Container::new(left << 10)))
+                Ok(ExprResult::Integer(left << 10))
             } else {
-                Ok(ExprResult::Integer(Container::new(left << right)))
+                Ok(ExprResult::Integer(left << right))
             }
         }
-        BinOp::RightShift => Ok(ExprResult::Integer(Container::new(left >> right))),
+        BinOp::RightShift => Ok(ExprResult::Integer(left >> right)),
         BinOp::In => Err(InterpreterError::ExpectedIterable(call_stack)),
         BinOp::NotIn => Err(InterpreterError::ExpectedIterable(call_stack)),
         BinOp::Expo => {
             let right: u32 = right
                 .try_into()
                 .map_err(|_| InterpreterError::RuntimeError)?;
-            Ok(ExprResult::Integer(Container::new(left.pow(right))))
+            Ok(ExprResult::Integer(left.pow(right)))
         }
         _ => unreachable!(),
     }
@@ -152,9 +152,7 @@ pub(crate) fn evaluate_unary_operation(
                 call_stack,
             ))?;
 
-            let o = !*i.borrow();
-
-            Ok(ExprResult::Integer(o.store()))
+            Ok(ExprResult::Integer(!i))
         }
         UnaryOp::Unpack => {
             let list = right

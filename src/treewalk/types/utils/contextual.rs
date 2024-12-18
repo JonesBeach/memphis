@@ -124,7 +124,7 @@ impl Contextual<ExprResult> {
             .call_function("hash", &resolved_args![self.value.clone()]);
 
         match result {
-            Ok(ExprResult::Integer(hash_val)) => *hash_val.borrow() as u64,
+            Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
             Ok(_) => self
                 .interpreter
                 .handle_runtime_error(MemphisError::Interpreter(

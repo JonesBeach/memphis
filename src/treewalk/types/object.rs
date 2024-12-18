@@ -400,7 +400,7 @@ impl Callable for HashBuiltin {
             interpreter.state.call_stack(),
         ))?;
 
-        Ok(ExprResult::Integer(Container::new(object.hash() as i64)))
+        Ok(ExprResult::Integer(object.hash() as i64))
     }
 
     fn name(&self) -> String {

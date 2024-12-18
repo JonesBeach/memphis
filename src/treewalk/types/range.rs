@@ -77,7 +77,7 @@ impl Iterator for RangeIterator {
             // Modify the start value in the range itself to prep the state for the next time
             // `next` is called.
             self.0.start += self.0.step;
-            Some(ExprResult::Integer(Container::new(result as i64)))
+            Some(ExprResult::Integer(result as i64))
         } else {
             None
         }
@@ -126,7 +126,7 @@ impl Callable for InitBuiltin {
                     interpreter.state.call_stack(),
                 ))?;
 
-            range.borrow_mut().stop = *stop.borrow() as usize;
+            range.borrow_mut().stop = stop as usize;
 
             Ok(ExprResult::None)
         } else if args.len() == 2 {
@@ -143,8 +143,8 @@ impl Callable for InitBuiltin {
                     interpreter.state.call_stack(),
                 ))?;
 
-            range.borrow_mut().start = *start.borrow() as usize;
-            range.borrow_mut().stop = *stop.borrow() as usize;
+            range.borrow_mut().start = start as usize;
+            range.borrow_mut().stop = stop as usize;
 
             Ok(ExprResult::None)
         } else if args.len() == 3 {
@@ -167,9 +167,9 @@ impl Callable for InitBuiltin {
                     interpreter.state.call_stack(),
                 ))?;
 
-            range.borrow_mut().start = *start.borrow() as usize;
-            range.borrow_mut().stop = *stop.borrow() as usize;
-            range.borrow_mut().step = *step.borrow() as usize;
+            range.borrow_mut().start = start as usize;
+            range.borrow_mut().stop = stop as usize;
+            range.borrow_mut().step = step as usize;
 
             Ok(ExprResult::None)
         } else {
