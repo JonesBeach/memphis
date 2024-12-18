@@ -143,13 +143,9 @@ impl TryFrom<ExprResult> for Container<List> {
     }
 }
 
-impl From<Container<Range>> for Container<List> {
-    fn from(range: Container<Range>) -> Container<List> {
-        let start = range.borrow().start;
-        let stop = range.borrow().stop;
-        let items = (start..stop)
-            .map(|x| ExprResult::Integer(x as i64))
-            .collect();
+impl From<Range> for Container<List> {
+    fn from(range: Range) -> Container<List> {
+        let items = (range.start..range.stop).map(ExprResult::Integer).collect();
         Container::new(List::new(items))
     }
 }

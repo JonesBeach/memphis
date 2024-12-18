@@ -83,8 +83,8 @@ impl From<Container<List>> for Tuple {
     }
 }
 
-impl From<Container<Range>> for Tuple {
-    fn from(range: Container<Range>) -> Tuple {
+impl From<Range> for Tuple {
+    fn from(range: Range) -> Tuple {
         Tuple::new(range.into_iter().collect())
     }
 }

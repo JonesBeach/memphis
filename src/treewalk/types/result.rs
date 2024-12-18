@@ -69,7 +69,7 @@ pub enum ExprResult {
     DictKeys(DictKeys),
     DictValues(DictValues),
     MappingProxy(Container<MappingProxy>),
-    Range(Container<Range>),
+    Range(Range),
     Tuple(Tuple),
     Exception(Box<InterpreterError>),
     Traceback(Traceback),
@@ -236,7 +236,7 @@ impl ExprResult {
             ExprResult::List(l) => write!(f, "{}", l),
             ExprResult::Set(s) => write!(f, "{}", s),
             ExprResult::FrozenSet(s) => write!(f, "{}", s),
-            ExprResult::Range(r) => write!(f, "{}", r.borrow()),
+            ExprResult::Range(r) => write!(f, "{}", r),
             ExprResult::Tuple(t) => write!(f, "{}", t),
             ExprResult::Zip(_) => write!(f, "<zip>"),
             ExprResult::Slice(s) => write!(f, "{}", s),
@@ -656,7 +656,7 @@ impl ExprResult {
         }
     }
 
-    pub fn as_range(&self) -> Option<Container<Range>> {
+    pub fn as_range(&self) -> Option<Range> {
         match self {
             ExprResult::Range(i) => Some(i.clone()),
             _ => None,
