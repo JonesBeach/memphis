@@ -60,7 +60,7 @@ pub enum ExprResult {
     Boolean(bool),
     List(Container<List>),
     Set(Container<Set>),
-    FrozenSet(Container<FrozenSet>),
+    FrozenSet(FrozenSet),
     Zip(ZipIterator),
     Slice(Slice),
     Complex(Complex),

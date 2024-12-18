@@ -7551,13 +7551,14 @@ e = frozenset().__contains__
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::FrozenSet(Container::new(FrozenSet::new(
-                        HashSet::from([ExprResult::Integer(1), ExprResult::Integer(2),])
-                    ))))
+                    Some(ExprResult::FrozenSet(FrozenSet::new(HashSet::from([
+                        ExprResult::Integer(1),
+                        ExprResult::Integer(2),
+                    ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("b"),
-                    Some(ExprResult::FrozenSet(Container::new(FrozenSet::default())))
+                    Some(ExprResult::FrozenSet(FrozenSet::default()))
                 );
                 assert_eq!(
                     interpreter.state.read("c").unwrap().as_class().unwrap(),

@@ -39,13 +39,13 @@ impl FrozenSet {
     }
 }
 
-impl From<Container<Set>> for Container<FrozenSet> {
-    fn from(set: Container<Set>) -> Container<FrozenSet> {
-        Container::new(FrozenSet::new(set.borrow().clone().items))
+impl From<Container<Set>> for FrozenSet {
+    fn from(set: Container<Set>) -> FrozenSet {
+        FrozenSet::new(set.borrow().clone().items)
     }
 }
 
-impl IntoIterator for Container<FrozenSet> {
+impl IntoIterator for FrozenSet {
     type Item = ExprResult;
     type IntoIter = ListIterator;
 
@@ -55,7 +55,7 @@ impl IntoIterator for Container<FrozenSet> {
     }
 }
 
-impl Display for Container<FrozenSet> {
+impl Display for FrozenSet {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let set: Container<Set> = self.clone().into();
         let items = ListIterator::new(set.into())
@@ -76,7 +76,7 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
         if args.len() == 1 {
-            Ok(ExprResult::FrozenSet(Container::new(FrozenSet::default())))
+            Ok(ExprResult::FrozenSet(FrozenSet::default()))
         } else if args.len() == 2 {
             let input_set: Container<Set> = args
                 .get_arg(1)

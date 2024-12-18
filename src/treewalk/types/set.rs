@@ -84,9 +84,9 @@ impl From<Container<Range>> for Container<Set> {
     }
 }
 
-impl From<Container<FrozenSet>> for Container<Set> {
-    fn from(frozenset: Container<FrozenSet>) -> Container<Set> {
-        Container::new(Set::new(frozenset.borrow().clone().items))
+impl From<FrozenSet> for Container<Set> {
+    fn from(frozenset: FrozenSet) -> Container<Set> {
+        Container::new(Set::new(frozenset.items))
     }
 }
 
