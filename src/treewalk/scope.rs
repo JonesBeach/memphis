@@ -94,7 +94,7 @@ impl Scope {
         if let Some(ref args_var) = function_args.args_var {
             let extra = arguments.len() - function_args.args.len();
             let left_over = bound_args.iter().rev().take(extra).rev().cloned().collect();
-            let args_value = ExprResult::Tuple(Container::new(Tuple::new(left_over)));
+            let args_value = ExprResult::Tuple(Tuple::new(left_over));
             scope.insert(args_var.as_str(), args_value);
         }
 

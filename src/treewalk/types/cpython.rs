@@ -376,7 +376,7 @@ pub mod utils {
                 .iter()
                 .map(|item| from_pyobject(py, item))
                 .collect();
-            ExprResult::Tuple(Container::new(Tuple::new(elements)))
+            ExprResult::Tuple(Tuple::new(elements))
         } else if let Ok(py_module) = py_obj.extract::<&PyModule>() {
             let mut module = Module::default();
 

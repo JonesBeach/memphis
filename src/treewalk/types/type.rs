@@ -82,7 +82,7 @@ impl NonDataDescriptor for MroAttribute {
                 .collect(),
             None => owner.mro().iter().cloned().map(ExprResult::Class).collect(),
         };
-        Ok(ExprResult::Tuple(Container::new(Tuple::new(mro))))
+        Ok(ExprResult::Tuple(Tuple::new(mro)))
     }
 
     fn name(&self) -> String {

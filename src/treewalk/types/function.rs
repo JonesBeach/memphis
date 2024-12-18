@@ -152,7 +152,7 @@ impl Function {
 
         match items.is_empty() {
             true => ExprResult::None,
-            false => ExprResult::Tuple(Container::new(Tuple::new(items))),
+            false => ExprResult::Tuple(Tuple::new(items)),
         }
     }
 }
@@ -527,7 +527,7 @@ impl NonDataDescriptor for TypeParamsAttribute {
         _owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError> {
         Ok(match instance {
-            Some(_) => ExprResult::Tuple(Container::new(Tuple::default())),
+            Some(_) => ExprResult::Tuple(Tuple::default()),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }

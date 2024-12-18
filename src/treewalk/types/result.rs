@@ -75,7 +75,7 @@ pub enum ExprResult {
     DictValues(DictValues),
     MappingProxy(Container<MappingProxy>),
     Range(Container<Range>),
-    Tuple(Container<Tuple>),
+    Tuple(Tuple),
     Exception(Box<InterpreterError>),
     Traceback(Traceback),
     Frame,
@@ -677,7 +677,7 @@ impl ExprResult {
         }
     }
 
-    pub fn as_tuple(&self) -> Option<Container<Tuple>> {
+    pub fn as_tuple(&self) -> Option<Tuple> {
         match self {
             ExprResult::List(i) => Some(i.clone().into()),
             ExprResult::Tuple(i) => Some(i.clone()),

@@ -116,7 +116,7 @@ impl Iterator for DictItemsIterator {
             let removed = self.0.items.remove(0);
             let key = removed.first_resolved().clone();
             let value = removed.second().clone();
-            let tuple = ExprResult::Tuple(Container::new(Tuple::new(vec![key, value])));
+            let tuple = ExprResult::Tuple(Tuple::new(vec![key, value]));
             Some(tuple)
         }
     }

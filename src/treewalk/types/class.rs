@@ -43,14 +43,14 @@ impl Class {
         let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
 
         let bases = if parent_classes.is_empty() {
-            ExprResult::Tuple(Container::new(Tuple::default()))
+            ExprResult::Tuple(Tuple::default())
         } else {
             let bases = parent_classes
                 .iter()
                 .cloned()
                 .map(ExprResult::Class)
                 .collect::<Vec<ExprResult>>();
-            ExprResult::Tuple(Container::new(Tuple::new(bases)))
+            ExprResult::Tuple(Tuple::new(bases))
         };
 
         let args = &resolved_args!(

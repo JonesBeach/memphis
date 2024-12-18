@@ -57,7 +57,7 @@ impl Iterator for ZipIterator {
                 .iter()
                 .map(|i| i.clone().unwrap())
                 .collect::<Vec<ExprResult>>();
-            Some(ExprResult::Tuple(Container::new(Tuple::new(r))))
+            Some(ExprResult::Tuple(Tuple::new(r)))
         } else {
             None
         }

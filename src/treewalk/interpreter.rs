@@ -436,7 +436,7 @@ impl Interpreter {
             }
         }
 
-        Ok(ExprResult::Tuple(Container::new(Tuple::new(results))))
+        Ok(ExprResult::Tuple(Tuple::new(results)))
     }
 
     fn evaluate_set(&self, items: &HashSet<Expr>) -> Result<ExprResult, InterpreterError> {
@@ -544,7 +544,7 @@ impl Interpreter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let return_val = if results.len() > 1 {
-            ExprResult::Tuple(Container::new(Tuple::new(results)))
+            ExprResult::Tuple(Tuple::new(results))
         } else {
             results[0].clone()
         };
@@ -1868,7 +1868,7 @@ y = _f.__type_params__
                 );
                 assert_eq!(
                     interpreter.state.read("y").unwrap(),
-                    ExprResult::Tuple(Container::new(Tuple::default()))
+                    ExprResult::Tuple(Tuple::default())
                 );
             }
         }
@@ -2907,46 +2907,46 @@ j = 9, 10
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::Integer(2.store()),
                         ExprResult::Integer(3.store()),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::FloatingPoint(2.1)
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("c"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::Integer(2.store())
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("d"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::Integer(2.store())
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("e"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::Integer(2.store())
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("f"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(0.store()),
                         ExprResult::Integer(1.store())
-                    ]))))
+                    ])))
                 );
                 assert!(matches!(
                     interpreter.state.read("g"),
@@ -2958,16 +2958,16 @@ j = 9, 10
                 );
                 assert_eq!(
                     interpreter.state.read("i"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
-                        ExprResult::Integer(4.store()),
-                    ]))))
+                    Some(ExprResult::Tuple(Tuple::new(vec![ExprResult::Integer(
+                        4.store()
+                    ),])))
                 );
                 assert_eq!(
                     interpreter.state.read("j"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(9.store()),
                         ExprResult::Integer(10.store()),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -3355,10 +3355,10 @@ t = type(slice)
                 );
                 assert_eq!(
                     interpreter.state.read("m"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(8.store()),
                         ExprResult::Integer(9.store()),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("p"),
@@ -4899,10 +4899,10 @@ b = test_kwargs(**first, **second)
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(44.store()),
                         ExprResult::Integer(55.store()),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -5041,7 +5041,7 @@ b = test_args(1, 2)
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::default())))
+                    Some(ExprResult::Tuple(Tuple::default()))
                 );
             }
         }
@@ -6543,93 +6543,93 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                 assert_eq!(
                     interpreter.state.read("d"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(4.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(5.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(3.store()),
                             ExprResult::Integer(6.store()),
-                        ]))),
+                        ])),
                     ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("e"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(4.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(5.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(3.store()),
                             ExprResult::Integer(6.store()),
-                        ]))),
+                        ])),
                     ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("f"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0.store()),
                             ExprResult::Integer(0.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(1.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(2.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(3.store()),
                             ExprResult::Integer(3.store()),
-                        ]))),
+                        ])),
                     ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("g"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0.store()),
                             ExprResult::Integer(0.store()),
                             ExprResult::Integer(0.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(1.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(2.store()),
-                        ]))),
+                        ])),
                     ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("h"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1.store()),
                             ExprResult::Integer(4.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(2.store()),
                             ExprResult::Integer(5.store()),
-                        ]))),
-                        ExprResult::Tuple(Container::new(Tuple::new(vec![
+                        ])),
+                        ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(3.store()),
                             ExprResult::Integer(6.store()),
-                        ]))),
+                        ])),
                     ]))))
                 );
             }
@@ -7649,10 +7649,10 @@ b, c = foo()
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(2.store()),
                         ExprResult::Integer(3.store())
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("b"),
@@ -7762,10 +7762,10 @@ a = (*l,)
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Container::new(Tuple::new(vec![
+                    Some(ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1.store()),
                         ExprResult::Integer(2.store())
-                    ]))))
+                    ])))
                 );
             }
         }

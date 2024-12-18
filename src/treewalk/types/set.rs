@@ -72,8 +72,8 @@ impl From<Container<List>> for Container<Set> {
     }
 }
 
-impl From<Container<Tuple>> for Container<Set> {
-    fn from(tuple: Container<Tuple>) -> Container<Set> {
+impl From<Tuple> for Container<Set> {
+    fn from(tuple: Tuple) -> Container<Set> {
         Container::new(Set::new(tuple.into_iter().collect()))
     }
 }

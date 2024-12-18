@@ -181,9 +181,9 @@ impl From<Container<Set>> for Container<List> {
     }
 }
 
-impl From<Container<Tuple>> for Container<List> {
-    fn from(tuple: Container<Tuple>) -> Container<List> {
-        Container::new(List::new(tuple.borrow().raw()))
+impl From<Tuple> for Container<List> {
+    fn from(tuple: Tuple) -> Container<List> {
+        Container::new(List::new(tuple.raw()))
     }
 }
 
