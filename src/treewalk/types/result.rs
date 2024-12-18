@@ -25,9 +25,9 @@ use super::{
         RangeIterator, ReversedIterator, StringIterator, ZipIterator,
     },
     utils::{BuiltinObject, Dunder, ResolvedArguments},
-    ByteArray, Bytes, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
-    DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
-    Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
+    ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems, DictKeys,
+    DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object, Property, Range,
+    Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
 };
 
 #[derive(Clone)]
@@ -57,8 +57,7 @@ pub enum ExprResult {
     /// self-modifying code or whatever this is used for.
     Code(Container<Code>),
     Cell(Container<Cell>),
-    /// An immutable string of bytes.
-    Bytes(Container<Bytes>),
+    Bytes(Vec<u8>),
     ByteArray(Container<ByteArray>),
     Boolean(bool),
     List(Container<List>),

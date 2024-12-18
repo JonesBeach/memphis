@@ -21,8 +21,8 @@ use crate::{
         function::FunctionType,
         iterators::GeneratorIterator,
         utils::{Dunder, ResolvedArguments},
-        Bytes, Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice,
-        Str, Tuple,
+        Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
+        Tuple,
     },
     types::errors::{InterpreterError, MemphisError},
 };
@@ -1266,9 +1266,7 @@ impl Interpreter {
             Expr::FloatingPoint(value) => Ok(ExprResult::FloatingPoint(*value)),
             Expr::Boolean(value) => Ok(ExprResult::Boolean(*value)),
             Expr::StringLiteral(value) => Ok(ExprResult::String(Str::new(value.clone()))),
-            Expr::ByteStringLiteral(value) => {
-                Ok(ExprResult::Bytes(Container::new(Bytes::new(value.clone()))))
-            }
+            Expr::ByteStringLiteral(value) => Ok(ExprResult::Bytes(value.clone())),
             Expr::Variable(name) => self.evaluate_variable(name),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
@@ -5445,9 +5443,7 @@ a = b'hello'
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Bytes(Container::new(Bytes::new(
-                        "hello".into()
-                    ))))
+                    Some(ExprResult::Bytes("hello".into()))
                 );
             }
         }
@@ -5580,7 +5576,7 @@ a = bytes()
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Bytes(Container::new(Bytes::new("".into()))))
+                    Some(ExprResult::Bytes("".into()))
                 );
             }
         }
@@ -5595,9 +5591,7 @@ a = bytes(b'hello')
             Ok(interpreter) => {
                 assert_eq!(
                     interpreter.state.read("a"),
-                    Some(ExprResult::Bytes(Container::new(Bytes::new(
-                        "hello".into()
-                    ))))
+                    Some(ExprResult::Bytes("hello".into()))
                 );
             }
         }

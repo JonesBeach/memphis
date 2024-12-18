@@ -11,7 +11,7 @@ use super::{
 
 /// A mutable version of a byte string.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ByteArray(pub Vec<u8>);
+pub struct ByteArray(Vec<u8>);
 
 impl Typed for ByteArray {
     fn get_type() -> Type {
@@ -28,6 +28,10 @@ impl MethodProvider for ByteArray {
 impl ByteArray {
     pub fn new(bytes: Vec<u8>) -> Self {
         Self(bytes)
+    }
+
+    pub fn raw(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -48,9 +52,9 @@ impl Callable for NewBuiltin {
                     Some("string argument without an encoding".into()),
                     interpreter.state.call_stack(),
                 )),
-                ExprResult::Bytes(s) => Ok(ExprResult::ByteArray(Container::new(ByteArray::new(
-                    s.borrow().0.clone(),
-                )))),
+                ExprResult::Bytes(s) => {
+                    Ok(ExprResult::ByteArray(Container::new(ByteArray::new(s))))
+                }
                 _ => todo!(),
             },
             // TODO support an optional encoding

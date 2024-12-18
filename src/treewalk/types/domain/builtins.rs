@@ -321,24 +321,20 @@ impl Callable for IterBuiltin {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
         match args.get_arg(0) {
-            ExprResult::String(s) => Ok(ExprResult::StringIterator(StringIterator::new(s.clone()))),
-            ExprResult::List(list) => Ok(ExprResult::ListIterator(list.clone().into_iter())),
-            ExprResult::ReversedIterator(_) => Ok(args.get_arg(0).clone()),
-            ExprResult::Set(set) => Ok(ExprResult::SetIterator(set.clone().into_iter())),
-            ExprResult::Zip(_) => Ok(args.get_arg(0).clone()),
-            ExprResult::Tuple(tuple) => Ok(ExprResult::TupleIterator(tuple.clone().into_iter())),
-            ExprResult::DictItems(dict) => {
-                Ok(ExprResult::DictItemsIterator(dict.clone().into_iter()))
+            ExprResult::String(s) => Ok(ExprResult::StringIterator(StringIterator::new(s))),
+            ExprResult::List(list) => Ok(ExprResult::ListIterator(list.into_iter())),
+            ExprResult::ReversedIterator(_) => Ok(args.get_arg(0)),
+            ExprResult::Set(set) => Ok(ExprResult::SetIterator(set.into_iter())),
+            ExprResult::Zip(_) => Ok(args.get_arg(0)),
+            ExprResult::Tuple(tuple) => Ok(ExprResult::TupleIterator(tuple.into_iter())),
+            ExprResult::DictItems(dict) => Ok(ExprResult::DictItemsIterator(dict.into_iter())),
+            ExprResult::DictKeys(dict) => Ok(ExprResult::DictKeysIterator(dict.into_iter())),
+            ExprResult::DictValues(dict) => Ok(ExprResult::DictValuesIterator(dict.into_iter())),
+            ExprResult::Bytes(b) => Ok(ExprResult::BytesIterator(b)),
+            ExprResult::ByteArray(b) => {
+                Ok(ExprResult::ByteArrayIterator(b.borrow().raw().to_vec()))
             }
-            ExprResult::DictKeys(dict) => {
-                Ok(ExprResult::DictKeysIterator(dict.clone().into_iter()))
-            }
-            ExprResult::DictValues(dict) => {
-                Ok(ExprResult::DictValuesIterator(dict.clone().into_iter()))
-            }
-            ExprResult::Bytes(b) => Ok(ExprResult::BytesIterator(b.borrow().0.to_vec())),
-            ExprResult::ByteArray(b) => Ok(ExprResult::ByteArrayIterator(b.borrow().0.to_vec())),
-            ExprResult::Range(r) => Ok(ExprResult::RangeIterator(r.clone().into_iter())),
+            ExprResult::Range(r) => Ok(ExprResult::RangeIterator(r.into_iter())),
             _ => Err(InterpreterError::ExpectedObject(
                 interpreter.state.call_stack(),
             )),
