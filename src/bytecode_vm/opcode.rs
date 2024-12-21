@@ -55,10 +55,8 @@ pub enum Opcode {
     /// Create a function object from a code object, encapsulating the information needed to call
     /// the function later.
     MakeFunction,
-    /// Call the function specified by the index.
-    Call(BytecodeIndex),
     /// Call the function from the top of the stack with the specified number of arguments.
-    PopAndCall(usize),
+    Call(usize),
     /// Call the method from the top of the stack with the specified number of arguments.
     CallMethod(usize),
     /// Return the value on the stack to the caller.
@@ -98,7 +96,6 @@ impl Display for Opcode {
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::Call(i) => write!(f, "CALL {}", i),
-            Opcode::PopAndCall(i) => write!(f, "POP_AND_CALL {}", i),
             Opcode::CallMethod(i) => write!(f, "CALL_METHOD {}", i),
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
             Opcode::PrintConst(i) => write!(f, "PRINT_CONST {}", i),

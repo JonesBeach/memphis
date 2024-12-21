@@ -26,7 +26,7 @@ impl Typed for Tuple {
 
 impl MethodProvider for Tuple {
     fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
+        vec![Box::new(NewBuiltin)]
     }
 }
 
@@ -40,9 +40,9 @@ impl Tuple {
     }
 }
 
-impl Container<Tuple> {
+impl Tuple {
     fn get_item(&self, index: usize) -> Option<ExprResult> {
-        self.borrow().items.get(index).cloned()
+        self.items.get(index).cloned()
     }
 
     pub fn first(&self) -> ExprResult {
@@ -54,44 +54,42 @@ impl Container<Tuple> {
     }
 }
 
-impl IndexRead for Container<Tuple> {
+impl IndexRead for Tuple {
     fn getitem(
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         Ok(self.get_item(i as usize))
     }
 }
 
-impl From<Container<Set>> for Container<Tuple> {
-    fn from(set: Container<Set>) -> Container<Tuple> {
+impl From<Container<Set>> for Tuple {
+    fn from(set: Container<Set>) -> Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<ExprResult> = set.into_iter().collect();
         let mut items: Vec<ExprResult> = set.borrow().items.clone().into_iter().collect();
-        items.sort_by_key(|x| *x.as_integer().unwrap().borrow());
-        Container::new(Tuple::new(items))
+        items.sort_by_key(|x| x.as_integer().unwrap());
+        Tuple::new(items)
     }
 }
 
-impl From<Container<List>> for Container<Tuple> {
-    fn from(list: Container<List>) -> Container<Tuple> {
-        Container::new(Tuple::new(list.into_iter().collect()))
+impl From<Container<List>> for Tuple {
+    fn from(list: Container<List>) -> Tuple {
+        Tuple::new(list.into_iter().collect())
     }
 }
 
-impl From<Container<Range>> for Container<Tuple> {
-    fn from(range: Container<Range>) -> Container<Tuple> {
-        Container::new(Tuple::new(range.into_iter().collect()))
+impl From<Range> for Tuple {
+    fn from(range: Range) -> Tuple {
+        Tuple::new(range.into_iter().collect())
     }
 }
 
-impl Display for Container<Tuple> {
+impl Display for Tuple {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let items = ListIterator::new(self.clone().into())
             .map(|x| x.to_string())
@@ -101,7 +99,7 @@ impl Display for Container<Tuple> {
     }
 }
 
-impl IntoIterator for Container<Tuple> {
+impl IntoIterator for Tuple {
     type Item = ExprResult;
     type IntoIter = ListIterator;
 
@@ -111,53 +109,25 @@ impl IntoIterator for Container<Tuple> {
 }
 
 struct NewBuiltin;
-struct InitBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        Ok(ExprResult::Tuple(Container::new(Tuple::default())))
-    }
-
-    fn name(&self) -> String {
-        Dunder::New.into()
-    }
-}
-
-impl Callable for InitBuiltin {
     fn call(
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
 
-        let output = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedFunction(
-                interpreter.state.call_stack(),
-            ))?
+        let tuple = args
+            .get_arg(1)
             .as_tuple()
             .ok_or(InterpreterError::ExpectedTuple(
                 interpreter.state.call_stack(),
             ))?;
-
-        let input = args
-            .get_arg(0)
-            .as_tuple()
-            .ok_or(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            ))?;
-
-        *output.borrow_mut() = input.borrow().clone();
-
-        Ok(ExprResult::None)
+        Ok(ExprResult::Tuple(tuple))
     }
 
     fn name(&self) -> String {
-        Dunder::Init.into()
+        Dunder::New.into()
     }
 }

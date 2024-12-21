@@ -70,7 +70,7 @@ impl IndexRead for Str {
             ExprResult::Integer(i) => self
                 .0
                 .chars()
-                .nth(*i.borrow() as usize)
+                .nth(i as usize)
                 .map(|c| c.to_string())
                 .map(Str::new)
                 .map(ExprResult::String),

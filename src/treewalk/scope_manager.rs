@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, RwStack},
+    core::Container,
     domain::Context,
     treewalk::{
         executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
@@ -78,13 +78,13 @@ fn init_builtin_scope() -> Scope {
 /// The rule of thumb for Python scoping is LEGB: local, enclosing, global (aka module), builtin.
 pub struct ScopeManager {
     /// A stack of `Scope` objects for each local (think: function) scope.
-    local_scope_stack: RwStack<Container<Scope>>,
+    local_scope_stack: Vec<Container<Scope>>,
 
     /// A stack of captured environments to support closures.
-    captured_env_stack: RwStack<Container<EnvironmentFrame>>,
+    captured_env_stack: Vec<Container<EnvironmentFrame>>,
 
     /// A stack of modules to support symbol resolution local to specific modules.
-    module_stack: RwStack<Container<Module>>,
+    module_stack: Vec<Container<Module>>,
 
     /// The read-only scope which contains builtin methods such as `print()`, `open()`, etc. There
     /// is only one of these so we do not need a stack.
@@ -92,17 +92,17 @@ pub struct ScopeManager {
 
     /// This stack allows us to know whether to search on the `local_scope_stack` or the
     /// `module_stack` when resolving a symbol.
-    context_stack: RwStack<Context>,
+    context_stack: Vec<Context>,
 }
 
 impl ScopeManager {
     pub fn new() -> Self {
         ScopeManager {
-            local_scope_stack: RwStack::with_initial(Container::new(Scope::default())),
-            captured_env_stack: RwStack::default(),
-            module_stack: RwStack::with_initial(Container::new(Module::default())),
+            local_scope_stack: vec![Container::new(Scope::default())],
+            captured_env_stack: vec![],
+            module_stack: vec![Container::new(Module::default())],
             builtin_scope: init_builtin_scope(),
-            context_stack: RwStack::with_initial(Context::Global),
+            context_stack: vec![Context::Global],
         }
     }
 
@@ -225,24 +225,26 @@ impl ScopeManager {
     /// This assumes we always have a local scope stack.
     pub fn read_local(&self) -> Container<Scope> {
         self.local_scope_stack
-            .top()
+            .last()
             .expect("failed to find local scope")
+            .clone()
     }
 
     pub fn read_captured_env(&self) -> Option<Box<Container<EnvironmentFrame>>> {
-        self.captured_env_stack.top().map(Box::new)
+        self.captured_env_stack.last().cloned().map(Box::new)
     }
 
     /// This assumes we always have a module stack.
     pub fn read_module(&self) -> Container<Module> {
         self.module_stack
-            .top()
+            .last()
             .expect("failed to find module scope")
+            .clone()
     }
 
     /// This assumes we always have a context stack.
-    fn read_context(&self) -> Context {
-        self.context_stack.top().expect("failed to find context")
+    fn read_context(&self) -> &Context {
+        self.context_stack.last().expect("failed to find context")
     }
 
     /// Used during the parsing process to determine whether to insert a `Expr::FunctionCall` or

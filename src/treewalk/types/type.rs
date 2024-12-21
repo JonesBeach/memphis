@@ -54,9 +54,9 @@ impl NonDataDescriptor for DictAttribute {
             None => owner.borrow().scope.clone(),
         };
 
-        Ok(ExprResult::MappingProxy(Container::new(MappingProxy::new(
+        Ok(ExprResult::MappingProxy(MappingProxy::new(
             scope.as_dict(interpreter),
-        ))))
+        )))
     }
 
     fn name(&self) -> String {
@@ -82,7 +82,7 @@ impl NonDataDescriptor for MroAttribute {
                 .collect(),
             None => owner.mro().iter().cloned().map(ExprResult::Class).collect(),
         };
-        Ok(ExprResult::Tuple(Container::new(Tuple::new(mro))))
+        Ok(ExprResult::Tuple(Tuple::new(mro)))
     }
 
     fn name(&self) -> String {

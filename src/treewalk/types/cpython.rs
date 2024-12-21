@@ -219,7 +219,7 @@ impl ToPyObject for ExprResult {
         match self {
             ExprResult::None => py.None(),
             ExprResult::Boolean(b) => b.to_object(py),
-            ExprResult::Integer(i) => i.borrow().to_object(py),
+            ExprResult::Integer(i) => i.to_object(py),
             ExprResult::String(s) => s.as_str().to_object(py),
             ExprResult::List(l) => {
                 let list = PyList::empty(py);
@@ -366,7 +366,7 @@ pub mod utils {
 
     pub fn from_pyobject(py: Python, py_obj: &PyAny) -> ExprResult {
         if let Ok(value) = py_obj.extract::<i64>() {
-            ExprResult::Integer(Container::new(value))
+            ExprResult::Integer(value)
         } else if let Ok(value) = py_obj.extract::<f64>() {
             ExprResult::FloatingPoint(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
@@ -376,7 +376,7 @@ pub mod utils {
                 .iter()
                 .map(|item| from_pyobject(py, item))
                 .collect();
-            ExprResult::Tuple(Container::new(Tuple::new(elements)))
+            ExprResult::Tuple(Tuple::new(elements))
         } else if let Ok(py_module) = py_obj.extract::<&PyModule>() {
             let mut module = Module::default();
 

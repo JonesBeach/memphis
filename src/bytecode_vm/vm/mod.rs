@@ -7,7 +7,7 @@ use crate::{
         types::{Value, VmError},
         Opcode,
     },
-    core::{log, log_impure, LogLevel, RwStack},
+    core::{log, log_impure, LogLevel},
     treewalk::types::utils::Dunder,
 };
 
@@ -45,7 +45,7 @@ pub struct VirtualMachine {
     /// We must keep a stack of class definitions that we have begun so that when they finish, we
     /// know with which name to associate the namespace. The index here references a name from the
     /// constant pool.
-    class_stack: RwStack<String>,
+    class_stack: Vec<String>,
 }
 
 impl VirtualMachine {
@@ -56,7 +56,7 @@ impl VirtualMachine {
             index_map: HashMap::new(),
             global_store: vec![],
             object_table: vec![],
-            class_stack: RwStack::default(),
+            class_stack: vec![],
         }
     }
 
@@ -390,16 +390,19 @@ impl VirtualMachine {
                     let reference = self.create(Value::Function(function));
                     self.push(reference)?;
                 }
-                Opcode::Call(bytecode_index) => {
-                    let reference = self.load_global(bytecode_index)?;
-                    let value = self.dereference(reference);
-                    match *value {
+                Opcode::Call(argc) => {
+                    let args = (0..argc)
+                        .map(|_| self.pop())
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let reference = self.pop()?;
+                    let callable = self.dereference(reference);
+                    match *callable {
+                        // this is the placeholder for __build_class__ at the moment
+                        Value::BuiltinFunction => {
+                            self.build_class(args);
+                        }
                         Value::Function(ref function) => {
                             let function = function.clone();
-                            let mut args = vec![];
-                            for _ in 0..function.code_object.arg_count {
-                                args.push(self.pop()?);
-                            }
                             self.execute_function(function, args);
                         }
                         Value::Class(ref class) => {
@@ -409,10 +412,6 @@ impl VirtualMachine {
 
                             if let Some(init_method) = init_method {
                                 let init = self.dereference(init_method).as_function().clone();
-                                // Subtract one to account for `self`
-                                let args = (0..init.code_object.arg_count - 1)
-                                    .map(|_| self.pop())
-                                    .collect::<Result<Vec<_>, _>>()?;
                                 let method = Method::new(reference, init);
 
                                 // The object reference must be on the stack for
@@ -423,20 +422,6 @@ impl VirtualMachine {
                             } else {
                                 self.push(reference)?;
                             }
-                        }
-                        _ => todo!("not callable! we should return an error here"),
-                    }
-                }
-                Opcode::PopAndCall(argc) => {
-                    let args = (0..argc)
-                        .map(|_| self.pop())
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let reference = self.pop()?;
-                    let func = self.dereference(reference);
-                    match *func {
-                        // this is the placeholder for __build_class__ at the moment
-                        Value::BuiltinFunction => {
-                            self.build_class(args);
                         }
                         _ => unimplemented!(),
                     };

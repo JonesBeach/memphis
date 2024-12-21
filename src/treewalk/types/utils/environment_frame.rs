@@ -4,9 +4,8 @@ use crate::{
 };
 
 /// This implements lexical scoping necessary to support closures.
-#[derive(Debug, PartialEq, Clone)]
 pub struct EnvironmentFrame {
-    pub scope: Container<Scope>,
+    scope: Container<Scope>,
     parent: Option<Box<Container<EnvironmentFrame>>>,
 }
 

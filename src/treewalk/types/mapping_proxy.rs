@@ -5,7 +5,7 @@ use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterEr
 use super::{domain::traits::IndexRead, Dict, ExprResult};
 
 /// A read-only view into a `Dict`. This is used by Python for things like `Dunder::Dict`.
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct MappingProxy(Container<Dict>);
 
 impl MappingProxy {
@@ -14,18 +14,18 @@ impl MappingProxy {
     }
 }
 
-impl IndexRead for Container<MappingProxy> {
+impl IndexRead for MappingProxy {
     fn getitem(
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
-        self.borrow().0.getitem(interpreter, index)
+        self.0.getitem(interpreter, index)
     }
 }
 
-impl Display for Container<MappingProxy> {
+impl Display for MappingProxy {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "mappingproxy({})", self.borrow().0)
+        write!(f, "mappingproxy({})", self.0)
     }
 }

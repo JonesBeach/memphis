@@ -4,11 +4,7 @@ use std::{
     ops::Add,
 };
 
-use crate::{
-    core::{Container, Storable},
-    treewalk::Interpreter,
-    types::errors::InterpreterError,
-};
+use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -71,7 +67,7 @@ impl List {
 
         let sliced_items = Slice::slice(slice, len, |i| {
             receiver
-                .getitem(interpreter, ExprResult::Integer(i.store()))
+                .getitem(interpreter, ExprResult::Integer(i))
                 .unwrap()
         });
 
@@ -86,7 +82,7 @@ impl IndexRead for Container<List> {
         key: ExprResult,
     ) -> Result<Option<ExprResult>, InterpreterError> {
         Ok(match key {
-            ExprResult::Integer(i) => self.borrow().items.get(*i.borrow() as usize).cloned(),
+            ExprResult::Integer(i) => self.borrow().items.get(i as usize).cloned(),
             ExprResult::Slice(s) => Some(ExprResult::List(Container::new(
                 self.borrow().slice(interpreter, &s),
             ))),
@@ -102,11 +98,9 @@ impl IndexWrite for Container<List> {
         index: ExprResult,
         value: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
@@ -116,11 +110,9 @@ impl IndexWrite for Container<List> {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> Result<(), InterpreterError> {
-        let i = index
-            .as_integer_val()
-            .ok_or(InterpreterError::ExpectedInteger(
-                interpreter.state.call_stack(),
-            ))?;
+        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
+            interpreter.state.call_stack(),
+        ))?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }
@@ -141,23 +133,19 @@ impl TryFrom<ExprResult> for Container<List> {
 
     fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
         match value {
-            ExprResult::List(list) => Ok(list.clone()),
-            ExprResult::Set(set) => Ok(set.clone().into()),
-            ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
-            ExprResult::Range(range) => Ok(range.clone().into()),
-            ExprResult::Generator(g) => Ok(g.clone().into()),
+            ExprResult::List(list) => Ok(list),
+            ExprResult::Set(set) => Ok(set.into()),
+            ExprResult::Tuple(tuple) => Ok(tuple.into()),
+            ExprResult::Range(range) => Ok(range.into()),
+            ExprResult::Generator(g) => Ok(g.into()),
             _ => Err(InterpreterError::RuntimeError),
         }
     }
 }
 
-impl From<Container<Range>> for Container<List> {
-    fn from(range: Container<Range>) -> Container<List> {
-        let start = range.borrow().start;
-        let stop = range.borrow().stop;
-        let items = (start..stop)
-            .map(|x| ExprResult::Integer(Container::new(x as i64)))
-            .collect();
+impl From<Range> for Container<List> {
+    fn from(range: Range) -> Container<List> {
+        let items = (range.start..range.stop).map(ExprResult::Integer).collect();
         Container::new(List::new(items))
     }
 }
@@ -170,7 +158,7 @@ impl From<Container<Set>> for Container<List> {
 
         items.sort_by_key(|x| {
             match x {
-                ExprResult::Integer(i) => *i.borrow(),
+                ExprResult::Integer(i) => *i,
                 // TODO how should we sort strings here?
                 //ExprResult::String(s) => s.0,
                 _ => 0,
@@ -181,9 +169,9 @@ impl From<Container<Set>> for Container<List> {
     }
 }
 
-impl From<Container<Tuple>> for Container<List> {
-    fn from(tuple: Container<Tuple>) -> Container<List> {
-        Container::new(List::new(tuple.borrow().raw()))
+impl From<Tuple> for Container<List> {
+    fn from(tuple: Tuple) -> Container<List> {
+        Container::new(List::new(tuple.raw()))
     }
 }
 

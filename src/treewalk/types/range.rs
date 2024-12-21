@@ -1,6 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -11,11 +11,15 @@ use super::{
     ExprResult,
 };
 
+const DEFAULT_START: i64 = 0;
+const DEFAULT_STOP: i64 = 0;
+const DEFAULT_STEP: i64 = 1;
+
 #[derive(Clone, PartialEq)]
 pub struct Range {
-    pub start: usize,
-    pub stop: usize,
-    pub step: usize,
+    pub start: i64,
+    pub stop: i64,
+    pub step: i64,
 }
 
 impl Typed for Range {
@@ -26,26 +30,40 @@ impl Typed for Range {
 
 impl MethodProvider for Range {
     fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin), Box::new(InitBuiltin)]
+        vec![Box::new(NewBuiltin)]
+    }
+}
+
+impl Range {
+    fn new(start: i64, stop: i64, step: i64) -> Self {
+        Self { start, stop, step }
+    }
+
+    fn with_stop(stop: i64) -> Self {
+        Self::new(DEFAULT_START, stop, DEFAULT_STEP)
+    }
+
+    fn with_start_stop(start: i64, stop: i64) -> Self {
+        Self::new(start, stop, DEFAULT_STEP)
     }
 }
 
 impl Default for Range {
     fn default() -> Self {
         Self {
-            start: 0,
-            stop: 0,
-            step: 1,
+            start: DEFAULT_START,
+            stop: DEFAULT_STOP,
+            step: DEFAULT_STEP,
         }
     }
 }
 
-impl IntoIterator for Container<Range> {
+impl IntoIterator for Range {
     type Item = ExprResult;
     type IntoIter = RangeIterator;
 
     fn into_iter(self) -> Self::IntoIter {
-        RangeIterator::new(self.borrow().clone())
+        RangeIterator::new(self)
     }
 }
 
@@ -77,7 +95,7 @@ impl Iterator for RangeIterator {
             // Modify the start value in the range itself to prep the state for the next time
             // `next` is called.
             self.0.start += self.0.step;
-            Some(ExprResult::Integer(Container::new(result as i64)))
+            Some(ExprResult::Integer(result))
         } else {
             None
         }
@@ -89,53 +107,10 @@ struct NewBuiltin;
 impl Callable for NewBuiltin {
     fn call(
         &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        Ok(ExprResult::Range(Container::new(Range::default())))
-    }
-
-    fn name(&self) -> String {
-        Dunder::New.into()
-    }
-}
-
-struct InitBuiltin;
-
-impl Callable for InitBuiltin {
-    fn call(
-        &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
-        let range = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedRange(
-                interpreter.state.call_stack(),
-            ))?
-            .as_range()
-            .ok_or(InterpreterError::ExpectedRange(
-                interpreter.state.call_stack(),
-            ))?;
-
-        if args.len() == 1 {
-            let stop = args
-                .get_arg(0)
-                .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
-                ))?;
-
-            range.borrow_mut().stop = *stop.borrow() as usize;
-
-            Ok(ExprResult::None)
-        } else if args.len() == 2 {
-            let start = args
-                .get_arg(0)
-                .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
-                ))?;
+        if args.len() == 2 {
             let stop = args
                 .get_arg(1)
                 .as_integer()
@@ -143,35 +118,43 @@ impl Callable for InitBuiltin {
                     interpreter.state.call_stack(),
                 ))?;
 
-            range.borrow_mut().start = *start.borrow() as usize;
-            range.borrow_mut().stop = *stop.borrow() as usize;
-
-            Ok(ExprResult::None)
+            Ok(ExprResult::Range(Range::with_stop(stop)))
         } else if args.len() == 3 {
             let start = args
-                .get_arg(0)
-                .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
-                ))?;
-            let stop = args
                 .get_arg(1)
                 .as_integer()
                 .ok_or(InterpreterError::ExpectedInteger(
                     interpreter.state.call_stack(),
                 ))?;
-            let step = args
+            let stop = args
                 .get_arg(2)
                 .as_integer()
                 .ok_or(InterpreterError::ExpectedInteger(
                     interpreter.state.call_stack(),
                 ))?;
 
-            range.borrow_mut().start = *start.borrow() as usize;
-            range.borrow_mut().stop = *stop.borrow() as usize;
-            range.borrow_mut().step = *step.borrow() as usize;
+            Ok(ExprResult::Range(Range::with_start_stop(start, stop)))
+        } else if args.len() == 4 {
+            let start = args
+                .get_arg(1)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
+            let stop = args
+                .get_arg(2)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
+            let step = args
+                .get_arg(3)
+                .as_integer()
+                .ok_or(InterpreterError::ExpectedInteger(
+                    interpreter.state.call_stack(),
+                ))?;
 
-            Ok(ExprResult::None)
+            Ok(ExprResult::Range(Range::new(start, stop, step)))
         } else {
             Err(InterpreterError::WrongNumberOfArguments(
                 1,
@@ -182,6 +165,6 @@ impl Callable for InitBuiltin {
     }
 
     fn name(&self) -> String {
-        Dunder::Init.into()
+        Dunder::New.into()
     }
 }

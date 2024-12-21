@@ -2,11 +2,9 @@ use std::{fmt::Display, process};
 
 mod container;
 mod log;
-mod stack;
 
-pub use container::{Container, Storable};
+pub use container::Container;
 pub use log::{log, log_impure, LogLevel};
-pub use stack::RwStack;
 
 use crate::{parser::Parser, types::errors::MemphisError};
 

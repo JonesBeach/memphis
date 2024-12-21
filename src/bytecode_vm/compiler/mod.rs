@@ -2,7 +2,7 @@ pub mod types;
 
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
-    core::{log, LogLevel, RwStack},
+    core::{log, LogLevel},
     domain::Context,
     parser::types::{
         Ast, BinOp, Block, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments,
@@ -23,7 +23,7 @@ pub struct Compiler {
     /// (i.e. variable names).
     code_stack: Vec<CodeObject>,
 
-    context_stack: RwStack<Context>,
+    context_stack: Vec<Context>,
 }
 
 impl Compiler {
@@ -32,7 +32,7 @@ impl Compiler {
         Self {
             constant_pool: vec![],
             code_stack: vec![code],
-            context_stack: RwStack::with_initial(Context::Global),
+            context_stack: vec![Context::Global],
         }
     }
 
@@ -201,11 +201,10 @@ impl Compiler {
         self.context_stack.pop();
 
         code.bytecode = bytecode;
-        let code_index = self.get_or_set_constant_index(Constant::Code(code));
         let name_index = self.get_or_set_local_index(name);
 
         Ok(vec![
-            Opcode::LoadConst(code_index),
+            self.compile_code(code),
             Opcode::MakeFunction,
             self.compile_store_to_index(name_index),
         ])
@@ -239,12 +238,11 @@ impl Compiler {
         code.bytecode.push(Opcode::EndClass);
 
         let mut bytecode = vec![Opcode::LoadBuildClass];
-        let code_index = self.get_or_set_constant_index(Constant::Code(code));
-        bytecode.push(Opcode::LoadConst(code_index));
+        bytecode.push(self.compile_code(code));
 
         // subtract one to ignore Opcode::LoadBuildClass
         let num_args = bytecode.len() - 1;
-        bytecode.push(Opcode::PopAndCall(num_args));
+        bytecode.push(Opcode::Call(num_args));
 
         let name_index = self.get_or_set_local_index(name);
         bytecode.push(self.compile_store_to_index(name_index));
@@ -252,18 +250,33 @@ impl Compiler {
         Ok(bytecode)
     }
 
-    fn compile_string_literal(&mut self, value: &str) -> Result<Bytecode, CompilerError> {
-        let index = self.get_or_set_constant_index(Constant::String(value.to_string()));
-        Ok(vec![Opcode::LoadConst(index)])
+    fn compile_string_literal(&mut self, value: &str) -> Opcode {
+        self.compile_constant(Constant::String(value.to_string()))
     }
 
-    fn compile_variable(&mut self, name: &str) -> Result<Bytecode, CompilerError> {
+    fn compile_none(&mut self) -> Opcode {
+        self.compile_constant(Constant::None)
+    }
+
+    fn compile_bool(&mut self, bool: bool) -> Opcode {
+        self.compile_constant(Constant::Boolean(bool))
+    }
+
+    fn compile_code(&mut self, code: CodeObject) -> Opcode {
+        self.compile_constant(Constant::Code(code))
+    }
+
+    fn compile_constant(&mut self, constant: Constant) -> Opcode {
+        let index = self.get_or_set_constant_index(constant);
+        Opcode::LoadConst(index)
+    }
+
+    fn compile_variable(&mut self, name: &str) -> Opcode {
         let (context, index) = self.get_local_index(name);
-        let opcode = match context {
+        match context {
             Context::Local => Opcode::LoadFast(index),
             Context::Global => Opcode::LoadGlobal(index),
-        };
-        Ok(vec![opcode])
+        }
     }
 
     fn compile_unary_operation(
@@ -343,16 +356,16 @@ impl Compiler {
             return Ok(vec![Opcode::PrintConst(index)]);
         }
 
-        let mut opcodes = vec![];
+        let mut opcodes = vec![self.compile_variable(name)];
+
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
         for arg in args.args.iter().rev() {
             opcodes.extend(self.compile_expr(arg)?);
         }
-        let (_, index) = self.get_local_index(name);
-        // TODO how does this know if it is a global or local index? this may not be the right
-        // approach for calling a function
-        opcodes.push(Opcode::Call(index));
+
+        let argc = opcodes.len() - 1;
+        opcodes.push(Opcode::Call(argc));
         Ok(opcodes)
     }
 
@@ -391,17 +404,11 @@ impl Compiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<Bytecode, CompilerError> {
         match expr {
-            Expr::None => {
-                let index = self.get_or_set_constant_index(Constant::None);
-                Ok(vec![Opcode::LoadConst(index)])
-            }
-            Expr::Boolean(value) => {
-                let index = self.get_or_set_constant_index(Constant::Boolean(*value));
-                Ok(vec![Opcode::LoadConst(index)])
-            }
+            Expr::None => Ok(vec![self.compile_none()]),
+            Expr::Boolean(value) => Ok(vec![self.compile_bool(*value)]),
             Expr::Integer(value) => Ok(vec![Opcode::Push(*value)]),
-            Expr::StringLiteral(value) => self.compile_string_literal(value),
-            Expr::Variable(name) => self.compile_variable(name),
+            Expr::StringLiteral(value) => Ok(vec![self.compile_string_literal(value)]),
+            Expr::Variable(name) => Ok(vec![self.compile_variable(name)]),
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.compile_binary_operation(left, op, right)
@@ -506,9 +513,9 @@ impl Compiler {
     }
 
     /// This assumes we always have a context stack.
-    fn ensure_context(&self) -> Context {
+    fn ensure_context(&self) -> &Context {
         self.context_stack
-            .top()
+            .last()
             .expect("Internal Compiler Error: failed to find context.")
     }
 
@@ -929,7 +936,8 @@ mod bytecode_tests {
                     vec![
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::LoadGlobal(Index::new(1)),
-                        Opcode::Call(Index::new(2)),
+                        Opcode::LoadGlobal(Index::new(2)),
+                        Opcode::Call(2),
                     ]
                 );
             }
@@ -1028,6 +1036,65 @@ def foo(a, b):
                         names: vec![],
                     }
                 );
+                assert_eq!(program.code.names.len(), 1);
+                assert_eq!(get_names_index(&program, "foo"), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn function_definition_with_nested_function() {
+        let text = r#"
+def foo(a, b):
+    def inner():
+        return 10
+    a + b
+"#;
+        let mut context = init(text);
+
+        match context.compile() {
+            Err(e) => panic!("Unexpected error: {:?}", e),
+            Ok(program) => {
+                assert_eq!(
+                    program.code.bytecode,
+                    vec![
+                        Opcode::LoadConst(Index::new(1)),
+                        Opcode::MakeFunction,
+                        Opcode::StoreGlobal(Index::new(0)),
+                        Opcode::Halt,
+                    ]
+                );
+                assert_eq!(program.constant_pool.len(), 2);
+                let inner = get_code_at_index(&program, 0);
+                assert_eq!(
+                    inner,
+                    &CodeObject {
+                        name: "inner".into(),
+                        bytecode: vec![Opcode::Push(10), Opcode::ReturnValue,],
+                        arg_count: 0,
+                        varnames: vec![],
+                        names: vec![],
+                    }
+                );
+                let foo = get_code_at_index(&program, 1);
+                assert_eq!(
+                    foo,
+                    &CodeObject {
+                        name: "foo".into(),
+                        bytecode: vec![
+                            Opcode::LoadConst(Index::new(0)),
+                            Opcode::MakeFunction,
+                            Opcode::StoreFast(Index::new(2)),
+                            Opcode::LoadFast(Index::new(0)),
+                            Opcode::LoadFast(Index::new(1)),
+                            Opcode::Iadd,
+                        ],
+                        arg_count: 2,
+                        varnames: vec!["a".into(), "b".into(), "inner".into()],
+                        names: vec![],
+                    }
+                );
+                assert_eq!(program.code.names.len(), 1);
                 assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
@@ -1065,6 +1132,7 @@ def foo():
                         names: vec![],
                     }
                 );
+                assert_eq!(program.code.names.len(), 1);
                 assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
@@ -1108,6 +1176,7 @@ def foo():
                         names: vec![],
                     }
                 );
+                assert_eq!(program.code.names.len(), 1);
                 assert_eq!(get_names_index(&program, "foo"), 0);
             }
         }
@@ -1139,8 +1208,10 @@ world()
                         Opcode::LoadConst(Index::new(3)),
                         Opcode::MakeFunction,
                         Opcode::StoreGlobal(Index::new(1)),
-                        Opcode::Call(Index::new(0)),
-                        Opcode::Call(Index::new(1)),
+                        Opcode::LoadGlobal(Index::new(0)),
+                        Opcode::Call(0),
+                        Opcode::LoadGlobal(Index::new(1)),
+                        Opcode::Call(0),
                         Opcode::Halt,
                     ]
                 );
@@ -1169,6 +1240,7 @@ world()
                         names: vec![],
                     }
                 );
+                assert_eq!(program.code.names.len(), 2);
                 assert_eq!(get_names_index(&program, "hello"), 0);
                 assert_eq!(get_names_index(&program, "world"), 1);
             }
@@ -1216,7 +1288,7 @@ class Foo:
                     vec![
                         Opcode::LoadBuildClass,
                         Opcode::LoadConst(Index::new(1)),
-                        Opcode::PopAndCall(1),
+                        Opcode::Call(1),
                         Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
@@ -1272,7 +1344,7 @@ class Foo:
                     vec![
                         Opcode::LoadBuildClass,
                         Opcode::LoadConst(Index::new(1)),
-                        Opcode::PopAndCall(1),
+                        Opcode::Call(1),
                         Opcode::StoreGlobal(Index::new(0)),
                         Opcode::Halt,
                     ]
@@ -1302,9 +1374,10 @@ f = Foo()
                     vec![
                         Opcode::LoadBuildClass,
                         Opcode::LoadConst(Index::new(1)),
-                        Opcode::PopAndCall(1),
+                        Opcode::Call(1),
                         Opcode::StoreGlobal(Index::new(0)),
-                        Opcode::Call(Index::new(0)),
+                        Opcode::LoadGlobal(Index::new(0)),
+                        Opcode::Call(0),
                         Opcode::StoreGlobal(Index::new(1)),
                         Opcode::Halt,
                     ]
@@ -1336,9 +1409,10 @@ b = f.bar()
                     vec![
                         Opcode::LoadBuildClass,
                         Opcode::LoadConst(Index::new(1)),
-                        Opcode::PopAndCall(1),
+                        Opcode::Call(1),
                         Opcode::StoreGlobal(Index::new(0)),
-                        Opcode::Call(Index::new(0)),
+                        Opcode::LoadGlobal(Index::new(0)),
+                        Opcode::Call(0),
                         Opcode::StoreGlobal(Index::new(1)),
                         Opcode::LoadGlobal(Index::new(1)),
                         Opcode::LoadAttr(Index::new(2)),

@@ -52,16 +52,3 @@ impl<T> Clone for Container<T> {
         Container(self.0.clone())
     }
 }
-
-/// Provide an alternative way to initialize a `Container`.
-pub trait Storable {
-    fn store(self) -> Container<Self>
-    where
-        Self: Sized;
-}
-
-impl Storable for i64 {
-    fn store(self) -> Container<i64> {
-        Container::new(self)
-    }
-}

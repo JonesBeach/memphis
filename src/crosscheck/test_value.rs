@@ -53,7 +53,7 @@ impl From<ExprResult> for TestValue {
         match value {
             ExprResult::None => TestValue::None,
             ExprResult::Integer(_) => {
-                TestValue::Integer(value.as_integer_val().expect("failed to get integer"))
+                TestValue::Integer(value.as_integer().expect("Failed to get integer"))
             }
             ExprResult::String(_) => {
                 TestValue::String(value.as_string().expect("failed to get string"))

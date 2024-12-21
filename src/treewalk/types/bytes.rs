@@ -1,4 +1,4 @@
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -9,9 +9,9 @@ use super::{
     ExprResult,
 };
 
-/// A mutable version of a byte string.
+/// A immutable version of a byte string.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Bytes(pub Vec<u8>);
+pub struct Bytes;
 
 impl Typed for Bytes {
     fn get_type() -> Type {
@@ -25,12 +25,6 @@ impl MethodProvider for Bytes {
     }
 }
 
-impl Bytes {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self(bytes)
-    }
-}
-
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
@@ -40,7 +34,7 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> Result<ExprResult, InterpreterError> {
         match args.len() {
-            1 => Ok(ExprResult::Bytes(Container::new(Bytes::new("".into())))),
+            1 => Ok(ExprResult::Bytes("".into())),
             2 => match args.get_arg(1) {
                 ExprResult::String(_) => Err(InterpreterError::TypeError(
                     Some("string argument without an encoding".into()),

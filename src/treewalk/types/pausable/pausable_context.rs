@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    core::{Container, RwStack},
+    core::Container,
     parser::types::{Expr, LoopIndex, Statement},
     treewalk::types::ExprResult,
 };
@@ -34,67 +34,68 @@ pub struct PausableToken {
 }
 
 impl PausableToken {
-    pub(crate) fn new(frame: Frame, state: PausableState) -> Self {
+    pub fn new(frame: Frame, state: PausableState) -> Self {
         Self { frame, state }
     }
 }
 
 /// The context that allows a [`Pausable`] to be paused and resumed. This represents a stack of
 /// [`PausableToken`] objects.
-pub struct PausableContext(RwStack<PausableToken>);
+pub struct PausableContext(Vec<PausableToken>);
 
 impl PausableContext {
-    pub(crate) fn new(initial_frame: Frame) -> Container<Self> {
-        Container::new(Self(RwStack::new(vec![PausableToken::new(
+    pub fn new(initial_frame: Frame) -> Container<Self> {
+        Container::new(Self(vec![PausableToken::new(
             initial_frame,
             PausableState::Created,
-        )])))
+        )]))
     }
 }
 
 impl Container<PausableContext> {
-    pub(crate) fn push_context(&mut self, context: PausableToken) {
+    pub fn push_context(&mut self, context: PausableToken) {
         self.borrow_mut().0.push(context);
     }
 
-    pub(crate) fn pop_context(&self) -> Option<PausableToken> {
+    pub fn pop_context(&self) -> Option<PausableToken> {
         self.borrow_mut().0.pop()
     }
 
-    pub(crate) fn set_state(&self, state: PausableState) {
-        self.borrow_mut().0.with_top_mut(|context| {
+    pub fn set_state(&self, state: PausableState) {
+        if let Some(context) = self.borrow_mut().0.last_mut() {
             context.state = state;
-        });
+        }
     }
 
-    pub(crate) fn next_statement(&self) -> Statement {
+    pub fn next_statement(&self) -> Statement {
         self.borrow_mut()
             .0
-            .with_top_mut(|context| context.frame.next_statement())
+            .last_mut()
+            .map(|context| context.frame.next_statement())
             .unwrap()
     }
 
-    pub(crate) fn current_frame(&self) -> Frame {
-        self.borrow().0.top().unwrap().frame
+    pub fn current_frame(&self) -> Frame {
+        self.borrow().0.last().unwrap().frame.clone()
     }
 
-    pub(crate) fn current_state(&self) -> PausableState {
-        self.borrow().0.top().unwrap().state
+    pub fn current_state(&self) -> PausableState {
+        self.borrow().0.last().unwrap().state.clone()
     }
 
-    pub(crate) fn restart_frame(&self) {
-        self.borrow_mut().0.with_top_mut(|context| {
+    pub fn restart_frame(&self) {
+        if let Some(context) = self.borrow_mut().0.last_mut() {
             context.frame.restart();
-        });
+        }
     }
 
-    pub(crate) fn start(&self) {
+    pub fn start(&self) {
         self.set_state(PausableState::Running);
     }
 
-    pub(crate) fn step_back(&self) {
-        self.borrow_mut().0.with_top_mut(|context| {
+    pub fn step_back(&self) {
+        if let Some(context) = self.borrow_mut().0.last_mut() {
             context.frame.step_back();
-        });
+        }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    core::{Container, RwStack},
+    core::Container,
     treewalk::types::{Class, ExprResult, Function},
 };
 
@@ -7,26 +7,26 @@ use crate::{
 pub struct ExecutionContextManager {
     /// A stack to hold the current [`Class`] being defined (i.e. its lexical scope). We need this
     /// so we can associate a function with its class.
-    lexical_class_stack: RwStack<Container<Class>>,
+    lexical_class_stack: Vec<Container<Class>>,
 
     /// A stack to hold the current [`Function`] being evaluated. A method will push something onto
     /// this stack and the receiver stack below.
-    current_function_stack: RwStack<Container<Function>>,
+    current_function_stack: Vec<Container<Function>>,
 
     /// A stack to hold the current [`ExprResult`] being evaluated on. We need this for whenver
     /// `super()` is called.
     ///
     /// We do not need a container here because the [`Object`] and [`Class`] variants of
     /// [`ExprResult`] already are wrapped in a [`Container`].
-    current_receiver_stack: RwStack<ExprResult>,
+    current_receiver_stack: Vec<ExprResult>,
 }
 
 impl ExecutionContextManager {
     pub fn new() -> Self {
         Self {
-            lexical_class_stack: RwStack::default(),
-            current_function_stack: RwStack::default(),
-            current_receiver_stack: RwStack::default(),
+            lexical_class_stack: vec![],
+            current_function_stack: vec![],
+            current_receiver_stack: vec![],
         }
     }
 
@@ -56,16 +56,16 @@ impl ExecutionContextManager {
 
     /// Return the currently executing function.
     pub fn read_current_function(&self) -> Option<Container<Function>> {
-        self.current_function_stack.top()
+        self.current_function_stack.last().cloned()
     }
 
     /// Return the currently executing receiver.
     pub fn read_current_receiver(&self) -> Option<ExprResult> {
-        self.current_receiver_stack.top()
+        self.current_receiver_stack.last().cloned()
     }
 
     /// Return the current class according to lexical scoping rules.
     pub fn read_class(&self) -> Option<Container<Class>> {
-        self.lexical_class_stack.top()
+        self.lexical_class_stack.last().cloned()
     }
 }

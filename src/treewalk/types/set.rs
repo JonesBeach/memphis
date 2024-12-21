@@ -72,21 +72,21 @@ impl From<Container<List>> for Container<Set> {
     }
 }
 
-impl From<Container<Tuple>> for Container<Set> {
-    fn from(tuple: Container<Tuple>) -> Container<Set> {
+impl From<Tuple> for Container<Set> {
+    fn from(tuple: Tuple) -> Container<Set> {
         Container::new(Set::new(tuple.into_iter().collect()))
     }
 }
 
-impl From<Container<Range>> for Container<Set> {
-    fn from(range: Container<Range>) -> Container<Set> {
+impl From<Range> for Container<Set> {
+    fn from(range: Range) -> Container<Set> {
         Container::new(Set::new(range.into_iter().collect()))
     }
 }
 
-impl From<Container<FrozenSet>> for Container<Set> {
-    fn from(frozenset: Container<FrozenSet>) -> Container<Set> {
-        Container::new(Set::new(frozenset.borrow().clone().items))
+impl From<FrozenSet> for Container<Set> {
+    fn from(frozenset: FrozenSet) -> Container<Set> {
+        Container::new(Set::new(frozenset.items))
     }
 }
 

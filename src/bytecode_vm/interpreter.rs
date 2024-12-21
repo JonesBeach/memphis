@@ -268,6 +268,27 @@ world()
     }
 
     #[test]
+    fn function_call_with_nested_function() {
+        let text = r#"
+def foo(a, b):
+    def inner(c, d):
+        return c * d
+    return a + b + inner(a, b)
+
+c = foo(2, 9)
+"#;
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Err(e) => panic!("Interpreter error: {:?}", e),
+            Ok(_) => {
+                let interpreter = context.ensure_vm();
+                assert_eq!(interpreter.take("c"), Some(Value::Integer(29)));
+            }
+        }
+    }
+
+    #[test]
     fn class_definition() {
         let text = r#"
 class Foo:

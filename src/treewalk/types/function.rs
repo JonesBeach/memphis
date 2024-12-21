@@ -35,10 +35,12 @@ pub enum FunctionType {
 }
 
 /// This is a placeholder for what is calcuated on a functions [`Dunder::Code`].
+/// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
+/// self-modifying code or whatever this is used for.
 #[derive(Clone)]
 pub struct Code;
 
-#[derive(PartialEq, Clone)]
+#[derive(Clone)]
 pub struct Function {
     pub name: String,
     pub args: ParsedArgDefinitions,
@@ -73,6 +75,12 @@ impl DescriptorProvider for Function {
             Box::new(AnnotationsAttribute),
             Box::new(TypeParamsAttribute),
         ]
+    }
+}
+
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.module == other.module
     }
 }
 
@@ -140,19 +148,13 @@ impl Function {
     fn get_closure(&self) -> ExprResult {
         let mut items = vec![];
         for key in self.closure.get_free_vars() {
-            let value = self
-                .captured_env
-                .borrow()
-                .scope
-                .borrow()
-                .get(key.as_str())
-                .unwrap();
+            let value = self.captured_env.borrow().read(key.as_str()).unwrap();
             items.push(ExprResult::Cell(Container::new(Cell::new(value))));
         }
 
         match items.is_empty() {
             true => ExprResult::None,
-            false => ExprResult::Tuple(Container::new(Tuple::new(items))),
+            false => ExprResult::Tuple(Tuple::new(items)),
         }
     }
 }
@@ -527,7 +529,7 @@ impl NonDataDescriptor for TypeParamsAttribute {
         _owner: Container<Class>,
     ) -> Result<ExprResult, InterpreterError> {
         Ok(match instance {
-            Some(_) => ExprResult::Tuple(Container::new(Tuple::default())),
+            Some(_) => ExprResult::Tuple(Tuple::default()),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }

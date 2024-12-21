@@ -25,9 +25,9 @@ use super::{
         RangeIterator, ReversedIterator, StringIterator, ZipIterator,
     },
     utils::{BuiltinObject, Dunder, ResolvedArguments},
-    ByteArray, Bytes, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
-    DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
-    Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
+    ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems, DictKeys,
+    DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object, Property, Range,
+    Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
 };
 
 #[derive(Clone)]
@@ -35,9 +35,7 @@ pub enum ExprResult {
     None,
     Ellipsis,
     NotImplemented,
-    /// Using a [`Container`] here is weird, but we did this because the [`Dunder::Init`] method
-    /// modifies the integer in place.
-    Integer(Container<i64>),
+    Integer(i64),
     FloatingPoint(f64),
     String(Str),
     Class(Container<Class>),
@@ -55,17 +53,14 @@ pub enum ExprResult {
     BuiltinMethod(Container<Box<dyn Callable>>),
     Generator(Container<GeneratorIterator>),
     Coroutine(Container<Coroutine>),
-    /// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
-    /// self-modifying code or whatever this is used for.
     Code(Container<Code>),
     Cell(Container<Cell>),
-    /// An immutable string of bytes.
-    Bytes(Container<Bytes>),
+    Bytes(Vec<u8>),
     ByteArray(Container<ByteArray>),
     Boolean(bool),
     List(Container<List>),
     Set(Container<Set>),
-    FrozenSet(Container<FrozenSet>),
+    FrozenSet(FrozenSet),
     Zip(ZipIterator),
     Slice(Slice),
     Complex(Complex),
@@ -73,9 +68,9 @@ pub enum ExprResult {
     DictItems(DictItems),
     DictKeys(DictKeys),
     DictValues(DictValues),
-    MappingProxy(Container<MappingProxy>),
-    Range(Container<Range>),
-    Tuple(Container<Tuple>),
+    MappingProxy(MappingProxy),
+    Range(Range),
+    Tuple(Tuple),
     Exception(Box<InterpreterError>),
     Traceback(Traceback),
     Frame,
@@ -90,9 +85,7 @@ pub enum ExprResult {
     // this might need a real TupleIterator, I'm not sure yet
     TupleIterator(ListIterator),
     StringIterator(StringIterator),
-    // TODO use actual iterator here
     BytesIterator(Vec<u8>),
-    // TODO use actual iterator here
     ByteArrayIterator(Vec<u8>),
     TypeNode(TypeExpr),
     #[cfg(feature = "c_stdlib")]
@@ -149,7 +142,7 @@ impl Hash for ExprResult {
     {
         if let ExprResult::Set(set) = self {
             for i in set.borrow().items.clone() {
-                i.as_integer().unwrap().borrow().hash(state)
+                i.as_integer().unwrap().hash(state)
             }
         }
     }
@@ -203,7 +196,7 @@ impl ExprResult {
         match self {
             ExprResult::Object(o) => o.address(),
             ExprResult::Class(o) => o.address(),
-            ExprResult::Integer(i) => *i.borrow() as usize,
+            ExprResult::Integer(i) => *i as usize,
             _ => 0,
         }
     }
@@ -243,7 +236,7 @@ impl ExprResult {
             ExprResult::List(l) => write!(f, "{}", l),
             ExprResult::Set(s) => write!(f, "{}", s),
             ExprResult::FrozenSet(s) => write!(f, "{}", s),
-            ExprResult::Range(r) => write!(f, "{}", r.borrow()),
+            ExprResult::Range(r) => write!(f, "{}", r),
             ExprResult::Tuple(t) => write!(f, "{}", t),
             ExprResult::Zip(_) => write!(f, "<zip>"),
             ExprResult::Slice(s) => write!(f, "{}", s),
@@ -390,28 +383,21 @@ impl ExprResult {
         }
     }
 
-    /// Return a reference to an integer if this type supports it. To get the value itself, use
-    /// `as_integer_val()`.
-    pub fn as_integer(&self) -> Option<Container<i64>> {
+    pub fn as_integer(&self) -> Option<i64> {
         match self {
-            ExprResult::Integer(i) => Some(i.clone()),
+            ExprResult::Integer(i) => Some(*i),
             ExprResult::String(s) => match s.parse::<i64>() {
-                Ok(i) => Some(Container::new(i)),
+                Ok(i) => Some(i),
                 Err(_) => None,
             },
             _ => None,
         }
     }
 
-    /// Return an integer value if this type supports it. To get a reference, use `as_integer()`.
-    pub fn as_integer_val(&self) -> Option<i64> {
-        self.as_integer().map(|i| *i.borrow())
-    }
-
     pub fn as_fp(&self) -> Option<f64> {
         match self {
             ExprResult::FloatingPoint(i) => Some(*i),
-            ExprResult::Integer(i) => Some(*i.borrow() as f64),
+            ExprResult::Integer(i) => Some(*i as f64),
             _ => None,
         }
     }
@@ -622,7 +608,7 @@ impl ExprResult {
             ExprResult::Boolean(i) => *i,
             ExprResult::List(i) => i.borrow().len() > 0,
             ExprResult::String(i) => !i.is_empty(),
-            ExprResult::Integer(i) => *i.borrow() != 0,
+            ExprResult::Integer(i) => *i != 0,
             ExprResult::None => false,
             _ => true,
         }
@@ -670,14 +656,14 @@ impl ExprResult {
         }
     }
 
-    pub fn as_range(&self) -> Option<Container<Range>> {
+    pub fn as_range(&self) -> Option<Range> {
         match self {
             ExprResult::Range(i) => Some(i.clone()),
             _ => None,
         }
     }
 
-    pub fn as_tuple(&self) -> Option<Container<Tuple>> {
+    pub fn as_tuple(&self) -> Option<Tuple> {
         match self {
             ExprResult::List(i) => Some(i.clone().into()),
             ExprResult::Tuple(i) => Some(i.clone()),
@@ -697,12 +683,8 @@ impl ExprResult {
 
     pub fn negated(&self) -> Self {
         match self {
-            ExprResult::FloatingPoint(i) => ExprResult::FloatingPoint(-*i),
-            ExprResult::Integer(i) => {
-                let old_val = *i.borrow();
-                *i.borrow_mut() = -old_val;
-                ExprResult::Integer(i.clone())
-            }
+            ExprResult::FloatingPoint(i) => ExprResult::FloatingPoint(-i),
+            ExprResult::Integer(i) => ExprResult::Integer(-i),
             _ => unreachable!(),
         }
     }

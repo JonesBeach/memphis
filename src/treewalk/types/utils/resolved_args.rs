@@ -63,7 +63,7 @@ impl ResolvedArguments {
                 .ok_or(InterpreterError::ExpectedTuple(
                     interpreter.state.call_stack(),
                 ))?;
-            args.clone().borrow().raw()
+            args.raw()
         } else {
             vec![]
         };
