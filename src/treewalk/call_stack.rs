@@ -1,5 +1,7 @@
-use std::fmt::{Display, Error, Formatter};
-use std::path::PathBuf;
+use std::{
+    fmt::{Display, Error, Formatter},
+    path::PathBuf,
+};
 
 use crate::treewalk::types::function::Function;
 
@@ -63,11 +65,6 @@ impl StackFrame {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct CallStack {
-    pub frames: Vec<StackFrame>,
-}
-
 // Example from Python:
 //
 //  File [1] "/Users/tyler/Documents/repos/memphis/examples/test.py", [3] line 37, in [3] <module>
@@ -83,6 +80,10 @@ pub struct CallStack {
 // [3] other.something() called
 // [4] third() called
 // [5] fourth() called unsuccessfully, error thrown
+#[derive(Debug, PartialEq, Clone)]
+pub struct CallStack {
+    frames: Vec<StackFrame>,
+}
 
 impl Default for CallStack {
     fn default() -> Self {
@@ -119,6 +120,16 @@ impl CallStack {
     /// This is useful for relative imports, so that you know where a path is relative from.
     pub fn current_path(&self) -> Option<PathBuf> {
         self.frames.last().unwrap().file_path.clone()
+    }
+
+    #[cfg(test)]
+    pub fn get(&self, index: usize) -> &StackFrame {
+        unsafe { self.frames.get_unchecked(index) }
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.frames.len()
     }
 }
 
