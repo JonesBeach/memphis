@@ -172,15 +172,11 @@ impl ModuleLoader {
         name: &ImportPath,
         level: &usize,
         path_segments: &Vec<String>,
-        current_path: Option<PathBuf>,
+        current_path: PathBuf,
     ) -> Option<LoadedModule> {
-        let base_path = match current_path {
-            // The value in `current_path` contains the filename, so we must add 1 to the level to
-            // get back to the directory. We could change this in the future, but this seemed
-            // cleaner for the caller to provide.
-            Some(p) => up_n_levels(&p, &(level + 1)),
-            None => up_n_levels(&PathBuf::from("."), level),
-        };
+        // The value in `current_path` contains the filename, so we must add 1 to the level to
+        // get back to the directory.
+        let base_path = up_n_levels(&current_path, level + 1);
 
         expand_path(base_path.as_ref()?, path_segments)
             .into_iter()
@@ -210,7 +206,7 @@ impl ModuleLoader {
     pub fn load_module(
         &mut self,
         import_path: &ImportPath,
-        current_path: Option<PathBuf>,
+        current_path: PathBuf,
     ) -> Option<LoadedModule> {
         if let Some(code) = self.fs_cache.get(import_path) {
             return Some(code.clone());
@@ -264,9 +260,9 @@ fn expand_path(path: &Path, path_segments: &Vec<String>) -> Vec<PathBuf> {
     vec![normal_path, init_path]
 }
 
-fn up_n_levels(original: &Path, n: &usize) -> Option<PathBuf> {
+fn up_n_levels(original: &Path, n: usize) -> Option<PathBuf> {
     let mut path = original.to_path_buf();
-    for _ in 0..*n {
+    for _ in 0..n {
         match path.parent() {
             Some(parent_path) => {
                 path = parent_path.to_path_buf();

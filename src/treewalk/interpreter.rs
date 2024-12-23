@@ -1421,6 +1421,8 @@ impl InterpreterEntrypoint for Interpreter {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::{
         init::MemphisContext,
@@ -2419,24 +2421,18 @@ j = +(-3)
                 assert!(call_stack
                     .get(0)
                     .file_path
-                    .as_ref()
-                    .unwrap()
                     .to_str()
                     .unwrap()
                     .ends_with("src/fixtures/call_stack/call_stack.py"));
                 assert!(call_stack
                     .get(1)
                     .file_path
-                    .as_ref()
-                    .unwrap()
                     .to_str()
                     .unwrap()
                     .ends_with("src/fixtures/call_stack/other.py"));
                 assert!(call_stack
                     .get(2)
                     .file_path
-                    .as_ref()
-                    .unwrap()
                     .to_str()
                     .unwrap()
                     .ends_with("src/fixtures/call_stack/other.py"));
@@ -2483,7 +2479,7 @@ c = foo()
                 );
 
                 assert_eq!(call_stack.len(), 1);
-                assert_eq!(call_stack.get(0).file_path, Some("<stdin>".into()));
+                assert_eq!(call_stack.get(0).file_path, PathBuf::from("<stdin>"));
                 assert_eq!(call_stack.get(0).function_name, Some("__main__".into()));
                 assert_eq!(call_stack.get(0).line_number, 11);
             }

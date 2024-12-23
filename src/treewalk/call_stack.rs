@@ -10,7 +10,7 @@ use super::LoadedModule;
 #[derive(Debug, PartialEq, Clone)]
 pub struct StackFrame {
     pub function_name: Option<String>,
-    pub file_path: Option<PathBuf>,
+    pub file_path: PathBuf,
     pub line_number: usize,
 }
 
@@ -18,7 +18,7 @@ impl StackFrame {
     pub fn new_root(file_path: PathBuf) -> Self {
         Self {
             function_name: None,
-            file_path: Some(file_path),
+            file_path,
             line_number: 1,
         }
     }
@@ -26,7 +26,7 @@ impl StackFrame {
     pub fn new_module(module: LoadedModule) -> Self {
         Self {
             function_name: Some(module.name()),
-            file_path: Some(module.path()),
+            file_path: module.path(),
             line_number: 1,
         }
     }
@@ -34,20 +34,16 @@ impl StackFrame {
     pub fn new_function(function: Function) -> Self {
         Self {
             function_name: Some(function.name),
-            file_path: Some(function.module.borrow().path()),
+            file_path: function.module.borrow().path(),
             line_number: function.line_number,
         }
     }
 
-    fn empty_path() -> String {
-        "<stdin>".into()
-    }
-
     fn file_path_str(&self) -> String {
-        match &self.file_path {
-            Some(path) => path.to_str().unwrap_or(&Self::empty_path()).to_string(),
-            None => Self::empty_path(),
-        }
+        self.file_path
+            .to_str()
+            .expect("Path is invalid unicode!")
+            .to_string()
     }
 
     fn empty_function_name() -> String {
@@ -65,21 +61,23 @@ impl StackFrame {
     }
 }
 
-// Example from Python:
-//
-//  File [1] "/Users/tyler/Documents/repos/memphis/examples/test.py", [3] line 37, in [3] <module>
-//    [3] other.something()
-//  File [2] "/Users/tyler/Documents/repos/memphis/examples/other.py", [4] line 4, in [4] something
-//    [4] third()
-//  File [2] "/Users/tyler/Documents/repos/memphis/examples/other.py", [5] line 7, in [5] third
-//    [5] fourth()
-//
-// Events:
-// [1] root module loaded
-// [2] other.py imported
-// [3] other.something() called
-// [4] third() called
-// [5] fourth() called unsuccessfully, error thrown
+/// A call stack, which is independent of the execution engine Memphis is using for evaluation.
+///
+/// Example from Python:
+///
+///  File [1] "/Users/tyler/Documents/repos/memphis/examples/test.py", [3] line 37, in [3] <module>
+///    [3] other.something()
+///  File [2] "/Users/tyler/Documents/repos/memphis/examples/other.py", [4] line 4, in [4] something
+///    [4] third()
+///  File [2] "/Users/tyler/Documents/repos/memphis/examples/other.py", [5] line 7, in [5] third
+///    [5] fourth()
+///
+/// Events:
+/// [1] root module loaded
+/// [2] other.py imported
+/// [3] other.something() called
+/// [4] third() called
+/// [5] fourth() called unsuccessfully, error thrown
 #[derive(Debug, PartialEq, Clone)]
 pub struct CallStack {
     frames: Vec<StackFrame>,
@@ -114,12 +112,16 @@ impl CallStack {
     /// This is useful for stack traces, so that you know what line number to begin counting from
     /// when executing a block.
     pub fn line_number(&self) -> usize {
-        self.frames.last().unwrap().line_number
+        self.frames.last().expect("No stack frame!").line_number
     }
 
     /// This is useful for relative imports, so that you know where a path is relative from.
-    pub fn current_path(&self) -> Option<PathBuf> {
-        self.frames.last().unwrap().file_path.clone()
+    pub fn current_path(&self) -> PathBuf {
+        self.frames
+            .last()
+            .expect("No stack frame!")
+            .file_path
+            .clone()
     }
 
     #[cfg(test)]
