@@ -69,7 +69,7 @@ pub trait Pausable {
         interpreter.state.push_local(self.scope());
         interpreter
             .state
-            .push_context(StackFrame::new_function(self.function().borrow().clone()));
+            .push_context(StackFrame::from_function(self.function().borrow().clone()));
     }
 
     /// The default behavior required to perform the necessary context switching when exiting a

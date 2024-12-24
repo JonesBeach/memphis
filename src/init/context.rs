@@ -34,7 +34,7 @@ impl MemphisContext {
             });
         context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::new_module(module);
+        let stack_frame = StackFrame::from_module(module);
         context.state.push_context(stack_frame);
         context
     }
@@ -43,7 +43,7 @@ impl MemphisContext {
         let mut context = Self::with_state(state);
         context.init_lexer(text.to_string());
 
-        let stack_frame = StackFrame::new_module(LoadedModule::new_virtual(text));
+        let stack_frame = StackFrame::from_module(LoadedModule::new_virtual(text));
         context.state.push_context(stack_frame);
         context
     }
@@ -52,7 +52,7 @@ impl MemphisContext {
         let mut context = Self::with_state(state);
         context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::new_module(module);
+        let stack_frame = StackFrame::from_module(module);
         context.state.push_context(stack_frame);
         context
     }

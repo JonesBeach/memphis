@@ -79,7 +79,7 @@ impl Interpreter {
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
         self.state
-            .push_context(StackFrame::new_function(function.borrow().clone()));
+            .push_context(StackFrame::from_function(function.borrow().clone()));
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things

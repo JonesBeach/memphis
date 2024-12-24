@@ -15,7 +15,7 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
-    pub fn new_module(module: LoadedModule) -> Self {
+    pub fn from_module(module: LoadedModule) -> Self {
         Self {
             function_name: module.name(),
             file_path: module.path(),
@@ -23,7 +23,7 @@ impl StackFrame {
         }
     }
 
-    pub fn new_function(function: Function) -> Self {
+    pub fn from_function(function: Function) -> Self {
         Self {
             function_name: function.name,
             file_path: function.module.borrow().path(),
