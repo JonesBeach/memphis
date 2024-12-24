@@ -241,21 +241,27 @@ impl ModuleLoader {
 /// For a given path and segments, this returns both the `../base.py` and `../base/__init__.py`
 /// versions.
 fn expand_path(path: &Path, segments: &[String]) -> [PathBuf; 2] {
-    let mut base_path = path.to_path_buf();
-    for (index, value) in segments.iter().enumerate() {
-        if index == segments.len() - 1 {
-            base_path.push(format!("{}.py", value));
-        } else {
-            base_path.push(value);
-        }
-    }
+    // Split the slice into the last segment and the rest
+    let (last, rest) = match segments.split_last() {
+        Some((last, rest)) => (last, rest),
+        None => panic!("Path segments must not be empty!"),
+    };
 
+    let append_segment = |mut acc: PathBuf, segment: &String| {
+        acc.push(segment);
+        acc
+    };
+
+    // Build the `../base/segment_one/segment_two.py` path
+    let base_path = rest
+        .iter()
+        .fold(path.to_path_buf(), append_segment)
+        .join(format!("{}.py", last));
+
+    // Build the `../base/segment_one/segment_two/__init__.py` path
     let init_path = segments
         .iter()
-        .fold(path.to_path_buf(), |mut acc, segment| {
-            acc.push(segment);
-            acc
-        })
+        .fold(path.to_path_buf(), append_segment)
         .join(format!("{}.py", Dunder::Init));
 
     [base_path, init_path]
@@ -263,4 +269,40 @@ fn expand_path(path: &Path, segments: &[String]) -> [PathBuf; 2] {
 
 fn up_n_levels(path: &Path, n: usize) -> Option<&Path> {
     (0..n).try_fold(path, |current, _| current.parent())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_path_with_multiple_segments() {
+        let path = Path::new("/base");
+        let segments = vec!["subdir".to_string(), "file".to_string()];
+
+        let [base_path, init_path] = expand_path(path, &segments);
+
+        assert_eq!(base_path, Path::new("/base/subdir/file.py"));
+        assert_eq!(init_path, Path::new("/base/subdir/file/__init__.py"));
+    }
+
+    #[test]
+    fn test_expand_path_with_single_segment() {
+        let path = Path::new("/base");
+        let segments = vec!["file".to_string()];
+
+        let [base_path, init_path] = expand_path(path, &segments);
+
+        assert_eq!(base_path, Path::new("/base/file.py"));
+        assert_eq!(init_path, Path::new("/base/file/__init__.py"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_expand_path_with_empty_segments() {
+        let path = Path::new("/base");
+        let segments: Vec<String> = vec![];
+
+        let _ = expand_path(path, &segments);
+    }
 }
