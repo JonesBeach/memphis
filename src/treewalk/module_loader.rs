@@ -240,23 +240,25 @@ impl ModuleLoader {
 
 /// For a given path and segments, this returns both the `../base.py` and `../base/__init__.py`
 /// versions.
-fn expand_path(path: &Path, path_segments: &[String]) -> Vec<PathBuf> {
-    let mut normal_path = path.to_path_buf();
-    for (index, value) in path_segments.iter().enumerate() {
-        if index == path_segments.len() - 1 {
-            normal_path.push(format!("{}.py", value));
+fn expand_path(path: &Path, segments: &[String]) -> [PathBuf; 2] {
+    let mut base_path = path.to_path_buf();
+    for (index, value) in segments.iter().enumerate() {
+        if index == segments.len() - 1 {
+            base_path.push(format!("{}.py", value));
         } else {
-            normal_path.push(value);
+            base_path.push(value);
         }
     }
 
-    let mut init_path = path.to_path_buf();
-    for value in path_segments {
-        init_path.push(value);
-    }
-    init_path.push(format!("{}.py", Dunder::Init));
+    let init_path = segments
+        .iter()
+        .fold(path.to_path_buf(), |mut acc, segment| {
+            acc.push(segment);
+            acc
+        })
+        .join(format!("{}.py", Dunder::Init));
 
-    vec![normal_path, init_path]
+    [base_path, init_path]
 }
 
 fn up_n_levels(path: &Path, n: usize) -> Option<&Path> {
