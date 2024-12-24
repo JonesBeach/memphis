@@ -34,7 +34,7 @@ impl MemphisContext {
             });
         context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::new_root(module.path());
+        let stack_frame = StackFrame::new_module(module);
         context.state.push_context(stack_frame);
         context
     }

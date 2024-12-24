@@ -9,23 +9,15 @@ use super::LoadedModule;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct StackFrame {
-    pub function_name: Option<String>,
+    pub function_name: String,
     pub file_path: PathBuf,
     pub line_number: usize,
 }
 
 impl StackFrame {
-    pub fn new_root(file_path: PathBuf) -> Self {
-        Self {
-            function_name: None,
-            file_path,
-            line_number: 1,
-        }
-    }
-
     pub fn new_module(module: LoadedModule) -> Self {
         Self {
-            function_name: Some(module.name()),
+            function_name: module.name(),
             file_path: module.path(),
             line_number: 1,
         }
@@ -33,7 +25,7 @@ impl StackFrame {
 
     pub fn new_function(function: Function) -> Self {
         Self {
-            function_name: Some(function.name),
+            function_name: function.name,
             file_path: function.module.borrow().path(),
             line_number: function.line_number,
         }
@@ -46,14 +38,8 @@ impl StackFrame {
             .to_string()
     }
 
-    fn empty_function_name() -> String {
-        "<module>".into()
-    }
-
     fn function_name(&self) -> String {
-        self.function_name
-            .clone()
-            .unwrap_or(Self::empty_function_name())
+        self.function_name.clone()
     }
 
     fn set_line(&mut self, line: usize) {
