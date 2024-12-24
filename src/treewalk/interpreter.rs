@@ -1421,8 +1421,6 @@ impl InterpreterEntrypoint for Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::{
         init::MemphisContext,
@@ -2420,26 +2418,20 @@ j = +(-3)
                 assert_eq!(call_stack.len(), 3);
                 assert!(call_stack
                     .get(0)
-                    .file_path
-                    .to_str()
-                    .unwrap()
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/call_stack.py"));
                 assert!(call_stack
                     .get(1)
-                    .file_path
-                    .to_str()
-                    .unwrap()
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/other.py"));
                 assert!(call_stack
                     .get(2)
-                    .file_path
-                    .to_str()
-                    .unwrap()
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/other.py"));
 
-                assert_eq!(call_stack.get(0).function_name, "<module>".to_string());
-                assert_eq!(call_stack.get(1).function_name, "middle_call".to_string());
-                assert_eq!(call_stack.get(2).function_name, "last_call".to_string());
+                assert_eq!(call_stack.get(0).function_name(), "<module>");
+                assert_eq!(call_stack.get(1).function_name(), "middle_call");
+                assert_eq!(call_stack.get(2).function_name(), "last_call");
                 assert_eq!(call_stack.get(0).line_number, 2);
                 assert_eq!(call_stack.get(1).line_number, 2);
                 assert_eq!(call_stack.get(2).line_number, 5);
@@ -2473,8 +2465,8 @@ c = foo()
                 );
 
                 assert_eq!(call_stack.len(), 1);
-                assert_eq!(call_stack.get(0).file_path, PathBuf::from("<stdin>"));
-                assert_eq!(call_stack.get(0).function_name, "__main__".to_string());
+                assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
+                assert_eq!(call_stack.get(0).function_name(), "__main__");
                 assert_eq!(call_stack.get(0).line_number, 11);
             }
             Ok(_) => panic!("Expected an error!"),

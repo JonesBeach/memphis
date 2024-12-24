@@ -9,8 +9,8 @@ use super::LoadedModule;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct StackFrame {
-    pub function_name: String,
-    pub file_path: PathBuf,
+    function_name: String,
+    file_path: PathBuf,
     pub line_number: usize,
 }
 
@@ -31,19 +31,28 @@ impl StackFrame {
         }
     }
 
-    fn file_path_str(&self) -> String {
-        self.file_path
-            .to_str()
-            .expect("Path is invalid unicode!")
-            .to_string()
+    pub fn file_path_str(&self) -> &str {
+        self.file_path.to_str().expect("Path is invalid unicode!")
     }
 
-    fn function_name(&self) -> String {
-        self.function_name.clone()
+    pub fn function_name(&self) -> &str {
+        &self.function_name
     }
 
     fn set_line(&mut self, line: usize) {
         self.line_number = line;
+    }
+}
+
+impl Display for StackFrame {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(
+            f,
+            "File \"{}\", line {}, in {}",
+            self.file_path_str(),
+            self.line_number,
+            self.function_name()
+        )
     }
 }
 
@@ -125,13 +134,7 @@ impl Display for CallStack {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         writeln!(f, "Traceback (most recent call last):")?;
         for frame in &self.frames {
-            writeln!(
-                f,
-                "  File \"{}\", line {}, in {}",
-                frame.file_path_str(),
-                frame.line_number,
-                frame.function_name()
-            )?;
+            writeln!(f, "  {}", frame)?;
         }
         Ok(())
     }
