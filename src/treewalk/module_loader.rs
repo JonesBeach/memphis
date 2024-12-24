@@ -171,13 +171,13 @@ impl ModuleLoader {
         name: &ImportPath,
         level: &usize,
         path_segments: &[String],
-        current_path: PathBuf,
+        current_path: &Path,
     ) -> Option<LoadedModule> {
         // The value in `current_path` contains the filename, so we must add 1 to the level to
         // get back to the directory.
-        let base_path = up_n_levels(&current_path, level + 1);
+        let base_path = up_n_levels(current_path, level + 1)?;
 
-        expand_path(base_path.as_ref()?, path_segments)
+        expand_path(base_path, path_segments)
             .into_iter()
             .find_map(|filename| Self::load_module_code(&name.as_str(), filename))
     }
@@ -205,7 +205,7 @@ impl ModuleLoader {
     pub fn load_module(
         &mut self,
         import_path: &ImportPath,
-        current_path: PathBuf,
+        current_path: &PathBuf,
     ) -> Option<LoadedModule> {
         if let Some(code) = self.fs_cache.get(import_path) {
             return Some(code.clone());
@@ -221,7 +221,7 @@ impl ModuleLoader {
                 Self::load_absolute_path(import_path, path_segments, &self.paths)
             }
             ImportPath::Relative(level, path_segments) => {
-                Self::load_relative_path(import_path, level, path_segments, current_path.clone())
+                Self::load_relative_path(import_path, level, path_segments, current_path)
             }
         };
 
@@ -244,7 +244,7 @@ fn expand_path(path: &Path, path_segments: &[String]) -> Vec<PathBuf> {
     let mut normal_path = path.to_path_buf();
     for (index, value) in path_segments.iter().enumerate() {
         if index == path_segments.len() - 1 {
-            normal_path.push(value.to_owned() + ".py");
+            normal_path.push(format!("{}.py", value));
         } else {
             normal_path.push(value);
         }
@@ -259,15 +259,6 @@ fn expand_path(path: &Path, path_segments: &[String]) -> Vec<PathBuf> {
     vec![normal_path, init_path]
 }
 
-fn up_n_levels(original: &Path, n: usize) -> Option<PathBuf> {
-    let mut path = original.to_path_buf();
-    for _ in 0..n {
-        match path.parent() {
-            Some(parent_path) => {
-                path = parent_path.to_path_buf();
-            }
-            None => return None,
-        }
-    }
-    Some(path)
+fn up_n_levels(path: &Path, n: usize) -> Option<&Path> {
+    (0..n).try_fold(path, |current, _| current.parent())
 }

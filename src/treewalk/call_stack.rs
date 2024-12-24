@@ -11,7 +11,7 @@ use super::LoadedModule;
 pub struct StackFrame {
     function_name: String,
     file_path: PathBuf,
-    pub line_number: usize,
+    line_number: usize,
 }
 
 impl StackFrame {
@@ -39,7 +39,11 @@ impl StackFrame {
         &self.function_name
     }
 
-    fn set_line(&mut self, line: usize) {
+    pub fn line_number(&self) -> usize {
+        self.line_number
+    }
+
+    pub fn set_line_number(&mut self, line: usize) {
         self.line_number = line;
     }
 }
@@ -101,7 +105,7 @@ impl CallStack {
         self.frames
             .last_mut()
             .expect("No stack frame! Did you properly set the state?")
-            .set_line(line);
+            .set_line_number(line);
     }
 
     /// This is useful for stack traces, so that you know what line number to begin counting from
@@ -111,17 +115,13 @@ impl CallStack {
     }
 
     /// This is useful for relative imports, so that you know where a path is relative from.
-    pub fn current_path(&self) -> PathBuf {
-        self.frames
-            .last()
-            .expect("No stack frame!")
-            .file_path
-            .clone()
+    pub fn current_path(&self) -> &PathBuf {
+        &self.frames.last().expect("No stack frame!").file_path
     }
 
     #[cfg(test)]
     pub fn get(&self, index: usize) -> &StackFrame {
-        unsafe { self.frames.get_unchecked(index) }
+        self.frames.get(index).expect("Index out of bounds!")
     }
 
     #[cfg(test)]

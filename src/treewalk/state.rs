@@ -223,7 +223,7 @@ impl Container<State> {
     pub fn load_module(
         &self,
         import_path: &ImportPath,
-        current_path: PathBuf,
+        current_path: &PathBuf,
     ) -> Option<LoadedModule> {
         self.borrow_mut()
             .module_loader
