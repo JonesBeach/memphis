@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process};
+use std::{fmt::Display, path::Path, process};
 
 use crate::{
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
@@ -8,6 +8,8 @@ use crate::{
     treewalk::{types::ExprResult, Interpreter, LoadedModule, ModuleLoader, StackFrame, State},
     types::errors::{MemphisError, ParserError},
 };
+
+static DEFAULT_MODULE: &str = "<module>";
 
 pub struct MemphisContext {
     state: Container<State>,
@@ -23,15 +25,19 @@ impl Default for MemphisContext {
 }
 
 impl MemphisContext {
-    pub fn from_path_with_state(filepath: &str, state: Option<Container<State>>) -> Self {
-        let module = ModuleLoader::load_module_code("<module>", PathBuf::from(filepath))
-            .unwrap_or_else(|| {
-                eprintln!("Error reading file: {}", filepath);
-                process::exit(1);
-            });
+    pub fn from_path_with_state<P>(filepath: P, state: Option<Container<State>>) -> Self
+    where
+        P: AsRef<Path> + Display,
+    {
+        let module =
+            ModuleLoader::load_module_code(DEFAULT_MODULE, filepath.as_ref().to_path_buf())
+                .unwrap_or_else(|| {
+                    eprintln!("Error reading file: {}", filepath);
+                    process::exit(1);
+                });
 
         let context = Self::from_module_with_state(module, state);
-        context.state.register_root(PathBuf::from(filepath));
+        context.state.register_root(filepath.as_ref().to_path_buf());
         context
     }
 
@@ -49,8 +55,11 @@ impl MemphisContext {
         context
     }
 
-    pub fn from_path(filename: &str) -> Self {
-        Self::from_path_with_state(filename, None)
+    pub fn from_path<P>(filepath: P) -> Self
+    where
+        P: AsRef<Path> + Display,
+    {
+        Self::from_path_with_state(filepath, None)
     }
 
     pub fn from_text(text: &str) -> Self {
