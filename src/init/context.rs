@@ -5,7 +5,7 @@ use crate::{
     core::{Container, InterpreterEntrypoint},
     lexer::Lexer,
     parser::{types::ParseNode, Parser},
-    treewalk::{types::ExprResult, Interpreter, LoadedModule, StackFrame, State},
+    treewalk::{types::ExprResult, Interpreter, LoadedModule, ModuleLoader, StackFrame, State},
     types::errors::{MemphisError, ParserError},
 };
 
@@ -23,29 +23,21 @@ impl Default for MemphisContext {
 }
 
 impl MemphisContext {
-    pub fn from_path_with_state(filename: &str, state: Option<Container<State>>) -> Self {
-        let mut context = Self::with_state(state);
-        let module = context
-            .state
-            .load_root(PathBuf::from(filename))
+    pub fn from_path_with_state(filepath: &str, state: Option<Container<State>>) -> Self {
+        let module = ModuleLoader::load_module_code("<module>", PathBuf::from(filepath))
             .unwrap_or_else(|| {
-                eprintln!("Error reading file: {}", filename);
+                eprintln!("Error reading file: {}", filepath);
                 process::exit(1);
             });
-        context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::from_module(module);
-        context.state.push_context(stack_frame);
+        let context = Self::from_module_with_state(module, state);
+        context.state.register_root(PathBuf::from(filepath));
         context
     }
 
     pub fn from_text_with_state(text: &str, state: Option<Container<State>>) -> Self {
-        let mut context = Self::with_state(state);
-        context.init_lexer(text.to_string());
-
-        let stack_frame = StackFrame::from_module(LoadedModule::new_virtual(text));
-        context.state.push_context(stack_frame);
-        context
+        let module = LoadedModule::new_virtual(text);
+        Self::from_module_with_state(module, state)
     }
 
     pub fn from_module_with_state(module: LoadedModule, state: Option<Container<State>>) -> Self {

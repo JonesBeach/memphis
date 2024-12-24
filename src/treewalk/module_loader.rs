@@ -130,7 +130,8 @@ impl ModuleLoader {
         }
     }
 
-    pub fn load_root(&mut self, filepath: PathBuf) -> Option<LoadedModule> {
+    /// Subsequent absolute imports will use the provided [`PathBuf`] to search for modules.
+    pub fn register_root(&mut self, filepath: PathBuf) {
         let path = filepath
             .parent()
             .map_or_else(|| PathBuf::from("./"), |parent| parent.to_path_buf());
@@ -138,10 +139,9 @@ impl ModuleLoader {
         // Insert at the start of the paths so this directory is searched first on subsequent
         // module imports
         self.paths.insert(0, path);
-        self.load_module_code("<module>", filepath)
     }
 
-    fn load_module_code(&self, name: &str, filepath: PathBuf) -> Option<LoadedModule> {
+    pub fn load_module_code(name: &str, filepath: PathBuf) -> Option<LoadedModule> {
         if let Ok(text) = fs::read_to_string(filepath.clone()) {
             log(LogLevel::Debug, || {
                 format!("Loading: {}", filepath.display())
@@ -156,22 +156,21 @@ impl ModuleLoader {
     /// 1) the directory of the root script
     /// 2) the /lib directory
     /// 3) the site_packages directory for the current python target
-    pub fn load_absolute_path(
-        &mut self,
+    fn load_absolute_path(
         name: &ImportPath,
-        path_segments: &Vec<String>,
+        path_segments: &[String],
+        paths: &[PathBuf],
     ) -> Option<LoadedModule> {
-        self.paths
+        paths
             .iter()
             .flat_map(|path| expand_path(path, path_segments))
-            .find_map(|filename| self.load_module_code(&name.as_str(), filename))
+            .find_map(|filename| Self::load_module_code(&name.as_str(), filename))
     }
 
-    pub fn load_relative_path(
-        &mut self,
+    fn load_relative_path(
         name: &ImportPath,
         level: &usize,
-        path_segments: &Vec<String>,
+        path_segments: &[String],
         current_path: PathBuf,
     ) -> Option<LoadedModule> {
         // The value in `current_path` contains the filename, so we must add 1 to the level to
@@ -180,7 +179,7 @@ impl ModuleLoader {
 
         expand_path(base_path.as_ref()?, path_segments)
             .into_iter()
-            .find_map(|filename| self.load_module_code(&name.as_str(), filename))
+            .find_map(|filename| Self::load_module_code(&name.as_str(), filename))
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -219,10 +218,10 @@ impl ModuleLoader {
 
         let module = match import_path {
             ImportPath::Absolute(path_segments) => {
-                self.load_absolute_path(import_path, path_segments)
+                Self::load_absolute_path(import_path, path_segments, &self.paths)
             }
             ImportPath::Relative(level, path_segments) => {
-                self.load_relative_path(import_path, level, path_segments, current_path.clone())
+                Self::load_relative_path(import_path, level, path_segments, current_path.clone())
             }
         };
 
@@ -241,7 +240,7 @@ impl ModuleLoader {
 
 /// For a given path and segments, this returns both the `../base.py` and `../base/__init__.py`
 /// versions.
-fn expand_path(path: &Path, path_segments: &Vec<String>) -> Vec<PathBuf> {
+fn expand_path(path: &Path, path_segments: &[String]) -> Vec<PathBuf> {
     let mut normal_path = path.to_path_buf();
     for (index, value) in path_segments.iter().enumerate() {
         if index == path_segments.len() - 1 {

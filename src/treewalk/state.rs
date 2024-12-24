@@ -209,8 +209,8 @@ impl Container<State> {
         self.borrow().scope_manager.is_class(name)
     }
 
-    pub fn load_root(&self, filepath: PathBuf) -> Option<LoadedModule> {
-        self.borrow_mut().module_loader.load_root(filepath)
+    pub fn register_root(&self, filepath: PathBuf) {
+        self.borrow_mut().module_loader.register_root(filepath);
     }
 
     #[cfg(feature = "c_stdlib")]
