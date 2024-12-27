@@ -18,7 +18,7 @@ use super::{
 
 #[derive(Debug, PartialEq)]
 pub struct Class {
-    pub name: String,
+    name: String,
 
     /// This is semantically required to be non-empty, similar to `metaclass`.
     parent_classes: Vec<Container<Class>>,
@@ -106,8 +106,8 @@ impl Class {
     }
 
     /// This should only be used in a context that is known to contain only builtin types.
-    pub fn builtin_type(&self) -> Type {
-        self.builtin_type.clone().unwrap_or_else(|| {
+    pub fn builtin_type(&self) -> &Type {
+        self.builtin_type.as_ref().unwrap_or_else(|| {
             panic!("attempted to access the builtin type for a user-defined type!")
         })
     }
@@ -129,6 +129,10 @@ impl Class {
         } else {
             false
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     fn find_metaclass_inner(
@@ -319,7 +323,7 @@ impl MemberWriter for Container<Class> {
 
 impl Display for Container<Class> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "<class '{}'>", self.borrow().name)
+        write!(f, "<class '{}'>", self.borrow().name())
     }
 }
 

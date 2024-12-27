@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
     hash::{Hash, Hasher},
+    slice::Iter,
 };
 
 use crate::{
@@ -12,7 +13,53 @@ use crate::{
 
 use super::Parser;
 
-pub type Ast = Vec<Statement>;
+#[derive(Debug, PartialEq, Clone)]
+pub struct Ast {
+    statements: Vec<Statement>,
+}
+
+impl Ast {
+    pub fn new(statements: Vec<Statement>) -> Self {
+        Self { statements }
+    }
+
+    pub fn from_expr(expr: Expr) -> Self {
+        Self::new(vec![Statement::Expression(expr)])
+    }
+
+    pub fn len(&self) -> usize {
+        self.statements.len()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Statement> {
+        self.statements.get(index)
+    }
+
+    pub fn accept<V: Visitor>(&self, visitor: &mut V) {
+        visitor.visit_ast(self);
+        for statement in self.iter() {
+            statement.accept(visitor);
+        }
+    }
+
+    pub fn iter(&self) -> Iter<'_, Statement> {
+        self.statements.iter()
+    }
+}
+
+/// Build an [`Ast`] from a literal list of [`Statement`] objects.
+#[macro_export]
+macro_rules! ast {
+    // Match no arguments
+    () => {
+        Ast::new(vec![])
+    };
+
+    // Match comma-separated list of elements
+    ($($element:expr),* $(,)?) => {
+        Ast::new(vec![$($element),*])
+    };
+}
 
 /// There are a handful of places where we reference a variable and it must be a variable name
 /// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
@@ -442,35 +489,13 @@ pub struct ExceptionInstance {
 pub struct ExceptClause {
     pub exception_types: Vec<ExceptionLiteral>,
     pub alias: Option<String>,
-    pub block: Block,
+    pub block: Ast,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ConditionalBlock {
     pub condition: Expr,
-    pub block: Block,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Block {
-    pub statements: Vec<Statement>,
-}
-
-impl Block {
-    pub fn new(statements: Vec<Statement>) -> Self {
-        Self { statements }
-    }
-
-    pub fn from_expr(expr: Expr) -> Self {
-        Self::new(vec![Statement::Expression(expr)])
-    }
-
-    pub fn accept<V: Visitor>(&self, visitor: &mut V) {
-        visitor.visit_block(self);
-        for statement in &self.statements {
-            statement.accept(visitor);
-        }
-    }
+    pub block: Ast,
 }
 
 /// This represents one of the comma-separated values being imported. This is only used in
@@ -610,7 +635,7 @@ pub enum Statement {
     FunctionDef {
         name: String,
         args: ParsedArgDefinitions,
-        body: Block,
+        body: Ast,
         decorators: Vec<Expr>,
         is_async: bool,
     },
@@ -618,7 +643,7 @@ pub enum Statement {
         name: String,
         parents: Vec<Expr>,
         metaclass: Option<String>,
-        body: Block,
+        body: Ast,
     },
     Return(Vec<Expr>),
     Nonlocal(Vec<Variable>),
@@ -626,17 +651,17 @@ pub enum Statement {
     IfElse {
         if_part: ConditionalBlock,
         elif_parts: Vec<ConditionalBlock>,
-        else_part: Option<Block>,
+        else_part: Option<Ast>,
     },
     WhileLoop {
         condition: Expr,
-        body: Block,
+        body: Ast,
     },
     ForInLoop {
         index: LoopIndex,
         iterable: Expr,
-        body: Block,
-        else_block: Option<Block>,
+        body: Ast,
+        else_block: Option<Ast>,
     },
     RegularImport(Vec<RegularImport>),
     SelectiveImport {
@@ -645,16 +670,16 @@ pub enum Statement {
         wildcard: bool,
     },
     TryExcept {
-        try_block: Block,
+        try_block: Ast,
         except_clauses: Vec<ExceptClause>,
-        else_block: Option<Block>,
-        finally_block: Option<Block>,
+        else_block: Option<Ast>,
+        finally_block: Option<Ast>,
     },
     Raise(Option<ExceptionInstance>),
     ContextManager {
         expr: Expr,
         variable: Option<String>,
-        block: Block,
+        block: Ast,
     },
 }
 

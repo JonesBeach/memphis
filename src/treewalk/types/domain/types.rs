@@ -141,3 +141,9 @@ impl From<Type> for &str {
         value.value()
     }
 }
+
+impl From<&Type> for &str {
+    fn from(value: &Type) -> Self {
+        value.value()
+    }
+}

@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, mem};
 use crate::{
     bytecode_vm::{
         compiler::types::{CompiledProgram, Constant},
-        indices::{BytecodeIndex, ConstantIndex, GlobalStoreIndex, Index, ObjectTableIndex},
+        indices::{ConstantIndex, GlobalStoreIndex, Index, LocalIndex, ObjectTableIndex},
         types::{Value, VmError},
         Opcode,
     },
@@ -19,7 +19,7 @@ use self::{
     types::{Class, FunctionObject, Method, Object, Reference},
 };
 
-use super::compiler::find_index;
+use super::{compiler::find_index, indices::NonlocalIndex};
 
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
@@ -30,7 +30,7 @@ pub struct VirtualMachine {
 
     /// Just like its name says, we need a map to translate from the indices found in the compiled
     /// bytecode and that variables location in the global store.
-    index_map: HashMap<BytecodeIndex, GlobalStoreIndex>,
+    index_map: HashMap<NonlocalIndex, GlobalStoreIndex>,
 
     /// The runtime mapping of global variables to their values.
     global_store: Vec<Reference>,
@@ -82,12 +82,12 @@ impl VirtualMachine {
         }
     }
 
-    fn store_global(&mut self, bytecode_index: BytecodeIndex, value: Reference) {
-        let global_store_index = if let Some(index) = self.index_map.get(&bytecode_index) {
+    fn store_global(&mut self, index: NonlocalIndex, value: Reference) {
+        let global_store_index = if let Some(index) = self.index_map.get(&index) {
             *index
         } else {
             let next_index = Index::new(self.global_store.len());
-            self.index_map.insert(bytecode_index, next_index);
+            self.index_map.insert(index, next_index);
             next_index
         };
 
@@ -98,7 +98,7 @@ impl VirtualMachine {
         }
     }
 
-    fn store_local(&mut self, index: BytecodeIndex, value: Reference) {
+    fn store_local(&mut self, index: LocalIndex, value: Reference) {
         let frame_index = self.call_stack.len().checked_sub(1).unwrap();
         if self.call_stack[frame_index].locals.len() == *index {
             self.call_stack[frame_index].locals.push(value);
@@ -119,15 +119,15 @@ impl VirtualMachine {
         self.load_global(index).ok()
     }
 
-    fn load_global(&self, bytecode_index: BytecodeIndex) -> Result<Reference, VmError> {
+    fn load_global(&self, index: NonlocalIndex) -> Result<Reference, VmError> {
         let name_error_closure = Box::new(|| {
             let frame_index = self.call_stack.len().checked_sub(1).unwrap();
-            let name = &self.call_stack[frame_index].function.code_object.names[*bytecode_index];
+            let name = &self.call_stack[frame_index].function.code_object.names[*index];
             VmError::NameError(name.to_string())
         });
         let global_store_index = self
             .index_map
-            .get(&bytecode_index)
+            .get(&index)
             .ok_or_else(name_error_closure.clone())?;
 
         // is it possible to find a global_store_index and then fail to look it up? that seems more
@@ -304,32 +304,32 @@ impl VirtualMachine {
                 Opcode::LoadConst(index) => {
                     self.push(Reference::ConstantRef(index))?;
                 }
-                Opcode::StoreFast(bytecode_index) => {
+                Opcode::StoreFast(index) => {
                     let reference = self.pop()?;
-                    self.store_local(bytecode_index, reference);
+                    self.store_local(index, reference);
                 }
-                Opcode::StoreGlobal(bytecode_index) => {
+                Opcode::StoreGlobal(index) => {
                     let reference = self.pop()?;
-                    self.store_global(bytecode_index, reference);
+                    self.store_global(index, reference);
                 }
-                Opcode::LoadFast(bytecode_index) => {
+                Opcode::LoadFast(index) => {
                     if let Some(frame) = self.call_stack.last() {
-                        let value = frame.locals[*bytecode_index];
+                        let value = frame.locals[*index];
                         self.push(value)?;
                     }
                 }
-                Opcode::LoadGlobal(bytecode_index) => {
-                    let reference = self.load_global(bytecode_index)?;
+                Opcode::LoadGlobal(index) => {
+                    let reference = self.load_global(index)?;
                     self.push(reference)?;
                 }
-                Opcode::LoadAttr(attr_index) => {
+                Opcode::LoadAttr(index) => {
                     let reference = self.pop()?;
                     let object = self.dereference(reference);
 
                     let name = self.call_stack[current_frame_index]
                         .function
                         .code_object
-                        .names[*attr_index]
+                        .names[*index]
                         .clone();
                     let attr = object
                         .as_object()
@@ -343,7 +343,7 @@ impl VirtualMachine {
                     };
                     self.push(bound_attr)?;
                 }
-                Opcode::SetAttr(attr_index) => {
+                Opcode::SetAttr(index) => {
                     let value = self.pop()?;
                     let Reference::ObjectRef(obj_index) = self.pop()? else {
                         todo!()
@@ -352,7 +352,7 @@ impl VirtualMachine {
                     let name = self.call_stack[current_frame_index]
                         .function
                         .code_object
-                        .names[*attr_index]
+                        .names[*index]
                         .clone();
                     self.update_fn(obj_index, |object_value| {
                         let Value::Object(object) = object_value else {

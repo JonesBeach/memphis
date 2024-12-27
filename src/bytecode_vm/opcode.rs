@@ -1,6 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
-use super::indices::{BytecodeIndex, ConstantIndex};
+use super::indices::{ConstantIndex, LocalIndex, NonlocalIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Opcode {
@@ -31,19 +31,19 @@ pub enum Opcode {
     /// Push the value found at the specified index in the constant pool onto the stack.
     LoadConst(ConstantIndex),
     /// Write the top value of the stack into the local variable indicated by the specified index.
-    StoreFast(BytecodeIndex),
+    StoreFast(LocalIndex),
     /// Write the top value of the stack into the global variable indicated by the specified index.
-    StoreGlobal(BytecodeIndex),
+    StoreGlobal(NonlocalIndex),
     /// Read the local variable indicated by the specified index and push the value onto the stack.
-    LoadFast(BytecodeIndex),
+    LoadFast(LocalIndex),
     /// Read the global variable indicated by the specified index and push the value onto the stack.
-    LoadGlobal(BytecodeIndex),
+    LoadGlobal(NonlocalIndex),
     /// Pop an object off the stack, find the attribute name specified by the given index, look up
     /// the attribute with that name off the object, and push it onto the stack.
-    LoadAttr(BytecodeIndex),
+    LoadAttr(NonlocalIndex),
     /// Pop a value and object off the stack and set the attribute of the object to that value. The
     /// attribute name is specified by the given index.
-    SetAttr(BytecodeIndex),
+    SetAttr(NonlocalIndex),
     /// Pushes `__build_class__` onto the stack. It is later called by the VM to construct a class,
     /// NOT instantiate an object of that class. This is directly inspired by how CPython does it.
     LoadBuildClass,

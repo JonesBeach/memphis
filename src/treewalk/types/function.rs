@@ -7,7 +7,7 @@ use crate::{
     core::{log, Container, LogLevel},
     parser::{
         static_analysis::{FunctionAnalysisVisitor, YieldDetector},
-        types::{Block, Closure, Expr, ParsedArgDefinitions},
+        types::{Ast, Closure, Expr, ParsedArgDefinitions},
     },
     resolved_args,
     treewalk::{Interpreter, Scope, State},
@@ -44,7 +44,7 @@ pub struct Code;
 pub struct Function {
     pub name: String,
     pub args: ParsedArgDefinitions,
-    pub body: Block,
+    pub body: Ast,
     pub module: Container<Module>,
     pub class_context: Option<Container<Class>>,
     pub line_number: usize,
@@ -89,7 +89,7 @@ impl Function {
         state: Container<State>,
         name: String,
         args: ParsedArgDefinitions,
-        body: Block,
+        body: Ast,
         decorators: Vec<Expr>,
         is_async: bool,
     ) -> Self {
@@ -116,11 +116,11 @@ impl Function {
         }
     }
 
-    pub fn new_lambda(state: Container<State>, args: ParsedArgDefinitions, body: Block) -> Self {
+    pub fn new_lambda(state: Container<State>, args: ParsedArgDefinitions, body: Ast) -> Self {
         Self::new(state, "<lambda>".into(), args, body, vec![], false)
     }
 
-    pub fn new_anonymous_generator(state: Container<State>, body: Block) -> Self {
+    pub fn new_anonymous_generator(state: Container<State>, body: Ast) -> Self {
         Self::new(
             state,
             "<anonymous_generator>".into(),
@@ -401,7 +401,8 @@ impl NonDataDescriptor for ModuleAttribute {
                     .borrow()
                     .module
                     .borrow()
-                    .name();
+                    .name()
+                    .to_string();
                 ExprResult::String(Str::new(name))
             }
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),

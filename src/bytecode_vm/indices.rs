@@ -46,7 +46,9 @@ impl<T> Debug for Index<T> {
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub struct BytecodeMarker;
+pub struct LocalMarker;
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct NonlocalMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct GlobalStoreMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
@@ -54,7 +56,8 @@ pub struct ObjectTableMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct ConstantMarker;
 
-pub type BytecodeIndex = Index<BytecodeMarker>;
+pub type LocalIndex = Index<LocalMarker>;
+pub type NonlocalIndex = Index<NonlocalMarker>;
 pub type GlobalStoreIndex = Index<GlobalStoreMarker>;
 pub type ObjectTableIndex = Index<ObjectTableMarker>;
 pub type ConstantIndex = Index<ConstantMarker>;
@@ -65,19 +68,19 @@ mod tests {
 
     #[test]
     fn test_debug_output() {
-        let index: BytecodeIndex = Index::new(4);
-        assert_eq!(format!("{:?}", index), "BytecodeMarker(4)".to_string())
+        let index: LocalIndex = Index::new(4);
+        assert_eq!(format!("{:?}", index), "LocalMarker(4)".to_string())
     }
 
     #[test]
     fn test_display_output() {
-        let index: BytecodeIndex = Index::new(4);
+        let index: LocalIndex = Index::new(4);
         assert_eq!(format!("{}", index), "4".to_string())
     }
 
     #[test]
     fn test_dereference() {
-        let index: BytecodeIndex = Index::new(4);
+        let index: LocalIndex = Index::new(4);
         assert_eq!(*index, 4)
     }
 }

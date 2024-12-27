@@ -4,10 +4,11 @@ pub mod static_analysis;
 pub mod types;
 
 use crate::{
+    ast,
     core::{log, Container, LogLevel},
     lexer::types::Token,
     parser::types::{
-        Alias, Ast, BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+        Alias, Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
         ExceptionInstance, ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause,
         FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex,
         ParsedArgDefinition, ParsedArgDefinitions, ParsedArgument, ParsedArguments,
@@ -679,7 +680,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_indented_block(&mut self) -> Result<Block, ParserError> {
+    fn parse_indented_block(&mut self) -> Result<Ast, ParserError> {
         self.consume_optional_many(&Token::Newline);
         self.consume(&Token::Indent)?;
 
@@ -690,7 +691,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Dedent)?;
         self.consume_optional_many(&Token::Newline);
 
-        Ok(Block::new(statements))
+        Ok(Ast::new(statements))
     }
 
     fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
@@ -1098,7 +1099,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_block(&mut self) -> Result<Block, ParserError> {
+    fn parse_block(&mut self) -> Result<Ast, ParserError> {
         if self.current_token == &Token::Newline {
             self.parse_indented_block()
         } else {
@@ -1107,7 +1108,7 @@ impl<'a> Parser<'a> {
             // def _f() : pass
             // def four(): return 4
             // class Foo: pass
-            Ok(Block::new(vec![self.parse_statement()?]))
+            Ok(ast![self.parse_statement()?])
         }
     }
 
@@ -1254,7 +1255,7 @@ impl<'a> Parser<'a> {
             stmts.push(stmt);
         }
 
-        Ok(stmts)
+        Ok(Ast::new(stmts))
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, ParserError> {
@@ -2070,13 +2071,11 @@ def add(x, y):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![Statement::Return(vec![Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("x".to_string())),
-                    op: BinOp::Add,
-                    right: Box::new(Expr::Variable("y".to_string())),
-                }])],
-            },
+            body: ast![Statement::Return(vec![Expr::BinaryOperation {
+                left: Box::new(Expr::Variable("x".to_string())),
+                op: BinOp::Add,
+                right: Box::new(Expr::Variable("y".to_string())),
+            }])],
             decorators: vec![],
             is_async: false,
         };
@@ -2098,9 +2097,7 @@ def _f(): pass
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -2249,7 +2246,7 @@ def __init__(
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block::new(vec![Statement::Pass]),
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -2351,9 +2348,7 @@ if (a
                     op: LogicalOp::Or,
                     right: Box::new(Expr::Variable("b".to_string())),
                 },
-                block: Block {
-                    statements: vec![Statement::Pass],
-                },
+                block: ast![Statement::Pass],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2580,17 +2575,15 @@ else:
                     op: BinOp::GreaterThan,
                     right: Box::new(Expr::Integer(0)),
                 },
-                block: Block {
-                    statements: vec![Statement::Expression(Expr::FunctionCall {
-                        name: "print".to_string(),
-                        args: ParsedArguments {
-                            args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: vec![],
-                            args_var: None,
-                        },
-                        callee: None,
-                    })],
-                },
+                block: ast![Statement::Expression(Expr::FunctionCall {
+                    name: "print".to_string(),
+                    args: ParsedArguments {
+                        args: vec![Expr::StringLiteral("Greater".to_string())],
+                        kwargs: vec![],
+                        args_var: None,
+                    },
+                    callee: None,
+                })],
             },
             elif_parts: vec![ConditionalBlock {
                 condition: Expr::BinaryOperation {
@@ -2598,29 +2591,25 @@ else:
                     op: BinOp::GreaterThan,
                     right: Box::new(Expr::Integer(-10)),
                 },
-                block: Block {
-                    statements: vec![Statement::Expression(Expr::FunctionCall {
-                        name: "print".to_string(),
-                        args: ParsedArguments {
-                            args: vec![Expr::StringLiteral("Medium".to_string())],
-                            kwargs: vec![],
-                            args_var: None,
-                        },
-                        callee: None,
-                    })],
-                },
-            }],
-            else_part: Some(Block {
-                statements: vec![Statement::Expression(Expr::FunctionCall {
+                block: ast![Statement::Expression(Expr::FunctionCall {
                     name: "print".to_string(),
                     args: ParsedArguments {
-                        args: vec![Expr::StringLiteral("Less".to_string())],
+                        args: vec![Expr::StringLiteral("Medium".to_string())],
                         kwargs: vec![],
                         args_var: None,
                     },
                     callee: None,
                 })],
-            }),
+            }],
+            else_part: Some(ast![Statement::Expression(Expr::FunctionCall {
+                name: "print".to_string(),
+                args: ParsedArguments {
+                    args: vec![Expr::StringLiteral("Less".to_string())],
+                    kwargs: vec![],
+                    args_var: None,
+                },
+                callee: None,
+            })]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -2645,17 +2634,15 @@ elif x > -20:
                     op: BinOp::GreaterThan,
                     right: Box::new(Expr::Integer(0)),
                 },
-                block: Block {
-                    statements: vec![Statement::Expression(Expr::FunctionCall {
-                        name: "print".to_string(),
-                        args: ParsedArguments {
-                            args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: vec![],
-                            args_var: None,
-                        },
-                        callee: None,
-                    })],
-                },
+                block: ast![Statement::Expression(Expr::FunctionCall {
+                    name: "print".to_string(),
+                    args: ParsedArguments {
+                        args: vec![Expr::StringLiteral("Greater".to_string())],
+                        kwargs: vec![],
+                        args_var: None,
+                    },
+                    callee: None,
+                })],
             },
             elif_parts: vec![
                 ConditionalBlock {
@@ -2664,17 +2651,15 @@ elif x > -20:
                         op: BinOp::GreaterThan,
                         right: Box::new(Expr::Integer(-10)),
                     },
-                    block: Block {
-                        statements: vec![Statement::Expression(Expr::FunctionCall {
-                            name: "print".to_string(),
-                            args: ParsedArguments {
-                                args: vec![Expr::StringLiteral("Medium".to_string())],
-                                kwargs: vec![],
-                                args_var: None,
-                            },
-                            callee: None,
-                        })],
-                    },
+                    block: ast![Statement::Expression(Expr::FunctionCall {
+                        name: "print".to_string(),
+                        args: ParsedArguments {
+                            args: vec![Expr::StringLiteral("Medium".to_string())],
+                            kwargs: vec![],
+                            args_var: None,
+                        },
+                        callee: None,
+                    })],
                 },
                 ConditionalBlock {
                     condition: Expr::BinaryOperation {
@@ -2682,17 +2667,15 @@ elif x > -20:
                         op: BinOp::GreaterThan,
                         right: Box::new(Expr::Integer(-20)),
                     },
-                    block: Block {
-                        statements: vec![Statement::Expression(Expr::FunctionCall {
-                            name: "print".to_string(),
-                            args: ParsedArguments {
-                                args: vec![Expr::StringLiteral("Less".to_string())],
-                                kwargs: vec![],
-                                args_var: None,
-                            },
-                            callee: None,
-                        })],
-                    },
+                    block: ast![Statement::Expression(Expr::FunctionCall {
+                        name: "print".to_string(),
+                        args: ParsedArguments {
+                            args: vec![Expr::StringLiteral("Less".to_string())],
+                            kwargs: vec![],
+                            args_var: None,
+                        },
+                        callee: None,
+                    })],
                 },
             ],
             else_part: None,
@@ -2716,17 +2699,15 @@ if x > 0:
                     op: BinOp::GreaterThan,
                     right: Box::new(Expr::Integer(0)),
                 },
-                block: Block {
-                    statements: vec![Statement::Expression(Expr::FunctionCall {
-                        name: "print".to_string(),
-                        args: ParsedArguments {
-                            args: vec![Expr::StringLiteral("Greater".to_string())],
-                            kwargs: vec![],
-                            args_var: None,
-                        },
-                        callee: None,
-                    })],
-                },
+                block: ast![Statement::Expression(Expr::FunctionCall {
+                    name: "print".to_string(),
+                    args: ParsedArguments {
+                        args: vec![Expr::StringLiteral("Greater".to_string())],
+                        kwargs: vec![],
+                        args_var: None,
+                    },
+                    callee: None,
+                })],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2745,9 +2726,7 @@ if True: return False
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::Boolean(true),
-                block: Block {
-                    statements: vec![Statement::Return(vec![Expr::Boolean(false)])],
-                },
+                block: ast![Statement::Return(vec![Expr::Boolean(false)])],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2781,7 +2760,7 @@ if (a == 1
                     op: LogicalOp::And,
                     right: Box::new(Expr::Variable("c".into())),
                 },
-                block: Block::new(vec![Statement::Pass]),
+                block: ast![Statement::Pass],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2803,17 +2782,15 @@ while True:
 
         let expected_ast = Statement::WhileLoop {
             condition: Expr::Boolean(true),
-            body: Block {
-                statements: vec![Statement::Expression(Expr::FunctionCall {
-                    name: "print".to_string(),
-                    args: ParsedArguments {
-                        args: vec![Expr::StringLiteral("busy loop".to_string())],
-                        kwargs: vec![],
-                        args_var: None,
-                    },
-                    callee: None,
-                })],
-            },
+            body: ast![Statement::Expression(Expr::FunctionCall {
+                name: "print".to_string(),
+                args: ParsedArguments {
+                    args: vec![Expr::StringLiteral("busy loop".to_string())],
+                    kwargs: vec![],
+                    args_var: None,
+                },
+                callee: None,
+            })],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -2838,59 +2815,53 @@ class Foo:
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: None,
-            body: Block {
-                statements: vec![
-                    Statement::FunctionDef {
-                        name: "__init__".to_string(),
-                        args: ParsedArgDefinitions {
-                            args: vec![ParsedArgDefinition {
-                                arg: "self".to_string(),
-                                default: None,
-                            }],
-                            args_var: None,
-                            kwargs_var: None,
-                        },
-                        body: Block {
-                            statements: vec![Statement::Assignment {
-                                left: Expr::MemberAccess {
-                                    object: Box::new(Expr::Variable("self".to_string())),
-                                    field: "x".to_string(),
-                                },
-                                right: Expr::Integer(0),
-                            }],
-                        },
-                        decorators: vec![],
-                        is_async: false,
+            body: ast![
+                Statement::FunctionDef {
+                    name: "__init__".to_string(),
+                    args: ParsedArgDefinitions {
+                        args: vec![ParsedArgDefinition {
+                            arg: "self".to_string(),
+                            default: None,
+                        }],
+                        args_var: None,
+                        kwargs_var: None,
                     },
-                    Statement::FunctionDef {
-                        name: "bar".to_string(),
-                        args: ParsedArgDefinitions {
-                            args: vec![ParsedArgDefinition {
-                                arg: "self".to_string(),
-                                default: None,
-                            }],
-                            args_var: None,
-                            kwargs_var: None,
+                    body: ast![Statement::Assignment {
+                        left: Expr::MemberAccess {
+                            object: Box::new(Expr::Variable("self".to_string())),
+                            field: "x".to_string(),
                         },
-                        body: Block {
-                            statements: vec![Statement::Expression(Expr::FunctionCall {
-                                name: "print".to_string(),
-                                args: ParsedArguments {
-                                    args: vec![Expr::MemberAccess {
-                                        object: Box::new(Expr::Variable("self".to_string())),
-                                        field: "x".to_string(),
-                                    }],
-                                    kwargs: vec![],
-                                    args_var: None,
-                                },
-                                callee: None,
-                            })],
-                        },
-                        decorators: vec![],
-                        is_async: false,
+                        right: Expr::Integer(0),
+                    }],
+                    decorators: vec![],
+                    is_async: false,
+                },
+                Statement::FunctionDef {
+                    name: "bar".to_string(),
+                    args: ParsedArgDefinitions {
+                        args: vec![ParsedArgDefinition {
+                            arg: "self".to_string(),
+                            default: None,
+                        }],
+                        args_var: None,
+                        kwargs_var: None,
                     },
-                ],
-            },
+                    body: ast![Statement::Expression(Expr::FunctionCall {
+                        name: "print".to_string(),
+                        args: ParsedArguments {
+                            args: vec![Expr::MemberAccess {
+                                object: Box::new(Expr::Variable("self".to_string())),
+                                field: "x".to_string(),
+                            }],
+                            kwargs: vec![],
+                            args_var: None,
+                        },
+                        callee: None,
+                    })],
+                    decorators: vec![],
+                    is_async: false,
+                },
+            ],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -2907,7 +2878,7 @@ class Foo(Bar, Baz): pass
             name: "Foo".to_string(),
             parents: vec![Expr::Variable("Bar".into()), Expr::Variable("Baz".into())],
             metaclass: None,
-            body: Block::new(vec![Statement::Pass]),
+            body: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -2927,7 +2898,7 @@ class Foo(module.Bar): pass
                 field: "Bar".into(),
             }],
             metaclass: None,
-            body: Block::new(vec![Statement::Pass]),
+            body: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -3033,18 +3004,16 @@ def foo():
         let expected_ast = Statement::FunctionDef {
             name: "foo".to_string(),
             args: ParsedArgDefinitions::default(),
-            body: Block {
-                statements: vec![Statement::RegularImport(vec![
-                    RegularImport {
-                        import_path: ImportPath::Absolute(vec!["other".into()]),
-                        alias: None,
-                    },
-                    RegularImport {
-                        import_path: ImportPath::Absolute(vec!["second".into()]),
-                        alias: Some("third".into()),
-                    },
-                ])],
-            },
+            body: ast![Statement::RegularImport(vec![
+                RegularImport {
+                    import_path: ImportPath::Absolute(vec!["other".into()]),
+                    alias: None,
+                },
+                RegularImport {
+                    import_path: ImportPath::Absolute(vec!["second".into()]),
+                    alias: Some("third".into()),
+                },
+            ])],
             decorators: vec![],
             is_async: false,
         };
@@ -3780,17 +3749,15 @@ for i in a:
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
-            body: Block {
-                statements: vec![Statement::Expression(Expr::FunctionCall {
-                    name: "print".into(),
-                    args: ParsedArguments {
-                        args: vec![Expr::Variable("i".into())],
-                        kwargs: vec![],
-                        args_var: None,
-                    },
-                    callee: None,
-                })],
-            },
+            body: ast![Statement::Expression(Expr::FunctionCall {
+                name: "print".into(),
+                args: ParsedArguments {
+                    args: vec![Expr::Variable("i".into())],
+                    kwargs: vec![],
+                    args_var: None,
+                },
+                callee: None,
+            })],
             else_block: None,
         };
 
@@ -3811,17 +3778,15 @@ for k, v in a.items():
                 name: "items".into(),
                 args: ParsedArguments::default(),
             },
-            body: Block {
-                statements: vec![Statement::Expression(Expr::FunctionCall {
-                    name: "print".into(),
-                    args: ParsedArguments {
-                        args: vec![Expr::Variable("v".into())],
-                        kwargs: vec![],
-                        args_var: None,
-                    },
-                    callee: None,
-                })],
-            },
+            body: ast![Statement::Expression(Expr::FunctionCall {
+                name: "print".into(),
+                args: ParsedArguments {
+                    args: vec![Expr::Variable("v".into())],
+                    kwargs: vec![],
+                    args_var: None,
+                },
+                callee: None,
+            })],
             else_block: None,
         };
 
@@ -3887,30 +3852,26 @@ def countdown(n):
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
-                let expected_body = Block {
-                    statements: vec![Statement::WhileLoop {
-                        condition: Expr::BinaryOperation {
-                            left: Box::new(Expr::Variable("n".to_string())),
-                            op: BinOp::GreaterThan,
-                            right: Box::new(Expr::Integer(0)),
+                let expected_body = ast![Statement::WhileLoop {
+                    condition: Expr::BinaryOperation {
+                        left: Box::new(Expr::Variable("n".to_string())),
+                        op: BinOp::GreaterThan,
+                        right: Box::new(Expr::Integer(0)),
+                    },
+                    body: ast![
+                        Statement::Expression(Expr::Yield(Some(Box::new(Expr::Variable(
+                            "n".to_string(),
+                        ))))),
+                        Statement::Assignment {
+                            left: Expr::Variable("n".to_string()),
+                            right: Expr::BinaryOperation {
+                                left: Box::new(Expr::Variable("n".to_string())),
+                                op: BinOp::Sub,
+                                right: Box::new(Expr::Integer(1)),
+                            },
                         },
-                        body: Block {
-                            statements: vec![
-                                Statement::Expression(Expr::Yield(Some(Box::new(Expr::Variable(
-                                    "n".to_string(),
-                                ))))),
-                                Statement::Assignment {
-                                    left: Expr::Variable("n".to_string()),
-                                    right: Expr::BinaryOperation {
-                                        left: Box::new(Expr::Variable("n".to_string())),
-                                        op: BinOp::Sub,
-                                        right: Box::new(Expr::Integer(1)),
-                                    },
-                                },
-                            ],
-                        },
-                    }],
-                };
+                    ],
+                }];
 
                 assert!(matches!(ast, Statement::FunctionDef {
                     body,
@@ -3963,9 +3924,7 @@ class Foo(metaclass=Parent):
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: Some("Parent".to_string()),
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -3983,9 +3942,7 @@ class Foo(Bar, metaclass=Parent):
             name: "Foo".to_string(),
             parents: vec![Expr::Variable("Bar".into())],
             metaclass: Some("Parent".to_string()),
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4003,9 +3960,7 @@ class InterfaceMeta(type):
             name: "InterfaceMeta".to_string(),
             parents: vec![Expr::Variable("type".into())],
             metaclass: None,
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4157,29 +4112,27 @@ async def main():
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![
-                    Statement::Assignment {
-                        left: Expr::Variable("task_1".to_string()),
-                        right: Expr::MethodCall {
-                            object: Box::new(Expr::Variable("asyncio".to_string())),
-                            name: "create_task".to_string(),
-                            args: ParsedArguments {
-                                args: vec![Expr::FunctionCall {
-                                    name: "task1".to_string(),
-                                    args: ParsedArguments::default(),
-                                    callee: None,
-                                }],
-                                kwargs: vec![],
-                                args_var: None,
-                            },
+            body: ast![
+                Statement::Assignment {
+                    left: Expr::Variable("task_1".to_string()),
+                    right: Expr::MethodCall {
+                        object: Box::new(Expr::Variable("asyncio".to_string())),
+                        name: "create_task".to_string(),
+                        args: ParsedArguments {
+                            args: vec![Expr::FunctionCall {
+                                name: "task1".to_string(),
+                                args: ParsedArguments::default(),
+                                callee: None,
+                            }],
+                            kwargs: vec![],
+                            args_var: None,
                         },
                     },
-                    Statement::Return(vec![Expr::Await {
-                        right: Box::new(Expr::Variable("task_1".to_string())),
-                    }]),
-                ],
-            },
+                },
+                Statement::Return(vec![Expr::Await {
+                    right: Box::new(Expr::Variable("task_1".to_string())),
+                }]),
+            ],
             decorators: vec![],
             is_async: true,
         };
@@ -4218,30 +4171,24 @@ finally:
         let context = init(input);
 
         let expected_ast = Statement::TryExcept {
-            try_block: Block {
-                statements: vec![Statement::Expression(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
-                    op: BinOp::Div,
-                    right: Box::new(Expr::Integer(0)),
-                })],
-            },
+            try_block: ast![Statement::Expression(Expr::BinaryOperation {
+                left: Box::new(Expr::Integer(4)),
+                op: BinOp::Div,
+                right: Box::new(Expr::Integer(0)),
+            })],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
-                block: Block {
-                    statements: vec![Statement::Assignment {
-                        left: Expr::Variable("a".into()),
-                        right: Expr::Integer(2),
-                    }],
-                },
+                block: ast![Statement::Assignment {
+                    left: Expr::Variable("a".into()),
+                    right: Expr::Integer(2),
+                }],
             }],
             else_block: None,
-            finally_block: Some(Block {
-                statements: vec![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(3),
-                }],
-            }),
+            finally_block: Some(ast![Statement::Assignment {
+                left: Expr::Variable("a".into()),
+                right: Expr::Integer(3),
+            }]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4260,30 +4207,24 @@ finally:
         let context = init(input);
 
         let expected_ast = Statement::TryExcept {
-            try_block: Block {
-                statements: vec![Statement::Expression(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
-                    op: BinOp::Div,
-                    right: Box::new(Expr::Integer(0)),
-                })],
-            },
+            try_block: ast![Statement::Expression(Expr::BinaryOperation {
+                left: Box::new(Expr::Integer(4)),
+                op: BinOp::Div,
+                right: Box::new(Expr::Integer(0)),
+            })],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
-                block: Block {
-                    statements: vec![Statement::Assignment {
-                        left: Expr::Variable("a".into()),
-                        right: Expr::Integer(2),
-                    }],
-                },
+                block: ast![Statement::Assignment {
+                    left: Expr::Variable("a".into()),
+                    right: Expr::Integer(2),
+                }],
             }],
             else_block: None,
-            finally_block: Some(Block {
-                statements: vec![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(3),
-                }],
-            }),
+            finally_block: Some(ast![Statement::Assignment {
+                left: Expr::Variable("a".into()),
+                right: Expr::Integer(3),
+            }]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4300,25 +4241,21 @@ except (ZeroDivisionError, IOError) as e:
         let context = init(input);
 
         let expected_ast = Statement::TryExcept {
-            try_block: Block {
-                statements: vec![Statement::Expression(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
-                    op: BinOp::Div,
-                    right: Box::new(Expr::Integer(0)),
-                })],
-            },
+            try_block: ast![Statement::Expression(Expr::BinaryOperation {
+                left: Box::new(Expr::Integer(4)),
+                op: BinOp::Div,
+                right: Box::new(Expr::Integer(0)),
+            })],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![
                     ExceptionLiteral::ZeroDivisionError,
                     ExceptionLiteral::IOError,
                 ],
                 alias: Some("e".into()),
-                block: Block {
-                    statements: vec![Statement::Assignment {
-                        left: Expr::Variable("a".into()),
-                        right: Expr::Integer(2),
-                    }],
-                },
+                block: ast![Statement::Assignment {
+                    left: Expr::Variable("a".into()),
+                    right: Expr::Integer(2),
+                }],
             }],
             else_block: None,
             finally_block: None,
@@ -4342,35 +4279,27 @@ finally:
         let context = init(input);
 
         let expected_ast = Statement::TryExcept {
-            try_block: Block {
-                statements: vec![Statement::Expression(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
-                    op: BinOp::Div,
-                    right: Box::new(Expr::Integer(0)),
-                })],
-            },
+            try_block: ast![Statement::Expression(Expr::BinaryOperation {
+                left: Box::new(Expr::Integer(4)),
+                op: BinOp::Div,
+                right: Box::new(Expr::Integer(0)),
+            })],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
-                block: Block {
-                    statements: vec![Statement::Assignment {
-                        left: Expr::Variable("a".into()),
-                        right: Expr::Integer(2),
-                    }],
-                },
+                block: ast![Statement::Assignment {
+                    left: Expr::Variable("a".into()),
+                    right: Expr::Integer(2),
+                }],
             }],
-            else_block: Some(Block {
-                statements: vec![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(4),
-                }],
-            }),
-            finally_block: Some(Block {
-                statements: vec![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(3),
-                }],
-            }),
+            else_block: Some(ast![Statement::Assignment {
+                left: Expr::Variable("a".into()),
+                right: Expr::Integer(4),
+            }]),
+            finally_block: Some(ast![Statement::Assignment {
+                left: Expr::Variable("a".into()),
+                right: Expr::Integer(3),
+            }]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4388,15 +4317,11 @@ a = 1
         let context = init(input);
 
         let expected_ast = Statement::TryExcept {
-            try_block: Block {
-                statements: vec![Statement::Pass],
-            },
+            try_block: ast![Statement::Pass],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
-                block: Block {
-                    statements: vec![Statement::Return(vec![])],
-                },
+                block: ast![Statement::Return(vec![])],
             }],
             else_block: None,
             finally_block: None,
@@ -4477,9 +4402,7 @@ def test_args(*args):
                 args_var: Some("args".into()),
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -4502,9 +4425,7 @@ def test_args(*args, **kwargs):
                 args_var: Some("args".into()),
                 kwargs_var: Some("kwargs".into()),
             },
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -4551,9 +4472,7 @@ def test_default(file=None):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![Statement::Pass],
-            },
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -4758,9 +4677,7 @@ def get_val():
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![Statement::Return(vec![Expr::Integer(2)])],
-            },
+            body: ast![Statement::Return(vec![Expr::Integer(2)])],
             decorators: vec![Expr::Variable("test_decorator".into())],
             is_async: false,
         };
@@ -4886,9 +4803,7 @@ with open('test.txt') as f:
                 callee: None,
             },
             variable: Some("f".into()),
-            block: Block {
-                statements: vec![Statement::Pass],
-            },
+            block: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -4913,9 +4828,7 @@ with open('test.txt'):
                 callee: None,
             },
             variable: None,
-            block: Block {
-                statements: vec![Statement::Pass],
-            },
+            block: ast![Statement::Pass],
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -5512,9 +5425,7 @@ for i in a:
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
-            body: Block {
-                statements: vec![Statement::Break],
-            },
+            body: ast![Statement::Break],
             else_block: None,
         };
 
@@ -5531,9 +5442,7 @@ for i in a:
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
-            body: Block {
-                statements: vec![Statement::Continue],
-            },
+            body: ast![Statement::Continue],
             else_block: None,
         };
 
@@ -5552,12 +5461,8 @@ else:
         let expected_ast = Statement::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: Expr::Variable("a".into()),
-            body: Block {
-                statements: vec![Statement::Break],
-            },
-            else_block: Some(Block {
-                statements: vec![Statement::Pass],
-            }),
+            body: ast![Statement::Break],
+            else_block: Some(ast![Statement::Pass]),
         };
 
         match context.parse_oneshot::<Statement>() {
@@ -5745,45 +5650,41 @@ def outer():
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block {
-                statements: vec![
-                    Statement::Assignment {
-                        left: Expr::Variable("a".into()),
-                        right: Expr::Integer(1),
+            body: ast![
+                Statement::Assignment {
+                    left: Expr::Variable("a".into()),
+                    right: Expr::Integer(1),
+                },
+                Statement::Assignment {
+                    left: Expr::Variable("b".into()),
+                    right: Expr::Integer(2),
+                },
+                Statement::FunctionDef {
+                    name: "inner".into(),
+                    args: ParsedArgDefinitions {
+                        args: vec![],
+                        args_var: None,
+                        kwargs_var: None,
                     },
-                    Statement::Assignment {
-                        left: Expr::Variable("b".into()),
-                        right: Expr::Integer(2),
-                    },
-                    Statement::FunctionDef {
-                        name: "inner".into(),
-                        args: ParsedArgDefinitions {
-                            args: vec![],
-                            args_var: None,
-                            kwargs_var: None,
+                    body: ast![
+                        Statement::Assignment {
+                            left: Expr::Variable("b".into()),
+                            right: Expr::Integer(3),
                         },
-                        body: Block {
-                            statements: vec![
-                                Statement::Assignment {
-                                    left: Expr::Variable("b".into()),
-                                    right: Expr::Integer(3),
-                                },
-                                Statement::Expression(Expr::FunctionCall {
-                                    name: "print".into(),
-                                    args: ParsedArguments {
-                                        args: vec![Expr::Variable("a".into())],
-                                        kwargs: vec![],
-                                        args_var: None,
-                                    },
-                                    callee: None,
-                                }),
-                            ],
-                        },
-                        decorators: vec![],
-                        is_async: false,
-                    },
-                ],
-            },
+                        Statement::Expression(Expr::FunctionCall {
+                            name: "print".into(),
+                            args: ParsedArguments {
+                                args: vec![Expr::Variable("a".into())],
+                                kwargs: vec![],
+                                args_var: None,
+                            },
+                            callee: None,
+                        }),
+                    ],
+                    decorators: vec![],
+                    is_async: false,
+                },
+            ],
             decorators: vec![],
             is_async: false,
         };
@@ -5991,7 +5892,7 @@ def foo(data=None):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: Block::new(vec![Statement::Pass]),
+            body: ast![Statement::Pass],
             decorators: vec![],
             is_async: false,
         };
@@ -6055,13 +5956,13 @@ if True:
         let expected_ast = Statement::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::Boolean(true),
-                block: Block::new(vec![Statement::UnpackingAssignment {
+                block: ast![Statement::UnpackingAssignment {
                     left: vec![Expr::Variable("a".into()), Expr::Variable("b".into())],
                     right: Expr::Tuple(vec![
                         Expr::Variable("b".into()),
                         Expr::Variable("a".into()),
                     ]),
-                }]),
+                }],
             },
             elif_parts: vec![],
             else_part: None,

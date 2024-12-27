@@ -2,11 +2,11 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    parser::types::{Block, Expr, Statement, Variable},
+    parser::types::{Ast, Expr, Statement, Variable},
 };
 
 pub trait Visitor {
-    fn visit_block(&mut self, program: &Block);
+    fn visit_ast(&mut self, program: &Ast);
     fn visit_statement(&mut self, statement: &Statement);
 }
 
@@ -21,7 +21,7 @@ impl YieldDetector {
 }
 
 impl Visitor for YieldDetector {
-    fn visit_block(&mut self, _program: &Block) {}
+    fn visit_ast(&mut self, _program: &Ast) {}
 
     fn visit_statement(&mut self, statement: &Statement) {
         if matches!(statement, Statement::Expression(Expr::Yield(_))) {
@@ -127,7 +127,7 @@ impl FunctionAnalysisVisitor {
 }
 
 impl Visitor for FunctionAnalysisVisitor {
-    fn visit_block(&mut self, _program: &Block) {}
+    fn visit_ast(&mut self, _program: &Ast) {}
 
     fn visit_statement(&mut self, statement: &Statement) {
         log(LogLevel::Trace, || format!("Visiting {:?}", statement));

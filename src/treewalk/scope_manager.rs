@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{LoadedModule, Scope, TypeRegistry};
+use super::{ModuleSource, Scope, TypeRegistry};
 
 fn get_asyncio_builtins() -> Vec<Box<dyn Callable>> {
     vec![
@@ -64,7 +64,7 @@ fn init_builtin_scope() -> Scope {
     scope.insert(
         "asyncio",
         ExprResult::Module(Container::new(Module::new(
-            LoadedModule::default(),
+            ModuleSource::default(),
             asyncio_scope,
         ))),
     );

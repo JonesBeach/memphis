@@ -266,7 +266,7 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
             Some(type_class.clone()),
             vec![object_class.clone()],
         );
-        let builtin_type = class.borrow().builtin_type();
+        let builtin_type = class.borrow().builtin_type().clone();
 
         // Add the builtin methods for this type class.
         //

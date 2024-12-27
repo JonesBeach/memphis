@@ -5,14 +5,14 @@ use crate::{
     core::{log, LogLevel},
     domain::Context,
     parser::types::{
-        Ast, BinOp, Block, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments,
-        Statement, UnaryOp,
+        Ast, BinOp, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments, Statement,
+        UnaryOp,
     },
 };
 
 use self::types::{Bytecode, CodeObject, CompiledProgram, Constant};
 
-use super::indices::{BytecodeIndex, ConstantIndex, Index};
+use super::indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex};
 
 pub struct Compiler {
     /// Constants discovered during compilation. These will be compiled into the
@@ -37,11 +37,7 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, ast: Ast) -> Result<CompiledProgram, CompilerError> {
-        let mut bytecode = vec![];
-        for stmt in ast.iter() {
-            let opcodes = self.compile_stmt(stmt)?;
-            bytecode.extend(opcodes);
-        }
+        let mut bytecode = self.compile_ast(&ast)?;
         bytecode.push(Opcode::Halt);
 
         let mut code = self.code_stack.pop().ok_or(CompilerError::StackUnderflow)?;
@@ -51,12 +47,34 @@ impl Compiler {
         Ok(CompiledProgram::new(code, self.constant_pool.clone()))
     }
 
-    fn compile_block(&mut self, block: &Block) -> Result<Bytecode, CompilerError> {
+    fn compile_ast(&mut self, ast: &Ast) -> Result<Bytecode, CompilerError> {
         let mut opcodes = vec![];
-        for stmt in block.statements.iter() {
+        for stmt in ast.iter() {
             opcodes.extend(self.compile_stmt(stmt)?);
         }
         Ok(opcodes)
+    }
+
+    fn compile_load(&mut self, name: &str) -> Opcode {
+        match self.ensure_context() {
+            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)),
+            Context::Local => {
+                // Check locals first
+                if let Some(index) = self.get_local_index(name) {
+                    return Opcode::LoadFast(index);
+                }
+
+                // If not found locally, fall back to globals
+                Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name))
+            }
+        }
+    }
+
+    fn compile_store(&mut self, name: &str) -> Opcode {
+        match self.ensure_context() {
+            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)),
+            Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)),
+        }
     }
 
     fn compile_return(&mut self, expr: &[Expr]) -> Result<Bytecode, CompilerError> {
@@ -68,18 +86,6 @@ impl Compiler {
         opcodes.extend(self.compile_expr(&expr[0])?);
         opcodes.push(Opcode::ReturnValue);
         Ok(opcodes)
-    }
-
-    fn compile_store(&mut self, name: &str) -> Opcode {
-        let index = self.get_or_set_local_index(name);
-        self.compile_store_to_index(index)
-    }
-
-    fn compile_store_to_index(&mut self, index: BytecodeIndex) -> Opcode {
-        match self.ensure_context() {
-            Context::Global => Opcode::StoreGlobal(index),
-            Context::Local => Opcode::StoreFast(index),
-        }
     }
 
     fn compile_assignment(&mut self, left: &Expr, right: &Expr) -> Result<Bytecode, CompilerError> {
@@ -113,7 +119,7 @@ impl Compiler {
     fn compile_while_loop(
         &mut self,
         condition: &Expr,
-        body: &Block,
+        body: &Ast,
     ) -> Result<Bytecode, CompilerError> {
         let mut opcodes = vec![];
         let condition_start = opcodes.len();
@@ -123,7 +129,7 @@ impl Compiler {
         let jump_if_false_placeholder = opcodes.len();
         opcodes.push(Opcode::Placeholder);
 
-        opcodes.extend(self.compile_block(body)?);
+        opcodes.extend(self.compile_ast(body)?);
 
         // Unconditional jump back to the start of the condition
         // We must mark these as isize because we are doing subtraction with potential overflow
@@ -141,7 +147,7 @@ impl Compiler {
         &mut self,
         if_part: &ConditionalBlock,
         elif_parts: &[ConditionalBlock],
-        else_part: &Option<Block>,
+        else_part: &Option<Ast>,
     ) -> Result<Bytecode, CompilerError> {
         if !elif_parts.is_empty() {
             unreachable!("elif not yet supported in the bytecode VM.")
@@ -154,7 +160,7 @@ impl Compiler {
         let jump_if_false_placeholder = opcodes.len();
         opcodes.push(Opcode::Placeholder);
 
-        opcodes.extend(self.compile_block(&if_part.block)?);
+        opcodes.extend(self.compile_ast(&if_part.block)?);
         if let Some(else_part) = else_part {
             let jump_else_placeholder = opcodes.len();
             opcodes.push(Opcode::Placeholder);
@@ -163,7 +169,7 @@ impl Compiler {
                 opcodes.len() as isize - jump_if_false_placeholder as isize - 1;
             opcodes[jump_if_false_placeholder] = Opcode::JumpIfFalse(jump_if_false_offset);
 
-            opcodes.extend(self.compile_block(else_part)?);
+            opcodes.extend(self.compile_ast(else_part)?);
             let jump_else_offset = opcodes.len() as isize - jump_else_placeholder as isize - 1;
             opcodes[jump_else_placeholder] = Opcode::Jump(jump_else_offset);
         } else {
@@ -179,7 +185,7 @@ impl Compiler {
         &mut self,
         name: &str,
         args: &ParsedArgDefinitions,
-        body: &Block,
+        body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
     ) -> Result<Bytecode, CompilerError> {
@@ -195,18 +201,17 @@ impl Compiler {
         let code_object = CodeObject::with_args(name.to_string(), varnames);
 
         self.code_stack.push(code_object);
-        let bytecode = self.compile_block(body)?;
+        let bytecode = self.compile_ast(body)?;
 
         let mut code = self.code_stack.pop().unwrap();
         self.context_stack.pop();
 
         code.bytecode = bytecode;
-        let name_index = self.get_or_set_local_index(name);
 
         Ok(vec![
             self.compile_code(code),
             Opcode::MakeFunction,
-            self.compile_store_to_index(name_index),
+            self.compile_store(name),
         ])
     }
 
@@ -215,7 +220,7 @@ impl Compiler {
         name: &str,
         parents: &[Expr],
         metaclass: &Option<String>,
-        body: &Block,
+        body: &Ast,
     ) -> Result<Bytecode, CompilerError> {
         if !parents.is_empty() {
             unimplemented!("Inheritance not yet supported in the bytecode VM.")
@@ -229,7 +234,7 @@ impl Compiler {
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
 
-        let class_body = self.compile_block(body)?;
+        let class_body = self.compile_ast(body)?;
 
         let mut code = self.code_stack.pop().unwrap();
         self.context_stack.pop();
@@ -244,8 +249,7 @@ impl Compiler {
         let num_args = bytecode.len() - 1;
         bytecode.push(Opcode::Call(num_args));
 
-        let name_index = self.get_or_set_local_index(name);
-        bytecode.push(self.compile_store_to_index(name_index));
+        bytecode.push(self.compile_store(name));
 
         Ok(bytecode)
     }
@@ -269,14 +273,6 @@ impl Compiler {
     fn compile_constant(&mut self, constant: Constant) -> Opcode {
         let index = self.get_or_set_constant_index(constant);
         Opcode::LoadConst(index)
-    }
-
-    fn compile_variable(&mut self, name: &str) -> Opcode {
-        let (context, index) = self.get_local_index(name);
-        match context {
-            Context::Local => Opcode::LoadFast(index),
-            Context::Global => Opcode::LoadGlobal(index),
-        }
     }
 
     fn compile_unary_operation(
@@ -356,7 +352,7 @@ impl Compiler {
             return Ok(vec![Opcode::PrintConst(index)]);
         }
 
-        let mut opcodes = vec![self.compile_variable(name)];
+        let mut opcodes = vec![self.compile_load(name)];
 
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
@@ -408,7 +404,7 @@ impl Compiler {
             Expr::Boolean(value) => Ok(vec![self.compile_bool(*value)]),
             Expr::Integer(value) => Ok(vec![Opcode::Push(*value)]),
             Expr::StringLiteral(value) => Ok(vec![self.compile_string_literal(value)]),
-            Expr::Variable(name) => Ok(vec![self.compile_variable(name)]),
+            Expr::Variable(name) => Ok(vec![self.compile_load(name)]),
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.compile_binary_operation(left, op, right)
@@ -451,45 +447,30 @@ impl Compiler {
         }
     }
 
-    fn get_or_set_local_index(&mut self, name: &str) -> BytecodeIndex {
-        match self.ensure_context() {
-            Context::Global => self.get_or_set_nonlocal_index(name),
-            Context::Local => {
-                log(LogLevel::Debug, || {
-                    format!("Looking for '{}' in locals", name)
-                });
-                let code = self.ensure_code_object();
-                let next_index = Index::new(code.varnames.len());
-                code.varnames.push(name.to_string());
-                next_index
-            }
+    fn get_or_set_local_index(&mut self, name: &str) -> LocalIndex {
+        log(LogLevel::Debug, || {
+            format!("Looking for '{}' in locals", name)
+        });
+        if let Some(index) = self.get_local_index(name) {
+            index
+        } else {
+            let code = self.ensure_code_object_mut();
+            let new_index = code.varnames.len();
+            code.varnames.push(name.to_string());
+            Index::new(new_index)
         }
     }
 
-    fn get_local_index(&mut self, name: &str) -> (Context, BytecodeIndex) {
-        match self.ensure_context() {
-            Context::Global => (Context::Global, self.get_or_set_nonlocal_index(name)),
-            Context::Local => {
-                // Check locals first
-                log(LogLevel::Debug, || {
-                    format!("Looking for '{}' in locals", name)
-                });
-                let code = self.ensure_code_object();
-                if let Some(index) = find_index(&code.varnames, name) {
-                    return (Context::Local, Index::new(index));
-                }
-
-                // If not found locally, fall back to globals
-                (Context::Global, self.get_or_set_nonlocal_index(name))
-            }
-        }
+    fn get_local_index(&self, name: &str) -> Option<LocalIndex> {
+        let code = self.ensure_code_object();
+        find_index(&code.varnames, name).map(Index::new)
     }
 
-    fn get_or_set_nonlocal_index(&mut self, name: &str) -> BytecodeIndex {
+    fn get_or_set_nonlocal_index(&mut self, name: &str) -> NonlocalIndex {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in globals", name)
         });
-        let code = self.ensure_code_object();
+        let code = self.ensure_code_object_mut();
         if let Some(index) = find_index(&code.names, name) {
             Index::new(index)
         } else {
@@ -519,9 +500,15 @@ impl Compiler {
             .expect("Internal Compiler Error: failed to find context.")
     }
 
-    fn ensure_code_object(&mut self) -> &mut CodeObject {
+    fn ensure_code_object_mut(&mut self) -> &mut CodeObject {
         self.code_stack
             .last_mut()
+            .expect("Internal Compiler Error: failed to find current code object.")
+    }
+
+    fn ensure_code_object(&self) -> &CodeObject {
+        self.code_stack
+            .last()
             .expect("Internal Compiler Error: failed to find current code object.")
     }
 }
@@ -818,7 +805,7 @@ mod bytecode_tests {
                 op: BinOp::LessThan,
                 right: Box::new(Expr::Integer(5)),
             },
-            body: Block::new(vec![]),
+            body: Ast::new(vec![]),
         };
 
         match compiler.compile_stmt(&stmt) {
@@ -848,7 +835,7 @@ mod bytecode_tests {
                     op: BinOp::LessThan,
                     right: Box::new(Expr::Integer(5)),
                 },
-                block: Block::new(vec![Statement::Assignment {
+                block: Ast::new(vec![Statement::Assignment {
                     left: Expr::Variable("a".into()),
                     right: Expr::Integer(-1),
                 }]),
@@ -882,13 +869,13 @@ mod bytecode_tests {
                     op: BinOp::LessThan,
                     right: Box::new(Expr::Integer(5)),
                 },
-                block: Block::new(vec![Statement::Assignment {
+                block: Ast::new(vec![Statement::Assignment {
                     left: Expr::Variable("a".into()),
                     right: Expr::Integer(-3),
                 }]),
             },
             elif_parts: vec![],
-            else_part: Some(Block::new(vec![Statement::Assignment {
+            else_part: Some(Ast::new(vec![Statement::Assignment {
                 left: Expr::Variable("a".into()),
                 right: Expr::Integer(3),
             }])),

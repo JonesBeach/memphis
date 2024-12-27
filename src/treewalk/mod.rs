@@ -18,7 +18,7 @@ pub use call_stack::{CallStack, StackFrame};
 pub use execution_context::ExecutionContextManager;
 pub use executor::Executor;
 pub use interpreter::Interpreter;
-pub use module_loader::{LoadedModule, ModuleLoader};
+pub use module_loader::{ModuleLoader, ModuleSource};
 pub use scope::Scope;
 pub use scope_manager::ScopeManager;
 pub use state::State;

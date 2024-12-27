@@ -36,7 +36,7 @@ mod wasm {
         // Set the panic hook for better error messages in the browser console
         set_once();
 
-        let mut context = MemphisContext::from_text(&code);
+        let context = MemphisContext::from_text(&code);
         let result = context
             .evaluate_oneshot()
             .expect("Failed to evaluate expression.");

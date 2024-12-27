@@ -8,7 +8,7 @@ use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     parser::{
         types::{
-            BinOp, Block, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+            Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
             ExceptionInstance, ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath,
             ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinitions, ParsedArguments,
             ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
@@ -79,12 +79,12 @@ impl Interpreter {
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
         self.state
-            .push_context(StackFrame::new_function(function.borrow().clone()));
+            .push_context(StackFrame::from_function(function.borrow().clone()));
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things
         // before returning.
-        let result = self.evaluate_block(&function.borrow().body);
+        let result = self.evaluate_ast(&function.borrow().body);
 
         // If an error is thrown, we should return that immediately without restoring any state.
         if matches!(result, Ok(_) | Err(InterpreterError::EncounteredReturn(_))) {
@@ -297,7 +297,7 @@ impl Interpreter {
             .as_member_reader(self)
             .get_member(self, field)?
             .ok_or(InterpreterError::AttributeError(
-                result.get_class(self).borrow().name.clone(),
+                result.get_class(self).borrow().name().to_string(),
                 field.to_string(),
                 self.state.call_stack(),
             ))
@@ -577,9 +577,9 @@ impl Interpreter {
         Ok(ExprResult::String(Str::new(result)))
     }
 
-    fn evaluate_block(&self, block: &Block) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_ast(&self, ast: &Ast) -> Result<ExprResult, InterpreterError> {
         let mut result = ExprResult::None;
-        for statement in &block.statements {
+        for statement in ast.iter() {
             result = self.evaluate_statement(statement)?;
         }
         Ok(result)
@@ -764,7 +764,7 @@ impl Interpreter {
         arguments: &ParsedArgDefinitions,
         expr: &Expr,
     ) -> Result<ExprResult, InterpreterError> {
-        let block = Block::from_expr(expr.clone());
+        let block = Ast::from_expr(expr.clone());
 
         let function = Container::new(Function::new_lambda(
             self.state.clone(),
@@ -779,7 +779,7 @@ impl Interpreter {
         &self,
         name: &str,
         arguments: &ParsedArgDefinitions,
-        body: &Block,
+        body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
     ) -> Result<(), InterpreterError> {
@@ -808,7 +808,7 @@ impl Interpreter {
         name: &str,
         parents: &[Expr],
         metaclass: &Option<String>,
-        body: &Block,
+        body: &Ast,
     ) -> Result<(), InterpreterError> {
         log(LogLevel::Debug, || format!("Defining class: {}", name));
         let parent_classes = parents
@@ -841,7 +841,7 @@ impl Interpreter {
         self.state
             .push_local(Container::new(class.borrow().scope.clone()));
         self.state.push_class(class.clone());
-        self.evaluate_block(body)?;
+        self.evaluate_ast(body)?;
         self.state.pop_class();
         class.borrow_mut().scope = self
             .state
@@ -861,33 +861,33 @@ impl Interpreter {
         &self,
         if_part: &ConditionalBlock,
         elif_parts: &[ConditionalBlock],
-        else_part: &Option<Block>,
+        else_part: &Option<Ast>,
     ) -> Result<(), InterpreterError> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
         if if_condition_result.as_boolean() {
-            self.evaluate_block(&if_part.block)?;
+            self.evaluate_ast(&if_part.block)?;
             return Ok(());
         }
 
         for elif_part in elif_parts {
             let elif_condition_result = self.evaluate_expr(&elif_part.condition)?;
             if elif_condition_result.as_boolean() {
-                self.evaluate_block(&elif_part.block)?;
+                self.evaluate_ast(&elif_part.block)?;
                 return Ok(());
             }
         }
 
         if let Some(else_part) = else_part {
-            self.evaluate_block(else_part)?;
+            self.evaluate_ast(else_part)?;
             return Ok(());
         }
 
         Ok(())
     }
 
-    fn evaluate_while_loop(&self, condition: &Expr, body: &Block) -> Result<(), InterpreterError> {
+    fn evaluate_while_loop(&self, condition: &Expr, body: &Ast) -> Result<(), InterpreterError> {
         while self.evaluate_expr(condition)?.as_boolean() {
-            match self.evaluate_block(body) {
+            match self.evaluate_ast(body) {
                 Err(InterpreterError::EncounteredBreak) => {
                     break;
                 }
@@ -989,8 +989,8 @@ impl Interpreter {
         &self,
         index: &LoopIndex,
         range: &Expr,
-        body: &Block,
-        else_block: &Option<Block>,
+        body: &Ast,
+        else_block: &Option<Ast>,
     ) -> Result<(), InterpreterError> {
         let range_expr = self.evaluate_expr(range)?;
         let mut encountered_break = false;
@@ -998,7 +998,7 @@ impl Interpreter {
         for val_for_iteration in range_expr {
             self.state.write_loop_index(index, val_for_iteration);
 
-            match self.evaluate_block(body) {
+            match self.evaluate_ast(body) {
                 Err(InterpreterError::EncounteredBreak) => {
                     encountered_break = true;
                     break;
@@ -1011,7 +1011,7 @@ impl Interpreter {
 
         if !encountered_break {
             if let Some(else_block) = else_block {
-                self.evaluate_block(else_block)?;
+                self.evaluate_ast(else_block)?;
             }
         }
 
@@ -1114,7 +1114,7 @@ impl Interpreter {
         &self,
         expr: &Expr,
         variable: &Option<String>,
-        block: &Block,
+        block: &Ast,
     ) -> Result<(), InterpreterError> {
         let expr_result = self.evaluate_expr(expr)?;
 
@@ -1135,7 +1135,7 @@ impl Interpreter {
         if let Some(variable) = variable {
             self.state.write(variable, result);
         }
-        let block_result = self.evaluate_block(block);
+        let block_result = self.evaluate_ast(block);
 
         self.invoke_method(
             expr_result.clone(),
@@ -1179,12 +1179,12 @@ impl Interpreter {
 
     fn evaluate_try_except(
         &self,
-        try_block: &Block,
+        try_block: &Ast,
         except_clauses: &[ExceptClause],
-        else_block: &Option<Block>,
-        finally_block: &Option<Block>,
+        else_block: &Option<Ast>,
+        finally_block: &Option<Ast>,
     ) -> Result<(), InterpreterError> {
-        if let Err(error) = self.evaluate_block(try_block) {
+        if let Err(error) = self.evaluate_ast(try_block) {
             // Only the first matching clause should be evaluated. They will still be in order
             // here from the parsed code.
             if let Some(except_clause) = except_clauses
@@ -1196,7 +1196,7 @@ impl Interpreter {
                         .write(alias, ExprResult::Exception(Box::new(error.clone())));
                 }
 
-                match self.evaluate_block(&except_clause.block) {
+                match self.evaluate_ast(&except_clause.block) {
                     Err(InterpreterError::EncounteredRaise) => return Err(error),
                     Err(second_error) => return Err(second_error),
                     Ok(_) => {}
@@ -1207,12 +1207,12 @@ impl Interpreter {
             }
         } else if let Some(else_block) = else_block {
             // Else block is only evaluated if an error was not thrown
-            self.evaluate_block(else_block)?;
+            self.evaluate_ast(else_block)?;
         }
 
         // Finally block is evaluated always if it exists
         if let Some(finally_block) = finally_block {
-            self.evaluate_block(finally_block)?;
+            self.evaluate_ast(finally_block)?;
         }
 
         Ok(())
@@ -1754,13 +1754,11 @@ y = _f.__type_params__
                     .unwrap()
                     .borrow()
                     .clone();
-                assert!(matches!(b,
-                    Function {
-                        body: Block { ref statements, .. },
-                        ..
-                    } if statements.len() == 1 &&
-                        matches!(statements[0], Statement::Expression(Expr::Integer(4)))
-                ));
+                let Function { ref body, .. } = b;
+                assert_eq!(
+                    body,
+                    &Ast::new(vec![Statement::Expression(Expr::Integer(4))])
+                );
                 assert_eq!(interpreter.state.read("c"), Some(ExprResult::Integer(4)));
                 let d = interpreter
                     .state
@@ -1770,13 +1768,11 @@ y = _f.__type_params__
                     .unwrap()
                     .borrow()
                     .clone();
-                assert!(matches!(d,
-                    Function {
-                        body: Block { ref statements, .. },
-                        ..
-                    } if statements.len() == 1 &&
-                        matches!(statements[0], Statement::Expression(Expr::Yield(None)))
-                ));
+                let Function { ref body, .. } = d;
+                assert_eq!(
+                    body,
+                    &Ast::new(vec![Statement::Expression(Expr::Yield(None))])
+                );
                 assert!(matches!(
                     interpreter.state.read("e").unwrap(),
                     ExprResult::Generator(_)
@@ -2415,41 +2411,26 @@ j = +(-3)
                     ))
                 );
 
-                assert_eq!(call_stack.frames.len(), 3);
-                assert!(call_stack.frames[0]
-                    .clone()
-                    .file_path
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                assert_eq!(call_stack.len(), 3);
+                assert!(call_stack
+                    .get(0)
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/call_stack.py"));
-                assert!(call_stack.frames[1]
-                    .clone()
-                    .file_path
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                assert!(call_stack
+                    .get(1)
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/other.py"));
-                assert!(call_stack.frames[2]
-                    .clone()
-                    .file_path
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                assert!(call_stack
+                    .get(2)
+                    .file_path_str()
                     .ends_with("src/fixtures/call_stack/other.py"));
 
-                assert_eq!(call_stack.frames[0].clone().function_name, None);
-                assert_eq!(
-                    call_stack.frames[1].clone().function_name,
-                    Some("middle_call".to_string())
-                );
-                assert_eq!(
-                    call_stack.frames[2].clone().function_name,
-                    Some("last_call".to_string())
-                );
-                assert_eq!(call_stack.frames[0].clone().line_number, 2);
-                assert_eq!(call_stack.frames[1].clone().line_number, 2);
-                assert_eq!(call_stack.frames[2].clone().line_number, 5);
+                assert_eq!(call_stack.get(0).function_name(), "<module>");
+                assert_eq!(call_stack.get(1).function_name(), "middle_call");
+                assert_eq!(call_stack.get(2).function_name(), "last_call");
+                assert_eq!(call_stack.get(0).line_number(), 2);
+                assert_eq!(call_stack.get(1).line_number(), 2);
+                assert_eq!(call_stack.get(2).line_number(), 5);
             }
             Ok(_) => panic!("Expected an error!"),
         }
@@ -2479,16 +2460,10 @@ c = foo()
                     ))
                 );
 
-                assert_eq!(call_stack.frames.len(), 1);
-                assert_eq!(
-                    call_stack.frames[0].clone().file_path,
-                    Some("<stdin>".into())
-                );
-                assert_eq!(
-                    call_stack.frames[0].clone().function_name,
-                    Some("__main__".into())
-                );
-                assert_eq!(call_stack.frames[0].clone().line_number, 11);
+                assert_eq!(call_stack.len(), 1);
+                assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
+                assert_eq!(call_stack.get(0).function_name(), "__main__");
+                assert_eq!(call_stack.get(0).line_number(), 11);
             }
             Ok(_) => panic!("Expected an error!"),
         }
@@ -3172,8 +3147,8 @@ t = type(slice)
                         .as_class()
                         .unwrap()
                         .borrow()
-                        .name,
-                    "Foo".to_string()
+                        .name(),
+                    "Foo"
                 );
                 assert_eq!(
                     interpreter
@@ -3185,7 +3160,7 @@ t = type(slice)
                         .borrow()
                         .class
                         .borrow()
-                        .name,
+                        .name(),
                     "Foo"
                 );
                 assert_eq!(
@@ -3650,8 +3625,8 @@ class abstractclassmethod(classmethod):
                         .first()
                         .unwrap()
                         .borrow()
-                        .name,
-                    "classmethod".to_string()
+                        .name(),
+                    "classmethod"
                 );
             }
         }
@@ -3937,7 +3912,7 @@ a = Foo.__mro__
                     a.as_tuple()
                         .unwrap()
                         .into_iter()
-                        .map(|i| i.as_class().unwrap().borrow().name.clone())
+                        .map(|i| i.as_class().unwrap().borrow().name().to_string())
                         .collect::<Vec<String>>()
                 });
                 assert_eq!(
@@ -8223,7 +8198,7 @@ f = obj.my_attr
                         .unwrap()
                         .get_class(&interpreter)
                         .borrow()
-                        .name,
+                        .name(),
                     "Descriptor"
                 );
                 assert_eq!(

@@ -1,17 +1,17 @@
-use crate::parser::types::{Block, Statement};
+use crate::parser::types::{Ast, Statement};
 
-/// An association between a [`Block`] of code and the current statement.
+/// An association between a [`Ast`] of code and the current statement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
     program_counter: usize,
-    block: Block,
+    ast: Ast,
 }
 
 impl Frame {
     /// Initialize a [`Frame`].
-    pub fn new(block: Block) -> Self {
+    pub fn new(ast: Ast) -> Self {
         Self {
-            block,
+            ast,
             program_counter: 0,
         }
     }
@@ -23,7 +23,11 @@ impl Frame {
 
     /// Mutably access the next [`Statement`] of the block, incrementing the program counter.
     pub fn next_statement(&mut self) -> Statement {
-        let statement = self.block.statements[self.program_counter].clone();
+        let statement = self
+            .ast
+            .get(self.program_counter)
+            .expect("No statement!")
+            .clone();
         self.program_counter += 1;
         statement
     }
@@ -41,6 +45,6 @@ impl Frame {
 
     /// Return the length of the block held by this frame.
     fn len(&self) -> usize {
-        self.block.statements.len()
+        self.ast.len()
     }
 }

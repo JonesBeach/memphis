@@ -41,7 +41,7 @@ impl From<Value> for Reference {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Class {
-    pub name: String,
+    name: String,
     namespace: Namespace,
 }
 
@@ -52,6 +52,10 @@ impl Class {
 
     pub fn read(&self, name: &str) -> Option<Reference> {
         self.namespace.get(name).cloned()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 

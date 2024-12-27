@@ -1,13 +1,15 @@
-use std::{path::PathBuf, process};
+use std::{fmt::Display, path::Path, process};
 
 use crate::{
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
     core::{Container, InterpreterEntrypoint},
     lexer::Lexer,
     parser::{types::ParseNode, Parser},
-    treewalk::{types::ExprResult, Interpreter, LoadedModule, StackFrame, State},
+    treewalk::{types::ExprResult, Interpreter, ModuleLoader, ModuleSource, StackFrame, State},
     types::errors::{MemphisError, ParserError},
 };
+
+const DEFAULT_MODULE: &str = "<module>";
 
 pub struct MemphisContext {
     state: Container<State>,
@@ -23,49 +25,48 @@ impl Default for MemphisContext {
 }
 
 impl MemphisContext {
-    pub fn from_path_with_state(filename: &str, state: Option<Container<State>>) -> Self {
-        let mut context = Self::with_state(state);
-        let module = context
-            .state
-            .load_root(PathBuf::from(filename))
-            .unwrap_or_else(|| {
-                eprintln!("Error reading file: {}", filename);
-                process::exit(1);
-            });
-        context.init_lexer(module.text());
+    pub fn from_path_with_state<P>(filepath: P, state: Option<Container<State>>) -> Self
+    where
+        P: AsRef<Path> + Display,
+    {
+        let module =
+            ModuleLoader::load_module_source(DEFAULT_MODULE, filepath.as_ref().to_path_buf())
+                .unwrap_or_else(|| {
+                    eprintln!("Error reading file: {}", filepath);
+                    process::exit(1);
+                });
 
-        let stack_frame = StackFrame::new_root(module.path());
-        context.state.push_context(stack_frame);
+        let context = Self::from_module_with_state(module, state);
+        context.state.register_root(filepath.as_ref().to_path_buf());
         context
     }
 
     pub fn from_text_with_state(text: &str, state: Option<Container<State>>) -> Self {
-        let mut context = Self::with_state(state);
-        context.init_lexer(text.to_string());
-
-        let stack_frame = StackFrame::new_module(LoadedModule::new_virtual(text));
-        context.state.push_context(stack_frame);
-        context
+        let module = ModuleSource::new_virtual(text);
+        Self::from_module_with_state(module, state)
     }
 
-    pub fn from_module_with_state(module: LoadedModule, state: Option<Container<State>>) -> Self {
+    pub fn from_module_with_state(module: ModuleSource, state: Option<Container<State>>) -> Self {
         let mut context = Self::with_state(state);
         context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::new_module(module);
+        let stack_frame = StackFrame::from_module(module);
         context.state.push_context(stack_frame);
         context
     }
 
-    pub fn from_path(filename: &str) -> Self {
-        Self::from_path_with_state(filename, None)
+    pub fn from_path<P>(filepath: P) -> Self
+    where
+        P: AsRef<Path> + Display,
+    {
+        Self::from_path_with_state(filepath, None)
     }
 
     pub fn from_text(text: &str) -> Self {
         Self::from_text_with_state(text, None)
     }
 
-    pub fn from_module(module: LoadedModule) -> Self {
+    pub fn from_module(module: ModuleSource) -> Self {
         Self::from_module_with_state(module, None)
     }
 
@@ -151,9 +152,9 @@ impl MemphisContext {
         Parser::new(self.ensure_lexer().tokens(), self.state.clone())
     }
 
-    fn init_lexer(&mut self, text: String) {
+    fn init_lexer(&mut self, text: &str) {
         if self.lexer.is_none() {
-            self.lexer = Some(Lexer::new(text));
+            self.lexer = Some(Lexer::new(text.to_owned()));
         } else {
             panic!("Lexer has already been initialized!");
         }

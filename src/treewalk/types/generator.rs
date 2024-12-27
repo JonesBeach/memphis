@@ -1,6 +1,6 @@
 use crate::{
     core::Container,
-    parser::types::{Block, Expr, ForClause, LoopIndex, Statement},
+    parser::types::{Ast, Expr, ForClause, LoopIndex, Statement},
     treewalk::{
         types::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
@@ -41,11 +41,11 @@ impl Generator {
     // This is a utility which takes the parsed elements found in a generator comprehension and
     // recursively builds a generator function out of them. This will then become the body of the
     // function provided to a generator.
-    fn build_nested_loops(body: &Expr, clauses: &[ForClause]) -> Block {
+    fn build_nested_loops(body: &Expr, clauses: &[ForClause]) -> Ast {
         if let Some((first_clause, remaining_clauses)) = clauses.split_first() {
             let loop_body = if remaining_clauses.is_empty() {
                 // Base case: Yield the body
-                Block::from_expr(Expr::Yield(Some(Box::new(body.clone()))))
+                Ast::from_expr(Expr::Yield(Some(Box::new(body.clone()))))
             } else {
                 // Recursive case: Build nested loop for the remaining clauses
                 Self::build_nested_loops(body, remaining_clauses)
@@ -65,7 +65,7 @@ impl Generator {
                 else_block: None,
             };
 
-            Block::new(vec![for_in_loop])
+            Ast::new(vec![for_in_loop])
         } else {
             unreachable!()
         }

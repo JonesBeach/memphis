@@ -1,14 +1,14 @@
 use std::{
     collections::hash_map::Iter,
     fmt::{Display, Error, Formatter},
-    path::PathBuf,
+    path::Path,
 };
 
 use crate::{
     core::{log, Container, LogLevel},
     init::MemphisContext,
     parser::types::ImportPath,
-    treewalk::{Interpreter, LoadedModule, Scope},
+    treewalk::{Interpreter, ModuleSource, Scope},
     types::errors::{InterpreterError, MemphisError},
 };
 
@@ -17,7 +17,7 @@ use super::{domain::traits::MemberReader, Dict, ExprResult};
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
     scope: Scope,
-    loaded_module: Option<LoadedModule>,
+    loaded_module: ModuleSource,
 }
 
 impl Module {
@@ -78,23 +78,19 @@ impl Module {
         Ok(module)
     }
 
-    pub fn new(loaded_module: LoadedModule, scope: Scope) -> Self {
+    pub fn new(loaded_module: ModuleSource, scope: Scope) -> Self {
         Self {
-            loaded_module: Some(loaded_module),
+            loaded_module,
             scope,
         }
     }
 
-    pub fn path(&self) -> PathBuf {
-        self.loaded_module
-            .clone()
-            .map_or(LoadedModule::empty_path(), |m| m.path())
+    pub fn path(&self) -> &Path {
+        self.loaded_module.path()
     }
 
-    pub fn name(&self) -> String {
-        self.loaded_module
-            .clone()
-            .map_or(LoadedModule::empty_name(), |m| m.name())
+    pub fn name(&self) -> &str {
+        self.loaded_module.name()
     }
 
     pub fn get(&self, name: &str) -> Option<ExprResult> {

@@ -95,3 +95,9 @@ impl From<Dunder> for String {
         value.value().to_string()
     }
 }
+
+impl From<Dunder> for &str {
+    fn from(value: Dunder) -> Self {
+        value.value()
+    }
+}

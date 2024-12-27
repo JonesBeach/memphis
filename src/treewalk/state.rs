@@ -5,7 +5,7 @@ use crate::{
     parser::types::{ImportPath, LoopIndex},
     treewalk::{
         types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
-        CallStack, ExecutionContextManager, Executor, LoadedModule, ModuleLoader, Scope,
+        CallStack, ExecutionContextManager, Executor, ModuleLoader, ModuleSource, Scope,
         ScopeManager, StackFrame, TypeRegistry,
     },
 };
@@ -209,8 +209,8 @@ impl Container<State> {
         self.borrow().scope_manager.is_class(name)
     }
 
-    pub fn load_root(&self, filepath: PathBuf) -> Option<LoadedModule> {
-        self.borrow_mut().module_loader.load_root(filepath)
+    pub fn register_root(&self, filepath: PathBuf) {
+        self.borrow_mut().module_loader.register_root(filepath);
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -223,8 +223,8 @@ impl Container<State> {
     pub fn load_module(
         &self,
         import_path: &ImportPath,
-        current_path: Option<PathBuf>,
-    ) -> Option<LoadedModule> {
+        current_path: &PathBuf,
+    ) -> Option<ModuleSource> {
         self.borrow_mut()
             .module_loader
             .load_module(import_path, current_path)

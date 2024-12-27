@@ -237,7 +237,7 @@ impl MemberWriter for Container<Object> {
             )
         {
             return Err(InterpreterError::AttributeError(
-                result.get_class(interpreter).borrow().name.clone(),
+                result.get_class(interpreter).borrow().name().to_string(),
                 name.to_string(),
                 interpreter.state.call_stack(),
             ));
@@ -313,7 +313,7 @@ impl Display for Container<Object> {
         write!(
             f,
             "<{} object at {:p}>",
-            self.borrow().class.borrow().name,
+            self.borrow().class.borrow().name(),
             self
         )
     }

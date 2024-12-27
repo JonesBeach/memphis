@@ -304,7 +304,7 @@ class Foo:
                 let Some(Value::Class(class)) = interpreter.take("Foo") else {
                     panic!("Did not find class Foo")
                 };
-                assert_eq!(class.name, "Foo");
+                assert_eq!(class.name(), "Foo");
                 let Value::Function(ref function) =
                     *interpreter.vm.dereference(class.read("bar").unwrap())
                 else {
@@ -338,7 +338,7 @@ f = Foo()
                         .vm
                         .dereference(object.class_ref())
                         .as_class()
-                        .name,
+                        .name(),
                     "Foo"
                 );
             }
