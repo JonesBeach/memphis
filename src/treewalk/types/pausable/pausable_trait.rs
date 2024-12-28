@@ -1,9 +1,10 @@
 use crate::{
     core::Container,
+    domain::ToDebugStackFrame,
     parser::types::Statement,
     treewalk::{
         types::{ExprResult, Function, List},
-        Interpreter, Scope, StackFrame,
+        Interpreter, Scope,
     },
     types::errors::InterpreterError,
 };
@@ -69,7 +70,7 @@ pub trait Pausable {
         interpreter.state.push_local(self.scope());
         interpreter
             .state
-            .push_context(StackFrame::from_function(self.function().borrow().clone()));
+            .push_context(self.function().borrow().to_stack_frame());
     }
 
     /// The default behavior required to perform the necessary context switching when exiting a

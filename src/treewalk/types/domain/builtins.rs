@@ -1,11 +1,10 @@
 use crate::{
     core::Container,
+    domain::Dunder,
     resolved_args,
     treewalk::{
         types::{
-            domain::traits::Callable,
-            iterators::StringIterator,
-            utils::{Dunder, ResolvedArguments},
+            domain::traits::Callable, iterators::StringIterator, utils::ResolvedArguments,
             ExprResult, List, Str,
         },
         Interpreter,
@@ -139,7 +138,7 @@ impl Callable for HashBuiltin {
             return Ok(ExprResult::Integer(arg.hash() as i64));
         }
 
-        let result = interpreter.invoke_method(arg, &Dunder::Hash, &resolved_args!())?;
+        let result = interpreter.invoke_method(arg, Dunder::Hash, &resolved_args![])?;
 
         if let ExprResult::Integer(_) = result {
             Ok(result)
@@ -365,14 +364,14 @@ impl Callable for NoopCallable {
 }
 
 pub mod utils {
-    use crate::treewalk::CallStack;
+    use crate::domain::DebugCallStack;
 
     use super::*;
 
     pub fn validate_args(
         args: &ResolvedArguments,
         expected_length: usize,
-        call_stack: CallStack,
+        call_stack: DebugCallStack,
     ) -> Result<(), InterpreterError> {
         if args.len() != expected_length {
             Err(InterpreterError::WrongNumberOfArguments(

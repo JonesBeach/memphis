@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
     parser::{
         static_analysis::{FunctionAnalysisVisitor, YieldDetector},
         types::{Ast, Closure, Expr, ParsedArgDefinitions},
@@ -22,7 +23,7 @@ use super::{
         },
         Type,
     },
-    utils::{Dunder, EnvironmentFrame, ResolvedArguments},
+    utils::{EnvironmentFrame, ResolvedArguments},
     Cell, Class, Dict, ExprResult, Module, Str, Tuple,
 };
 
@@ -84,6 +85,16 @@ impl PartialEq for Function {
     }
 }
 
+impl ToDebugStackFrame for Function {
+    fn to_stack_frame(&self) -> DebugStackFrame {
+        DebugStackFrame::new(
+            self.name(),
+            self.module.borrow().path().to_path_buf(),
+            self.line_number(),
+        )
+    }
+}
+
 impl Function {
     pub fn new(
         state: Container<State>,
@@ -129,6 +140,14 @@ impl Function {
             vec![],
             false,
         )
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn line_number(&self) -> usize {
+        self.line_number
     }
 
     pub fn is_generator(&self) -> bool {
@@ -228,8 +247,6 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let decorator_result = interpreter.evaluate_expr(decorator)?;
 
-            let arguments = resolved_args!(result);
-
             let function =
                 decorator_result
                     .as_callable()
@@ -237,7 +254,7 @@ impl Container<Function> {
                         interpreter.state.call_stack(),
                     ))?;
 
-            result = interpreter.call(function, &arguments)?;
+            result = interpreter.call(function, &resolved_args![result])?;
         }
 
         Ok(result)

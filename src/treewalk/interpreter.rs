@@ -3,9 +3,10 @@ use std::fmt::Write;
 
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
-use super::{evaluators, Scope, StackFrame, State};
+use super::{evaluators, Scope, State};
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
+    domain::{Dunder, ToDebugStackFrame},
     parser::{
         types::{
             Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
@@ -20,7 +21,7 @@ use crate::{
         domain::traits::{Callable, MemberReader},
         function::FunctionType,
         iterators::GeneratorIterator,
-        utils::{Dunder, ResolvedArguments},
+        utils::ResolvedArguments,
         Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
         Tuple,
     },
@@ -79,7 +80,7 @@ impl Interpreter {
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
         self.state
-            .push_context(StackFrame::from_function(function.borrow().clone()));
+            .push_context(function.borrow().clone().to_stack_frame());
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things
@@ -100,11 +101,15 @@ impl Interpreter {
         result
     }
 
-    pub fn resolve_method(
+    pub fn resolve_method<S>(
         &self,
         receiver: ExprResult,
-        name: &str,
-    ) -> Result<Container<Box<dyn Callable>>, InterpreterError> {
+        name: S,
+    ) -> Result<Container<Box<dyn Callable>>, InterpreterError>
+    where
+        S: AsRef<str>,
+    {
+        let name = name.as_ref();
         self.evaluate_member_access_inner(&receiver, name)?
             .as_callable()
             .ok_or(InterpreterError::MethodNotFound(
@@ -113,14 +118,17 @@ impl Interpreter {
             ))
     }
 
-    pub fn invoke_method(
+    pub fn invoke_method<S>(
         &self,
         receiver: ExprResult,
-        name: &str,
+        name: S,
         arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> Result<ExprResult, InterpreterError>
+    where
+        S: AsRef<str>,
+    {
         log(LogLevel::Debug, || {
-            format!("Calling method {}.{}", receiver, name)
+            format!("Calling method {}.{}", receiver, name.as_ref())
         });
         log(LogLevel::Trace, || {
             format!("... from module: {}", self.state.current_module())
@@ -279,26 +287,29 @@ impl Interpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.invoke_method(left, &dunder, &resolved_args!(right))
+            self.invoke_method(left, &dunder, &resolved_args![right])
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
     }
 
-    fn evaluate_member_access_inner(
+    fn evaluate_member_access_inner<S>(
         &self,
         result: &ExprResult,
-        field: &str,
-    ) -> Result<ExprResult, InterpreterError> {
+        field: S,
+    ) -> Result<ExprResult, InterpreterError>
+    where
+        S: AsRef<str>,
+    {
         log(LogLevel::Debug, || {
-            format!("Member access {}.{}", result, field)
+            format!("Member access {}.{}", result, field.as_ref())
         });
         result
             .as_member_reader(self)
-            .get_member(self, field)?
+            .get_member(self, field.as_ref())?
             .ok_or(InterpreterError::AttributeError(
                 result.get_class(self).borrow().name().to_string(),
-                field.to_string(),
+                field.as_ref().to_string(),
                 self.state.call_stack(),
             ))
     }
@@ -377,11 +388,14 @@ impl Interpreter {
         self.evaluate_binary_operation_inner(left, op, right)
     }
 
-    fn evaluate_member_access(
+    fn evaluate_member_access<S>(
         &self,
         object: &Expr,
-        field: &str,
-    ) -> Result<ExprResult, InterpreterError> {
+        field: S,
+    ) -> Result<ExprResult, InterpreterError>
+    where
+        S: AsRef<str>,
+    {
         let result = self.evaluate_expr(object)?;
         self.evaluate_member_access_inner(&result, field)
     }
@@ -605,12 +619,15 @@ impl Interpreter {
         self.call_function_inner(function, &arguments)
     }
 
-    fn evaluate_method_call(
+    fn evaluate_method_call<S>(
         &self,
         obj: &Expr,
-        name: &str,
+        name: S,
         arguments: &ParsedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> Result<ExprResult, InterpreterError>
+    where
+        S: AsRef<str>,
+    {
         let arguments = ResolvedArguments::from(self, arguments)?;
         let result = self.evaluate_expr(obj)?;
 
@@ -1130,7 +1147,7 @@ impl Interpreter {
             ));
         }
 
-        let result = self.invoke_method(expr_result.clone(), &Dunder::Enter, &resolved_args!())?;
+        let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &resolved_args![])?;
 
         if let Some(variable) = variable {
             self.state.write(variable, result);
@@ -1139,8 +1156,8 @@ impl Interpreter {
 
         self.invoke_method(
             expr_result.clone(),
-            &Dunder::Exit,
-            &resolved_args!(ExprResult::None, ExprResult::None, ExprResult::None),
+            Dunder::Exit,
+            &resolved_args![ExprResult::None, ExprResult::None, ExprResult::None],
         )?;
 
         // Return the exception if one is called.
@@ -2425,9 +2442,9 @@ j = +(-3)
                     .file_path_str()
                     .ends_with("src/fixtures/call_stack/other.py"));
 
-                assert_eq!(call_stack.get(0).function_name(), "<module>");
-                assert_eq!(call_stack.get(1).function_name(), "middle_call");
-                assert_eq!(call_stack.get(2).function_name(), "last_call");
+                assert_eq!(call_stack.get(0).name(), "<module>");
+                assert_eq!(call_stack.get(1).name(), "middle_call");
+                assert_eq!(call_stack.get(2).name(), "last_call");
                 assert_eq!(call_stack.get(0).line_number(), 2);
                 assert_eq!(call_stack.get(1).line_number(), 2);
                 assert_eq!(call_stack.get(2).line_number(), 5);
@@ -2462,7 +2479,7 @@ c = foo()
 
                 assert_eq!(call_stack.len(), 1);
                 assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(0).function_name(), "__main__");
+                assert_eq!(call_stack.get(0).name(), "__main__");
                 assert_eq!(call_stack.get(0).line_number(), 11);
             }
             Ok(_) => panic!("Expected an error!"),

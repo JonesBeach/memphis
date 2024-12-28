@@ -1,11 +1,13 @@
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+};
 
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult,
 };
 

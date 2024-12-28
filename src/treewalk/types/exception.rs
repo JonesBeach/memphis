@@ -1,11 +1,10 @@
-use crate::{core::Container, types::errors::InterpreterError};
+use crate::{core::Container, domain::Dunder, types::errors::InterpreterError};
 
 use super::{
     domain::{
         traits::{DescriptorProvider, NonDataDescriptor, Typed},
         Type,
     },
-    utils::Dunder,
     Class, ExprResult,
 };
 

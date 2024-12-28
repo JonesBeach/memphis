@@ -2,6 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::Dunder,
     resolved_args,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
@@ -12,7 +13,7 @@ use super::{
         traits::{Callable, MemberReader, MemberWriter},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult, Str, Tuple,
 };
 
@@ -53,14 +54,14 @@ impl Class {
             ExprResult::Tuple(Tuple::new(bases))
         };
 
-        let args = &resolved_args!(
+        let args = &resolved_args![
             ExprResult::Class(metaclass.clone()),
             ExprResult::String(Str::new(name.into())),
             bases,
             ExprResult::Dict(Scope::default().as_dict(interpreter))
-        );
+        ];
         interpreter
-            .invoke_method(ExprResult::Class(metaclass), &Dunder::New, args)?
+            .invoke_method(ExprResult::Class(metaclass), Dunder::New, args)?
             .as_class()
             .ok_or(InterpreterError::ExpectedClass(
                 interpreter.state.call_stack(),

@@ -2,11 +2,12 @@ use std::path::PathBuf;
 
 use crate::{
     core::Container,
+    domain::{DebugCallStack, DebugStackFrame},
     parser::types::{ImportPath, LoopIndex},
     treewalk::{
         types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
-        CallStack, ExecutionContextManager, Executor, ModuleLoader, ModuleSource, Scope,
-        ScopeManager, StackFrame, TypeRegistry,
+        ExecutionContextManager, Executor, ModuleLoader, ModuleSource, Scope, ScopeManager,
+        TypeRegistry,
     },
 };
 
@@ -17,7 +18,7 @@ use super::Interpreter;
 pub struct State {
     module_loader: ModuleLoader,
     scope_manager: ScopeManager,
-    call_stack: CallStack,
+    call_stack: DebugCallStack,
     executor: Container<Executor>,
     type_registry: TypeRegistry,
     execution_context: ExecutionContextManager,
@@ -41,7 +42,7 @@ impl State {
         State {
             scope_manager,
             module_loader: ModuleLoader::new(),
-            call_stack: CallStack::new(),
+            call_stack: DebugCallStack::new(),
             executor: Container::new(Executor::new()),
             type_registry,
             execution_context: ExecutionContextManager::new(),
@@ -89,7 +90,7 @@ impl Container<State> {
 
     /// Return the `CallStack` at the current moment in time. This should be used at the time of an
     /// exception or immediately before any other use as it is a snapshot and will not keep updating.
-    pub fn call_stack(&self) -> CallStack {
+    pub fn call_stack(&self) -> DebugCallStack {
         self.borrow().call_stack.clone()
     }
 
@@ -113,7 +114,7 @@ impl Container<State> {
         self.borrow_mut().scope_manager.pop_local()
     }
 
-    pub fn push_context(&self, stack_frame: StackFrame) {
+    pub fn push_context(&self, stack_frame: DebugStackFrame) {
         self.borrow_mut().call_stack.push_context(stack_frame);
     }
 
@@ -121,7 +122,7 @@ impl Container<State> {
         self.borrow_mut().call_stack.set_line(line);
     }
 
-    pub fn pop_context(&self) -> Option<StackFrame> {
+    pub fn pop_context(&self) -> Option<DebugStackFrame> {
         self.borrow_mut().call_stack.pop_context()
     }
 

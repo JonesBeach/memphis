@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
+    domain::Dunder,
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    treewalk::types::utils::Dunder,
     types::errors::{InterpreterError, ParserError},
 };
 

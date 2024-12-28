@@ -1,5 +1,6 @@
 use crate::{
     core::{log, Container, LogLevel},
+    domain::Dunder,
     treewalk::Interpreter,
     types::errors::InterpreterError,
 };
@@ -9,7 +10,7 @@ use super::{
         traits::{Callable, MemberReader, MethodProvider, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult,
 };
 

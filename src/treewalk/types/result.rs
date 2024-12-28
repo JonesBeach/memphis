@@ -8,6 +8,7 @@ use std::{
 use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
+    domain::Dunder,
     treewalk::{typing::TypeExpr, Interpreter},
     types::errors::InterpreterError,
 };
@@ -24,7 +25,7 @@ use super::{
         DictItemsIterator, DictKeysIterator, DictValuesIterator, GeneratorIterator, ListIterator,
         RangeIterator, ReversedIterator, StringIterator, ZipIterator,
     },
-    utils::{BuiltinObject, Dunder, ResolvedArguments},
+    utils::{BuiltinObject, ResolvedArguments},
     ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems, DictKeys,
     DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object, Property, Range,
     Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
@@ -184,10 +185,9 @@ impl ExprResult {
         // never bound.
         let mut new_args = arguments.clone();
         new_args.bind_new(ExprResult::Class(class.clone()));
-        let object =
-            interpreter.invoke_method(ExprResult::Class(class), &Dunder::New, &new_args)?;
+        let object = interpreter.invoke_method(ExprResult::Class(class), Dunder::New, &new_args)?;
 
-        interpreter.invoke_method(object.clone(), &Dunder::Init, &arguments)?;
+        interpreter.invoke_method(object.clone(), Dunder::Init, &arguments)?;
 
         Ok(object)
     }

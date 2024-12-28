@@ -6,12 +6,13 @@ use std::{
 
 use crate::{
     core::InterpreterEntrypoint,
+    domain::Dunder,
     resolved_args,
     treewalk::{types::ExprResult, Interpreter},
     types::errors::{InterpreterError, MemphisError},
 };
 
-use super::{Dunder, ResolvedArguments};
+use super::ResolvedArguments;
 
 /// A wrapper which includes a reference to an `Interpreter`.
 ///
@@ -91,7 +92,7 @@ impl Contextual<ExprResult> {
         // class, which is what we detect by checking for the unbound case (receiver().is_none()).
         let eq = match self
             .interpreter
-            .resolve_method(self.value.clone(), &Dunder::Eq)
+            .resolve_method(self.value.clone(), Dunder::Eq)
         {
             Err(e) => self
                 .interpreter
@@ -104,8 +105,8 @@ impl Contextual<ExprResult> {
 
         let result = self.interpreter.invoke_method(
             self.value.clone(),
-            &Dunder::Eq,
-            &resolved_args!(other.value.clone()),
+            Dunder::Eq,
+            &resolved_args![other.value.clone()],
         );
 
         match result {

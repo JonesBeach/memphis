@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
     parser::types::ImportPath,
 };
 
@@ -14,7 +15,7 @@ use crate::{
 use super::stdlib::Stdlib;
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::CPythonModule;
-use super::types::{utils::Dunder, Module};
+use super::types::Module;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ModuleSource {
@@ -72,6 +73,12 @@ impl ModuleSource {
 
     pub fn text(&self) -> &str {
         self.text.as_deref().unwrap_or(Self::DEFAULT_TEXT)
+    }
+}
+
+impl ToDebugStackFrame for ModuleSource {
+    fn to_stack_frame(&self) -> DebugStackFrame {
+        DebugStackFrame::new(self.name(), self.path().to_path_buf(), 1)
     }
 }
 

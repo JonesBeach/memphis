@@ -1,5 +1,6 @@
 use crate::{
-    core::Container, resolved_args, treewalk::Interpreter, types::errors::InterpreterError,
+    core::Container, domain::Dunder, resolved_args, treewalk::Interpreter,
+    types::errors::InterpreterError,
 };
 
 use super::{
@@ -8,7 +9,7 @@ use super::{
         traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     Class, ExprResult,
 };
 
@@ -70,7 +71,7 @@ impl NonDataDescriptor for Property {
             panic!("No instance for descriptor!");
         };
 
-        interpreter.call(self.0.clone(), &resolved_args!(instance))
+        interpreter.call(self.0.clone(), &resolved_args![instance])
     }
 
     fn name(&self) -> String {

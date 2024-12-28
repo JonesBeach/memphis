@@ -3,7 +3,9 @@ use std::{
     fmt::{Debug, Display, Error, Formatter},
 };
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+};
 
 use super::{
     dict_items::ContextualDictItemsIterator,
@@ -13,7 +15,7 @@ use super::{
         Type,
     },
     iterators::DictKeysIterator,
-    utils::{Contextual, Dunder, ResolvedArguments},
+    utils::{Contextual, ResolvedArguments},
     DictItems, DictValues, ExprResult,
 };
 

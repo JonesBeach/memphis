@@ -3,9 +3,10 @@ use std::{fmt::Display, path::Path, process};
 use crate::{
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
     core::{Container, InterpreterEntrypoint},
+    domain::ToDebugStackFrame,
     lexer::Lexer,
     parser::{types::ParseNode, Parser},
-    treewalk::{types::ExprResult, Interpreter, ModuleLoader, ModuleSource, StackFrame, State},
+    treewalk::{types::ExprResult, Interpreter, ModuleLoader, ModuleSource, State},
     types::errors::{MemphisError, ParserError},
 };
 
@@ -50,8 +51,7 @@ impl MemphisContext {
         let mut context = Self::with_state(state);
         context.init_lexer(module.text());
 
-        let stack_frame = StackFrame::from_module(module);
-        context.state.push_context(stack_frame);
+        context.state.push_context(module.to_stack_frame());
         context
     }
 

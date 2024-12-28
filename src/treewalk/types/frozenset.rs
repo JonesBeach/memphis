@@ -3,7 +3,9 @@ use std::{
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+};
 
 use super::{
     domain::{
@@ -11,7 +13,7 @@ use super::{
         Type,
     },
     iterators::ListIterator,
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult, Set,
 };
 

@@ -4,7 +4,9 @@ use std::{
     ops::Add,
 };
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+};
 
 use super::{
     domain::{
@@ -14,7 +16,7 @@ use super::{
     },
     generator::GeneratorIterator,
     result::ExprResultIterator,
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult, Range, Set, Slice, Tuple,
 };
 

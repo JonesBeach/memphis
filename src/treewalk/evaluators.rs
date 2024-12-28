@@ -1,13 +1,12 @@
 use crate::{
     core::Container,
+    domain::DebugCallStack,
     parser::types::{BinOp, LogicalOp, UnaryOp},
-    treewalk::types::{ExprResult, List},
+    treewalk::types::{ExprResult, List, Set},
     types::errors::InterpreterError,
 };
 
-use super::{types::Set, CallStack};
-
-pub(crate) fn evaluate_logical_op(
+pub fn evaluate_logical_op(
     left: bool,
     op: &LogicalOp,
     right: bool,
@@ -18,11 +17,11 @@ pub(crate) fn evaluate_logical_op(
     }
 }
 
-pub(crate) fn evaluate_integer_operation(
+pub fn evaluate_integer_operation(
     left: i64,
     op: &BinOp,
     right: i64,
-    call_stack: CallStack,
+    call_stack: DebugCallStack,
 ) -> Result<ExprResult, InterpreterError> {
     match op {
         BinOp::Add => Ok(ExprResult::Integer(left + right)),
@@ -89,11 +88,11 @@ pub(crate) fn evaluate_integer_operation(
     }
 }
 
-pub(crate) fn evaluate_floating_point_operation(
+pub fn evaluate_floating_point_operation(
     left: f64,
     op: &BinOp,
     right: f64,
-    call_stack: CallStack,
+    call_stack: DebugCallStack,
 ) -> Result<ExprResult, InterpreterError> {
     match op {
         BinOp::Add => Ok(ExprResult::FloatingPoint(left + right)),
@@ -119,7 +118,7 @@ pub(crate) fn evaluate_floating_point_operation(
     }
 }
 
-pub(crate) fn evaluate_object_comparison(
+pub fn evaluate_object_comparison(
     left: ExprResult,
     op: &BinOp,
     right: ExprResult,
@@ -133,10 +132,10 @@ pub(crate) fn evaluate_object_comparison(
     }
 }
 
-pub(crate) fn evaluate_unary_operation(
+pub fn evaluate_unary_operation(
     op: &UnaryOp,
     right: ExprResult,
-    call_stack: CallStack,
+    call_stack: DebugCallStack,
 ) -> Result<ExprResult, InterpreterError> {
     match op {
         UnaryOp::Minus => Ok(right.negated()),
@@ -173,7 +172,7 @@ pub(crate) fn evaluate_unary_operation(
     }
 }
 
-pub(crate) fn evaluate_set_operation(
+pub fn evaluate_set_operation(
     left: Container<Set>,
     op: &BinOp,
     right: Container<Set>,
@@ -188,7 +187,7 @@ pub(crate) fn evaluate_set_operation(
     }
 }
 
-pub(crate) fn evaluate_list_operation(
+pub fn evaluate_list_operation(
     left: Container<List>,
     op: &BinOp,
     right: Container<List>,

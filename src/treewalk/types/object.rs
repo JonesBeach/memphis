@@ -2,6 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::Dunder,
     resolved_args,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
@@ -16,7 +17,7 @@ use super::{
         },
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     Class, ExprResult, Str,
 };
 
@@ -77,8 +78,8 @@ impl IndexWrite for Container<Object> {
     ) -> Result<(), InterpreterError> {
         let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::SetItem,
-            &resolved_args!(index, value),
+            Dunder::SetItem,
+            &resolved_args![index, value],
         )?;
 
         Ok(())
@@ -91,8 +92,8 @@ impl IndexWrite for Container<Object> {
     ) -> Result<(), InterpreterError> {
         let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::DelItem,
-            &resolved_args!(index),
+            Dunder::DelItem,
+            &resolved_args![index],
         )?;
 
         Ok(())
@@ -107,8 +108,8 @@ impl IndexRead for Container<Object> {
     ) -> Result<Option<ExprResult>, InterpreterError> {
         let result = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::GetItem,
-            &resolved_args!(index),
+            Dunder::GetItem,
+            &resolved_args![index],
         )?;
 
         Ok(Some(result))
@@ -261,11 +262,11 @@ impl NonDataDescriptor for Container<Object> {
     ) -> Result<ExprResult, InterpreterError> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::Get,
-            &resolved_args!(
+            Dunder::Get,
+            &resolved_args![
                 instance.unwrap_or(ExprResult::None),
                 ExprResult::Class(owner)
-            ),
+            ],
         )
     }
 
@@ -286,8 +287,8 @@ impl DataDescriptor for Container<Object> {
     ) -> Result<(), InterpreterError> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::Set,
-            &resolved_args!(instance, value),
+            Dunder::Set,
+            &resolved_args![instance, value],
         )?;
 
         Ok(())
@@ -300,8 +301,8 @@ impl DataDescriptor for Container<Object> {
     ) -> Result<(), InterpreterError> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
-            &Dunder::Delete,
-            &resolved_args!(instance),
+            Dunder::Delete,
+            &resolved_args![instance],
         )?;
 
         Ok(())
@@ -422,7 +423,7 @@ impl Callable for NeBuiltin {
             interpreter.state.call_stack(),
         ))?;
         let result =
-            interpreter.invoke_method(receiver, &Dunder::Eq, &resolved_args!(args.get_arg(0)))?;
+            interpreter.invoke_method(receiver, Dunder::Eq, &resolved_args![args.get_arg(0)])?;
 
         Ok(result.inverted())
     }

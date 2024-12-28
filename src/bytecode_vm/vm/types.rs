@@ -50,8 +50,11 @@ impl Class {
         Self { name, namespace }
     }
 
-    pub fn read(&self, name: &str) -> Option<Reference> {
-        self.namespace.get(name).cloned()
+    pub fn read<S>(&self, name: S) -> Option<Reference>
+    where
+        S: AsRef<str>,
+    {
+        self.namespace.get(name.as_ref()).cloned()
     }
 
     pub fn name(&self) -> &str {

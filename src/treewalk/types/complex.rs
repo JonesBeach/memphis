@@ -1,5 +1,6 @@
-use crate::{treewalk::Interpreter, types::errors::InterpreterError};
 use std::fmt::{Display, Error, Formatter};
+
+use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
     domain::{
@@ -7,7 +8,7 @@ use super::{
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult,
 };
 

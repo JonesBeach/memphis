@@ -1,4 +1,3 @@
-mod call_stack;
 mod evaluators;
 mod execution_context;
 mod executor;
@@ -14,7 +13,6 @@ mod type_registry;
 pub mod types;
 pub mod typing;
 
-pub use call_stack::{CallStack, StackFrame};
 pub use execution_context::ExecutionContextManager;
 pub use executor::Executor;
 pub use interpreter::Interpreter;

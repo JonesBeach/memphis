@@ -8,7 +8,7 @@ use crate::{
         Opcode,
     },
     core::{log, log_impure, LogLevel},
-    treewalk::types::utils::Dunder,
+    domain::Dunder,
 };
 
 mod frame;
@@ -406,7 +406,7 @@ impl VirtualMachine {
                             self.execute_function(function, args);
                         }
                         Value::Class(ref class) => {
-                            let init_method = class.read(&Dunder::Init);
+                            let init_method = class.read(Dunder::Init);
                             let object = Object::new(reference);
                             let reference = self.create(Value::Object(object));
 

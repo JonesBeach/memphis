@@ -1,18 +1,19 @@
 use pyo3::{
     prelude::Python,
     pyclass,
-    types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PyTuple},
+    types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PyString, PyTuple},
     IntoPy, Py, PyObject, PyResult, ToPyObject,
 };
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::Dunder,
     parser::types::ImportPath,
     treewalk::{
         types::{
             domain::traits::{Callable, IndexRead, IndexWrite, MemberReader},
-            utils::{Dunder, ResolvedArguments},
+            utils::ResolvedArguments,
             ExprResult, Str,
         },
         Interpreter,
@@ -131,14 +132,17 @@ impl CPythonModule {
     }
 
     fn name(&self) -> String {
-        self.get_item(&*Dunder::Name)
+        self.get_item(Dunder::Name)
             .unwrap()
             .unwrap()
             .as_string()
             .unwrap()
     }
 
-    fn get_item(&self, name: &str) -> Result<Option<ExprResult>, InterpreterError> {
+    fn get_item<S>(&self, name: S) -> Result<Option<ExprResult>, InterpreterError>
+    where
+        S: IntoPy<Py<PyString>>,
+    {
         Ok(Python::with_gil(|py| {
             match self.0.as_ref(py).getattr(name) {
                 Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
@@ -290,7 +294,7 @@ impl CPythonObject {
     pub fn get_type(&self) -> ExprResult {
         Python::with_gil(|py| {
             let obj_ref: &PyAny = self.0.as_ref(py);
-            let obj_type = obj_ref.getattr(&*Dunder::Class).unwrap();
+            let obj_type = obj_ref.getattr(Dunder::Class).unwrap();
             ExprResult::CPythonClass(CPythonClass(obj_type.into()))
         })
     }
@@ -311,7 +315,7 @@ impl IndexRead for CPythonObject {
             let result = self
                 .0
                 .as_ref(py)
-                .call_method1(&*Dunder::GetItem, (key,))
+                .call_method1(Dunder::GetItem, (key,))
                 .unwrap();
             Ok(Some(utils::from_pyobject(py, result)))
         })
@@ -330,7 +334,7 @@ impl IndexWrite for CPythonObject {
             let value = value.to_object(py);
             self.0
                 .as_ref(py)
-                .call_method1(&*Dunder::SetItem, (key, value))
+                .call_method1(Dunder::SetItem, (key, value))
                 .unwrap();
         });
 
@@ -346,7 +350,7 @@ impl IndexWrite for CPythonObject {
             let key = index.to_object(py);
             self.0
                 .as_ref(py)
-                .call_method1(&*Dunder::DelItem, (key,))
+                .call_method1(Dunder::DelItem, (key,))
                 .unwrap();
         });
 
@@ -411,9 +415,12 @@ pub mod utils {
         PyTuple::new(py, args.iter().map(|item| item.as_ref(py)))
     }
 
-    pub fn hasattr(py: Python, obj: &PyAny, attr: Dunder) -> PyResult<bool> {
+    pub fn hasattr<S>(py: Python, obj: &PyAny, attr: S) -> PyResult<bool>
+    where
+        S: IntoPy<Py<PyAny>>,
+    {
         let hasattr = py.eval("hasattr", None, None)?.to_object(py);
-        let has_setitem = hasattr.call1(py, (obj, &*attr))?;
+        let has_setitem = hasattr.call1(py, (obj, attr))?;
         let has_setitem_bool = has_setitem.extract::<&PyBool>(py)?;
         Ok(has_setitem_bool.is_true())
     }

@@ -1,5 +1,6 @@
 use crate::{
     core::Container,
+    domain::Dunder,
     treewalk::{Interpreter, Scope},
     types::errors::InterpreterError,
 };
@@ -10,7 +11,7 @@ use super::{
         traits::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     Class, ExprResult, MappingProxy, Tuple,
 };
 

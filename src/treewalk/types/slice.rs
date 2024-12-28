@@ -1,4 +1,5 @@
 use crate::{
+    domain::Dunder,
     parser::types::{Expr, ParsedSliceParams},
     treewalk::Interpreter,
     types::errors::InterpreterError,
@@ -14,7 +15,7 @@ use super::{
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
-    utils::{Dunder, ResolvedArguments},
+    utils::ResolvedArguments,
     ExprResult,
 };
 
