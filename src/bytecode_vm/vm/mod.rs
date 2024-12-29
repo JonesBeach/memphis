@@ -8,7 +8,7 @@ use crate::{
         Opcode,
     },
     core::{log, log_impure, LogLevel},
-    domain::Dunder,
+    domain::{DebugCallStack, Dunder, ToDebugStackFrame},
 };
 
 mod frame;
@@ -24,6 +24,8 @@ use super::{compiler::find_index, indices::NonlocalIndex};
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
+
+    debug_call_stack: DebugCallStack,
 
     /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
     constant_pool: Vec<Constant>,
@@ -52,6 +54,7 @@ impl VirtualMachine {
     pub fn new() -> Self {
         Self {
             call_stack: vec![],
+            debug_call_stack: DebugCallStack::default(),
             constant_pool: vec![],
             index_map: HashMap::new(),
             global_store: vec![],
@@ -65,7 +68,7 @@ impl VirtualMachine {
         self.constant_pool = program.constant_pool;
 
         let function = FunctionObject::new(program.code);
-        self.execute_function(function, vec![]);
+        self.enter_context(function, vec![]);
     }
 
     pub fn read_constant(&self, index: ConstantIndex) -> Option<Value> {
@@ -183,16 +186,24 @@ impl VirtualMachine {
 
     /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
     /// new frame.
-    fn execute_function(&mut self, function: FunctionObject, args: Vec<Reference>) {
+    fn enter_context(&mut self, function: FunctionObject, args: Vec<Reference>) {
+        self.debug_call_stack
+            .push_context(function.to_stack_frame());
+
         let frame = Frame::new(function, args);
         self.call_stack.push(frame);
+    }
+
+    fn exit_context(&mut self) -> Frame {
+        self.debug_call_stack.pop_context();
+        self.call_stack.pop().expect("Empty call stack!")
     }
 
     fn execute_method(&mut self, method: Method, args: Vec<Reference>) {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
 
-        self.execute_function(method.function.clone(), bound_args);
+        self.enter_context(method.function.clone(), bound_args);
     }
 
     /// Extract primitives and resolve any references to a [`Value`]. A [`Cow`] is returned to make
@@ -402,7 +413,7 @@ impl VirtualMachine {
                         }
                         Value::Function(ref function) => {
                             let function = function.clone();
-                            self.execute_function(function, args);
+                            self.enter_context(function, args);
                         }
                         Value::Class(ref class) => {
                             let init_method = class.read(Dunder::Init);
@@ -442,7 +453,7 @@ impl VirtualMachine {
                         break;
                     }
 
-                    self.call_stack.pop();
+                    let _ = self.exit_context();
                     // Push the return value to the caller's frame
                     self.push(return_value)?;
 
@@ -453,7 +464,7 @@ impl VirtualMachine {
                 Opcode::EndClass => {
                     // Grab the frame before it gets popped off the call stack below. Its locals
                     // are the class namespace for the class we just finished defining.
-                    let frame = self.call_stack.pop().unwrap();
+                    let frame = self.exit_context();
 
                     let name = self.class_stack.pop().expect("Failed to get class name");
                     let class = Class::new(name.clone(), frame.namespace());
@@ -474,7 +485,7 @@ impl VirtualMachine {
 
             // Handle functions that complete without explicit return
             if self.call_stack[current_frame_index].is_finished() {
-                self.call_stack.pop();
+                let _ = self.exit_context();
             }
         }
 
@@ -484,11 +495,11 @@ impl VirtualMachine {
     /// This is intended to be functionally equivalent to `__build_class__` in CPython.
     fn build_class(&mut self, args: Vec<Reference>) {
         let code = self.dereference(args[0]).as_code().clone();
-        let name = code.name.clone();
+        let name = code.name().to_string();
         let function = FunctionObject::new(code);
 
         self.class_stack.push(name);
-        self.execute_function(function, vec![]);
+        self.enter_context(function, vec![]);
     }
 }
 

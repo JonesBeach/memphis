@@ -2,12 +2,16 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::{Display, Error, Formatter},
+    path::PathBuf,
 };
 
-use crate::bytecode_vm::{
-    compiler::types::CodeObject,
-    indices::{ConstantIndex, ObjectTableIndex},
-    types::Value,
+use crate::{
+    bytecode_vm::{
+        compiler::types::CodeObject,
+        indices::{ConstantIndex, ObjectTableIndex},
+        types::Value,
+    },
+    domain::{DebugStackFrame, ToDebugStackFrame},
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -110,6 +114,12 @@ pub struct FunctionObject {
 impl FunctionObject {
     pub fn new(code_object: CodeObject) -> Self {
         Self { code_object }
+    }
+}
+
+impl ToDebugStackFrame for FunctionObject {
+    fn to_stack_frame(&self) -> DebugStackFrame {
+        DebugStackFrame::new(self.code_object.name(), PathBuf::default(), 0)
     }
 }
 

@@ -310,7 +310,7 @@ class Foo:
                 else {
                     panic!("Did not find function bar")
                 };
-                assert_eq!(function.code_object.name, "bar");
+                assert_eq!(function.code_object.name(), "bar");
             }
         }
     }

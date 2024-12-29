@@ -1421,7 +1421,7 @@ b = f.bar()
 
                 // this should be the code for the class definition
                 let class = get_code_at_index(&program, 1);
-                assert_eq!(class.name, "Foo");
+                assert_eq!(class.name(), "Foo");
             }
         }
     }

@@ -104,6 +104,10 @@ impl CodeObject {
             names: vec![],
         }
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl Display for CodeObject {
