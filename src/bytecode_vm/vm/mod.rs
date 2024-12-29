@@ -65,8 +65,7 @@ impl VirtualMachine {
         self.constant_pool = program.constant_pool;
 
         let function = FunctionObject::new(program.code);
-        let new_frame = Frame::new(function, vec![]);
-        self.call_stack.push(new_frame);
+        self.execute_function(function, vec![]);
     }
 
     pub fn read_constant(&self, index: ConstantIndex) -> Option<Value> {
