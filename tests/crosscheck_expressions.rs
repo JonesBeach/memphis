@@ -2,54 +2,102 @@ use memphis::crosscheck::{BytecodeVmAdapter, InterpreterTest, TestValue, Treewal
 
 fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     let input = "2 + 2";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(4));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(4));
+        }
+    }
 
     let input = "2 / 2";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(1));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(1));
+        }
+    }
 
     let input = "4 < 5";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Boolean(true));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Boolean(true));
+        }
+    }
 
     let input = "4 > 5";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Boolean(false));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Boolean(false));
+        }
+    }
 
     let input = "4 * (2 + 3)";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(20));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(20));
+        }
+    }
 }
 
 fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     let input = "-2";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(-2));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(-2));
+        }
+    }
 
     let input = "-(-2)";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(2));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(2));
+        }
+    }
 
     let input = "+5";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(5));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(5));
+        }
+    }
 
     let input = "+(-5)";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(-5));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(-5));
+        }
+    }
 
     let input = "not True";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Boolean(false));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Boolean(false));
+        }
+    }
 
     let input = "not False";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Boolean(true));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Boolean(true));
+        }
+    }
 
     let input = "~0b1101";
-    let result = interpreter.evaluate(input);
-    assert_eq!(result, TestValue::Integer(-14));
+    match interpreter.evaluate(input) {
+        Err(e) => panic!("Interpreter error: {:?}", e),
+        Ok(result) => {
+            assert_eq!(result, TestValue::Integer(-14));
+        }
+    }
 
     // TODO test unpacking here
 }

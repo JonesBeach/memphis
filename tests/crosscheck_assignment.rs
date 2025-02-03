@@ -5,7 +5,7 @@ fn run_test<T: InterpreterTest>(mut interpreter: T) {
 a = 5 - 3
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(2));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(2)));
 
     let input = r#"
 a = "Hello World"
@@ -13,7 +13,7 @@ a = "Hello World"
     let _ = interpreter.evaluate(input);
     assert_eq!(
         interpreter.read("a"),
-        TestValue::String("Hello World".into())
+        Some(TestValue::String("Hello World".into()))
     );
 
     let input = r#"
@@ -22,17 +22,17 @@ b = 10
 c = None
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(2));
-    assert_eq!(interpreter.read("b"), TestValue::Integer(10));
-    assert_eq!(interpreter.read("c"), TestValue::None);
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(2)));
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(10)));
+    assert_eq!(interpreter.read("c"), Some(TestValue::None));
 
     let input = r#"
 a = 5 - 3
 b = 10 + a
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(2));
-    assert_eq!(interpreter.read("b"), TestValue::Integer(12));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(2)));
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(12)));
 }
 
 #[test]

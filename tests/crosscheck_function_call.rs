@@ -8,7 +8,7 @@ def foo(a, b):
 a = foo(2, 9)
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(11));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(11)));
 
     let input = r#"
 def foo(a, b):
@@ -18,7 +18,7 @@ def foo(a, b):
 a = foo(2, 9)
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(20));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(20)));
 }
 
 #[test]

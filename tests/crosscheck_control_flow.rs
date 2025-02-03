@@ -8,7 +8,7 @@ while i < n:
     i = i + 1
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("i"), TestValue::Integer(4));
+    assert_eq!(interpreter.read("i"), Some(TestValue::Integer(4)));
 
     let input = r#"
 i = 0
@@ -16,7 +16,7 @@ if i < 10:
     a = -1
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(-1));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(-1)));
 
     let input = r#"
 i = 0
@@ -26,7 +26,7 @@ else:
     a = 3
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), TestValue::Integer(3));
+    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(3)));
 }
 
 #[test]

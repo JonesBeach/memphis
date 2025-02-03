@@ -1,4 +1,4 @@
-use crate::init::MemphisContext;
+use crate::{init::MemphisContext, types::errors::MemphisError};
 
 use super::{test_value::TestValue, traits::InterpreterTest};
 
@@ -19,23 +19,18 @@ impl Default for BytecodeVmAdapter {
 }
 
 impl InterpreterTest for BytecodeVmAdapter {
-    fn evaluate(&mut self, code: &str) -> TestValue {
+    fn evaluate(&mut self, code: &str) -> Result<TestValue, MemphisError> {
         let mut context = MemphisContext::from_text(code);
 
-        let result = match context.run_vm() {
-            Ok(r) => r.into(),
-            Err(e) => panic!("{}", e),
-        };
+        let result = context.run_vm()?;
         self.context = Some(context);
-        result
+        Ok(result.into())
     }
 
-    fn read(&mut self, var: &str) -> TestValue {
-        let context = self.context.as_mut().expect("no context!");
+    fn read(&mut self, var: &str) -> Option<TestValue> {
+        let context = self.context.as_mut()?;
         let vm = context.ensure_vm();
-        vm.take(var)
-            .unwrap_or_else(|| panic!("Variable {} not found", var))
-            .into()
+        Some(vm.take(var)?.into())
     }
 }
 
@@ -56,25 +51,17 @@ impl Default for TreewalkAdapter {
 }
 
 impl InterpreterTest for TreewalkAdapter {
-    fn evaluate(&mut self, code: &str) -> TestValue {
+    fn evaluate(&mut self, code: &str) -> Result<TestValue, MemphisError> {
         let mut context = MemphisContext::from_text(code);
 
-        let result = match context.run() {
-            Ok(r) => r.into(),
-            Err(e) => panic!("{}", e),
-        };
-
+        let result = context.run()?;
         self.context = Some(context);
-        result
+        Ok(result.into())
     }
 
-    fn read(&mut self, var: &str) -> TestValue {
-        let context = self.context.as_ref().expect("no context!");
+    fn read(&mut self, var: &str) -> Option<TestValue> {
+        let context = self.context.as_ref()?;
         let interpreter = context.ensure_treewalk();
-        interpreter
-            .state
-            .read(var)
-            .unwrap_or_else(|| panic!("Variable {} not found", var))
-            .into()
+        Some(interpreter.state.read(var)?.into())
     }
 }

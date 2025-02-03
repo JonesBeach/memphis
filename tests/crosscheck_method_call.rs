@@ -10,7 +10,7 @@ f = Foo()
 b = f.bar()
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("b"), TestValue::Integer(4));
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(4)));
 
     let input = r#"
 class Foo:
@@ -24,7 +24,7 @@ f = Foo(10)
 b = f.bar()
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("b"), TestValue::Integer(10));
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(10)));
 }
 
 #[test]
