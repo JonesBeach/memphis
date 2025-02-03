@@ -559,7 +559,18 @@ middle_call()
                         interpreter.vm.debug_call_stack.clone(),
                         VmErrorType::NameError("unknown".to_string())
                     )
-                )
+                );
+                let debug_call_stack = vm_error.debug_call_stack;
+                assert_eq!(debug_call_stack.len(), 3);
+                assert_eq!(debug_call_stack.get(0).name(), "__main__");
+                assert_eq!(debug_call_stack.get(0).file_path_str(), "");
+                assert_eq!(debug_call_stack.get(0).line_number(), 0);
+                assert_eq!(debug_call_stack.get(1).name(), "middle_call");
+                assert_eq!(debug_call_stack.get(1).file_path_str(), "");
+                assert_eq!(debug_call_stack.get(1).line_number(), 0);
+                assert_eq!(debug_call_stack.get(2).name(), "last_call");
+                assert_eq!(debug_call_stack.get(2).file_path_str(), "");
+                assert_eq!(debug_call_stack.get(2).line_number(), 0);
             }
         }
     }

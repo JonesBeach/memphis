@@ -127,7 +127,7 @@ impl Value {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct VmError {
-    debug_call_stack: DebugCallStack,
+    pub debug_call_stack: DebugCallStack,
     error_type: VmErrorType,
 }
 
