@@ -3,7 +3,7 @@ pub mod types;
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
     core::{log, LogLevel},
-    domain::Context,
+    domain::{Context, Dunder},
     parser::types::{
         Ast, BinOp, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments, Statement,
         UnaryOp,
@@ -28,7 +28,7 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Self {
-        let code = CodeObject::new("__main__".to_string());
+        let code = CodeObject::new(Dunder::Main.as_ref());
         Self {
             constant_pool: vec![],
             code_stack: vec![code],
@@ -195,14 +195,12 @@ impl Compiler {
             )
         }
 
-        self.context_stack.push(Context::Local);
-
         let varnames = args.args.iter().map(|p| p.arg.clone()).collect();
         let code_object = CodeObject::with_args(name.to_string(), varnames);
 
+        self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
         let bytecode = self.compile_ast(body)?;
-
         let mut code = self.code_stack.pop().unwrap();
         self.context_stack.pop();
 
@@ -229,7 +227,7 @@ impl Compiler {
             unimplemented!("Metaclasses are not yet supported in the bytecode VM.")
         }
 
-        let code_object = CodeObject::new(name.to_string());
+        let code_object = CodeObject::new(name);
 
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);

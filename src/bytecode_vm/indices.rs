@@ -50,15 +50,12 @@ pub struct LocalMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct NonlocalMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub struct GlobalStoreMarker;
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct ObjectTableMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct ConstantMarker;
 
 pub type LocalIndex = Index<LocalMarker>;
 pub type NonlocalIndex = Index<NonlocalMarker>;
-pub type GlobalStoreIndex = Index<GlobalStoreMarker>;
 pub type ObjectTableIndex = Index<ObjectTableMarker>;
 pub type ConstantIndex = Index<ConstantMarker>;
 

@@ -91,8 +91,8 @@ pub struct CodeObject {
 }
 
 impl CodeObject {
-    pub fn new(name: String) -> Self {
-        Self::with_args(name, vec![])
+    pub fn new(name: &str) -> Self {
+        Self::with_args(name.to_string(), vec![])
     }
 
     pub fn with_args(name: String, varnames: Vec<String>) -> Self {

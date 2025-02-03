@@ -502,10 +502,34 @@ b = f.bar()
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
                 let interpreter = context.ensure_vm();
-                let Some(Value::Integer(i)) = interpreter.take("b") else {
+                let Some(Value::Integer(b)) = interpreter.take("b") else {
                     panic!("Did not find object f")
                 };
-                assert_eq!(i, 10);
+                assert_eq!(b, 10);
+            }
+        }
+    }
+
+    #[test]
+    fn stack_trace() {
+        let text = r#"
+def middle_call():
+    last_call()
+
+def last_call():
+    unknown()
+
+middle_call()
+"#;
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Ok(_) => panic!("Expected an error!"),
+            Err(e) => {
+                assert_eq!(
+                    e,
+                    MemphisError::Vm(VmError::NameError("unknown".to_string()))
+                )
             }
         }
     }
