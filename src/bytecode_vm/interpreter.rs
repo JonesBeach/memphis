@@ -54,7 +54,10 @@ mod vm_interpreter_tests {
     use super::*;
 
     use crate::{
-        bytecode_vm::{types::VmError, vm::types::Object},
+        bytecode_vm::{
+            types::{VmError, VmErrorType},
+            vm::types::Object,
+        },
         init::MemphisContext,
     };
 
@@ -109,7 +112,17 @@ mod vm_interpreter_tests {
 
         match context.run_vm() {
             Err(e) => {
-                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+                let interpreter = context.ensure_vm();
+                let MemphisError::Vm(vm_error) = e else {
+                    panic!("Expected a VM error!");
+                };
+                assert_eq!(
+                    vm_error,
+                    VmError::new(
+                        interpreter.vm.debug_call_stack.clone(),
+                        VmErrorType::NameError("x".to_string())
+                    )
+                )
             }
             Ok(_) => panic!("Expected an error!"),
         }
@@ -119,7 +132,17 @@ mod vm_interpreter_tests {
 
         match context.run_vm() {
             Err(e) => {
-                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+                let interpreter = context.ensure_vm();
+                let MemphisError::Vm(vm_error) = e else {
+                    panic!("Expected a VM error!");
+                };
+                assert_eq!(
+                    vm_error,
+                    VmError::new(
+                        interpreter.vm.debug_call_stack.clone(),
+                        VmErrorType::NameError("x".to_string())
+                    )
+                )
             }
             Ok(_) => panic!("Expected an error!"),
         }
@@ -526,9 +549,16 @@ middle_call()
         match context.run_vm() {
             Ok(_) => panic!("Expected an error!"),
             Err(e) => {
+                let interpreter = context.ensure_vm();
+                let MemphisError::Vm(vm_error) = e else {
+                    panic!("Expected a VM error!");
+                };
                 assert_eq!(
-                    e,
-                    MemphisError::Vm(VmError::NameError("unknown".to_string()))
+                    vm_error,
+                    VmError::new(
+                        interpreter.vm.debug_call_stack.clone(),
+                        VmErrorType::NameError("unknown".to_string())
+                    )
                 )
             }
         }

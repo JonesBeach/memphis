@@ -2,9 +2,12 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::{CompiledProgram, Constant},
-        indices::{ConstantIndex, Index, LocalIndex, ObjectTableIndex},
-        types::{Value, VmError},
+        compiler::{
+            find_index,
+            types::{CompiledProgram, Constant},
+        },
+        indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
+        types::{Value, VmError, VmErrorType},
         Opcode,
     },
     core::{log, log_impure, LogLevel},
@@ -19,13 +22,11 @@ use self::{
     types::{Class, FunctionObject, Method, Object, Reference},
 };
 
-use super::{compiler::find_index, indices::NonlocalIndex};
-
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
 
-    debug_call_stack: DebugCallStack,
+    pub debug_call_stack: DebugCallStack,
 
     /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
     constant_pool: Vec<Constant>,
@@ -113,10 +114,10 @@ impl VirtualMachine {
 
     fn load_global(&self, index: NonlocalIndex) -> Result<Reference, VmError> {
         let name = self.lookup_global_name(index);
-        self.global_store
-            .get(name)
-            .copied()
-            .ok_or(VmError::NameError(name.to_string()))
+        self.global_store.get(name).copied().ok_or(VmError::new(
+            self.debug_call_stack.clone(),
+            VmErrorType::NameError(name.to_string()),
+        ))
     }
 
     fn pop(&mut self) -> Result<Reference, VmError> {
@@ -134,7 +135,10 @@ impl VirtualMachine {
             }
         }
 
-        Err(VmError::StackUnderflow)
+        Err(VmError::new(
+            self.debug_call_stack.clone(),
+            VmErrorType::StackUnderflow,
+        ))
     }
 
     fn push(&mut self, value: Reference) -> Result<(), VmError> {
@@ -474,7 +478,12 @@ impl VirtualMachine {
                 Opcode::Halt => break,
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
-                Opcode::Placeholder => return Err(VmError::RuntimeError),
+                Opcode::Placeholder => {
+                    return Err(VmError::new(
+                        self.debug_call_stack.clone(),
+                        VmErrorType::RuntimeError,
+                    ))
+                }
             }
 
             // Increment PC for all instructions.
