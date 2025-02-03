@@ -1,13 +1,14 @@
 use memphis::crosscheck::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
 
-fn run_test<T: InterpreterTest>(interpreter: &T) {
+fn run_test<T: InterpreterTest>(mut interpreter: T) {
     let input = r#"
 def foo(a, b):
     return a + b
 
 a = foo(2, 9)
 "#;
-    interpreter.assert_var_expected(input, "a", TestValue::Integer(11));
+    let _ = interpreter.evaluate(input);
+    assert_eq!(interpreter.read("a"), TestValue::Integer(11));
 
     let input = r#"
 def foo(a, b):
@@ -16,15 +17,16 @@ def foo(a, b):
 
 a = foo(2, 9)
 "#;
-    interpreter.assert_var_expected(input, "a", TestValue::Integer(20));
+    let _ = interpreter.evaluate(input);
+    assert_eq!(interpreter.read("a"), TestValue::Integer(20));
 }
 
 #[test]
 fn test_treewalk_function_call() {
-    run_test(&TreewalkAdapter);
+    run_test(TreewalkAdapter::new());
 }
 
 #[test]
 fn test_bytecode_vm_function_call() {
-    run_test(&BytecodeVmAdapter);
+    run_test(BytecodeVmAdapter::new());
 }

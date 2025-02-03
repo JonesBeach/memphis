@@ -2,87 +2,79 @@ use crate::init::MemphisContext;
 
 use super::{test_value::TestValue, traits::InterpreterTest};
 
-pub struct BytecodeVmAdapter;
+pub struct BytecodeVmAdapter {
+    context: Option<MemphisContext>,
+}
 
-impl InterpreterTest for BytecodeVmAdapter {
-    fn execute(&self, code: &str) -> TestValue {
-        let mut context = MemphisContext::from_text(code);
-
-        match context.run_vm() {
-            Ok(r) => r.into(),
-            Err(e) => panic!("{}", e),
-        }
-    }
-
-    fn execute_and_return(&self, code: &str, var: &str) -> TestValue {
-        let mut context = MemphisContext::from_text(code);
-
-        match context.run_vm_and_return() {
-            Ok(vm) => vm
-                .take(var)
-                .unwrap_or_else(|| panic!("Variable {} not found", var))
-                .into(),
-            Err(e) => panic!("{}", e),
-        }
-    }
-
-    fn execute_and_return_vars(&self, code: &str, vars: Vec<&str>) -> Vec<TestValue> {
-        let mut context = MemphisContext::from_text(code);
-
-        match context.run_vm_and_return() {
-            Ok(vm) => vars
-                .iter()
-                .map(|var| {
-                    vm.take(var)
-                        .unwrap_or_else(|| panic!("Variable {} not found", var))
-                        .into()
-                })
-                .collect(),
-            Err(e) => panic!("{}", e),
-        }
+impl BytecodeVmAdapter {
+    pub fn new() -> Self {
+        Self { context: None }
     }
 }
 
-pub struct TreewalkAdapter;
+impl Default for BytecodeVmAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-impl InterpreterTest for TreewalkAdapter {
-    fn execute(&self, code: &str) -> TestValue {
+impl InterpreterTest for BytecodeVmAdapter {
+    fn evaluate(&mut self, code: &str) -> TestValue {
         let mut context = MemphisContext::from_text(code);
 
-        match context.run() {
+        let result = match context.run_vm() {
             Ok(r) => r.into(),
             Err(e) => panic!("{}", e),
-        }
+        };
+        self.context = Some(context);
+        result
     }
 
-    fn execute_and_return(&self, code: &str, var: &str) -> TestValue {
+    fn read(&mut self, var: &str) -> TestValue {
+        let context = self.context.as_mut().expect("no context!");
+        let vm = context.ensure_vm();
+        vm.take(var)
+            .unwrap_or_else(|| panic!("Variable {} not found", var))
+            .into()
+    }
+}
+
+pub struct TreewalkAdapter {
+    context: Option<MemphisContext>,
+}
+
+impl TreewalkAdapter {
+    pub fn new() -> Self {
+        Self { context: None }
+    }
+}
+
+impl Default for TreewalkAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InterpreterTest for TreewalkAdapter {
+    fn evaluate(&mut self, code: &str) -> TestValue {
         let mut context = MemphisContext::from_text(code);
 
-        match context.run_and_return_interpreter() {
-            Ok(interpreter) => interpreter
-                .state
-                .read(var)
-                .unwrap_or_else(|| panic!("Variable {} not found", var))
-                .into(),
+        let result = match context.run() {
+            Ok(r) => r.into(),
             Err(e) => panic!("{}", e),
-        }
+        };
+
+        self.context = Some(context);
+        result
     }
 
-    fn execute_and_return_vars(&self, code: &str, vars: Vec<&str>) -> Vec<TestValue> {
-        let mut context = MemphisContext::from_text(code);
-
-        match context.run_and_return_interpreter() {
-            Ok(interpreter) => vars
-                .iter()
-                .map(|var| {
-                    interpreter
-                        .state
-                        .read(var)
-                        .unwrap_or_else(|| panic!("Variable {} not found", var))
-                        .into()
-                })
-                .collect(),
-            Err(e) => panic!("{}", e),
-        }
+    fn read(&mut self, var: &str) -> TestValue {
+        let context = self.context.as_ref().expect("no context!");
+        let interpreter = context.ensure_treewalk();
+        interpreter
+            .state
+            .read(var)
+            .unwrap_or_else(|| panic!("Variable {} not found", var))
+            .into()
     }
 }
