@@ -1,6 +1,6 @@
 mod bytecode_vm;
 mod core;
-pub mod crosscheck;
+pub mod crosscheck_utils;
 mod domain;
 pub mod init;
 mod lexer;

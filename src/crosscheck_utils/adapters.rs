@@ -2,6 +2,18 @@ use crate::{init::MemphisContext, types::errors::MemphisError};
 
 use super::{test_value::TestValue, traits::InterpreterTest};
 
+pub struct Adapter(pub Box<dyn InterpreterTest>);
+
+impl InterpreterTest for Adapter {
+    fn evaluate(&mut self, input: &str) -> Result<TestValue, MemphisError> {
+        self.0.evaluate(input)
+    }
+
+    fn read(&mut self, var: &str) -> Option<TestValue> {
+        self.0.read(var)
+    }
+}
+
 pub struct BytecodeVmAdapter {
     context: Option<MemphisContext>,
 }

@@ -1,4 +1,4 @@
-use memphis::crosscheck::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
 
 fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     let input = "2 + 2";

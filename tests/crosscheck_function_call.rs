@@ -1,14 +1,17 @@
-use memphis::crosscheck::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::crosscheck_utils::{
+    Adapter, BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter,
+};
 
-fn run_test<T: InterpreterTest>(mut interpreter: T) {
+#[crosscheck::test_with(BytecodeVmAdapter, TreewalkAdapter)]
+fn test_function_call(mut adapter: Adapter) {
     let input = r#"
 def foo(a, b):
     return a + b
 
 a = foo(2, 9)
 "#;
-    let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(11)));
+    let _ = adapter.evaluate(input);
+    assert_eq!(adapter.read("a"), Some(TestValue::Integer(11)));
 
     let input = r#"
 def foo(a, b):
@@ -17,16 +20,23 @@ def foo(a, b):
 
 a = foo(2, 9)
 "#;
-    let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(20)));
-}
+    let _ = adapter.evaluate(input);
+    assert_eq!(adapter.read("a"), Some(TestValue::Integer(20)));
 
-#[test]
-fn test_treewalk_function_call() {
-    run_test(TreewalkAdapter::new());
-}
+    let input = r#"
+def middle_call():
+    last_call()
 
-#[test]
-fn test_bytecode_vm_function_call() {
-    run_test(BytecodeVmAdapter::new());
+def last_call():
+    unknown()
+
+middle_call()
+"#;
+    match adapter.evaluate(input) {
+        Ok(_) => panic!("Expected error!"),
+        Err(e) => {
+            dbg!(e);
+            todo!();
+        }
+    }
 }
