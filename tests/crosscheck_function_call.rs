@@ -2,7 +2,8 @@ use memphis::crosscheck_utils::{
     Adapter, BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter,
 };
 
-#[crosscheck::test_with(BytecodeVmAdapter, TreewalkAdapter)]
+// TODO This proc macro is working, but I should really add tests in its own crate before too long.
+#[crosscheck::test]
 fn test_function_call(mut adapter: Adapter) {
     let input = r#"
 def foo(a, b):

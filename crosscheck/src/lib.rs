@@ -1,6 +1,6 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{parse_macro_input, ItemFn};
 
 /// Macro to generate test cases for all known interpreters
@@ -9,14 +9,18 @@ pub fn test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let func_name = &input.sig.ident;
 
+    // Generate valid test function names
+    let bytecode_vm_test_name = format_ident!("{}_bytecode_vm", func_name);
+    let treewalk_test_name = format_ident!("{}_treewalk", func_name);
+
     let generated_tests = quote! {
         #[test]
-        fn #func_name _bytecode_vm() {
+        fn #bytecode_vm_test_name() {
             #func_name(Adapter(Box::new(BytecodeVmAdapter::new())));
         }
 
         #[test]
-        fn #func_name _treewalk() {
+        fn #treewalk_test_name() {
             #func_name(Adapter(Box::new(TreewalkAdapter::new())));
         }
     };
