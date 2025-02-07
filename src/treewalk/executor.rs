@@ -10,7 +10,7 @@ use crate::{
     types::errors::InterpreterError,
 };
 
-use super::interpreter::TreewalkDisruption;
+use super::interpreter::{TreewalkDisruption, TreewalkSignal};
 use super::Interpreter;
 
 /// An event loop which runs `Coroutine` objects using the `CoroutineExecutor` utility.
@@ -127,9 +127,7 @@ impl Executor {
 
     pub fn sleep(&self, duration: f64) -> TreewalkResult<ExprResult> {
         *self.sleep_indicator.borrow_mut() = Some(duration);
-        Err(TreewalkDisruption::Error(
-            InterpreterError::EncounteredSleep,
-        ))
+        Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep))
     }
 
     pub fn set_wait_on(&self, first: Container<Coroutine>, second: Container<Coroutine>) {

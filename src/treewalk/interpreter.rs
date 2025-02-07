@@ -34,7 +34,6 @@ pub enum TreewalkDisruption {
     Error(InterpreterError), // Actual Python runtime errors
 }
 
-/// Control signals used only in the treewalk interpreter.
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreewalkSignal {
     Return(ExprResult),
@@ -68,9 +67,7 @@ impl Interpreter {
         }
 
         match callable.borrow().call(self, bound_args) {
-            Err(TreewalkDisruption::Error(InterpreterError::EncounteredReturn(result))) => {
-                Ok(result)
-            }
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => Ok(result),
             Err(e) => Err(e),
             Ok(result) => Ok(result),
         }
@@ -111,10 +108,7 @@ impl Interpreter {
         // If an error is thrown, we should return that immediately without restoring any state.
         if matches!(
             result,
-            Ok(_)
-                | Err(TreewalkDisruption::Error(
-                    InterpreterError::EncounteredReturn(_)
-                ))
+            Ok(_) | Err(TreewalkDisruption::Signal(TreewalkSignal::Return(_)))
         ) {
             self.state.pop_context();
             self.state.pop_function();
@@ -534,9 +528,7 @@ impl Interpreter {
                 .get_executor()
                 .borrow()
                 .set_wait_on(current_coroutine, coroutine_to_await);
-            Err(TreewalkDisruption::Error(
-                InterpreterError::EncounteredAwait,
-            ))
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Await))
         } else {
             Err(TreewalkDisruption::Error(
                 InterpreterError::ExpectedCoroutine(self.state.call_stack()),
@@ -600,9 +592,9 @@ impl Interpreter {
             results[0].clone()
         };
 
-        Err(TreewalkDisruption::Error(
-            InterpreterError::EncounteredReturn(return_val),
-        ))
+        Err(TreewalkDisruption::Signal(TreewalkSignal::Return(
+            return_val,
+        )))
     }
 
     fn evaluate_assert(&self, expr: &Expr) -> TreewalkResult<()> {
@@ -938,10 +930,10 @@ impl Interpreter {
     fn evaluate_while_loop(&self, condition: &Expr, body: &Ast) -> TreewalkResult<()> {
         while self.evaluate_expr(condition)?.as_boolean() {
             match self.evaluate_ast(body) {
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredBreak)) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     break;
                 }
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredContinue)) => {}
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)) => {}
                 Err(e) => return Err(e),
                 _ => {}
             }
@@ -1051,11 +1043,11 @@ impl Interpreter {
             self.state.write_loop_index(index, val_for_iteration);
 
             match self.evaluate_ast(body) {
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredBreak)) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     encountered_break = true;
                     break;
                 }
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredContinue)) => {}
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)) => {}
                 Err(e) => return Err(e),
                 _ => {}
             }
@@ -1206,9 +1198,7 @@ impl Interpreter {
     fn evaluate_raise(&self, instance: &Option<ExceptionInstance>) -> TreewalkResult<()> {
         // TODO we should throw a 'RuntimeError: No active exception to reraise'
         if instance.is_none() {
-            return Err(TreewalkDisruption::Error(
-                InterpreterError::EncounteredRaise,
-            ));
+            return Err(TreewalkDisruption::Signal(TreewalkSignal::Raise));
         }
 
         let instance = instance.as_ref().unwrap();
@@ -1258,7 +1248,7 @@ impl Interpreter {
                 }
 
                 match self.evaluate_ast(&except_clause.block) {
-                    Err(TreewalkDisruption::Error(InterpreterError::EncounteredRaise)) => {
+                    Err(TreewalkDisruption::Signal(TreewalkSignal::Raise)) => {
                         return Err(TreewalkDisruption::Error(error))
                     }
                     Err(second_error) => return Err(second_error),
@@ -1400,12 +1390,8 @@ impl Interpreter {
             // These are handled above
             Statement::Expression(_) | Statement::Return(_) => unreachable!(),
             Statement::Pass => Ok(()),
-            Statement::Break => Err(TreewalkDisruption::Error(
-                InterpreterError::EncounteredBreak,
-            )),
-            Statement::Continue => Err(TreewalkDisruption::Error(
-                InterpreterError::EncounteredContinue,
-            )),
+            Statement::Break => Err(TreewalkDisruption::Signal(TreewalkSignal::Break)),
+            Statement::Continue => Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)),
             Statement::Assert(expr) => self.evaluate_assert(expr),
             Statement::Delete(expr) => self.evaluate_delete(expr),
             Statement::Nonlocal(names) => self.evaluate_nonlocal(names),

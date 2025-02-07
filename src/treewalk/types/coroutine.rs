@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::Container;
 use crate::parser::types::Statement;
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult, TreewalkSignal};
 use crate::{
     treewalk::types::{
         domain::{
@@ -15,7 +15,6 @@ use crate::{
         ExprResult, Function,
     },
     treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
 };
 
 pub enum Poll {
@@ -148,14 +147,12 @@ impl Container<Coroutine> {
                 // We cannot return the default value here because certain statement types may
                 // actually have a return value (expression, return, etc).
                 Ok(result) => Ok(Poll::Ready(result)),
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredSleep)) => {
-                    Ok(Poll::Waiting)
-                }
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredAwait)) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep)) => Ok(Poll::Waiting),
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Await)) => {
                     self.context().step_back();
                     Ok(Poll::Waiting)
                 }
-                Err(TreewalkDisruption::Error(InterpreterError::EncounteredReturn(result))) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => {
                     Ok(Poll::Ready(result))
                 }
                 Err(e) => Err(e),

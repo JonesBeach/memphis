@@ -6,7 +6,6 @@ use crate::{
     domain::DebugCallStack,
     lexer::types::Token,
     parser::types::ExceptionLiteral,
-    treewalk::types::ExprResult,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -66,12 +65,6 @@ pub enum InterpreterError {
     // enough scope context during that stage to do so.
     SyntaxError(DebugCallStack),
     RuntimeError,
-    EncounteredReturn(ExprResult),
-    EncounteredRaise,
-    EncounteredAwait,
-    EncounteredSleep,
-    EncounteredBreak,
-    EncounteredContinue,
 }
 
 impl InterpreterError {
@@ -287,14 +280,6 @@ impl Display for InterpreterError {
             }
             InterpreterError::RuntimeError => {
                 write!(f, "RuntimeError")
-            }
-            InterpreterError::EncounteredReturn(_)
-            | InterpreterError::EncounteredRaise
-            | InterpreterError::EncounteredAwait
-            | InterpreterError::EncounteredSleep
-            | InterpreterError::EncounteredBreak
-            | InterpreterError::EncounteredContinue => {
-                unreachable!()
             }
         }
     }
