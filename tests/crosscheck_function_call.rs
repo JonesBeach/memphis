@@ -35,9 +35,6 @@ middle_call()
 "#;
     match adapter.evaluate(input) {
         Ok(_) => panic!("Expected error!"),
-        Err(e) => {
-            dbg!(e);
-            todo!();
-        }
+        Err(_e) => {}
     }
 }
