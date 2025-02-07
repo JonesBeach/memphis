@@ -131,9 +131,10 @@ impl Contextual<ExprResult> {
             Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
             Ok(_) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(
-                    InterpreterError::ExpectedInteger(self.interpreter.state.call_stack()),
-                )),
+                .handle_runtime_error(MemphisError::Interpreter(InterpreterError::TypeError(
+                    None,
+                    self.interpreter.state.call_stack(),
+                ))),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => self
                 .interpreter

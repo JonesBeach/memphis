@@ -64,9 +64,13 @@ impl IndexRead for Tuple {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> TreewalkResult<Option<ExprResult>> {
-        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-        ))?;
+        let i =
+            index
+                .as_integer()
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
         Ok(self.get_item(i as usize))
     }
 }

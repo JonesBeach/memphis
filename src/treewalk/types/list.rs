@@ -106,17 +106,25 @@ impl IndexWrite for Container<List> {
         index: ExprResult,
         value: ExprResult,
     ) -> TreewalkResult<()> {
-        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-        ))?;
+        let i =
+            index
+                .as_integer()
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
 
     fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
-        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-        ))?;
+        let i =
+            index
+                .as_integer()
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }

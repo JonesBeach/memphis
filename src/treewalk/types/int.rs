@@ -38,9 +38,10 @@ impl Callable for NewBuiltin {
             let input = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
 
             Ok(ExprResult::Integer(input))
         } else {

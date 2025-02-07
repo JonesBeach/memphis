@@ -57,7 +57,8 @@ impl Slice {
                             .evaluate_expr(expr)?
                             .as_integer()
                             .ok_or_else(|| {
-                                TreewalkDisruption::Error(InterpreterError::ExpectedInteger(
+                                TreewalkDisruption::Error(InterpreterError::TypeError(
+                                    None,
                                     interpreter.state.call_stack(),
                                 ))
                             })?;
@@ -145,43 +146,49 @@ impl Callable for NewBuiltin {
             let stop = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             Ok(ExprResult::Slice(Slice::new(None, Some(stop), None)))
         } else if args.len() == 3 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             Ok(ExprResult::Slice(Slice::new(Some(start), Some(stop), None)))
         } else if args.len() == 4 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let step = args
                 .get_arg(3)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             Ok(ExprResult::Slice(Slice::new(
                 Some(start),
                 Some(stop),

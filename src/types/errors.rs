@@ -44,7 +44,6 @@ pub enum InterpreterError {
     DivisionByZero(String, DebugCallStack),
     ExpectedVariable(DebugCallStack),
     ExpectedString(DebugCallStack),
-    ExpectedInteger(DebugCallStack),
     ExpectedList(DebugCallStack),
     ExpectedTuple(DebugCallStack),
     ExpectedRange(DebugCallStack),
@@ -202,10 +201,6 @@ impl Display for InterpreterError {
             InterpreterError::ExpectedString(call_stack) => {
                 write!(f, "{}", call_stack)?;
                 write!(f, "Expected string")
-            }
-            InterpreterError::ExpectedInteger(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected integer")
             }
             InterpreterError::ExpectedList(call_stack) => {
                 write!(f, "{}", call_stack)?;

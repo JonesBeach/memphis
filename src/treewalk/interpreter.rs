@@ -278,9 +278,10 @@ impl Interpreter {
                         )
                     })
                 })
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(self.state.call_stack()),
-                ))?
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    self.state.call_stack(),
+                )))?
         } else if left.is_fp() && right.is_fp() {
             left.as_fp()
                 .and_then(|left| {

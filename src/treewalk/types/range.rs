@@ -121,45 +121,51 @@ impl Callable for NewBuiltin {
             let stop = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
 
             Ok(ExprResult::Range(Range::with_stop(stop)))
         } else if args.len() == 3 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
 
             Ok(ExprResult::Range(Range::with_start_stop(start, stop)))
         } else if args.len() == 4 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
             let step = args
                 .get_arg(3)
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
-                ))?;
+                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
+                    None,
+                    interpreter.state.call_stack(),
+                )))?;
 
             Ok(ExprResult::Range(Range::new(start, stop, step)))
         } else {
