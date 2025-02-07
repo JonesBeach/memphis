@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
@@ -84,7 +85,7 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
             2 => match args.get_arg(1).as_fp() {
@@ -93,32 +94,25 @@ impl Callable for NewBuiltin {
                     let input = &args
                         .get_arg(1)
                         .as_string()
-                        .ok_or(InterpreterError::TypeError(
+                        .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
                             Some(format!(
                                 "complex() first argument must be a string or a number, not '{}'",
                                 args.get_arg(1).get_type()
                             )),
                             interpreter.state.call_stack(),
-                        ))?;
-                    Complex::from_str(input).ok_or(InterpreterError::TypeError(
-                        None,
-                        interpreter.state.call_stack(),
+                        )))?;
+                    Complex::from_str(input).ok_or(TreewalkDisruption::Error(
+                        InterpreterError::TypeError(None, interpreter.state.call_stack()),
                     ))?
                 }
             },
             3 => {
-                let re = args
-                    .get_arg(1)
-                    .as_fp()
-                    .ok_or(InterpreterError::ExpectedFloatingPoint(
-                        interpreter.state.call_stack(),
-                    ))?;
-                let im = args
-                    .get_arg(2)
-                    .as_fp()
-                    .ok_or(InterpreterError::ExpectedFloatingPoint(
-                        interpreter.state.call_stack(),
-                    ))?;
+                let re = args.get_arg(1).as_fp().ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFloatingPoint(interpreter.state.call_stack()),
+                ))?;
+                let im = args.get_arg(2).as_fp().ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFloatingPoint(interpreter.state.call_stack()),
+                ))?;
                 Complex::new(re, im)
             }
             _ => {

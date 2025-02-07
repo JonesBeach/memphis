@@ -8,7 +8,10 @@ use crate::{
     core::{log, Container, LogLevel},
     init::MemphisContext,
     parser::types::ImportPath,
-    treewalk::{Interpreter, ModuleSource, Scope},
+    treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
+        Interpreter, ModuleSource, Scope,
+    },
     types::errors::{InterpreterError, MemphisError},
 };
 
@@ -24,7 +27,7 @@ impl Module {
     pub fn import(
         interpreter: &Interpreter,
         import_path: &ImportPath,
-    ) -> Result<Container<Self>, InterpreterError> {
+    ) -> TreewalkResult<Container<Self>> {
         log(LogLevel::Debug, || format!("Reading {}", import_path));
         if let Some(module) = interpreter.state.fetch_module(import_path) {
             return Ok(module);
@@ -44,10 +47,10 @@ impl Module {
         let loaded_module = interpreter
             .state
             .load_module(import_path, call_stack.current_path())
-            .ok_or(InterpreterError::ModuleNotFound(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ModuleNotFound(
                 import_path.as_str().to_string(),
                 call_stack,
-            ))?;
+            )))?;
 
         let mut context = MemphisContext::from_module_with_state(
             loaded_module.clone(),
@@ -59,12 +62,12 @@ impl Module {
             .push_module(Container::new(Module::new(loaded_module, Scope::default())));
         match context.run() {
             Ok(_) => {}
-            Err(MemphisError::Interpreter(e)) => return Err(e),
+            Err(MemphisError::Interpreter(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{}", e);
-                return Err(InterpreterError::SyntaxError(
+                return Err(TreewalkDisruption::Error(InterpreterError::SyntaxError(
                     interpreter.state.call_stack(),
-                ));
+                )));
             }
             _ => unreachable!(),
         };
@@ -73,7 +76,7 @@ impl Module {
         let module = interpreter
             .state
             .pop_module()
-            .ok_or(InterpreterError::RuntimeError)?;
+            .ok_or(TreewalkDisruption::Error(InterpreterError::RuntimeError))?;
         interpreter.state.store_module(import_path, module.clone());
         Ok(module)
     }
@@ -123,7 +126,7 @@ impl MemberReader for Module {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Ok(self.scope.get(name))
     }
 

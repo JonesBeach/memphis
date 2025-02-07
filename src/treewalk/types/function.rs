@@ -11,7 +11,10 @@ use crate::{
         types::{Ast, Closure, Expr, ParsedArgDefinitions},
     },
     resolved_args,
-    treewalk::{Interpreter, Scope, State},
+    treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
+        Interpreter, Scope, State,
+    },
     types::errors::InterpreterError,
 };
 
@@ -185,7 +188,7 @@ impl MemberReader for Container<Function> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}.{}", self, name)
         });
@@ -218,26 +221,19 @@ impl MemberWriter for Container<Function> {
         _interpreter: &Interpreter,
         name: &str,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         self.borrow_mut().scope.insert(name, value);
         Ok(())
     }
 
-    fn delete_member(
-        &mut self,
-        _interpreter: &Interpreter,
-        name: &str,
-    ) -> Result<(), InterpreterError> {
+    fn delete_member(&mut self, _interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
         self.borrow_mut().scope.delete(name);
         Ok(())
     }
 }
 
 impl Container<Function> {
-    pub fn apply_decorators(
-        &self,
-        interpreter: &Interpreter,
-    ) -> Result<ExprResult, InterpreterError> {
+    pub fn apply_decorators(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
         let mut result = ExprResult::Function(self.clone());
         if self.borrow().decorators.is_empty() {
             return Ok(result);
@@ -247,12 +243,11 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let decorator_result = interpreter.evaluate_expr(decorator)?;
 
-            let function =
-                decorator_result
-                    .as_callable()
-                    .ok_or(InterpreterError::ExpectedFunction(
-                        interpreter.state.call_stack(),
-                    ))?;
+            let function = decorator_result
+                .as_callable()
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
+                ))?;
 
             result = interpreter.call(function, &resolved_args![result])?;
         }
@@ -266,7 +261,7 @@ impl Callable for Container<Function> {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let scope = Scope::new(interpreter, self, &args)?;
         interpreter.invoke_function(self.clone(), scope)
     }
@@ -307,12 +302,12 @@ impl NonDataDescriptor for ClosureAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => instance
                 .as_function()
-                .ok_or(InterpreterError::ExpectedFunction(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                 ))?
                 .borrow()
                 .get_closure(),
@@ -334,12 +329,12 @@ impl NonDataDescriptor for CodeAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => instance
                 .as_function()
-                .ok_or(InterpreterError::ExpectedFunction(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                 ))?
                 .borrow()
                 .get_code(),
@@ -358,15 +353,11 @@ impl DataDescriptor for CodeAttribute {
         _interpreter: &Interpreter,
         _instance: ExprResult,
         _value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         todo!();
     }
 
-    fn delete_attr(
-        &self,
-        _interpreter: &Interpreter,
-        _instance: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delete_attr(&self, _interpreter: &Interpreter, _instance: ExprResult) -> TreewalkResult<()> {
         todo!();
     }
 }
@@ -380,12 +371,12 @@ impl NonDataDescriptor for GlobalsAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => instance
                 .as_function()
-                .ok_or(InterpreterError::ExpectedFunction(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                 ))?
                 .borrow()
                 .get_globals(),
@@ -407,13 +398,13 @@ impl NonDataDescriptor for ModuleAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
                     .as_function()
-                    .ok_or(InterpreterError::ExpectedFunction(
-                        interpreter.state.call_stack(),
+                    .ok_or(TreewalkDisruption::Error(
+                        InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                     ))?
                     .borrow()
                     .module
@@ -440,7 +431,7 @@ impl NonDataDescriptor for DocAttribute {
         _interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             // TODO store doc strings
             Some(_) => ExprResult::String(Str::new("".into())),
@@ -462,13 +453,13 @@ impl NonDataDescriptor for NameAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
                     .as_function()
-                    .ok_or(InterpreterError::ExpectedFunction(
-                        interpreter.state.call_stack(),
+                    .ok_or(TreewalkDisruption::Error(
+                        InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                     ))?
                     .borrow()
                     .name
@@ -493,13 +484,13 @@ impl NonDataDescriptor for QualnameAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
                     .as_function()
-                    .ok_or(InterpreterError::ExpectedFunction(
-                        interpreter.state.call_stack(),
+                    .ok_or(TreewalkDisruption::Error(
+                        InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
                     ))?
                     .borrow()
                     .name
@@ -524,7 +515,7 @@ impl NonDataDescriptor for AnnotationsAttribute {
         _interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(_) => ExprResult::Dict(Container::new(Dict::default())),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -545,7 +536,7 @@ impl NonDataDescriptor for TypeParamsAttribute {
         _interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(_) => ExprResult::Tuple(Tuple::default()),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -568,13 +559,13 @@ impl NonDataDescriptor for DictDescriptor {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
             Some(i) => i
                 .as_function()
-                .ok_or(InterpreterError::ExpectedObject(
+                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
                     interpreter.state.call_stack(),
-                ))?
+                )))?
                 .borrow()
                 .scope
                 .clone(),

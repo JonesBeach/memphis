@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     domain::Dunder,
     parser::types::{Expr, ParsedSliceParams},
@@ -46,25 +48,24 @@ impl Slice {
     pub fn resolve(
         interpreter: &Interpreter,
         parsed_params: &ParsedSliceParams,
-    ) -> Result<Self, InterpreterError> {
-        let evaluate_to_integer =
-            |expr_option: &Option<Box<Expr>>| -> Result<Option<i64>, InterpreterError> {
-                match expr_option {
-                    Some(expr) => {
-                        let integer =
-                            interpreter
-                                .evaluate_expr(expr)?
-                                .as_integer()
-                                .ok_or_else(|| {
-                                    InterpreterError::ExpectedInteger(
-                                        interpreter.state.call_stack(),
-                                    )
-                                })?;
-                        Ok(Some(integer))
-                    }
-                    None => Ok(None),
+    ) -> TreewalkResult<Self> {
+        let evaluate_to_integer = |expr_option: &Option<Box<Expr>>| -> TreewalkResult<Option<i64>> {
+            match expr_option {
+                Some(expr) => {
+                    let integer =
+                        interpreter
+                            .evaluate_expr(expr)?
+                            .as_integer()
+                            .ok_or_else(|| {
+                                TreewalkDisruption::Error(InterpreterError::ExpectedInteger(
+                                    interpreter.state.call_stack(),
+                                ))
+                            })?;
+                    Ok(Some(integer))
                 }
-            };
+                None => Ok(None),
+            }
+        };
 
         let start = evaluate_to_integer(&parsed_params.start)?;
         let stop = evaluate_to_integer(&parsed_params.stop)?;
@@ -139,47 +140,47 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if args.len() == 2 {
             let stop = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             Ok(ExprResult::Slice(Slice::new(None, Some(stop), None)))
         } else if args.len() == 3 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             Ok(ExprResult::Slice(Slice::new(Some(start), Some(stop), None)))
         } else if args.len() == 4 {
             let start = args
                 .get_arg(1)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             let stop = args
                 .get_arg(2)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             let step = args
                 .get_arg(3)
                 .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
+                .ok_or(TreewalkDisruption::Error(
+                    InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
                 ))?;
             Ok(ExprResult::Slice(Slice::new(
                 Some(start),

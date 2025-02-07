@@ -2,7 +2,7 @@ mod evaluators;
 mod execution_context;
 mod executor;
 #[allow(clippy::module_inception)]
-mod interpreter;
+pub mod interpreter;
 mod module_loader;
 mod scope;
 mod scope_manager;

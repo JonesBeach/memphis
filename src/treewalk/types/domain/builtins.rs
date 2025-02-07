@@ -3,6 +3,7 @@ use crate::{
     domain::Dunder,
     resolved_args,
     treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
         types::{
             domain::traits::Callable, iterators::StringIterator, utils::ResolvedArguments,
             ExprResult, List, Str,
@@ -29,7 +30,7 @@ impl Callable for CallableBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
         Ok(ExprResult::Boolean(args.get_arg(0).as_callable().is_some()))
     }
@@ -44,7 +45,7 @@ impl Callable for DirBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
         let dir = args
             .get_arg(0)
@@ -66,12 +67,14 @@ impl Callable for GetattrBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if ![2, 3].contains(&args.len()) {
-            return Err(InterpreterError::WrongNumberOfArguments(
-                2,
-                args.len(),
-                interpreter.state.call_stack(),
+            return Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(
+                    2,
+                    args.len(),
+                    interpreter.state.call_stack(),
+                ),
             ));
         }
 
@@ -79,9 +82,9 @@ impl Callable for GetattrBuiltin {
         let name = args
             .get_arg(1)
             .as_string()
-            .ok_or(InterpreterError::ExpectedString(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedString(
                 interpreter.state.call_stack(),
-            ))?;
+            )))?;
 
         let attr = object
             .as_member_reader(interpreter)
@@ -94,11 +97,11 @@ impl Callable for GetattrBuiltin {
             if args.len() == 3 {
                 Ok(args.get_arg(2))
             } else {
-                Err(InterpreterError::AttributeError(
+                Err(TreewalkDisruption::Error(InterpreterError::AttributeError(
                     object.get_class(interpreter).name(),
                     name,
                     interpreter.state.call_stack(),
-                ))
+                )))
             }
         }
     }
@@ -113,7 +116,7 @@ impl Callable for GlobalsBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
         Ok(ExprResult::Dict(
             interpreter.state.read_globals(interpreter),
@@ -130,7 +133,7 @@ impl Callable for HashBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
         let arg = args.get_arg(0);
@@ -143,10 +146,10 @@ impl Callable for HashBuiltin {
         if let ExprResult::Integer(_) = result {
             Ok(result)
         } else {
-            Err(InterpreterError::TypeError(
+            Err(TreewalkDisruption::Error(InterpreterError::TypeError(
                 Some(format!("{} method should return an integer", Dunder::Hash)),
                 interpreter.state.call_stack(),
-            ))
+            )))
         }
     }
 
@@ -160,7 +163,7 @@ impl Callable for IsinstanceBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
         let msg = Some("isinstance() arg 2 must be a type, a tuple of types, or a union".into());
 
@@ -172,19 +175,21 @@ impl Callable for IsinstanceBuiltin {
                 let classes: Result<Vec<_>, _> = tuple
                     .into_iter()
                     .map(|item| {
-                        item.as_class().ok_or(InterpreterError::TypeError(
-                            msg.clone(),
-                            interpreter.state.call_stack(),
+                        item.as_class().ok_or(TreewalkDisruption::Error(
+                            InterpreterError::TypeError(
+                                msg.clone(),
+                                interpreter.state.call_stack(),
+                            ),
                         ))
                     })
                     .collect();
                 classes?
             }
             _ => {
-                return Err(InterpreterError::TypeError(
+                return Err(TreewalkDisruption::Error(InterpreterError::TypeError(
                     msg,
                     interpreter.state.call_stack(),
-                ))
+                )))
             }
         };
 
@@ -207,24 +212,22 @@ impl Callable for IssubclassBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
 
-        let instance_class = args
-            .get_arg(0)
-            .as_class()
-            .ok_or(InterpreterError::TypeError(
+        let instance_class = args.get_arg(0).as_class().ok_or(TreewalkDisruption::Error(
+            InterpreterError::TypeError(
                 Some("issubclass() arg 1 must be a class".into()),
                 interpreter.state.call_stack(),
-            ))?;
+            ),
+        ))?;
 
-        let reference_class = args
-            .get_arg(1)
-            .as_class()
-            .ok_or(InterpreterError::TypeError(
+        let reference_class = args.get_arg(1).as_class().ok_or(TreewalkDisruption::Error(
+            InterpreterError::TypeError(
                 Some("issubclass() arg 2 must be a type, a tuple of types, or a union".into()),
                 interpreter.state.call_stack(),
-            ))?;
+            ),
+        ))?;
 
         Ok(ExprResult::Boolean(
             instance_class.mro().contains(&reference_class),
@@ -241,7 +244,7 @@ impl Callable for PrintBuiltin {
         &self,
         _interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         println!(
             "{}",
             args.iter_args()
@@ -263,16 +266,16 @@ impl Callable for LenBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let iterator =
-            args.get_arg(0)
-                .clone()
-                .try_into_iter()
-                .ok_or(InterpreterError::ExpectedIterable(
-                    interpreter.state.call_stack(),
-                ))?;
+        let iterator = args
+            .get_arg(0)
+            .clone()
+            .try_into_iter()
+            .ok_or(TreewalkDisruption::Error(
+                InterpreterError::ExpectedIterable(interpreter.state.call_stack()),
+            ))?;
 
         Ok(ExprResult::Integer(iterator.count() as i64))
     }
@@ -287,23 +290,23 @@ impl Callable for NextBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let generator =
-            args.get_arg(0)
-                .as_generator()
-                .ok_or(InterpreterError::ExpectedIterable(
-                    interpreter.state.call_stack(),
-                ))?;
+        let generator = args
+            .get_arg(0)
+            .as_generator()
+            .ok_or(TreewalkDisruption::Error(
+                InterpreterError::ExpectedIterable(interpreter.state.call_stack()),
+            ))?;
 
         generator
             .clone()
             .borrow_mut()
             .next()
-            .ok_or(InterpreterError::StopIteration(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::StopIteration(
                 interpreter.state.call_stack(),
-            ))
+            )))
     }
 
     fn name(&self) -> String {
@@ -316,7 +319,7 @@ impl Callable for IterBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
         match args.get_arg(0) {
@@ -334,9 +337,9 @@ impl Callable for IterBuiltin {
                 Ok(ExprResult::ByteArrayIterator(b.borrow().raw().to_vec()))
             }
             ExprResult::Range(r) => Ok(ExprResult::RangeIterator(r.into_iter())),
-            _ => Err(InterpreterError::ExpectedObject(
+            _ => Err(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
                 interpreter.state.call_stack(),
-            )),
+            ))),
         }
     }
 
@@ -354,7 +357,7 @@ impl Callable for NoopCallable {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 
@@ -364,7 +367,7 @@ impl Callable for NoopCallable {
 }
 
 pub mod utils {
-    use crate::domain::DebugCallStack;
+    use crate::{domain::DebugCallStack, treewalk::interpreter::TreewalkDisruption};
 
     use super::*;
 
@@ -372,12 +375,10 @@ pub mod utils {
         args: &ResolvedArguments,
         expected_length: usize,
         call_stack: DebugCallStack,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         if args.len() != expected_length {
-            Err(InterpreterError::WrongNumberOfArguments(
-                expected_length,
-                args.len(),
-                call_stack,
+            Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(expected_length, args.len(), call_stack),
             ))
         } else {
             Ok(())

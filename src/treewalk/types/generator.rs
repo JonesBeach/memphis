@@ -2,6 +2,7 @@ use crate::{
     core::Container,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement},
     treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
         types::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
             ExprResult, Function,
@@ -89,14 +90,10 @@ impl Pausable for Container<Generator> {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(
-        &self,
-        interpreter: &Interpreter,
-        _result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
-        Err(InterpreterError::StopIteration(
+    fn finish(&self, interpreter: &Interpreter, _result: ExprResult) -> TreewalkResult<ExprResult> {
+        Err(TreewalkDisruption::Error(InterpreterError::StopIteration(
             interpreter.state.call_stack(),
-        ))
+        )))
     }
 
     fn handle_step(
@@ -104,7 +101,7 @@ impl Pausable for Container<Generator> {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError> {
+    ) -> TreewalkResult<PausableStepResult> {
         match self.execute_statement(interpreter, statement, control_flow)? {
             Some(yielded) => {
                 self.on_exit(interpreter);
@@ -126,7 +123,7 @@ impl Container<Generator> {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         if !control_flow {
             match statement {
                 Statement::Expression(Expr::Yield(None)) => Ok(None),
@@ -172,7 +169,7 @@ impl Iterator for GeneratorIterator {
         // we need a better way to surface error during a generator run
         match self.generator.run_until_pause(&self.interpreter) {
             Ok(result) => Some(result),
-            Err(InterpreterError::StopIteration(_)) => None,
+            Err(TreewalkDisruption::Error(InterpreterError::StopIteration(_))) => None,
             _ => panic!("Unexpected error during generator run."),
         }
     }

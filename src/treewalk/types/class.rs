@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
@@ -39,7 +40,7 @@ impl Class {
         name: &str,
         parent_classes: Vec<Container<Class>>,
         metaclass: Option<Container<Class>>,
-    ) -> Result<Container<Self>, InterpreterError> {
+    ) -> TreewalkResult<Container<Self>> {
         let type_class = interpreter.state.get_type_class(Type::Type);
         let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
 
@@ -63,9 +64,9 @@ impl Class {
         interpreter
             .invoke_method(ExprResult::Class(metaclass), Dunder::New, args)?
             .as_class()
-            .ok_or(InterpreterError::ExpectedClass(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedClass(
                 interpreter.state.call_stack(),
-            ))
+            )))
     }
 
     /// Create the class. This is used by `Dunder::New` for `Type::Type` under the hood.
@@ -272,7 +273,7 @@ impl MemberReader for Container<Class> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         if let Some(attr) = self.get_from_class(name) {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class [from class]", self, name)
@@ -300,11 +301,7 @@ impl MemberReader for Container<Class> {
 }
 
 impl MemberWriter for Container<Class> {
-    fn delete_member(
-        &mut self,
-        _interpreter: &Interpreter,
-        name: &str,
-    ) -> Result<(), InterpreterError> {
+    fn delete_member(&mut self, _interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
         self.borrow_mut().scope.delete(name);
 
         // TODO support delete attributes from parent classes?
@@ -316,7 +313,7 @@ impl MemberWriter for Container<Class> {
         _interpreter: &Interpreter,
         name: &str,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         self.set_on_class(name, value);
         Ok(())
     }
@@ -333,7 +330,7 @@ impl Callable for Container<Class> {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         ExprResult::new(interpreter, self.clone(), args)
     }
 

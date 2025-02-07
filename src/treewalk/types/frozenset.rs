@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
@@ -76,20 +77,23 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if args.len() == 1 {
             Ok(ExprResult::FrozenSet(FrozenSet::default()))
         } else if args.len() == 2 {
-            let input_set: Container<Set> = args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| InterpreterError::ExpectedSet(interpreter.state.call_stack()))?;
+            let input_set: Container<Set> = args.get_arg(1).try_into().map_err(|_| {
+                TreewalkDisruption::Error(InterpreterError::ExpectedSet(
+                    interpreter.state.call_stack(),
+                ))
+            })?;
             Ok(ExprResult::FrozenSet(input_set.into()))
         } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                1,
-                args.len(),
-                interpreter.state.call_stack(),
+            Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(
+                    1,
+                    args.len(),
+                    interpreter.state.call_stack(),
+                ),
             ))
         }
     }
@@ -104,7 +108,7 @@ impl Callable for ContainsBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!();
     }
 

@@ -1,7 +1,4 @@
-use crate::{
-    treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
-};
+use crate::treewalk::{interpreter::TreewalkResult, Interpreter, Scope};
 
 use super::{domain::traits::MemberReader, ExprResult};
 
@@ -27,7 +24,7 @@ impl MemberReader for Cell {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Ok(self.scope.get(name))
     }
 }

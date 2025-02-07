@@ -8,7 +8,10 @@ use crate::{
     types::errors::InterpreterError,
 };
 
-use super::Interpreter;
+use super::{
+    interpreter::{TreewalkDisruption, TreewalkResult},
+    Interpreter,
+};
 
 /// This represents a symbol table for a given scope.
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -27,7 +30,7 @@ impl Scope {
         interpreter: &Interpreter,
         function: &Container<Function>,
         arguments: &ResolvedArguments,
-    ) -> Result<Container<Self>, InterpreterError> {
+    ) -> TreewalkResult<Container<Self>> {
         let mut scope = Self::default();
 
         let function_args = &function.borrow().args;
@@ -35,10 +38,12 @@ impl Scope {
         // Function expects fewer positional args than it was invoked with and there is not an
         // `args_var` in which to store the rest.
         if function_args.args.len() < arguments.bound_len() && function_args.args_var.is_none() {
-            return Err(InterpreterError::WrongNumberOfArguments(
-                function_args.args.len(),
-                arguments.bound_len(),
-                interpreter.state.call_stack(),
+            return Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(
+                    function_args.args.len(),
+                    arguments.bound_len(),
+                    interpreter.state.call_stack(),
+                ),
             ));
         }
 
@@ -85,10 +90,10 @@ impl Scope {
                 noun,
                 arg_names
             );
-            return Err(InterpreterError::TypeError(
+            return Err(TreewalkDisruption::Error(InterpreterError::TypeError(
                 Some(message),
                 interpreter.state.call_stack(),
-            ));
+            )));
         }
 
         if let Some(ref args_var) = function_args.args_var {

@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::Container;
 use crate::parser::types::Statement;
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
 use crate::{
     treewalk::types::{
         domain::{
@@ -107,11 +108,7 @@ impl Pausable for Container<Coroutine> {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(
-        &self,
-        _interpreter: &Interpreter,
-        result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
+    fn finish(&self, _interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult> {
         self.borrow_mut().set_return_val(result.clone());
         Ok(ExprResult::None)
     }
@@ -121,7 +118,7 @@ impl Pausable for Container<Coroutine> {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError> {
+    ) -> TreewalkResult<PausableStepResult> {
         match self.execute_statement(interpreter, statement, control_flow)? {
             Poll::Ready(val) => Ok(PausableStepResult::Return(val)),
             Poll::Waiting => {
@@ -145,18 +142,22 @@ impl Container<Coroutine> {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<Poll, InterpreterError> {
+    ) -> TreewalkResult<Poll> {
         if !control_flow {
             match interpreter.evaluate_statement(&statement) {
                 // We cannot return the default value here because certain statement types may
                 // actually have a return value (expression, return, etc).
                 Ok(result) => Ok(Poll::Ready(result)),
-                Err(InterpreterError::EncounteredSleep) => Ok(Poll::Waiting),
-                Err(InterpreterError::EncounteredAwait) => {
+                Err(TreewalkDisruption::Error(InterpreterError::EncounteredSleep)) => {
+                    Ok(Poll::Waiting)
+                }
+                Err(TreewalkDisruption::Error(InterpreterError::EncounteredAwait)) => {
                     self.context().step_back();
                     Ok(Poll::Waiting)
                 }
-                Err(InterpreterError::EncounteredReturn(result)) => Ok(Poll::Ready(result)),
+                Err(TreewalkDisruption::Error(InterpreterError::EncounteredReturn(result))) => {
+                    Ok(Poll::Ready(result))
+                }
                 Err(e) => Err(e),
             }
         } else {
@@ -177,7 +178,7 @@ impl Callable for CloseBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
         Ok(ExprResult::None)
     }

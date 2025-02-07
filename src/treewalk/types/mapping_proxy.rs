@@ -1,6 +1,9 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
+};
 
 use super::{domain::traits::IndexRead, Dict, ExprResult};
 
@@ -19,7 +22,7 @@ impl IndexRead for MappingProxy {
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         self.0.getitem(interpreter, index)
     }
 }

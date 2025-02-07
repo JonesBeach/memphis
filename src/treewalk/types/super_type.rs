@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
@@ -44,15 +46,18 @@ impl MemberReader for Container<Super> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         let instance = self.borrow().receiver();
         let class = instance.get_class(interpreter);
 
         // Retrieve the MRO for the class, excluding the class itself
         let super_mro = class.super_mro();
-        let parent_class = super_mro.first().ok_or(InterpreterError::ExpectedClass(
-            interpreter.state.call_stack(),
-        ))?;
+        let parent_class =
+            super_mro
+                .first()
+                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedClass(
+                    interpreter.state.call_stack(),
+                )))?;
 
         if let Some(attr) = parent_class.get_member(interpreter, name)? {
             log(LogLevel::Debug, || {
@@ -76,22 +81,28 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         match interpreter.state.current_receiver() {
             None => {
                 // If we are evaluating a static function, `super()` should just return the class the
                 // function belongs to. This should only occur for `Dunder::New`. To my knowledge,
                 // that is the only statically-bound function that permits calls to `super()`.
-                let function = interpreter
-                    .state
-                    .current_function()
-                    .ok_or(InterpreterError::Exception(interpreter.state.call_stack()))?;
+                let function =
+                    interpreter
+                        .state
+                        .current_function()
+                        .ok_or(TreewalkDisruption::Error(InterpreterError::Exception(
+                            interpreter.state.call_stack(),
+                        )))?;
                 assert_eq!(function.borrow().name, String::from(Dunder::New));
-                let class = function
-                    .borrow()
-                    .clone()
-                    .class_context
-                    .ok_or(InterpreterError::Exception(interpreter.state.call_stack()))?;
+                let class =
+                    function
+                        .borrow()
+                        .clone()
+                        .class_context
+                        .ok_or(TreewalkDisruption::Error(InterpreterError::Exception(
+                            interpreter.state.call_stack(),
+                        )))?;
 
                 Ok(ExprResult::Super(Container::new(Super::new(
                     ExprResult::Class(class),

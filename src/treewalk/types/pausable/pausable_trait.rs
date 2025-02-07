@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
     domain::ToDebugStackFrame,
@@ -35,11 +37,7 @@ pub trait Pausable {
 
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
-    fn finish(
-        &self,
-        interpreter: &Interpreter,
-        result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError>;
+    fn finish(&self, interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult>;
 
     /// A handle to invoke the discrete operation of evaluating an individual statement and
     /// producing a [`PausableStepResult`] based on the control flow instructions and or the
@@ -49,12 +47,12 @@ pub trait Pausable {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError>;
+    ) -> TreewalkResult<PausableStepResult>;
 
     /// The default behavior which selects the next [`Statement`] and manually evaluates any
     /// control flow statements. This then calls [`Pausable::handle_step`] to set up any return
     /// values based on whether a control flow structure was encountered.
-    fn step(&self, interpreter: &Interpreter) -> Result<PausableStepResult, InterpreterError> {
+    fn step(&self, interpreter: &Interpreter) -> TreewalkResult<PausableStepResult> {
         let statement = self.context().next_statement();
 
         // Delegate to the common function for control flow
@@ -94,7 +92,7 @@ pub trait Pausable {
         &self,
         statement: &Statement,
         interpreter: &Interpreter,
-    ) -> Result<bool, InterpreterError> {
+    ) -> TreewalkResult<bool> {
         match statement {
             Statement::WhileLoop { body, condition } => {
                 if interpreter.evaluate_expr(condition)?.as_boolean() {
@@ -152,7 +150,11 @@ pub trait Pausable {
                 let items: Container<List> = interpreter
                     .evaluate_expr(iterable)?
                     .try_into()
-                    .map_err(|_| InterpreterError::ExpectedList(interpreter.state.call_stack()))?;
+                    .map_err(|_| {
+                        TreewalkDisruption::Error(InterpreterError::ExpectedList(
+                            interpreter.state.call_stack(),
+                        ))
+                    })?;
 
                 let mut queue = items.borrow().as_queue();
 
@@ -174,7 +176,7 @@ pub trait Pausable {
     }
 
     /// Run this [`Pausable`] until it reaches a pause event.
-    fn run_until_pause(&self, interpreter: &Interpreter) -> Result<ExprResult, InterpreterError> {
+    fn run_until_pause(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
         self.on_entry(interpreter);
 
         let mut result = ExprResult::None;

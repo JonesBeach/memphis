@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
 };
@@ -73,7 +75,7 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // The default behavior will stop zipping when the shortest iterator is exhausted,
         // which matches default behavior from Python. Using strict=True causes this to throw an
         // exception instead.
@@ -100,16 +102,18 @@ impl Callable for NewBuiltin {
                 let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                 if !all_equal {
-                    return Err(InterpreterError::RuntimeError);
+                    return Err(TreewalkDisruption::Error(InterpreterError::RuntimeError));
                 }
             }
 
             Ok(ExprResult::Zip(ZipIterator::new(iters)))
         } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                2,
-                args.len(),
-                interpreter.state.call_stack(),
+            Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(
+                    2,
+                    args.len(),
+                    interpreter.state.call_stack(),
+                ),
             ))
         }
     }

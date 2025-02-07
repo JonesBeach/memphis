@@ -9,7 +9,7 @@ use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
     domain::Dunder,
-    treewalk::{typing::TypeExpr, Interpreter},
+    treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
     types::errors::InterpreterError,
 };
 
@@ -171,7 +171,7 @@ impl ExprResult {
         interpreter: &Interpreter,
         class: Container<Class>,
         arguments: ResolvedArguments,
-    ) -> Result<Self, InterpreterError> {
+    ) -> TreewalkResult<Self> {
         // We have to handle calls to `type()` with only one parameter as a special case because
         // this doesn't actually call the `Type::Type` `Dunder::New` method, which expects more
         // arguments and would return a new class. Overloading the `Dunder::Init` method
@@ -512,7 +512,7 @@ impl ExprResult {
     fn as_nondata_descriptor(
         &self,
         interpreter: &Interpreter,
-    ) -> Result<Option<Container<Box<dyn NonDataDescriptor>>>, InterpreterError> {
+    ) -> TreewalkResult<Option<Container<Box<dyn NonDataDescriptor>>>> {
         Ok(match self {
             ExprResult::NonDataDescriptor(i) => Some(i.clone()),
             ExprResult::Object(i) => self
@@ -528,7 +528,7 @@ impl ExprResult {
     pub fn as_data_descriptor(
         &self,
         interpreter: &Interpreter,
-    ) -> Result<Option<Container<Box<dyn DataDescriptor>>>, InterpreterError> {
+    ) -> TreewalkResult<Option<Container<Box<dyn DataDescriptor>>>> {
         Ok(match self {
             ExprResult::Object(i) => self
                 .map_hasattr(interpreter, Dunder::Set)
@@ -545,7 +545,7 @@ impl ExprResult {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // Similar to callable below, ideally we'd be able to handle this inside
         // `Result::as_nondata_descriptor` but we don't yet have a way to downcast in this way
         // (i.e. treat `S` as a different `dyn T` when `S : T`)

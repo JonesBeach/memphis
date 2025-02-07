@@ -6,7 +6,10 @@ use crate::{
     domain::ToDebugStackFrame,
     lexer::Lexer,
     parser::{types::ParseNode, Parser},
-    treewalk::{types::ExprResult, Interpreter, ModuleLoader, ModuleSource, State},
+    treewalk::{
+        interpreter::TreewalkDisruption, types::ExprResult, Interpreter, ModuleLoader,
+        ModuleSource, State,
+    },
     types::errors::{MemphisError, ParserError},
 };
 
@@ -84,9 +87,11 @@ impl MemphisContext {
         let mut parser = self.init_parser();
         let interpreter = self.init_interpreter();
         let expr = parser.parse_expr().map_err(MemphisError::Parser)?;
-        interpreter
-            .evaluate_expr(&expr)
-            .map_err(MemphisError::Interpreter)
+        match interpreter.evaluate_expr(&expr) {
+            Ok(result) => Ok(result),
+            Err(TreewalkDisruption::Error(e)) => Err(MemphisError::Interpreter(e)),
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+        }
     }
 
     /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].

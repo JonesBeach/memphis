@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use std::collections::HashMap;
 
 use crate::{
@@ -20,10 +22,7 @@ pub struct ResolvedArguments {
 }
 
 impl ResolvedArguments {
-    pub fn from(
-        interpreter: &Interpreter,
-        arguments: &ParsedArguments,
-    ) -> Result<Self, InterpreterError> {
+    pub fn from(interpreter: &Interpreter, arguments: &ParsedArguments) -> TreewalkResult<Self> {
         let mut arg_values = arguments
             .args
             .iter()
@@ -44,10 +43,10 @@ impl ResolvedArguments {
                     let unpacked = interpreter.evaluate_expr(expr)?;
                     for key in unpacked.clone() {
                         if kwargs.contains_key(&key) {
-                            return Err(InterpreterError::KeyError(
+                            return Err(TreewalkDisruption::Error(InterpreterError::KeyError(
                                 key.to_string(),
                                 interpreter.state.call_stack(),
-                            ));
+                            )));
                         }
                         let value = interpreter.read_index(&unpacked, &key)?;
                         kwargs.insert(key, value);
@@ -58,11 +57,9 @@ impl ResolvedArguments {
 
         let mut second_arg_values = if let Some(ref args_var) = arguments.args_var {
             let args_var_value = interpreter.evaluate_expr(args_var)?;
-            let args = args_var_value
-                .as_tuple()
-                .ok_or(InterpreterError::ExpectedTuple(
-                    interpreter.state.call_stack(),
-                ))?;
+            let args = args_var_value.as_tuple().ok_or(TreewalkDisruption::Error(
+                InterpreterError::ExpectedTuple(interpreter.state.call_stack()),
+            ))?;
             args.raw()
         } else {
             vec![]

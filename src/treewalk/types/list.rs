@@ -5,7 +5,13 @@ use std::{
 };
 
 use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+    core::Container,
+    domain::Dunder,
+    treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
+        Interpreter,
+    },
+    types::errors::InterpreterError,
 };
 
 use super::{
@@ -82,7 +88,7 @@ impl IndexRead for Container<List> {
         &self,
         interpreter: &Interpreter,
         key: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Ok(match key {
             ExprResult::Integer(i) => self.borrow().items.get(i as usize).cloned(),
             ExprResult::Slice(s) => Some(ExprResult::List(Container::new(
@@ -99,21 +105,17 @@ impl IndexWrite for Container<List> {
         interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
-        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
-            interpreter.state.call_stack(),
+    ) -> TreewalkResult<()> {
+        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
+            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
         ))?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
 
-    fn delitem(
-        &mut self,
-        interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> Result<(), InterpreterError> {
-        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
-            interpreter.state.call_stack(),
+    fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
+        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
+            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
         ))?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
@@ -131,7 +133,7 @@ impl Add for List {
 }
 
 impl TryFrom<ExprResult> for Container<List> {
-    type Error = InterpreterError;
+    type Error = TreewalkDisruption;
 
     fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
         match value {
@@ -140,7 +142,7 @@ impl TryFrom<ExprResult> for Container<List> {
             ExprResult::Tuple(tuple) => Ok(tuple.into()),
             ExprResult::Range(range) => Ok(range.into()),
             ExprResult::Generator(g) => Ok(g.into()),
-            _ => Err(InterpreterError::RuntimeError),
+            _ => Err(TreewalkDisruption::Error(InterpreterError::RuntimeError)),
         }
     }
 }
@@ -244,12 +246,13 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if args.len() == 2 {
-            let output = args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| InterpreterError::ExpectedList(interpreter.state.call_stack()))?;
+            let output = args.get_arg(1).try_into().map_err(|_| {
+                TreewalkDisruption::Error(InterpreterError::ExpectedList(
+                    interpreter.state.call_stack(),
+                ))
+            })?;
             Ok(ExprResult::List(output))
         } else {
             validate_args(&args, 1, interpreter.state.call_stack())?;
@@ -267,18 +270,18 @@ impl Callable for AppendBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         validate_args(&args, 1, interpreter.state.call_stack())?;
 
         let list = args
             .get_self()
-            .ok_or(InterpreterError::ExpectedList(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedList(
                 interpreter.state.call_stack(),
-            ))?
+            )))?
             .as_list()
-            .ok_or(InterpreterError::ExpectedList(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedList(
                 interpreter.state.call_stack(),
-            ))?;
+            )))?;
 
         list.borrow_mut().append(args.get_arg(0).clone());
 
@@ -295,18 +298,18 @@ impl Callable for ExtendBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         validate_args(&args, 1, interpreter.state.call_stack())?;
 
         let list = args
             .get_self()
-            .ok_or(InterpreterError::ExpectedList(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedList(
                 interpreter.state.call_stack(),
-            ))?
+            )))?
             .as_list()
-            .ok_or(InterpreterError::ExpectedList(
+            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedList(
                 interpreter.state.call_stack(),
-            ))?;
+            )))?;
 
         list.borrow_mut().extend(args.get_arg(0).into_iter());
 

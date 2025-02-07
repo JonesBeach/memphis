@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
 use std::{
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -94,7 +95,8 @@ impl Contextual<ExprResult> {
             .interpreter
             .resolve_method(self.value.clone(), Dunder::Eq)
         {
-            Err(e) => self
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
                 .handle_runtime_error(MemphisError::Interpreter(e)),
             Ok(eq) => eq,
@@ -112,7 +114,8 @@ impl Contextual<ExprResult> {
         match result {
             Ok(ExprResult::Boolean(true)) => true,
             Ok(_) => false,
-            Err(e) => self
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
                 .handle_runtime_error(MemphisError::Interpreter(e)),
         }
@@ -131,7 +134,8 @@ impl Contextual<ExprResult> {
                 .handle_runtime_error(MemphisError::Interpreter(
                     InterpreterError::ExpectedInteger(self.interpreter.state.call_stack()),
                 )),
-            Err(e) => self
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
                 .handle_runtime_error(MemphisError::Interpreter(e)),
         }

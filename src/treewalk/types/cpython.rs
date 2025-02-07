@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use pyo3::{
     prelude::Python,
     pyclass,
@@ -139,7 +140,7 @@ impl CPythonModule {
             .unwrap()
     }
 
-    fn get_item<S>(&self, name: S) -> Result<Option<ExprResult>, InterpreterError>
+    fn get_item<S>(&self, name: S) -> TreewalkResult<Option<ExprResult>>
     where
         S: IntoPy<Py<PyString>>,
     {
@@ -157,7 +158,7 @@ impl MemberReader for CPythonModule {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         self.get_item(name)
     }
 
@@ -178,7 +179,7 @@ impl Callable for CPythonObject {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Python::with_gil(|py| {
             let py_attr: &PyAny = self.0.as_ref(py);
             if py_attr.is_callable() {
@@ -309,7 +310,7 @@ impl IndexRead for CPythonObject {
         &self,
         _interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Python::with_gil(|py| {
             let key = index.to_object(py);
             let result = self
@@ -328,7 +329,7 @@ impl IndexWrite for CPythonObject {
         _interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         Python::with_gil(|py| {
             let key = index.to_object(py);
             let value = value.to_object(py);
@@ -341,11 +342,7 @@ impl IndexWrite for CPythonObject {
         Ok(())
     }
 
-    fn delitem(
-        &mut self,
-        _interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delitem(&mut self, _interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
         Python::with_gil(|py| {
             let key = index.to_object(py);
             self.0

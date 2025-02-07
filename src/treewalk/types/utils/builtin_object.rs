@@ -1,10 +1,10 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::{log, Container, LogLevel},
     treewalk::{
         types::{domain::traits::MemberReader, Class, ExprResult},
         Interpreter,
     },
-    types::errors::InterpreterError,
 };
 
 /// Objects of builtin types are represented using different [`ExprResult`] variants, so we create
@@ -29,7 +29,7 @@ impl MemberReader for BuiltinObject {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}.{}", self.class, name)
         });

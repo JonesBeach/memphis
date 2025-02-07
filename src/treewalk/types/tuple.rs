@@ -1,3 +1,5 @@
+use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
@@ -61,9 +63,9 @@ impl IndexRead for Tuple {
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
-        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
-            interpreter.state.call_stack(),
+    ) -> TreewalkResult<Option<ExprResult>> {
+        let i = index.as_integer().ok_or(TreewalkDisruption::Error(
+            InterpreterError::ExpectedInteger(interpreter.state.call_stack()),
         ))?;
         Ok(self.get_item(i as usize))
     }
@@ -117,15 +119,12 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
 
-        let tuple = args
-            .get_arg(1)
-            .as_tuple()
-            .ok_or(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            ))?;
+        let tuple = args.get_arg(1).as_tuple().ok_or(TreewalkDisruption::Error(
+            InterpreterError::ExpectedTuple(interpreter.state.call_stack()),
+        ))?;
         Ok(ExprResult::Tuple(tuple))
     }
 

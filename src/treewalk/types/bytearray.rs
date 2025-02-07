@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
 use crate::{
     core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
 };
@@ -44,16 +45,18 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         match args.len() {
             1 => Ok(ExprResult::ByteArray(Container::new(ByteArray::new(
                 "".into(),
             )))),
             2 => match args.get_arg(1) {
-                ExprResult::String(_) => Err(InterpreterError::TypeError(
-                    Some("string argument without an encoding".into()),
-                    interpreter.state.call_stack(),
-                )),
+                ExprResult::String(_) => {
+                    Err(TreewalkDisruption::Error(InterpreterError::TypeError(
+                        Some("string argument without an encoding".into()),
+                        interpreter.state.call_stack(),
+                    )))
+                }
                 ExprResult::Bytes(s) => {
                     Ok(ExprResult::ByteArray(Container::new(ByteArray::new(s))))
                 }
@@ -61,10 +64,12 @@ impl Callable for NewBuiltin {
             },
             // TODO support an optional encoding
             3 => todo!(),
-            _ => Err(InterpreterError::WrongNumberOfArguments(
-                args.len(),
-                1,
-                interpreter.state.call_stack(),
+            _ => Err(TreewalkDisruption::Error(
+                InterpreterError::WrongNumberOfArguments(
+                    args.len(),
+                    1,
+                    interpreter.state.call_stack(),
+                ),
             )),
         }
     }
