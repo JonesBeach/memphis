@@ -45,7 +45,7 @@ impl InterpreterEntrypoint for VmInterpreter {
         let program = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", program));
         self.vm.load(program);
-        self.vm.run_loop().map_err(MemphisError::Interpreter)
+        self.vm.run_loop().map_err(MemphisError::Execution)
     }
 }
 
@@ -107,7 +107,7 @@ mod vm_interpreter_tests {
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,
@@ -124,7 +124,7 @@ mod vm_interpreter_tests {
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,
@@ -537,7 +537,7 @@ middle_call()
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,

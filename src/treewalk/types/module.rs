@@ -59,7 +59,7 @@ impl Module {
             .push_module(Container::new(Module::new(loaded_module, Scope::default())));
         match context.run() {
             Ok(_) => {}
-            Err(MemphisError::Interpreter(e)) => return Err(TreewalkDisruption::Error(e)),
+            Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{}", e);
                 return Err(TreewalkDisruption::Error(InterpreterError::new(

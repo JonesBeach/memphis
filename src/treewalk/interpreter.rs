@@ -1407,7 +1407,7 @@ impl InterpreterEntrypoint for Interpreter {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
             result = match self.evaluate_statement(&stmt) {
                 Ok(result) => result,
-                Err(TreewalkDisruption::Error(e)) => return Err(MemphisError::Interpreter(e)),
+                Err(TreewalkDisruption::Error(e)) => return Err(MemphisError::Execution(e)),
                 Err(TreewalkDisruption::Signal(_)) => todo!(),
             }
         }
@@ -1514,7 +1514,7 @@ mod tests {
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_name_error(e, "x");
             }
             _ => panic!("Expected an exception!"),
@@ -1527,7 +1527,7 @@ mod tests {
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
                     e,
                     ExecutionErrorKind::DivisionByZero(
@@ -1555,7 +1555,7 @@ mod tests {
 
         let input = "5 // 0";
         match evaluate(input) {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
                     e,
                     ExecutionErrorKind::DivisionByZero(
@@ -2308,7 +2308,7 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/selective_import_c.py");
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_name_error(e, "something_third");
             }
             _ => panic!("Expected an exception!"),
@@ -2454,7 +2454,7 @@ j = +(-3)
         let mut context = init_path("src/fixtures/call_stack/call_stack.py");
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
                 assert_name_error(e, "unknown");
 
@@ -2497,7 +2497,7 @@ c = foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
                 assert_name_error(e, "foo");
 
@@ -2668,7 +2668,7 @@ t.extend([3,4])
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
@@ -2781,7 +2781,7 @@ l = {1} <= {2}
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
@@ -2877,7 +2877,7 @@ j = 9, 10
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
@@ -2923,7 +2923,7 @@ d[0] = 10
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "'tuple' object does not support item assignment");
             }
             _ => panic!("Expected an exception!"),
@@ -2936,7 +2936,7 @@ del d[0]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "'tuple' object does not support item deletion");
             }
             _ => panic!("Expected an exception!"),
@@ -2948,7 +2948,7 @@ del d[0]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "'int' object is not subscriptable");
             }
             _ => panic!("Expected an exception!"),
@@ -3367,7 +3367,7 @@ c = next(a)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::StopIteration);
             }
             _ => panic!("Expected an exception!"),
@@ -3655,7 +3655,7 @@ d = ChildTwo().three()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "ChildTwo", "x");
             }
             _ => panic!("Expected an exception!"),
@@ -4244,7 +4244,7 @@ assert False
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::AssertionError);
             }
             _ => panic!("Expected an exception!"),
@@ -4487,7 +4487,7 @@ except ValueError:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
                     e,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
@@ -4505,7 +4505,7 @@ except ZeroDivisionError:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
                     e,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
@@ -4659,7 +4659,7 @@ b = test_args(0)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(
                     e,
                     "test_args() missing 1 required positional argument: 'two'",
@@ -4677,7 +4677,7 @@ b = test_args(0)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(
                     e,
                     "test_args() missing 2 required positional arguments: 'two' and 'three'",
@@ -4695,7 +4695,7 @@ b = test_args(1, 2, 3)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
@@ -5002,7 +5002,7 @@ raise TypeError
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error_optional_message(e, None);
             }
             _ => panic!("Expected an exception!"),
@@ -5014,7 +5014,7 @@ raise TypeError('type is no good')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "type is no good");
             }
             _ => panic!("Expected an exception!"),
@@ -5197,7 +5197,7 @@ with MyContextManager() as cm:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::MissingContextManagerProtocol);
             }
             _ => panic!("Expected an exception!"),
@@ -5221,7 +5221,7 @@ with MyContextManager() as cm:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::MissingContextManagerProtocol);
             }
             _ => panic!("Expected an exception!"),
@@ -5251,7 +5251,7 @@ c = a['b']
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_key_error(e, "b");
             }
             _ => panic!("Expected an exception!"),
@@ -5288,7 +5288,7 @@ a = f.x
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "Foo", "x");
             }
             _ => panic!("Expected an exception!"),
@@ -5305,7 +5305,7 @@ del f.bar
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "Foo", "bar");
             }
             _ => panic!("Expected an exception!"),
@@ -5419,7 +5419,7 @@ a = bytearray('hello')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "string argument without an encoding");
             }
             _ => panic!("Expected an exception!"),
@@ -5494,7 +5494,7 @@ a = bytes('hello')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "string argument without an encoding");
             }
             _ => panic!("Expected an exception!"),
@@ -5872,7 +5872,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "bad operand type for unary ~: 'float'");
             }
             _ => panic!("Expected an exception!"),
@@ -6133,7 +6133,7 @@ f = [ i for i in zip(range(5), range(4), strict=True) ]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::RuntimeError);
             }
             _ => panic!("Expected an exeception!"),
@@ -6359,7 +6359,7 @@ b = Foo.make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "Foo", "val");
             }
             _ => panic!("Expected an exception!"),
@@ -6379,7 +6379,7 @@ b = Foo().make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "Foo", "val");
             }
             _ => panic!("Expected an exception!"),
@@ -6419,7 +6419,7 @@ c = Foo().make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 0 args");
             }
             _ => panic!("Expected an exception!"),
@@ -6736,7 +6736,7 @@ foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
@@ -6750,7 +6750,7 @@ foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
@@ -6762,7 +6762,7 @@ nonlocal a
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_error_kind(e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
@@ -6929,7 +6929,7 @@ b = Child.one()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "one() missing 1 required positional argument: 'self'");
             }
             _ => panic!("Expected an exception!"),
@@ -7002,7 +7002,7 @@ b, c = [1, 2, 3]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_value_error(e, "too many values to unpack (expected 2)");
             }
             _ => panic!("Expected an exception!"),
@@ -7015,7 +7015,7 @@ a, b, c = [2, 3]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_value_error(e, "not enough values to unpack (expected 3, got 2)");
             }
             _ => panic!("Expected an exception!"),
@@ -7072,7 +7072,7 @@ a = (*5)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Value after * must be an iterable, not int");
             }
             _ => panic!("Expected an exception!"),
@@ -7401,7 +7401,7 @@ e = frozenset().__contains__
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
@@ -7438,7 +7438,7 @@ b = foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(
                     e,
                     "foo() missing 1 required positional argument: 'data_one'",
@@ -7481,7 +7481,7 @@ b = getattr(f, 'val_two')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_attribute_error(e, "Foo", "val_two");
             }
             _ => panic!("Expected an exception!"),
@@ -7559,7 +7559,7 @@ isinstance([], (int, 5))
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(
                     e,
                     "isinstance() arg 2 must be a type, a tuple of types, or a union",
@@ -7630,7 +7630,7 @@ issubclass([], type)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(e, "issubclass() arg 1 must be a class");
             }
             _ => panic!("Expected an exception!"),
@@ -7643,7 +7643,7 @@ issubclass(object, [])
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(MemphisError::Interpreter(e)) => {
+            Err(MemphisError::Execution(e)) => {
                 assert_type_error(
                     e,
                     "issubclass() arg 2 must be a type, a tuple of types, or a union",

@@ -89,7 +89,7 @@ impl MemphisContext {
         let expr = parser.parse_expr().map_err(MemphisError::Parser)?;
         match interpreter.evaluate_expr(&expr) {
             Ok(result) => Ok(result),
-            Err(TreewalkDisruption::Error(e)) => Err(MemphisError::Interpreter(e)),
+            Err(TreewalkDisruption::Error(e)) => Err(MemphisError::Execution(e)),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
         }
     }

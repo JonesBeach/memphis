@@ -11,7 +11,7 @@ use crate::{
 #[derive(Debug, PartialEq, Clone)]
 pub enum MemphisError {
     Parser(ParserError),
-    Interpreter(InterpreterError),
+    Execution(InterpreterError),
     Compiler(CompilerError),
 }
 
@@ -144,7 +144,7 @@ impl Display for MemphisError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
             MemphisError::Parser(e) => write!(f, "{}", e),
-            MemphisError::Interpreter(e) => write!(f, "{}", e),
+            MemphisError::Execution(e) => write!(f, "{}", e),
             MemphisError::Compiler(e) => write!(f, "{}", e),
         }
     }

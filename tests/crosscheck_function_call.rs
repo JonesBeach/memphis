@@ -46,7 +46,7 @@ def last_call():
 middle_call()
 "#;
     match adapter.evaluate(input) {
-        Err(MemphisError::Interpreter(e)) => {
+        Err(MemphisError::Execution(e)) => {
             assert_name_error(e, "unknown");
         }
         _ => panic!("Expected an exception!"),

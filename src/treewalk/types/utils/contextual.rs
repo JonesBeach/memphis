@@ -98,7 +98,7 @@ impl Contextual<ExprResult> {
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+                .handle_runtime_error(MemphisError::Execution(e)),
             Ok(eq) => eq,
         };
         if eq.borrow().receiver().is_none() {
@@ -117,7 +117,7 @@ impl Contextual<ExprResult> {
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+                .handle_runtime_error(MemphisError::Execution(e)),
         }
     }
 
@@ -131,14 +131,14 @@ impl Contextual<ExprResult> {
             Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
             Ok(_) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(InterpreterError::new(
+                .handle_runtime_error(MemphisError::Execution(InterpreterError::new(
                     self.interpreter.state.call_stack(),
                     ExecutionErrorKind::TypeError(None),
                 ))),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+                .handle_runtime_error(MemphisError::Execution(e)),
         }
     }
 }
