@@ -46,7 +46,31 @@ impl ExecutionError {
 impl Display for ExecutionError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "{}", self.debug_call_stack)?;
-        match &self.execution_error_kind {
+        write!(f, "{}", self.execution_error_kind)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ExecutionErrorKind {
+    RuntimeError,
+    ImportError(String),
+    TypeError(Option<String>),
+    KeyError(String),
+    ValueError(String),
+    NameError(String),
+    AttributeError(String, String),
+    DivisionByZero(String),
+    StopIteration,
+    AssertionError,
+    MissingContextManagerProtocol,
+    // TODO where this is used should really be moved into the parser but we currently don't have
+    // enough scope context during that stage to do so.
+    SyntaxError,
+}
+
+impl Display for ExecutionErrorKind {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
             ExecutionErrorKind::RuntimeError => write!(f, "RuntimeError"),
             ExecutionErrorKind::ImportError(name) => {
                 write!(f, "ImportError: No module named {}", name)
@@ -84,24 +108,6 @@ impl Display for ExecutionError {
             }
         }
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExecutionErrorKind {
-    RuntimeError,
-    ImportError(String),
-    TypeError(Option<String>),
-    KeyError(String),
-    ValueError(String),
-    NameError(String),
-    AttributeError(String, String),
-    DivisionByZero(String),
-    StopIteration,
-    AssertionError,
-    MissingContextManagerProtocol,
-    // TODO where this is used should really be moved into the parser but we currently don't have
-    // enough scope context during that stage to do so.
-    SyntaxError,
 }
 
 impl ExecutionError {
