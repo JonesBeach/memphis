@@ -1,6 +1,7 @@
 use crate::treewalk::interpreter::TreewalkResult;
 use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
+use super::domain::builtins::utils;
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
@@ -44,23 +45,23 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        match args.len() {
-            1 => Ok(ExprResult::ByteArray(Container::new(ByteArray::new(
-                "".into(),
-            )))),
+        utils::validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+
+        let byte_array = match args.len() {
+            1 => Container::new(ByteArray::new("".into())),
             2 => match args.get_arg(1) {
                 ExprResult::String(_) => {
-                    Err(interpreter.type_error("string argument without an encoding"))
+                    return Err(interpreter.type_error("string argument without an encoding"));
                 }
-                ExprResult::Bytes(s) => {
-                    Ok(ExprResult::ByteArray(Container::new(ByteArray::new(s))))
-                }
+                ExprResult::Bytes(s) => Container::new(ByteArray::new(s)),
                 _ => todo!(),
             },
             // TODO support an optional encoding
             3 => todo!(),
-            _ => Err(interpreter.type_error(format!("Expected {}, found {} args", args.len(), 1,))),
-        }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::ByteArray(byte_array))
     }
 
     fn name(&self) -> String {

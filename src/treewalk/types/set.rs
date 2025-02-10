@@ -30,11 +30,7 @@ impl Typed for Set {
 
 impl MethodProvider for Set {
     fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![
-            Box::new(NewBuiltin),
-            Box::new(InitBuiltin),
-            Box::new(AddBuiltin),
-        ]
+        vec![Box::new(NewBuiltin), Box::new(AddBuiltin)]
     }
 }
 
@@ -111,48 +107,30 @@ impl Display for Container<Set> {
 }
 
 struct NewBuiltin;
-struct InitBuiltin;
 struct AddBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(
         &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        Ok(ExprResult::Set(Container::new(Set::default())))
+        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let set = match args.len() {
+            1 => Container::new(Set::default()),
+            2 => args
+                .get_arg(1)
+                .try_into()
+                .map_err(|_| interpreter.type_error("Expected a set".to_string()))?,
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Set(set))
     }
 
     fn name(&self) -> String {
         Dunder::New.into()
-    }
-}
-
-impl Callable for InitBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        let output_set = args.expect_self(interpreter)?.expect_set(interpreter)?;
-
-        if args.is_empty() {
-            Ok(ExprResult::None)
-        } else if args.len() == 1 {
-            let input_set: Container<Set> = args
-                .get_arg(0)
-                .try_into()
-                .map_err(|_| interpreter.type_error("Expected a set".to_string()))?;
-
-            *output_set.borrow_mut() = input_set.borrow().clone();
-            Ok(ExprResult::None)
-        } else {
-            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len())))
-        }
-    }
-
-    fn name(&self) -> String {
-        Dunder::Init.into()
     }
 }
 
@@ -162,10 +140,9 @@ impl Callable for AddBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
-
         let result = set.borrow_mut().add(args.get_arg(0));
 
         Ok(ExprResult::Boolean(result))

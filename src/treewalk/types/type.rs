@@ -102,7 +102,7 @@ impl Callable for NewBuiltin {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }
-        utils::validate_args(&args, 4, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 4, interpreter)?;
 
         let mcls = args.get_arg(0).expect_class(interpreter)?;
         let name = args.get_arg(1).expect_string(interpreter)?;

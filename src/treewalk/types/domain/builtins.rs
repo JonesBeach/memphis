@@ -10,7 +10,6 @@ use crate::{
         },
         Interpreter,
     },
-    types::errors::ExecutionErrorKind,
 };
 
 pub struct CallableBuiltin;
@@ -31,7 +30,7 @@ impl Callable for CallableBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
         Ok(ExprResult::Boolean(args.get_arg(0).as_callable().is_some()))
     }
 
@@ -46,7 +45,7 @@ impl Callable for DirBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
         let dir = args
             .get_arg(0)
             .as_member_reader(interpreter)
@@ -68,13 +67,7 @@ impl Callable for GetattrBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if ![2, 3].contains(&args.len()) {
-            return Err(interpreter.type_error(format!(
-                "Expected {}, found {} args",
-                2,
-                args.len(),
-            )));
-        }
+        utils::validate_args(&args, |len| [2, 3].contains(&len), interpreter)?;
 
         let object = args.get_arg(0);
         let name = args.get_arg(1).expect_string(interpreter)?;
@@ -106,7 +99,7 @@ impl Callable for GlobalsBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
         Ok(ExprResult::Dict(
             interpreter.state.read_globals(interpreter),
         ))
@@ -123,7 +116,7 @@ impl Callable for HashBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let arg = args.get_arg(0);
         if arg.as_class().is_some() {
@@ -150,7 +143,7 @@ impl Callable for IsinstanceBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
         let message = "isinstance() arg 2 must be a type, a tuple of types, or a union";
 
         let instance_class = args.get_arg(0).get_class(interpreter);
@@ -190,7 +183,7 @@ impl Callable for IssubclassBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
 
         let instance_class = args
             .get_arg(0)
@@ -240,7 +233,7 @@ impl Callable for LenBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let iterator = args
             .get_arg(0)
@@ -262,7 +255,7 @@ impl Callable for NextBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let generator = args
             .get_arg(0)
@@ -287,7 +280,7 @@ impl Callable for IterBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         match args.get_arg(0) {
             ExprResult::String(s) => Ok(ExprResult::StringIterator(StringIterator::new(s))),
@@ -332,27 +325,18 @@ impl Callable for NoopCallable {
 }
 
 pub mod utils {
-    use crate::{
-        domain::DebugCallStack, treewalk::interpreter::TreewalkDisruption,
-        types::errors::InterpreterError,
-    };
-
     use super::*;
 
-    pub fn validate_args(
+    pub fn validate_args<F>(
         args: &ResolvedArguments,
-        expected_length: usize,
-        call_stack: DebugCallStack,
-    ) -> TreewalkResult<()> {
-        if args.len() != expected_length {
-            Err(TreewalkDisruption::Error(InterpreterError::new(
-                call_stack,
-                ExecutionErrorKind::TypeError(Some(format!(
-                    "Expected {}, found {} args",
-                    expected_length,
-                    args.len()
-                ))),
-            )))
+        condition: F,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<()>
+    where
+        F: Fn(usize) -> bool,
+    {
+        if !condition(args.len()) {
+            Err(interpreter.type_error(&format!("Found {} args", args.len())))
         } else {
             Ok(())
         }

@@ -341,7 +341,7 @@ impl Callable for EqBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let a = args.expect_self(interpreter)?;
         let b = args.get_arg(0);
@@ -362,7 +362,7 @@ impl Callable for HashBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
         let object = args.expect_self(interpreter)?;
         Ok(ExprResult::Integer(object.hash() as i64))
     }

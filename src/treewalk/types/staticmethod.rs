@@ -41,10 +41,8 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
         let function = args.get_arg(1);
-
         Ok(ExprResult::Staticmethod(Staticmethod::new(Box::new(
             function,
         ))))

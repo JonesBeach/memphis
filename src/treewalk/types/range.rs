@@ -7,6 +7,7 @@ use crate::{
 
 use super::{
     domain::{
+        builtins::utils,
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
@@ -113,24 +114,28 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if args.len() == 2 {
-            let stop = args.get_arg(1).expect_integer(interpreter)?;
+        utils::validate_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
-            Ok(ExprResult::Range(Range::with_stop(stop)))
-        } else if args.len() == 3 {
-            let start = args.get_arg(1).expect_integer(interpreter)?;
-            let stop = args.get_arg(2).expect_integer(interpreter)?;
+        let range = match args.len() {
+            2 => {
+                let stop = args.get_arg(1).expect_integer(interpreter)?;
+                Range::with_stop(stop)
+            }
+            3 => {
+                let start = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                Range::with_start_stop(start, stop)
+            }
+            4 => {
+                let start = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                let step = args.get_arg(3).expect_integer(interpreter)?;
+                Range::new(start, stop, step)
+            }
+            _ => unreachable!(),
+        };
 
-            Ok(ExprResult::Range(Range::with_start_stop(start, stop)))
-        } else if args.len() == 4 {
-            let start = args.get_arg(1).expect_integer(interpreter)?;
-            let stop = args.get_arg(2).expect_integer(interpreter)?;
-            let step = args.get_arg(3).expect_integer(interpreter)?;
-
-            Ok(ExprResult::Range(Range::new(start, stop, step)))
-        } else {
-            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len())))
-        }
+        Ok(ExprResult::Range(range))
     }
 
     fn name(&self) -> String {

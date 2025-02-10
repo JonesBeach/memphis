@@ -176,7 +176,7 @@ impl Callable for CloseBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
         Ok(ExprResult::None)
     }
 

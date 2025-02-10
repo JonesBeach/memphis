@@ -133,26 +133,28 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if args.len() == 2 {
-            let stop = args.get_arg(1).expect_integer(interpreter)?;
-            Ok(ExprResult::Slice(Slice::new(None, Some(stop), None)))
-        } else if args.len() == 3 {
-            let start = args.get_arg(1).expect_integer(interpreter)?;
-            let stop = args.get_arg(2).expect_integer(interpreter)?;
-            Ok(ExprResult::Slice(Slice::new(Some(start), Some(stop), None)))
-        } else if args.len() == 4 {
-            let start = args.get_arg(1).expect_integer(interpreter)?;
-            let stop = args.get_arg(2).expect_integer(interpreter)?;
-            let step = args.get_arg(3).expect_integer(interpreter)?;
-            Ok(ExprResult::Slice(Slice::new(
-                Some(start),
-                Some(stop),
-                Some(step),
-            )))
-        } else {
-            validate_args(&args, 1, interpreter.state.call_stack())?;
-            unreachable!()
-        }
+        validate_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
+
+        let slice = match args.len() {
+            2 => {
+                let stop = args.get_arg(1).expect_integer(interpreter)?;
+                Slice::new(None, Some(stop), None)
+            }
+            3 => {
+                let start = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                Slice::new(Some(start), Some(stop), None)
+            }
+            4 => {
+                let start = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                let step = args.get_arg(3).expect_integer(interpreter)?;
+                Slice::new(Some(start), Some(stop), Some(step))
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Slice(slice))
     }
 
     fn name(&self) -> String {

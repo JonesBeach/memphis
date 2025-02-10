@@ -1479,7 +1479,10 @@ mod tests {
             ExecutionErrorKind::ValueError(message) => {
                 assert_eq!(message, expected_message, "Unexpected ValueError message");
             }
-            _ => panic!("Expected a ValueError, but got {:?}", e.execution_error_kind),
+            _ => panic!(
+                "Expected a ValueError, but got {:?}",
+                e.execution_error_kind
+            ),
         }
     }
 
@@ -1498,7 +1501,10 @@ mod tests {
                 assert_eq!(object, expected_object, "Unexpected AttributeError object");
                 assert_eq!(attr, expected_attr, "Unexpected AttributeError attr");
             }
-            _ => panic!("Expected a AttributeError, but got {:?}", e.execution_error_kind),
+            _ => panic!(
+                "Expected a AttributeError, but got {:?}",
+                e.execution_error_kind
+            ),
         }
     }
 
@@ -2663,7 +2669,7 @@ t.extend([3,4])
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, &format!("Found 3 args"));
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2776,7 +2782,7 @@ l = {1} <= {2}
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, &format!("Found 3 args"));
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2872,7 +2878,7 @@ j = 9, 10
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!("Expected 1, found 2 args"));
+                assert_type_error(e, &format!("Found 3 args"));
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7396,7 +7402,7 @@ e = frozenset().__contains__
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, &format!("Found 3 args"));
             }
             _ => panic!("Expected an exception!"),
         }

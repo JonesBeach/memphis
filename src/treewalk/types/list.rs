@@ -239,16 +239,18 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if args.len() == 2 {
-            let output = args
+        validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let list = match args.len() {
+            1 => Container::new(List::default()),
+            2 => args
                 .get_arg(1)
                 .try_into()
-                .map_err(|_| interpreter.type_error("Expected a list"))?;
-            Ok(ExprResult::List(output))
-        } else {
-            validate_args(&args, 1, interpreter.state.call_stack())?;
-            Ok(ExprResult::List(Container::new(List::default())))
-        }
+                .map_err(|_| interpreter.type_error("Expected a list"))?,
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::List(list))
     }
 
     fn name(&self) -> String {
@@ -262,10 +264,9 @@ impl Callable for AppendBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        validate_args(&args, 1, interpreter.state.call_stack())?;
+        validate_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-
         list.borrow_mut().append(args.get_arg(0).clone());
 
         Ok(ExprResult::None)
@@ -282,10 +283,9 @@ impl Callable for ExtendBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        validate_args(&args, 1, interpreter.state.call_stack())?;
+        validate_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-
         list.borrow_mut().extend(args.get_arg(0).into_iter());
 
         Ok(ExprResult::None)

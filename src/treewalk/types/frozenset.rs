@@ -8,6 +8,7 @@ use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
+        builtins::utils::validate_args,
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
@@ -76,17 +77,21 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if args.len() == 1 {
-            Ok(ExprResult::FrozenSet(FrozenSet::default()))
-        } else if args.len() == 2 {
-            let input_set: Container<Set> = args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| interpreter.type_error("Expected a set"))?;
-            Ok(ExprResult::FrozenSet(input_set.into()))
-        } else {
-            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len(),)))
-        }
+        validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let frozen_set = match args.len() {
+            1 => FrozenSet::default(),
+            2 => {
+                let input_set: Container<Set> = args
+                    .get_arg(1)
+                    .try_into()
+                    .map_err(|_| interpreter.type_error("Expected a set"))?;
+                input_set.into()
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::FrozenSet(frozen_set))
     }
 
     fn name(&self) -> String {

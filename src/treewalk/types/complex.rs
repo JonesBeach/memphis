@@ -86,6 +86,8 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
+        validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
             2 => match args.get_arg(1).as_fp() {
@@ -106,10 +108,7 @@ impl Callable for NewBuiltin {
                 let im = args.get_arg(2).expect_fp(interpreter)?;
                 Complex::new(re, im)
             }
-            _ => {
-                validate_args(&args, 2, interpreter.state.call_stack())?;
-                unreachable!()
-            }
+            _ => unreachable!(),
         };
 
         Ok(ExprResult::Complex(complex))

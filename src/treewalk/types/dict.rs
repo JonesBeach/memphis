@@ -170,12 +170,12 @@ impl Callable for DictItemsBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-
         let dict_items = DictItems::try_from(dict.clone().borrow().clone())
             .map_err(|_| interpreter.type_error("Expected a dict"))?;
+
         Ok(ExprResult::DictItems(dict_items))
     }
 
@@ -190,10 +190,8 @@ impl Callable for DictKeysBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-
         Ok(ExprResult::DictKeys(dict.clone().borrow().clone().into()))
     }
 
@@ -208,7 +206,7 @@ impl Callable for DictValuesBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
@@ -256,7 +254,7 @@ impl Callable for InitBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
@@ -278,9 +276,7 @@ impl Callable for GetBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        if ![1, 2].contains(&args.len()) {
-            utils::validate_args(&args, 1, interpreter.state.call_stack())?;
-        }
+        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 

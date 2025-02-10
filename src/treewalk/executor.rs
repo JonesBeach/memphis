@@ -146,12 +146,12 @@ impl Callable for AsyncioRunBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
-
         let executor = interpreter.state.get_executor();
         let result = executor.borrow().run(interpreter, coroutine);
+
         drop(executor);
         result
     }
@@ -167,7 +167,7 @@ impl Callable for AsyncioSleepBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
         let duration = args.get_arg(0).expect_fp(interpreter)?;
         interpreter.state.get_executor().borrow().sleep(duration)
     }
@@ -183,7 +183,7 @@ impl Callable for AsyncioCreateTaskBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
         interpreter.state.get_executor().borrow().spawn(coroutine)

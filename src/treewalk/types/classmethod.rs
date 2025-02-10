@@ -41,7 +41,7 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
 
         // This is a workaround for Generic type behavior found in _collections_abc.py.
         // _weakrefset.py also uses this.

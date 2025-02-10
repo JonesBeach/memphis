@@ -70,7 +70,7 @@ impl Callable for NewBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
         let list = args.get_arg(1).expect_list(interpreter)?;
         Ok(ExprResult::ReversedIterator(ReversedIterator::new(
             interpreter.clone(),
