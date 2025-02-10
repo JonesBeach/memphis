@@ -2669,7 +2669,7 @@ t.extend([3,4])
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!("Found 3 args"));
+                assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2782,7 +2782,7 @@ l = {1} <= {2}
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!("Found 3 args"));
+                assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2878,7 +2878,7 @@ j = 9, 10
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!("Found 3 args"));
+                assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -4696,7 +4696,7 @@ b = test_args(1, 2, 3)
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6420,7 +6420,7 @@ c = Foo().make()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, "Found 0 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7402,7 +7402,7 @@ e = frozenset().__contains__
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!("Found 3 args"));
+                assert_type_error(e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
