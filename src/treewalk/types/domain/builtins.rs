@@ -3,14 +3,14 @@ use crate::{
     domain::Dunder,
     resolved_args,
     treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
+        interpreter::TreewalkResult,
         types::{
             domain::traits::Callable, iterators::StringIterator, utils::ResolvedArguments,
             ExprResult, List, Str,
         },
         Interpreter,
     },
-    types::errors::{ExecutionErrorKind, InterpreterError},
+    types::errors::ExecutionErrorKind,
 };
 
 pub struct CallableBuiltin;
@@ -90,10 +90,7 @@ impl Callable for GetattrBuiltin {
             if args.len() == 3 {
                 Ok(args.get_arg(2))
             } else {
-                Err(TreewalkDisruption::Error(InterpreterError::new(
-                    interpreter.state.call_stack(),
-                    ExecutionErrorKind::AttributeError(object.get_class(interpreter).name(), name),
-                )))
+                Err(interpreter.attribute_error(object, name))
             }
         }
     }
@@ -154,7 +151,7 @@ impl Callable for IsinstanceBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-        let msg = Some("isinstance() arg 2 must be a type, a tuple of types, or a union".into());
+        let message = "isinstance() arg 2 must be a type, a tuple of types, or a union";
 
         let instance_class = args.get_arg(0).get_class(interpreter);
 
@@ -165,20 +162,12 @@ impl Callable for IsinstanceBuiltin {
                     .into_iter()
                     .map(|item| {
                         item.as_class()
-                            .ok_or(TreewalkDisruption::Error(InterpreterError::new(
-                                interpreter.state.call_stack(),
-                                ExecutionErrorKind::TypeError(msg.clone()),
-                            )))
+                            .ok_or_else(|| interpreter.type_error(message))
                     })
                     .collect();
                 classes?
             }
-            _ => {
-                return Err(TreewalkDisruption::Error(InterpreterError::new(
-                    interpreter.state.call_stack(),
-                    ExecutionErrorKind::TypeError(msg),
-                )))
-            }
+            _ => return Err(interpreter.type_error(message)),
         };
 
         let isinstance = if args.get_arg(0).is_class() {
@@ -343,7 +332,10 @@ impl Callable for NoopCallable {
 }
 
 pub mod utils {
-    use crate::{domain::DebugCallStack, treewalk::interpreter::TreewalkDisruption};
+    use crate::{
+        domain::DebugCallStack, treewalk::interpreter::TreewalkDisruption,
+        types::errors::InterpreterError,
+    };
 
     use super::*;
 
