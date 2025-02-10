@@ -85,13 +85,11 @@ impl DebugCallStack {
     ///
     /// # Panics
     /// Panics if the index is out of bounds. This method is available only during tests.
-    #[cfg(test)]
     pub fn get(&self, index: usize) -> &DebugStackFrame {
         self.frames.get(index).expect("Index out of bounds!")
     }
 
     /// Returns the number of frames in the call stack. This method is available only during tests.
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.frames.len()
     }

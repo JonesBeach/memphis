@@ -1443,40 +1443,53 @@ mod tests {
         evaluate(text).expect("Failed to evaluate test string!")
     }
 
-    fn assert_error_kind(e: ExecutionError, expected_kind: ExecutionErrorKind) {
+    fn assert_error_kind(e: &ExecutionError, expected_kind: ExecutionErrorKind) {
         assert_eq!(e.execution_error_kind, expected_kind);
     }
 
-    fn assert_type_error(e: ExecutionError, expected_message: &str) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::TypeError(Some(ref msg)) => {
+    fn assert_type_error(e: &ExecutionError, expected_message: &str) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::TypeError(Some(msg)) => {
                 assert_eq!(msg, expected_message, "Unexpected TypeError message");
             }
             _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
         }
     }
 
-    fn assert_name_error(e: ExecutionError, expected_name: &str) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::NameError(ref name) => {
+    fn assert_type_error_optional_message(e: &ExecutionError, expected_message: Option<&str>) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::TypeError(msg) => {
+                assert_eq!(
+                    msg.as_deref(),
+                    expected_message,
+                    "Unexpected TypeError message"
+                );
+            }
+            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
+        }
+    }
+
+    fn assert_name_error(e: &ExecutionError, expected_name: &str) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::NameError(name) => {
                 assert_eq!(name, expected_name, "Unexpected NameError message");
             }
             _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
         }
     }
 
-    fn assert_key_error(e: ExecutionError, expected_key: &str) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::KeyError(ref key) => {
+    fn assert_key_error(e: &ExecutionError, expected_key: &str) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::KeyError(key) => {
                 assert_eq!(key, expected_key, "Unexpected KeyError message");
             }
             _ => panic!("Expected a KeyError, but got {:?}", e.execution_error_kind),
         }
     }
 
-    fn assert_value_error(e: ExecutionError, expected_message: &str) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::ValueError(ref message) => {
+    fn assert_value_error(e: &ExecutionError, expected_message: &str) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::ValueError(message) => {
                 assert_eq!(message, expected_message, "Unexpected ValueError message");
             }
             _ => panic!(
@@ -1486,18 +1499,9 @@ mod tests {
         }
     }
 
-    fn assert_type_error_optional_message(e: ExecutionError, expected_message: Option<String>) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::TypeError(msg) => {
-                assert_eq!(msg, expected_message, "Unexpected TypeError message");
-            }
-            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
-        }
-    }
-
-    fn assert_attribute_error(e: ExecutionError, expected_object: &str, expected_attr: &str) {
-        match e.execution_error_kind {
-            ExecutionErrorKind::AttributeError(ref object, ref attr) => {
+    fn assert_attribute_error(e: &ExecutionError, expected_object: &str, expected_attr: &str) {
+        match &e.execution_error_kind {
+            ExecutionErrorKind::AttributeError(object, attr) => {
                 assert_eq!(object, expected_object, "Unexpected AttributeError object");
                 assert_eq!(attr, expected_attr, "Unexpected AttributeError attr");
             }
@@ -1515,7 +1519,7 @@ mod tests {
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_name_error(e, "x");
+                assert_name_error(&e, "x");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -1529,7 +1533,7 @@ mod tests {
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
-                    e,
+                    &e,
                     ExecutionErrorKind::DivisionByZero(
                         "integer division or modulo by zero".to_string(),
                     ),
@@ -1557,7 +1561,7 @@ mod tests {
         match evaluate(input) {
             Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
-                    e,
+                    &e,
                     ExecutionErrorKind::DivisionByZero(
                         "integer division or modulo by zero".to_string(),
                     ),
@@ -2309,7 +2313,7 @@ foo.bar()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_name_error(e, "something_third");
+                assert_name_error(&e, "something_third");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2456,7 +2460,7 @@ j = +(-3)
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_name_error(e, "unknown");
+                assert_name_error(&e, "unknown");
 
                 assert_eq!(call_stack.len(), 3);
                 assert!(call_stack
@@ -2499,7 +2503,7 @@ c = foo()
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_name_error(e, "foo");
+                assert_name_error(&e, "foo");
 
                 assert_eq!(call_stack.len(), 1);
                 assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
@@ -2669,7 +2673,7 @@ t.extend([3,4])
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 3 args");
+                assert_type_error(&e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2782,7 +2786,7 @@ l = {1} <= {2}
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 3 args");
+                assert_type_error(&e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2878,7 +2882,7 @@ j = 9, 10
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 3 args");
+                assert_type_error(&e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2924,7 +2928,7 @@ d[0] = 10
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "'tuple' object does not support item assignment");
+                assert_type_error(&e, "'tuple' object does not support item assignment");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2937,7 +2941,7 @@ del d[0]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "'tuple' object does not support item deletion");
+                assert_type_error(&e, "'tuple' object does not support item deletion");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2949,7 +2953,7 @@ del d[0]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "'int' object is not subscriptable");
+                assert_type_error(&e, "'int' object is not subscriptable");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -3368,7 +3372,7 @@ c = next(a)
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::StopIteration);
+                assert_error_kind(&e, ExecutionErrorKind::StopIteration);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -3656,7 +3660,7 @@ d = ChildTwo().three()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "ChildTwo", "x");
+                assert_attribute_error(&e, "ChildTwo", "x");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -4245,7 +4249,7 @@ assert False
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::AssertionError);
+                assert_error_kind(&e, ExecutionErrorKind::AssertionError);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -4398,7 +4402,7 @@ except Exception as e:
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Integer(3)));
                 match interpreter.state.read("e") {
                     Some(ExprResult::Exception(e)) => {
-                        assert_name_error(*e, "b");
+                        assert_name_error(&*e, "b");
                     }
                     _ => panic!("Expected an exception!"),
                 }
@@ -4489,7 +4493,7 @@ except ValueError:
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
-                    e,
+                    &e,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
@@ -4507,7 +4511,7 @@ except ZeroDivisionError:
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_error_kind(
-                    e,
+                    &e,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
@@ -4661,7 +4665,7 @@ b = test_args(0)
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_type_error(
-                    e,
+                    &e,
                     "test_args() missing 1 required positional argument: 'two'",
                 );
             }
@@ -4679,7 +4683,7 @@ b = test_args(0)
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_type_error(
-                    e,
+                    &e,
                     "test_args() missing 2 required positional arguments: 'two' and 'three'",
                 );
             }
@@ -4696,7 +4700,7 @@ b = test_args(1, 2, 3)
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 3 args");
+                assert_type_error(&e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5003,7 +5007,7 @@ raise TypeError
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error_optional_message(e, None);
+                assert_type_error_optional_message(&e, None);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5015,7 +5019,7 @@ raise TypeError('type is no good')
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "type is no good");
+                assert_type_error(&e, "type is no good");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5198,7 +5202,7 @@ with MyContextManager() as cm:
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::MissingContextManagerProtocol);
+                assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5222,7 +5226,7 @@ with MyContextManager() as cm:
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::MissingContextManagerProtocol);
+                assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5252,7 +5256,7 @@ c = a['b']
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_key_error(e, "b");
+                assert_key_error(&e, "b");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5289,7 +5293,7 @@ a = f.x
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "Foo", "x");
+                assert_attribute_error(&e, "Foo", "x");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5306,7 +5310,7 @@ del f.bar
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "Foo", "bar");
+                assert_attribute_error(&e, "Foo", "bar");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5420,7 +5424,7 @@ a = bytearray('hello')
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "string argument without an encoding");
+                assert_type_error(&e, "string argument without an encoding");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5495,7 +5499,7 @@ a = bytes('hello')
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "string argument without an encoding");
+                assert_type_error(&e, "string argument without an encoding");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -5873,7 +5877,7 @@ e = [ i for i in reversed([1,2,3]) ]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "bad operand type for unary ~: 'float'");
+                assert_type_error(&e, "bad operand type for unary ~: 'float'");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6134,7 +6138,7 @@ f = [ i for i in zip(range(5), range(4), strict=True) ]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::RuntimeError);
+                assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
             }
             _ => panic!("Expected an exeception!"),
         }
@@ -6360,7 +6364,7 @@ b = Foo.make()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "Foo", "val");
+                assert_attribute_error(&e, "Foo", "val");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6380,7 +6384,7 @@ b = Foo().make()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "Foo", "val");
+                assert_attribute_error(&e, "Foo", "val");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6420,7 +6424,7 @@ c = Foo().make()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 0 args");
+                assert_type_error(&e, "Found 0 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6554,7 +6558,7 @@ except Exception as e:
                 assert_eq!(interpreter.state.read("b"), Some(ExprResult::Integer(5)));
                 match interpreter.state.read("d") {
                     Some(ExprResult::Exception(e)) => {
-                        assert_attribute_error(*e, "ConcreteImplementation", "run");
+                        assert_attribute_error(&*e, "ConcreteImplementation", "run");
                     }
                     _ => panic!("Expected an exception!"),
                 }
@@ -6737,7 +6741,7 @@ foo()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::SyntaxError);
+                assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6751,7 +6755,7 @@ foo()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::SyntaxError);
+                assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6763,7 +6767,7 @@ nonlocal a
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_error_kind(e, ExecutionErrorKind::SyntaxError);
+                assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
             _ => panic!("Expected an exception!"),
         }
@@ -6930,7 +6934,7 @@ b = Child.one()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "one() missing 1 required positional argument: 'self'");
+                assert_type_error(&e, "one() missing 1 required positional argument: 'self'");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7003,7 +7007,7 @@ b, c = [1, 2, 3]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_value_error(e, "too many values to unpack (expected 2)");
+                assert_value_error(&e, "too many values to unpack (expected 2)");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7016,7 +7020,7 @@ a, b, c = [2, 3]
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_value_error(e, "not enough values to unpack (expected 3, got 2)");
+                assert_value_error(&e, "not enough values to unpack (expected 3, got 2)");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7073,7 +7077,7 @@ a = (*5)
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Value after * must be an iterable, not int");
+                assert_type_error(&e, "Value after * must be an iterable, not int");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7402,7 +7406,7 @@ e = frozenset().__contains__
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "Found 3 args");
+                assert_type_error(&e, "Found 3 args");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7440,7 +7444,7 @@ b = foo()
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_type_error(
-                    e,
+                    &e,
                     "foo() missing 1 required positional argument: 'data_one'",
                 );
             }
@@ -7482,7 +7486,7 @@ b = getattr(f, 'val_two')
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_attribute_error(e, "Foo", "val_two");
+                assert_attribute_error(&e, "Foo", "val_two");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7561,7 +7565,7 @@ isinstance([], (int, 5))
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_type_error(
-                    e,
+                    &e,
                     "isinstance() arg 2 must be a type, a tuple of types, or a union",
                 );
             }
@@ -7631,7 +7635,7 @@ issubclass([], type)
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
-                assert_type_error(e, "issubclass() arg 1 must be a class");
+                assert_type_error(&e, "issubclass() arg 1 must be a class");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -7645,7 +7649,7 @@ issubclass(object, [])
         match context.run_and_return_interpreter() {
             Err(MemphisError::Execution(e)) => {
                 assert_type_error(
-                    e,
+                    &e,
                     "issubclass() arg 2 must be a type, a tuple of types, or a union",
                 );
             }
@@ -8204,7 +8208,7 @@ except Exception as e:
                 assert_eq!(interpreter.state.read("d"), Some(ExprResult::Boolean(true)));
                 match interpreter.state.read("the_exp") {
                     Some(ExprResult::Exception(e)) => {
-                        assert_type_error(*e, "__hash__ method should return an integer");
+                        assert_type_error(&*e, "__hash__ method should return an integer");
                     }
                     _ => panic!("Expected an exception!"),
                 }
