@@ -1,10 +1,8 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
     domain::Dunder,
     treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
 };
 
 use super::{
@@ -124,12 +122,8 @@ impl Callable for NewBuiltin {
 
         let namespace = args.get_arg(3).expect_dict(interpreter)?;
 
-        let scope = Scope::try_from(namespace.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
-            ))
-        })?;
+        let scope = Scope::try_from(namespace.clone().borrow().clone())
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
 
         Ok(ExprResult::Class(Class::new_base(
             name,

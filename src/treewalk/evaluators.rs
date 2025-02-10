@@ -105,9 +105,9 @@ pub fn evaluate_floating_point_operation(
         BinOp::Mul => Ok(ExprResult::FloatingPoint(left * right)),
         BinOp::Div => {
             if right == 0.0 {
-                Err(TreewalkDisruption::Error(InterpreterError::DivisionByZero(
-                    "float division by zero".into(),
+                Err(TreewalkDisruption::Error(InterpreterError::new(
                     call_stack,
+                    ExecutionErrorKind::DivisionByZero("float division by zero".into()),
                 )))
             } else {
                 Ok(ExprResult::FloatingPoint(left / right))

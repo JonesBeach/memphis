@@ -85,10 +85,7 @@ impl Callable for NewBuiltin {
                 .map_err(|_| interpreter.type_error("Expected a set"))?;
             Ok(ExprResult::FrozenSet(input_set.into()))
         } else {
-            Err(interpreter.type_error(format!("Expected {}, found {} args"
-                1,
-                args.len(),
-            )))
+            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len(),)))
         }
     }
 

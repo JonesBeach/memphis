@@ -57,6 +57,10 @@ impl Interpreter {
         Interpreter { state }
     }
 
+    pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
+        TreewalkDisruption::Error(InterpreterError::new(self.state.call_stack(), error_kind))
+    }
+
     pub fn type_error(&self, message: impl Into<String>) -> TreewalkDisruption {
         self.type_error_optional_message(Some(message.into()))
     }
@@ -473,7 +477,9 @@ impl Interpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    let list: Container<List> = evaluated.try_into()?;
+                    let list: Container<List> = evaluated
+                        .try_into()
+                        .map_err(|_| self.type_error("Expected a list"))?;
                     for elem in list {
                         results.push(elem);
                     }
@@ -848,12 +854,7 @@ impl Interpreter {
         class.borrow_mut().scope = self
             .state
             .pop_local()
-            .ok_or_else(|| {
-                TreewalkDisruption::Error(InterpreterError::new(
-                    self.state.call_stack(),
-                    ExecutionErrorKind::Exception,
-                ))
-            })?
+            .ok_or_else(|| self.runtime_error())?
             .borrow()
             .clone();
 
@@ -1123,10 +1124,7 @@ impl Interpreter {
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(TreewalkDisruption::Error(InterpreterError::new(
-                self.state.call_stack(),
-                ExecutionErrorKind::MissingContextManagerProtocol,
-            )));
+            return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &resolved_args![])?;
@@ -1220,18 +1218,14 @@ impl Interpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(TreewalkDisruption::Error(InterpreterError::SyntaxError(
-                    self.state.call_stack(),
-                )));
+                return Err(self.error(ExecutionErrorKind::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(TreewalkDisruption::Error(InterpreterError::SyntaxError(
-                self.state.call_stack(),
-            )));
+            return Err(self.error(ExecutionErrorKind::SyntaxError));
         }
 
         Ok(())
@@ -1527,16 +1521,13 @@ mod tests {
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
+            Err(MemphisError::Interpreter(e)) => {
+                assert_error_kind(
                     e,
-                    MemphisError::Interpreter(InterpreterError::DivisionByZero(
-                        "division by zero".into(),
-                        context.ensure_treewalk().state.call_stack(),
-                    ))
+                    ExecutionErrorKind::DivisionByZero("division by zerio".to_string()),
                 );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -1555,12 +1546,15 @@ mod tests {
         assert_eq!(evaluate_and_expect(input), ExprResult::Integer(1));
 
         let input = "5 // 0";
-        let result = evaluate(input);
-        let Err(MemphisError::Interpreter(InterpreterError::DivisionByZero(msg, _))) = result
-        else {
-            panic!("Expected DivisionByZero error");
-        };
-        assert_eq!(msg, "integer division or modulo by zero",);
+        match evaluate(input) {
+            Err(MemphisError::Interpreter(e)) => {
+                assert_error_kind(
+                    e,
+                    ExecutionErrorKind::DivisionByZero("division by zerio".to_string()),
+                );
+            }
+            _ => panic!("Expected an exception!"),
+        }
     }
 
     #[test]
@@ -6129,10 +6123,10 @@ f = [ i for i in zip(range(5), range(4), strict=True) ]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(e, MemphisError::Interpreter(InterpreterError::RuntimeError));
+            Err(MemphisError::Interpreter(e)) => {
+                assert_error_kind(e, ExecutionErrorKind::RuntimeError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exeception!"),
         }
     }
 
