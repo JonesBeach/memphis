@@ -1,10 +1,10 @@
-use memphis::crosscheck_utils::{
-    Adapter, BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter,
-};
+use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
 
 // TODO This proc macro is working, but I should really add tests in its own crate before too long.
-#[crosscheck::test]
-fn test_function_call(mut adapter: Adapter) {
+// #[crosscheck::test]
+// fn test_function_call(mut adapter: Adapter) {
+
+fn run_test<T: InterpreterTest>(mut adapter: T) {
     let input = r#"
 def foo(a, b):
     return a + b
@@ -37,4 +37,14 @@ middle_call()
         Ok(_) => panic!("Expected error!"),
         Err(_e) => {}
     }
+}
+
+#[test]
+fn test_treewalk_function_call() {
+    run_test(TreewalkAdapter::new());
+}
+
+#[test]
+fn test_bytecode_vm_function_call() {
+    run_test(BytecodeVmAdapter::new());
 }
