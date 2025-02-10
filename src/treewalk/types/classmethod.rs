@@ -1,7 +1,5 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -56,7 +54,7 @@ impl Callable for NewBuiltin {
             return Ok(ExprResult::None);
         }
 
-        let function = args.get_arg(1).as_callable_or_disrupt(interpreter)?;
+        let function = args.get_arg(1).expect_callable(interpreter)?;
         Ok(ExprResult::Classmethod(Classmethod::new(function)))
     }
 

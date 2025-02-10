@@ -11,11 +11,7 @@ use crate::{
         types::{Ast, Closure, Expr, ParsedArgDefinitions},
     },
     resolved_args,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter, Scope, State,
-    },
-    types::errors::InterpreterError,
+    treewalk::{interpreter::TreewalkResult, Interpreter, Scope, State},
 };
 
 use super::{
@@ -243,7 +239,7 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let function = interpreter
                 .evaluate_expr(decorator)?
-                .as_callable_or_disrupt(interpreter)?;
+                .expect_callable(interpreter)?;
             result = interpreter.call(function, &resolved_args![result])?;
         }
 
@@ -300,7 +296,7 @@ impl NonDataDescriptor for ClosureAttribute {
     ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => instance
-                .as_function_or_disrupt(interpreter)?
+                .expect_function(interpreter)?
                 .borrow()
                 .get_closure(),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -323,10 +319,7 @@ impl NonDataDescriptor for CodeAttribute {
         _owner: Container<Class>,
     ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
-            Some(instance) => instance
-                .as_function_or_disrupt(interpreter)?
-                .borrow()
-                .get_code(),
+            Some(instance) => instance.expect_function(interpreter)?.borrow().get_code(),
             None => ExprResult::DataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
@@ -363,7 +356,7 @@ impl NonDataDescriptor for GlobalsAttribute {
     ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => instance
-                .as_function_or_disrupt(interpreter)?
+                .expect_function(interpreter)?
                 .borrow()
                 .get_globals(),
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -388,7 +381,7 @@ impl NonDataDescriptor for ModuleAttribute {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
-                    .as_function_or_disrupt(interpreter)?
+                    .expect_function(interpreter)?
                     .borrow()
                     .module
                     .borrow()
@@ -439,11 +432,7 @@ impl NonDataDescriptor for NameAttribute {
     ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => {
-                let name = instance
-                    .as_function_or_disrupt(interpreter)?
-                    .borrow()
-                    .name
-                    .clone();
+                let name = instance.expect_function(interpreter)?.borrow().name.clone();
                 ExprResult::String(Str::new(name))
             }
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -467,11 +456,7 @@ impl NonDataDescriptor for QualnameAttribute {
     ) -> TreewalkResult<ExprResult> {
         Ok(match instance {
             Some(instance) => {
-                let name = instance
-                    .as_function_or_disrupt(interpreter)?
-                    .borrow()
-                    .name
-                    .clone();
+                let name = instance.expect_function(interpreter)?.borrow().name.clone();
                 ExprResult::String(Str::new(name))
             }
             None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
@@ -538,11 +523,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
-            Some(i) => i
-                .as_function_or_disrupt(interpreter)?
-                .borrow()
-                .scope
-                .clone(),
+            Some(i) => i.expect_function(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(ExprResult::Dict(scope.as_dict(interpreter)))

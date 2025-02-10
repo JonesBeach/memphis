@@ -1,10 +1,8 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     domain::Dunder,
     parser::types::{Expr, ParsedSliceParams},
     treewalk::Interpreter,
-    types::errors::InterpreterError,
 };
 use std::{
     cmp::Ordering,
@@ -54,7 +52,7 @@ impl Slice {
                 Some(expr) => {
                     let integer = interpreter
                         .evaluate_expr(expr)?
-                        .as_integer_or_disrupt(interpreter)?;
+                        .expect_integer(interpreter)?;
                     Ok(Some(integer))
                 }
                 None => Ok(None),
@@ -136,16 +134,16 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         if args.len() == 2 {
-            let stop = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
+            let stop = args.get_arg(1).expect_integer(interpreter)?;
             Ok(ExprResult::Slice(Slice::new(None, Some(stop), None)))
         } else if args.len() == 3 {
-            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
-            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
+            let start = args.get_arg(1).expect_integer(interpreter)?;
+            let stop = args.get_arg(2).expect_integer(interpreter)?;
             Ok(ExprResult::Slice(Slice::new(Some(start), Some(stop), None)))
         } else if args.len() == 4 {
-            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
-            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
-            let step = args.get_arg(3).as_integer_or_disrupt(interpreter)?;
+            let start = args.get_arg(1).expect_integer(interpreter)?;
+            let stop = args.get_arg(2).expect_integer(interpreter)?;
+            let step = args.get_arg(3).expect_integer(interpreter)?;
             Ok(ExprResult::Slice(Slice::new(
                 Some(start),
                 Some(stop),

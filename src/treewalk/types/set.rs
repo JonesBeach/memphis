@@ -1,14 +1,10 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::types::errors::ExecutionErrorKind;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -138,9 +134,7 @@ impl Callable for InitBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        let output_set = args
-            .get_self_or_disrupt(interpreter)?
-            .as_set_or_disrupt(interpreter)?;
+        let output_set = args.expect_self(interpreter)?.expect_set(interpreter)?;
 
         if args.is_empty() {
             Ok(ExprResult::None)
@@ -170,9 +164,7 @@ impl Callable for AddBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let set = args
-            .get_self_or_disrupt(interpreter)?
-            .as_set_or_disrupt(interpreter)?;
+        let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
 
         let result = set.borrow_mut().add(args.get_arg(0));
 

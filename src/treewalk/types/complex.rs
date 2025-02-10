@@ -1,7 +1,7 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -102,8 +102,8 @@ impl Callable for NewBuiltin {
                 }
             },
             3 => {
-                let re = args.get_arg(1).as_fp_or_disrupt(interpreter)?;
-                let im = args.get_arg(2).as_fp_or_disrupt(interpreter)?;
+                let re = args.get_arg(1).expect_fp(interpreter)?;
+                let im = args.get_arg(2).expect_fp(interpreter)?;
                 Complex::new(re, im)
             }
             _ => {

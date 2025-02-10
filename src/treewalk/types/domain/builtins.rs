@@ -77,7 +77,7 @@ impl Callable for GetattrBuiltin {
         }
 
         let object = args.get_arg(0);
-        let name = args.get_arg(1).as_string_or_disrupt(interpreter)?;
+        let name = args.get_arg(1).expect_string(interpreter)?;
 
         let attr = object
             .as_member_reader(interpreter)

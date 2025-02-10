@@ -9,7 +9,7 @@ use crate::{
         },
         Interpreter, Scope, State,
     },
-    types::errors::InterpreterError,
+    types::errors::ExecutionErrorKind,
 };
 
 pub struct Generator {

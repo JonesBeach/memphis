@@ -207,7 +207,7 @@ impl Interpreter {
     {
         let name = name.as_ref();
         self.evaluate_member_access_inner(&receiver, name)?
-            .as_callable_or_disrupt(self)
+            .expect_callable(self)
     }
 
     pub fn invoke_method<S>(
@@ -282,7 +282,7 @@ impl Interpreter {
     fn read_callable(&self, name: &str) -> TreewalkResult<Container<Box<dyn Callable>>> {
         self.state
             .read_or_disrupt(name, self)?
-            .as_callable_or_disrupt(self)
+            .expect_callable(self)
     }
 
     pub fn read_index(
@@ -323,20 +323,20 @@ impl Interpreter {
         }
 
         if left.is_integer() && right.is_integer() {
-            let left = left.as_integer_or_disrupt(self)?;
-            let right = right.as_integer_or_disrupt(self)?;
+            let left = left.expect_integer(self)?;
+            let right = right.expect_integer(self)?;
             evaluators::evaluate_integer_operation(left, op, right, self.state.call_stack())
         } else if left.is_fp() && right.is_fp() {
-            let left = left.as_fp_or_disrupt(self)?;
-            let right = right.as_fp_or_disrupt(self)?;
+            let left = left.expect_fp(self)?;
+            let right = right.expect_fp(self)?;
             evaluators::evaluate_floating_point_operation(left, op, right, self.state.call_stack())
         } else if left.as_list().is_some() && right.as_list().is_some() {
-            let left = left.as_list_or_disrupt(self)?;
-            let right = right.as_list_or_disrupt(self)?;
+            let left = left.expect_list(self)?;
+            let right = right.expect_list(self)?;
             evaluators::evaluate_list_operation(left, op, right)
         } else if left.as_set().is_some() && right.as_set().is_some() {
-            let left = left.as_set_or_disrupt(self)?;
-            let right = right.as_set_or_disrupt(self)?;
+            let left = left.expect_set(self)?;
+            let right = right.expect_set(self)?;
             evaluators::evaluate_set_operation(left, op, right)
         } else if left.as_object().is_some()
             && right.as_object().is_some()
@@ -386,7 +386,7 @@ impl Interpreter {
     }
 
     fn evaluate_variable(&self, name: &str) -> TreewalkResult<ExprResult> {
-        self.state.read(name).ok_or_else(|| self.name_error(name))
+        self.state.read_or_disrupt(name, self)
     }
 
     fn evaluate_unary_operation(&self, op: &UnaryOp, right: &Expr) -> TreewalkResult<ExprResult> {
@@ -520,7 +520,7 @@ impl Interpreter {
     }
 
     fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<ExprResult> {
-        let coroutine_to_await = self.evaluate_expr(expr)?.as_coroutine_or_disrupt(self)?;
+        let coroutine_to_await = self.evaluate_expr(expr)?.expect_coroutine(self)?;
 
         if let Some(result) = coroutine_to_await.clone().borrow().is_finished() {
             Ok(result)
@@ -636,7 +636,7 @@ impl Interpreter {
         let arguments = ResolvedArguments::from(self, arguments)?;
 
         let function = if let Some(callee) = callee {
-            self.evaluate_expr(callee)?.as_callable_or_disrupt(self)?
+            self.evaluate_expr(callee)?.expect_callable(self)?
         } else {
             self.read_callable(name)?
         };
@@ -824,13 +824,13 @@ impl Interpreter {
             .map(|p| self.evaluate_expr(p))
             .collect::<Result<Vec<_>, _>>()?
             .iter()
-            .map(|f| f.as_class_or_disrupt(self))
+            .map(|f| f.expect_class(self))
             .collect::<Result<Vec<_>, _>>()?;
 
         let metaclass = metaclass
             .clone()
             .and_then(|p| self.state.read(p.as_str()))
-            .map(|d| d.as_class_or_disrupt(self))
+            .map(|d| d.expect_class(self))
             .transpose()?;
 
         // We will update the scope on this class before we write it to the symbol table, but we
@@ -1118,7 +1118,7 @@ impl Interpreter {
         block: &Ast,
     ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
-        let object = expr_result.as_object_or_disrupt(self)?;
+        let object = expr_result.expect_object(self)?;
 
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
@@ -1159,7 +1159,7 @@ impl Interpreter {
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
-                    Some(args.get_arg(0).as_string_or_disrupt(self)?)
+                    Some(args.get_arg(0).expect_string(self)?)
                 } else {
                     None
                 };

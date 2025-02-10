@@ -1,6 +1,4 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::types::errors::ExecutionErrorKind;
 use std::collections::HashMap;
 
 use crate::{
@@ -9,7 +7,6 @@ use crate::{
         types::{ExprResult, Str},
         Interpreter,
     },
-    types::errors::InterpreterError,
 };
 
 /// Represents the fully resolved parameter state for all positional and keyword arguments.
@@ -44,10 +41,7 @@ impl ResolvedArguments {
                     let unpacked = interpreter.evaluate_expr(expr)?;
                     for key in unpacked.clone() {
                         if kwargs.contains_key(&key) {
-                            return Err(TreewalkDisruption::Error(InterpreterError::new(
-                                interpreter.state.call_stack(),
-                                ExecutionErrorKind::KeyError(key.to_string()),
-                            )));
+                            return Err(interpreter.key_error(key.to_string()));
                         }
                         let value = interpreter.read_index(&unpacked, &key)?;
                         kwargs.insert(key, value);
@@ -58,7 +52,7 @@ impl ResolvedArguments {
 
         let mut second_arg_values = if let Some(ref args_var) = arguments.args_var {
             let args_var_value = interpreter.evaluate_expr(args_var)?;
-            let args = args_var_value.as_tuple_or_disrupt(interpreter)?;
+            let args = args_var_value.expect_tuple(interpreter)?;
             args.raw()
         } else {
             vec![]
@@ -96,13 +90,9 @@ impl ResolvedArguments {
         self.bound_val.clone()
     }
 
-    pub fn get_self_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
-        self.get_self().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Unbound call!".to_string())),
-            ))
-        })
+    pub fn expect_self(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
+        self.get_self()
+            .ok_or_else(|| interpreter.type_error("Unbound call!"))
     }
 
     /// Access a positional argument by index. Bound arguments are not included in this, use

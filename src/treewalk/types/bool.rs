@@ -1,6 +1,5 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
-use crate::types::errors::ExecutionErrorKind;
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{

@@ -5,13 +5,9 @@ use crate::{
     treewalk::types::{
         utils::ResolvedArguments, Dict, DictItems, ExprResult, Function, Str, Tuple,
     },
-    types::errors::InterpreterError,
 };
 
-use super::{
-    interpreter::{TreewalkDisruption, TreewalkResult},
-    Interpreter,
-};
+use super::{interpreter::TreewalkResult, Interpreter};
 
 /// This represents a symbol table for a given scope.
 #[derive(Debug, PartialEq, Clone, Default)]

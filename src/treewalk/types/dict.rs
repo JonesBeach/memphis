@@ -1,15 +1,10 @@
-use crate::{
-    treewalk::interpreter::{TreewalkDisruption, TreewalkResult},
-    types::errors::ExecutionErrorKind,
-};
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::{hash_map::Keys, HashMap},
     fmt::{Debug, Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     dict_items::ContextualDictItemsIterator,
@@ -177,16 +172,10 @@ impl Callable for DictItemsBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
-        let dict = args
-            .get_self_or_disrupt(interpreter)?
-            .as_dict_or_disrupt(interpreter)?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
-        let dict_items = DictItems::try_from(dict.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
-            ))
-        })?;
+        let dict_items = DictItems::try_from(dict.clone().borrow().clone())
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
         Ok(ExprResult::DictItems(dict_items))
     }
 
@@ -203,9 +192,7 @@ impl Callable for DictKeysBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
-        let dict = args
-            .get_self_or_disrupt(interpreter)?
-            .as_dict_or_disrupt(interpreter)?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
         Ok(ExprResult::DictKeys(dict.clone().borrow().clone().into()))
     }
@@ -223,16 +210,10 @@ impl Callable for DictValuesBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
-        let dict = args
-            .get_self_or_disrupt(interpreter)?
-            .as_dict_or_disrupt(interpreter)?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
-        let dict_values = DictValues::try_from(dict.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
-            ))
-        })?;
+        let dict_values = DictValues::try_from(dict.clone().borrow().clone())
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
         Ok(ExprResult::DictValues(dict_values))
     }
 
@@ -277,11 +258,9 @@ impl Callable for InitBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let output = args
-            .get_self_or_disrupt(interpreter)?
-            .as_dict_or_disrupt(interpreter)?;
+        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
-        let input = args.get_arg(0).as_dict_or_disrupt(interpreter)?;
+        let input = args.get_arg(0).expect_dict(interpreter)?;
 
         *output.borrow_mut() = input.borrow().clone();
 
@@ -303,9 +282,7 @@ impl Callable for GetBuiltin {
             utils::validate_args(&args, 1, interpreter.state.call_stack())?;
         }
 
-        let dict = args
-            .get_self_or_disrupt(interpreter)?
-            .as_dict_or_disrupt(interpreter)?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

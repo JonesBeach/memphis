@@ -9,12 +9,8 @@ use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
     domain::Dunder,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        typing::TypeExpr,
-        Interpreter,
-    },
-    types::errors::{ExecutionErrorKind, InterpreterError},
+    treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
+    types::errors::InterpreterError,
 };
 
 use super::{
@@ -398,7 +394,7 @@ impl ExprResult {
         }
     }
 
-    pub fn as_integer_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<i64> {
+    pub fn expect_integer(&self, interpreter: &Interpreter) -> TreewalkResult<i64> {
         self.as_integer()
             .ok_or_else(|| interpreter.type_error("Expected an integer"))
     }
@@ -411,7 +407,7 @@ impl ExprResult {
         }
     }
 
-    pub fn as_fp_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<f64> {
+    pub fn expect_fp(&self, interpreter: &Interpreter) -> TreewalkResult<f64> {
         self.as_fp()
             .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
@@ -426,10 +422,7 @@ impl ExprResult {
         }
     }
 
-    pub fn as_class_or_disrupt(
-        &self,
-        interpreter: &Interpreter,
-    ) -> TreewalkResult<Container<Class>> {
+    pub fn expect_class(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Class>> {
         self.as_class()
             .ok_or_else(|| interpreter.type_error("Expected a class"))
     }
@@ -604,16 +597,12 @@ impl ExprResult {
         }
     }
 
-    pub fn as_callable_or_disrupt(
+    pub fn expect_callable(
         &self,
         interpreter: &Interpreter,
     ) -> TreewalkResult<Container<Box<dyn Callable>>> {
-        self.as_callable().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a callable".to_string())),
-            ))
-        })
+        self.as_callable()
+            .ok_or_else(|| interpreter.type_error("Expected a callable"))
     }
 
     pub fn as_function(&self) -> Option<Container<Function>> {
@@ -623,16 +612,12 @@ impl ExprResult {
         }
     }
 
-    pub fn as_function_or_disrupt(
+    pub fn expect_function(
         &self,
         interpreter: &Interpreter,
     ) -> TreewalkResult<Container<Function>> {
-        self.as_function().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a function".to_string())),
-            ))
-        })
+        self.as_function()
+            .ok_or_else(|| interpreter.type_error("Expected a function"))
     }
 
     pub fn as_generator(&self) -> Option<Container<GeneratorIterator>> {
@@ -649,16 +634,12 @@ impl ExprResult {
         }
     }
 
-    pub fn as_coroutine_or_disrupt(
+    pub fn expect_coroutine(
         &self,
         interpreter: &Interpreter,
     ) -> TreewalkResult<Container<Coroutine>> {
-        self.as_coroutine().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a coroutine".to_string())),
-            ))
-        })
+        self.as_coroutine()
+            .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
     }
 
     pub fn as_boolean(&self) -> bool {
@@ -679,16 +660,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_object_or_disrupt(
-        &self,
-        interpreter: &Interpreter,
-    ) -> TreewalkResult<Container<Object>> {
-        self.as_object().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected an object".to_string())),
-            ))
-        })
+    pub fn expect_object(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Object>> {
+        self.as_object()
+            .ok_or_else(|| interpreter.type_error("Expected an object"))
     }
 
     /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
@@ -700,13 +674,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_list_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<List>> {
-        self.as_list().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a list".to_string())),
-            ))
-        })
+    pub fn expect_list(&self, interpreter: &Interpreter) -> TreewalkResult<Container<List>> {
+        self.as_list()
+            .ok_or_else(|| interpreter.type_error("Expected a list"))
     }
 
     /// Returns a `Container<Set>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
@@ -718,13 +688,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_set_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Set>> {
-        self.as_set().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a set".to_string())),
-            ))
-        })
+    pub fn expect_set(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Set>> {
+        self.as_set()
+            .ok_or_else(|| interpreter.type_error("Expected a set"))
     }
 
     pub fn as_dict(&self, interpreter: &Interpreter) -> Option<Container<Dict>> {
@@ -744,13 +710,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_dict_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Dict>> {
-        self.as_dict(interpreter).ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
-            ))
-        })
+    pub fn expect_dict(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Dict>> {
+        self.as_dict(interpreter)
+            .ok_or_else(|| interpreter.type_error("Expected a dict"))
     }
 
     pub fn as_range(&self) -> Option<Range> {
@@ -770,13 +732,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_tuple_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Tuple> {
-        self.as_tuple().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a tuple".to_string())),
-            ))
-        })
+    pub fn expect_tuple(&self, interpreter: &Interpreter) -> TreewalkResult<Tuple> {
+        self.as_tuple()
+            .ok_or_else(|| interpreter.type_error("Expected a tuple"))
     }
 
     pub fn as_string(&self) -> Option<String> {
@@ -787,13 +745,9 @@ impl ExprResult {
         }
     }
 
-    pub fn as_string_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<String> {
-        self.as_string().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a string".to_string())),
-            ))
-        })
+    pub fn expect_string(&self, interpreter: &Interpreter) -> TreewalkResult<String> {
+        self.as_string()
+            .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
 
     pub fn negated(&self) -> Self {

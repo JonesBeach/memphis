@@ -2,11 +2,7 @@ use crate::{
     core::Container,
     domain::Dunder,
     resolved_args,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter,
-    },
-    types::errors::InterpreterError,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
 };
 
 use super::{
@@ -50,7 +46,7 @@ impl Callable for NewBuiltin {
     ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-        let function = args.get_arg(1).as_callable_or_disrupt(interpreter)?;
+        let function = args.get_arg(1).expect_callable(interpreter)?;
         Ok(ExprResult::Property(Property::new(function)))
     }
 

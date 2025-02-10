@@ -106,12 +106,12 @@ impl Callable for NewBuiltin {
         }
         utils::validate_args(&args, 4, interpreter.state.call_stack())?;
 
-        let mcls = args.get_arg(0).as_class_or_disrupt(interpreter)?;
-        let name = args.get_arg(1).as_string_or_disrupt(interpreter)?;
+        let mcls = args.get_arg(0).expect_class(interpreter)?;
+        let name = args.get_arg(1).expect_string(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)
-            .as_tuple_or_disrupt(interpreter)?
+            .expect_tuple(interpreter)?
             .into_iter()
             .map(|c| c.as_class().unwrap())
             .collect::<Vec<Container<Class>>>();
@@ -122,7 +122,7 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let namespace = args.get_arg(3).as_dict_or_disrupt(interpreter)?;
+        let namespace = args.get_arg(3).expect_dict(interpreter)?;
 
         let scope = Scope::try_from(namespace.clone().borrow().clone()).map_err(|_| {
             TreewalkDisruption::Error(InterpreterError::new(

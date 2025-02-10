@@ -7,11 +7,7 @@ use std::{
 use crate::{
     core::Container,
     domain::Dunder,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter,
-    },
-    types::errors::InterpreterError,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
 };
 
 use super::{
@@ -106,13 +102,13 @@ impl IndexWrite for Container<List> {
         index: ExprResult,
         value: ExprResult,
     ) -> TreewalkResult<()> {
-        let i = index.as_integer_or_disrupt(interpreter)?;
+        let i = index.expect_integer(interpreter)?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
 
     fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
-        let i = index.as_integer_or_disrupt(interpreter)?;
+        let i = index.expect_integer(interpreter)?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }
@@ -268,9 +264,7 @@ impl Callable for AppendBuiltin {
     ) -> TreewalkResult<ExprResult> {
         validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let list = args
-            .get_self_or_disrupt(interpreter)?
-            .as_list_or_disrupt(interpreter)?;
+        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
 
         list.borrow_mut().append(args.get_arg(0).clone());
 
@@ -290,9 +284,7 @@ impl Callable for ExtendBuiltin {
     ) -> TreewalkResult<ExprResult> {
         validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let list = args
-            .get_self_or_disrupt(interpreter)?
-            .as_list_or_disrupt(interpreter)?;
+        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
 
         list.borrow_mut().extend(args.get_arg(0).into_iter());
 

@@ -1,4 +1,4 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
@@ -6,7 +6,6 @@ use crate::{
     domain::Dunder,
     resolved_args,
     treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
 };
 
 use super::{
@@ -63,7 +62,7 @@ impl Class {
         ];
         interpreter
             .invoke_method(ExprResult::Class(metaclass), Dunder::New, args)?
-            .as_class_or_disrupt(interpreter)
+            .expect_class(interpreter)
     }
 
     /// Create the class. This is used by `Dunder::New` for `Type::Type` under the hood.

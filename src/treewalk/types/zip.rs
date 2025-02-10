@@ -1,8 +1,5 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -102,19 +99,13 @@ impl Callable for NewBuiltin {
                 let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                 if !all_equal {
-                    return Err(TreewalkDisruption::Error(InterpreterError::new(
-                        interpreter.state.call_stack(),
-                        ExecutionErrorKind::Exception,
-                    )));
+                    return Err(interpreter.runtime_error());
                 }
             }
 
             Ok(ExprResult::Zip(ZipIterator::new(iters)))
         } else {
-            Err(TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::WrongNumberOfArguments(2, args.len()),
-            )))
+            Err(interpreter.type_error(&format!("Expected {}, found {} args", 2, args.len())))
         }
     }
 

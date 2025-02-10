@@ -1,15 +1,10 @@
-use crate::{
-    treewalk::interpreter::{TreewalkDisruption, TreewalkResult},
-    types::errors::ExecutionErrorKind,
-};
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{

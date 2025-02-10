@@ -4,11 +4,7 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
     resolved_args,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter, Scope,
-    },
-    types::errors::InterpreterError,
+    treewalk::{interpreter::TreewalkResult, Interpreter, Scope},
 };
 
 use super::{
@@ -218,7 +214,7 @@ impl MemberWriter for Container<Object> {
             .as_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
             .ok_or_else(|| interpreter.attribute_error(result.clone(), Dunder::Dict.as_ref()))?
-            .as_dict_or_disrupt(interpreter)?
+            .expect_dict(interpreter)?
             .borrow()
             .has(
                 interpreter.clone(),
@@ -310,7 +306,7 @@ impl Callable for NewBuiltin {
     ) -> TreewalkResult<ExprResult> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
-        let class = args.get_arg(0).as_class_or_disrupt(interpreter)?;
+        let class = args.get_arg(0).expect_class(interpreter)?;
         Ok(ExprResult::Object(Object::new_object_base(class)?))
     }
 
@@ -347,7 +343,7 @@ impl Callable for EqBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let a = args.get_self_or_disrupt(interpreter)?;
+        let a = args.expect_self(interpreter)?;
         let b = args.get_arg(0);
 
         Ok(ExprResult::Boolean(a == b))
@@ -367,7 +363,7 @@ impl Callable for HashBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-        let object = args.get_self_or_disrupt(interpreter)?;
+        let object = args.expect_self(interpreter)?;
         Ok(ExprResult::Integer(object.hash() as i64))
     }
 
@@ -386,7 +382,7 @@ impl Callable for NeBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        let receiver = args.get_self_or_disrupt(interpreter)?;
+        let receiver = args.expect_self(interpreter)?;
         let result =
             interpreter.invoke_method(receiver, Dunder::Eq, &resolved_args![args.get_arg(0)])?;
 
@@ -425,7 +421,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
-            Some(i) => i.as_object_or_disrupt(interpreter)?.borrow().scope.clone(),
+            Some(i) => i.expect_object(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(ExprResult::Dict(scope.as_dict(interpreter)))

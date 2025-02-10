@@ -9,12 +9,11 @@ use crate::{
         ExecutionContextManager, Executor, ModuleLoader, ModuleSource, Scope, ScopeManager,
         TypeRegistry,
     },
-    types::errors::ExecutionErrorKind,
 };
 
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::CPythonModule;
-use super::Interpreter;
+use super::{interpreter::TreewalkResult, Interpreter};
 
 pub struct State {
     module_loader: ModuleLoader,
@@ -76,12 +75,7 @@ impl Container<State> {
         name: &str,
         interpreter: &Interpreter,
     ) -> TreewalkResult<ExprResult> {
-        self.read(name).ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::NameError(name.to_string()),
-            ))
-        })
+        self.read(name).ok_or_else(|| interpreter.name_error(name))
     }
 
     /// Attempt to delete an `ExprResult`, adhering to Python scoping rules.

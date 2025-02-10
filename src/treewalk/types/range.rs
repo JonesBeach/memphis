@@ -2,11 +2,7 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     domain::Dunder,
-    treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter,
-    },
-    types::errors::{ExecutionErrorKind, InterpreterError},
+    treewalk::{interpreter::TreewalkResult, Interpreter},
 };
 
 use super::{
@@ -118,18 +114,18 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         if args.len() == 2 {
-            let stop = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
+            let stop = args.get_arg(1).expect_integer(interpreter)?;
 
             Ok(ExprResult::Range(Range::with_stop(stop)))
         } else if args.len() == 3 {
-            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
-            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
+            let start = args.get_arg(1).expect_integer(interpreter)?;
+            let stop = args.get_arg(2).expect_integer(interpreter)?;
 
             Ok(ExprResult::Range(Range::with_start_stop(start, stop)))
         } else if args.len() == 4 {
-            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
-            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
-            let step = args.get_arg(3).as_integer_or_disrupt(interpreter)?;
+            let start = args.get_arg(1).expect_integer(interpreter)?;
+            let stop = args.get_arg(2).expect_integer(interpreter)?;
+            let step = args.get_arg(3).expect_integer(interpreter)?;
 
             Ok(ExprResult::Range(Range::new(start, stop, step)))
         } else {
