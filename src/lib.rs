@@ -10,6 +10,9 @@ mod parser;
 mod treewalk;
 mod types;
 
+// We need these public for crosscheck
+pub use types::errors::{ExecutionErrorKind, InterpreterError, MemphisError};
+
 #[derive(PartialEq)]
 pub enum Engine {
     TreeWalk,

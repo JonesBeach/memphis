@@ -1458,7 +1458,7 @@ mod tests {
 
     fn assert_name_error(e: InterpreterError, expected_name: &str) {
         match e.execution_error_kind {
-            ExecutionErrorKind::NameError(name) => {
+            ExecutionErrorKind::NameError(ref name) => {
                 assert_eq!(name, expected_name, "Unexpected NameError message");
             }
             _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
@@ -1476,7 +1476,7 @@ mod tests {
 
     fn assert_value_error(e: InterpreterError, expected_message: &str) {
         match e.execution_error_kind {
-            ExecutionErrorKind::ValueError(message) => {
+            ExecutionErrorKind::ValueError(ref message) => {
                 assert_eq!(message, expected_message, "Unexpected ValueError message");
             }
             _ => panic!(
@@ -1497,7 +1497,7 @@ mod tests {
 
     fn assert_attribute_error(e: InterpreterError, expected_object: &str, expected_attr: &str) {
         match e.execution_error_kind {
-            ExecutionErrorKind::AttributeError(object, attr) => {
+            ExecutionErrorKind::AttributeError(ref object, ref attr) => {
                 assert_eq!(object, expected_object, "Unexpected AttributeError object");
                 assert_eq!(attr, expected_attr, "Unexpected AttributeError attr");
             }

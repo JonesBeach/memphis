@@ -1,8 +1,20 @@
-use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::{
+    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter},
+    ExecutionErrorKind, InterpreterError, MemphisError,
+};
 
 // TODO This proc macro is working, but I should really add tests in its own crate before too long.
 // #[crosscheck::test]
 // fn test_function_call(mut adapter: Adapter) {
+
+fn assert_name_error(e: InterpreterError, expected_name: &str) {
+    match e.execution_error_kind {
+        ExecutionErrorKind::NameError(name) => {
+            assert_eq!(name, expected_name, "Unexpected NameError message");
+        }
+        _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
+    }
+}
 
 fn run_test<T: InterpreterTest>(mut adapter: T) {
     let input = r#"
@@ -34,8 +46,10 @@ def last_call():
 middle_call()
 "#;
     match adapter.evaluate(input) {
-        Ok(_) => panic!("Expected error!"),
-        Err(_e) => {}
+        Err(MemphisError::Interpreter(e)) => {
+            assert_name_error(e, "unknown");
+        }
+        _ => panic!("Expected an exception!"),
     }
 }
 
