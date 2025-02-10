@@ -336,7 +336,7 @@ pub mod utils {
         F: Fn(usize) -> bool,
     {
         if !condition(args.len()) {
-            Err(interpreter.type_error(&format!("Found {} args", args.len())))
+            Err(interpreter.type_error(format!("Found {} args", args.len())))
         } else {
             Ok(())
         }
