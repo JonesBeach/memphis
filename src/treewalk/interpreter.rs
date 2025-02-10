@@ -1452,7 +1452,7 @@ mod tests {
             ExecutionErrorKind::TypeError(Some(ref msg)) => {
                 assert_eq!(msg, expected_message, "Unexpected TypeError message");
             }
-            _ => panic!("Expected a TypeError, but got {:?}", e),
+            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -1461,7 +1461,7 @@ mod tests {
             ExecutionErrorKind::NameError(name) => {
                 assert_eq!(name, expected_name, "Unexpected NameError message");
             }
-            _ => panic!("Expected a NameError, but got {:?}", e),
+            _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -1470,7 +1470,7 @@ mod tests {
             ExecutionErrorKind::KeyError(ref key) => {
                 assert_eq!(key, expected_key, "Unexpected KeyError message");
             }
-            _ => panic!("Expected a KeyError, but got {:?}", e),
+            _ => panic!("Expected a KeyError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -1479,7 +1479,7 @@ mod tests {
             ExecutionErrorKind::ValueError(message) => {
                 assert_eq!(message, expected_message, "Unexpected ValueError message");
             }
-            _ => panic!("Expected a ValueError, but got {:?}", e),
+            _ => panic!("Expected a ValueError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -1488,7 +1488,7 @@ mod tests {
             ExecutionErrorKind::TypeError(msg) => {
                 assert_eq!(msg, expected_message, "Unexpected TypeError message");
             }
-            _ => panic!("Expected a TypeError, but got {:?}", e),
+            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -1498,7 +1498,7 @@ mod tests {
                 assert_eq!(object, expected_object, "Unexpected AttributeError object");
                 assert_eq!(attr, expected_attr, "Unexpected AttributeError attr");
             }
-            _ => panic!("Expected a AttributeError, but got {:?}", e),
+            _ => panic!("Expected a AttributeError, but got {:?}", e.execution_error_kind),
         }
     }
 
@@ -2303,7 +2303,7 @@ foo.bar()
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, "Expected a function");
+                assert_name_error(e, "something_third");
             }
             _ => panic!("Expected an exception!"),
         }
@@ -2450,7 +2450,7 @@ j = +(-3)
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_type_error(e, "Expected a function");
+                assert_name_error(e, "unknown");
 
                 assert_eq!(call_stack.len(), 3);
                 assert!(call_stack
@@ -2493,7 +2493,7 @@ c = foo()
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
                 let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_type_error(e, "Expected a function");
+                assert_name_error(e, "foo");
 
                 assert_eq!(call_stack.len(), 1);
                 assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
