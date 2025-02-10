@@ -71,11 +71,8 @@ impl Display for InterpreterError {
             ExecutionErrorKind::DivisionByZero(message) => {
                 write!(f, "ZeroDivisionError: {}", message)
             }
-            ExecutionErrorKind::ExpectedVariable => {
-                write!(f, "Expected variable")
-            }
             ExecutionErrorKind::StopIteration => {
-                write!(f, "Expected object")
+                write!(f, "StopIteration")
             }
             ExecutionErrorKind::AssertionError => {
                 write!(f, "AssertionError")
@@ -100,7 +97,6 @@ pub enum ExecutionErrorKind {
     NameError(String),
     AttributeError(String, String),
     DivisionByZero(String),
-    ExpectedVariable,
     StopIteration,
     AssertionError,
     MissingContextManagerProtocol,
