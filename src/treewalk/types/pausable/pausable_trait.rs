@@ -9,7 +9,7 @@ use crate::{
         types::{ExprResult, Function, List},
         Interpreter, Scope,
     },
-    types::errors::InterpreterError,
+    types::errors::ExecutionError,
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -152,7 +152,7 @@ pub trait Pausable {
                     .evaluate_expr(iterable)?
                     .try_into()
                     .map_err(|_| {
-                        TreewalkDisruption::Error(InterpreterError::new(
+                        TreewalkDisruption::Error(ExecutionError::new(
                             interpreter.state.call_stack(),
                             ExecutionErrorKind::TypeError(Some("Expected a list".to_string())),
                         ))

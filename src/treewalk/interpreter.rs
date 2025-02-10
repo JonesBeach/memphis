@@ -26,13 +26,13 @@ use crate::{
         Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
         Tuple,
     },
-    types::errors::{InterpreterError, MemphisError},
+    types::errors::{ExecutionError, MemphisError},
 };
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreewalkDisruption {
-    Signal(TreewalkSignal),  // Control flow (not errors)
-    Error(InterpreterError), // Actual Python runtime errors
+    Signal(TreewalkSignal), // Control flow (not errors)
+    Error(ExecutionError),  // Actual Python runtime errors
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -58,7 +58,7 @@ impl Interpreter {
     }
 
     pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(self.state.call_stack(), error_kind))
+        TreewalkDisruption::Error(ExecutionError::new(self.state.call_stack(), error_kind))
     }
 
     pub fn type_error(&self, message: impl Into<String>) -> TreewalkDisruption {
@@ -66,56 +66,56 @@ impl Interpreter {
     }
 
     pub fn type_error_optional_message(&self, message: Option<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::TypeError(message),
         ))
     }
 
     pub fn value_error(&self, message: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::ValueError(message.into()),
         ))
     }
 
     pub fn key_error(&self, key: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::KeyError(key.into()),
         ))
     }
 
     pub fn name_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::NameError(name.into()),
         ))
     }
 
     pub fn import_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::ImportError(name.into()),
         ))
     }
 
     pub fn runtime_error(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::RuntimeError,
         ))
     }
 
     pub fn assertion_error(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::AssertionError,
         ))
     }
 
     pub fn stop_iteration(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::StopIteration,
         ))
@@ -126,7 +126,7 @@ impl Interpreter {
         object: ExprResult,
         attr: impl Into<String>,
     ) -> TreewalkDisruption {
-        TreewalkDisruption::Error(InterpreterError::new(
+        TreewalkDisruption::Error(ExecutionError::new(
             self.state.call_stack(),
             ExecutionErrorKind::AttributeError(
                 object.get_class(self).borrow().name().to_string(),
@@ -1443,11 +1443,11 @@ mod tests {
         evaluate(text).expect("Failed to evaluate test string!")
     }
 
-    fn assert_error_kind(e: InterpreterError, expected_kind: ExecutionErrorKind) {
+    fn assert_error_kind(e: ExecutionError, expected_kind: ExecutionErrorKind) {
         assert_eq!(e.execution_error_kind, expected_kind);
     }
 
-    fn assert_type_error(e: InterpreterError, expected_message: &str) {
+    fn assert_type_error(e: ExecutionError, expected_message: &str) {
         match e.execution_error_kind {
             ExecutionErrorKind::TypeError(Some(ref msg)) => {
                 assert_eq!(msg, expected_message, "Unexpected TypeError message");
@@ -1456,7 +1456,7 @@ mod tests {
         }
     }
 
-    fn assert_name_error(e: InterpreterError, expected_name: &str) {
+    fn assert_name_error(e: ExecutionError, expected_name: &str) {
         match e.execution_error_kind {
             ExecutionErrorKind::NameError(ref name) => {
                 assert_eq!(name, expected_name, "Unexpected NameError message");
@@ -1465,7 +1465,7 @@ mod tests {
         }
     }
 
-    fn assert_key_error(e: InterpreterError, expected_key: &str) {
+    fn assert_key_error(e: ExecutionError, expected_key: &str) {
         match e.execution_error_kind {
             ExecutionErrorKind::KeyError(ref key) => {
                 assert_eq!(key, expected_key, "Unexpected KeyError message");
@@ -1474,7 +1474,7 @@ mod tests {
         }
     }
 
-    fn assert_value_error(e: InterpreterError, expected_message: &str) {
+    fn assert_value_error(e: ExecutionError, expected_message: &str) {
         match e.execution_error_kind {
             ExecutionErrorKind::ValueError(ref message) => {
                 assert_eq!(message, expected_message, "Unexpected ValueError message");
@@ -1486,7 +1486,7 @@ mod tests {
         }
     }
 
-    fn assert_type_error_optional_message(e: InterpreterError, expected_message: Option<String>) {
+    fn assert_type_error_optional_message(e: ExecutionError, expected_message: Option<String>) {
         match e.execution_error_kind {
             ExecutionErrorKind::TypeError(msg) => {
                 assert_eq!(msg, expected_message, "Unexpected TypeError message");
@@ -1495,7 +1495,7 @@ mod tests {
         }
     }
 
-    fn assert_attribute_error(e: InterpreterError, expected_object: &str, expected_attr: &str) {
+    fn assert_attribute_error(e: ExecutionError, expected_object: &str, expected_attr: &str) {
         match e.execution_error_kind {
             ExecutionErrorKind::AttributeError(ref object, ref attr) => {
                 assert_eq!(object, expected_object, "Unexpected AttributeError object");

@@ -54,7 +54,7 @@ mod vm_interpreter_tests {
     use super::*;
 
     use crate::{
-        bytecode_vm::vm::types::Object, init::MemphisContext, ExecutionErrorKind, InterpreterError,
+        bytecode_vm::vm::types::Object, init::MemphisContext, ExecutionError, ExecutionErrorKind,
     };
 
     fn init(text: &str) -> MemphisContext {
@@ -111,7 +111,7 @@ mod vm_interpreter_tests {
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,
-                    InterpreterError::new(
+                    ExecutionError::new(
                         interpreter.vm.debug_call_stack.clone(),
                         ExecutionErrorKind::NameError("x".to_string())
                     )
@@ -128,7 +128,7 @@ mod vm_interpreter_tests {
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,
-                    InterpreterError::new(
+                    ExecutionError::new(
                         interpreter.vm.debug_call_stack.clone(),
                         ExecutionErrorKind::NameError("x".to_string())
                     )
@@ -541,7 +541,7 @@ middle_call()
                 let interpreter = context.ensure_vm();
                 assert_eq!(
                     e,
-                    InterpreterError::new(
+                    ExecutionError::new(
                         interpreter.vm.debug_call_stack.clone(),
                         ExecutionErrorKind::NameError("unknown".to_string())
                     )

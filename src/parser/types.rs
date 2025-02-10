@@ -8,7 +8,7 @@ use std::{
 use crate::{
     domain::Dunder,
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    types::errors::{ExecutionErrorKind, InterpreterError, ParserError},
+    types::errors::{ExecutionError, ExecutionErrorKind, ParserError},
 };
 
 use super::Parser;
@@ -464,10 +464,10 @@ impl From<String> for ExceptionLiteral {
     }
 }
 
-impl TryFrom<InterpreterError> for ExceptionLiteral {
+impl TryFrom<ExecutionError> for ExceptionLiteral {
     type Error = ();
 
-    fn try_from(value: InterpreterError) -> Result<Self, Self::Error> {
+    fn try_from(value: ExecutionError) -> Result<Self, Self::Error> {
         match value.execution_error_kind {
             ExecutionErrorKind::DivisionByZero(..) => Ok(ExceptionLiteral::ZeroDivisionError),
             ExecutionErrorKind::ImportError(..) => Ok(ExceptionLiteral::ImportError),

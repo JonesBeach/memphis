@@ -12,7 +12,7 @@ use crate::{
         interpreter::{TreewalkDisruption, TreewalkResult},
         Interpreter, ModuleSource, Scope,
     },
-    types::errors::{ExecutionErrorKind, InterpreterError, MemphisError},
+    types::errors::{ExecutionError, ExecutionErrorKind, MemphisError},
 };
 
 use super::{domain::traits::MemberReader, Dict, ExprResult};
@@ -62,7 +62,7 @@ impl Module {
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{}", e);
-                return Err(TreewalkDisruption::Error(InterpreterError::new(
+                return Err(TreewalkDisruption::Error(ExecutionError::new(
                     interpreter.state.call_stack(),
                     ExecutionErrorKind::SyntaxError,
                 )));

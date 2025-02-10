@@ -10,7 +10,7 @@ use crate::{
     domain::Dunder,
     resolved_args,
     treewalk::{types::ExprResult, Interpreter},
-    types::errors::{InterpreterError, MemphisError},
+    types::errors::{ExecutionError, MemphisError},
 };
 
 use super::ResolvedArguments;
@@ -131,7 +131,7 @@ impl Contextual<ExprResult> {
             Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
             Ok(_) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Execution(InterpreterError::new(
+                .handle_runtime_error(MemphisError::Execution(ExecutionError::new(
                     self.interpreter.state.call_stack(),
                     ExecutionErrorKind::TypeError(None),
                 ))),

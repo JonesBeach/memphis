@@ -11,7 +11,7 @@ mod treewalk;
 mod types;
 
 // We need these public for crosscheck
-pub use types::errors::{ExecutionErrorKind, InterpreterError, MemphisError};
+pub use types::errors::{ExecutionError, ExecutionErrorKind, MemphisError};
 
 #[derive(PartialEq)]
 pub enum Engine {

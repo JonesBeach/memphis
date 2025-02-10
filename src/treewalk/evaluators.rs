@@ -5,7 +5,7 @@ use crate::{
     domain::DebugCallStack,
     parser::types::{BinOp, LogicalOp, UnaryOp},
     treewalk::types::{ExprResult, List, Set},
-    types::errors::InterpreterError,
+    types::errors::ExecutionError,
 };
 
 use super::interpreter::TreewalkDisruption;
@@ -29,7 +29,7 @@ pub fn evaluate_integer_operation(
         BinOp::Mul => Ok(ExprResult::Integer(left * right)),
         BinOp::Div => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::new(
+                Err(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
@@ -39,7 +39,7 @@ pub fn evaluate_integer_operation(
         }
         BinOp::IntegerDiv => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::new(
+                Err(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
@@ -49,7 +49,7 @@ pub fn evaluate_integer_operation(
         }
         BinOp::Mod => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::new(
+                Err(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
@@ -78,14 +78,14 @@ pub fn evaluate_integer_operation(
         BinOp::RightShift => Ok(ExprResult::Integer(left >> right)),
         BinOp::Expo => {
             let right: u32 = right.try_into().map_err(|_| {
-                TreewalkDisruption::Error(InterpreterError::new(
+                TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::RuntimeError,
                 ))
             })?;
             Ok(ExprResult::Integer(left.pow(right)))
         }
-        BinOp::In | BinOp::NotIn => Err(TreewalkDisruption::Error(InterpreterError::new(
+        BinOp::In | BinOp::NotIn => Err(TreewalkDisruption::Error(ExecutionError::new(
             call_stack,
             ExecutionErrorKind::TypeError(Some("Expected an iterable".to_string())),
         ))),
@@ -105,7 +105,7 @@ pub fn evaluate_floating_point_operation(
         BinOp::Mul => Ok(ExprResult::FloatingPoint(left * right)),
         BinOp::Div => {
             if right == 0.0 {
-                Err(TreewalkDisruption::Error(InterpreterError::new(
+                Err(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::DivisionByZero("float division by zero".into()),
                 )))
@@ -150,7 +150,7 @@ pub fn evaluate_unary_operation(
         UnaryOp::BitwiseNot => {
             let i = right
                 .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::new(
+                .ok_or(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::TypeError(Some(format!(
                         "bad operand type for unary ~: '{}'",
@@ -164,7 +164,7 @@ pub fn evaluate_unary_operation(
             let list = right
                 .as_list()
                 // Attempted to unpack a non-iterable
-                .ok_or(TreewalkDisruption::Error(InterpreterError::new(
+                .ok_or(TreewalkDisruption::Error(ExecutionError::new(
                     call_stack,
                     ExecutionErrorKind::TypeError(Some(format!(
                         "Value after * must be an iterable, not {}",

@@ -5,7 +5,7 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
     treewalk::Interpreter,
-    types::errors::InterpreterError,
+    types::errors::ExecutionError,
 };
 
 use super::{
@@ -54,7 +54,7 @@ impl MemberReader for Container<Super> {
         // Retrieve the MRO for the class, excluding the class itself
         let super_mro = class.super_mro();
         let parent_class = super_mro.first().ok_or_else(|| {
-            TreewalkDisruption::Error(InterpreterError::new(
+            TreewalkDisruption::Error(ExecutionError::new(
                 interpreter.state.call_stack(),
                 ExecutionErrorKind::TypeError(Some("Expected a class".to_string())),
             ))

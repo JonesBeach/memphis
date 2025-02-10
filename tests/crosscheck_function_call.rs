@@ -1,13 +1,13 @@
 use memphis::{
     crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter},
-    ExecutionErrorKind, InterpreterError, MemphisError,
+    ExecutionError, ExecutionErrorKind, MemphisError,
 };
 
 // TODO This proc macro is working, but I should really add tests in its own crate before too long.
 // #[crosscheck::test]
 // fn test_function_call(mut adapter: Adapter) {
 
-fn assert_name_error(e: InterpreterError, expected_name: &str) {
+fn assert_name_error(e: ExecutionError, expected_name: &str) {
     match e.execution_error_kind {
         ExecutionErrorKind::NameError(name) => {
             assert_eq!(name, expected_name, "Unexpected NameError message");

@@ -12,7 +12,7 @@ use crate::{
     },
     core::{log, log_impure, LogLevel},
     domain::{DebugCallStack, Dunder, ToDebugStackFrame},
-    ExecutionErrorKind, InterpreterError,
+    ExecutionError, ExecutionErrorKind,
 };
 
 mod frame;
@@ -23,7 +23,7 @@ use self::{
     types::{Class, FunctionObject, Method, Object, Reference},
 };
 
-type VmResult<T> = Result<T, InterpreterError>;
+type VmResult<T> = Result<T, ExecutionError>;
 
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
@@ -118,7 +118,7 @@ impl VirtualMachine {
     fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
         let name = self.lookup_global_name(index);
         self.global_store.get(name).copied().ok_or_else(|| {
-            InterpreterError::new(
+            ExecutionError::new(
                 self.debug_call_stack.clone(),
                 ExecutionErrorKind::NameError(name.to_string()),
             )
@@ -140,7 +140,7 @@ impl VirtualMachine {
             }
         }
 
-        Err(InterpreterError::new(
+        Err(ExecutionError::new(
             self.debug_call_stack.clone(),
             ExecutionErrorKind::RuntimeError,
         ))
@@ -484,7 +484,7 @@ impl VirtualMachine {
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
                 Opcode::Placeholder => {
-                    return Err(InterpreterError::new(
+                    return Err(ExecutionError::new(
                         self.debug_call_stack.clone(),
                         ExecutionErrorKind::RuntimeError,
                     ))

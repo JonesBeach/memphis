@@ -11,7 +11,7 @@ use crate::{
 #[derive(Debug, PartialEq, Clone)]
 pub enum MemphisError {
     Parser(ParserError),
-    Execution(InterpreterError),
+    Execution(ExecutionError),
     Compiler(CompilerError),
 }
 
@@ -29,12 +29,12 @@ pub enum ParserError {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct InterpreterError {
+pub struct ExecutionError {
     pub debug_call_stack: DebugCallStack,
     pub execution_error_kind: ExecutionErrorKind,
 }
 
-impl InterpreterError {
+impl ExecutionError {
     pub fn new(debug_call_stack: DebugCallStack, execution_error_kind: ExecutionErrorKind) -> Self {
         Self {
             debug_call_stack,
@@ -43,7 +43,7 @@ impl InterpreterError {
     }
 }
 
-impl Display for InterpreterError {
+impl Display for ExecutionError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "{}", self.debug_call_stack)?;
         match &self.execution_error_kind {
@@ -104,7 +104,7 @@ pub enum ExecutionErrorKind {
     SyntaxError,
 }
 
-impl InterpreterError {
+impl ExecutionError {
     /// When an `InterpreterError` is thrown inside a try-except block, this method is used to
     /// determine whether a given except clause should be run. It does this by mapping
     /// `InterpreterError` variants (from the interpreter) to `ExceptionLiteral` variants from the

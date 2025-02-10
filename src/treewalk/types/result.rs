@@ -10,7 +10,7 @@ use crate::{
     core::{Container, Voidable},
     domain::Dunder,
     treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
-    types::errors::InterpreterError,
+    types::errors::ExecutionError,
 };
 
 use super::{
@@ -72,7 +72,7 @@ pub enum ExprResult {
     MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
-    Exception(Box<InterpreterError>),
+    Exception(Box<ExecutionError>),
     Traceback(Traceback),
     Frame,
     ListIterator(ListIterator),
