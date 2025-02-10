@@ -48,7 +48,6 @@ impl Display for InterpreterError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "{}", self.debug_call_stack)?;
         match &self.execution_error_kind {
-            ExecutionErrorKind::Exception => write!(f, "Exception!"),
             ExecutionErrorKind::RuntimeError => write!(f, "RuntimeError"),
             ExecutionErrorKind::ImportError(name) => {
                 write!(f, "ImportError: No module named {}", name)
@@ -93,7 +92,6 @@ impl Display for InterpreterError {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExecutionErrorKind {
-    Exception,
     RuntimeError,
     ImportError(String),
     TypeError(Option<String>),

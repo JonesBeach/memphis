@@ -1524,7 +1524,9 @@ mod tests {
             Err(MemphisError::Interpreter(e)) => {
                 assert_error_kind(
                     e,
-                    ExecutionErrorKind::DivisionByZero("division by zerio".to_string()),
+                    ExecutionErrorKind::DivisionByZero(
+                        "integer division or modulo by zero".to_string(),
+                    ),
                 );
             }
             _ => panic!("Expected an exception!"),
@@ -1550,7 +1552,9 @@ mod tests {
             Err(MemphisError::Interpreter(e)) => {
                 assert_error_kind(
                     e,
-                    ExecutionErrorKind::DivisionByZero("division by zerio".to_string()),
+                    ExecutionErrorKind::DivisionByZero(
+                        "integer division or modulo by zero".to_string(),
+                    ),
                 );
             }
             _ => panic!("Expected an exception!"),
@@ -2868,7 +2872,7 @@ j = 9, 10
 
         match context.run_and_return_interpreter() {
             Err(MemphisError::Interpreter(e)) => {
-                assert_type_error(e, &format!(""));
+                assert_type_error(e, &format!("Expected 1, found 2 args"));
             }
             _ => panic!("Expected an exception!"),
         }
@@ -4480,7 +4484,7 @@ except ValueError:
             Err(MemphisError::Interpreter(e)) => {
                 assert_error_kind(
                     e,
-                    ExecutionErrorKind::DivisionByZero("division by zero".into()),
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
             _ => panic!("Expected an exception!"),
@@ -4498,7 +4502,7 @@ except ZeroDivisionError:
             Err(MemphisError::Interpreter(e)) => {
                 assert_error_kind(
                     e,
-                    ExecutionErrorKind::DivisionByZero("division by zero".into()),
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
             _ => panic!("Expected an exception!"),
