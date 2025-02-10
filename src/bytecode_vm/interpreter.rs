@@ -45,7 +45,7 @@ impl InterpreterEntrypoint for VmInterpreter {
         let program = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", program));
         self.vm.load(program);
-        self.vm.run_loop().map_err(MemphisError::Vm)
+        self.vm.run_loop().map_err(MemphisError::Interpreter)
     }
 }
 
@@ -54,11 +54,7 @@ mod vm_interpreter_tests {
     use super::*;
 
     use crate::{
-        bytecode_vm::{
-            types::{VmError, VmErrorType},
-            vm::types::Object,
-        },
-        init::MemphisContext,
+        bytecode_vm::vm::types::Object, init::MemphisContext, ExecutionErrorKind, InterpreterError,
     };
 
     fn init(text: &str) -> MemphisContext {
@@ -111,40 +107,34 @@ mod vm_interpreter_tests {
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(e) => {
+            Err(MemphisError::Interpreter(e)) => {
                 let interpreter = context.ensure_vm();
-                let MemphisError::Vm(vm_error) = e else {
-                    panic!("Expected a VM error!");
-                };
                 assert_eq!(
-                    vm_error,
-                    VmError::new(
+                    e,
+                    InterpreterError::new(
                         interpreter.vm.debug_call_stack.clone(),
-                        VmErrorType::NameError("x".to_string())
+                        ExecutionErrorKind::NameError("x".to_string())
                     )
                 )
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let text = "x()";
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(e) => {
+            Err(MemphisError::Interpreter(e)) => {
                 let interpreter = context.ensure_vm();
-                let MemphisError::Vm(vm_error) = e else {
-                    panic!("Expected a VM error!");
-                };
                 assert_eq!(
-                    vm_error,
-                    VmError::new(
+                    e,
+                    InterpreterError::new(
                         interpreter.vm.debug_call_stack.clone(),
-                        VmErrorType::NameError("x".to_string())
+                        ExecutionErrorKind::NameError("x".to_string())
                     )
                 )
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -547,20 +537,16 @@ middle_call()
         let mut context = init(text);
 
         match context.run_vm() {
-            Ok(_) => panic!("Expected an error!"),
-            Err(e) => {
+            Err(MemphisError::Interpreter(e)) => {
                 let interpreter = context.ensure_vm();
-                let MemphisError::Vm(vm_error) = e else {
-                    panic!("Expected a VM error!");
-                };
                 assert_eq!(
-                    vm_error,
-                    VmError::new(
+                    e,
+                    InterpreterError::new(
                         interpreter.vm.debug_call_stack.clone(),
-                        VmErrorType::NameError("unknown".to_string())
+                        ExecutionErrorKind::NameError("unknown".to_string())
                     )
                 );
-                let debug_call_stack = vm_error.debug_call_stack;
+                let debug_call_stack = e.debug_call_stack;
                 assert_eq!(debug_call_stack.len(), 3);
                 assert_eq!(debug_call_stack.get(0).name(), "__main__");
                 assert_eq!(debug_call_stack.get(0).file_path_str(), "");
@@ -572,6 +558,7 @@ middle_call()
                 assert_eq!(debug_call_stack.get(2).file_path_str(), "");
                 assert_eq!(debug_call_stack.get(2).line_number(), 0);
             }
+            _ => panic!("Expected an exception!"),
         }
     }
 }

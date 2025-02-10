@@ -1,7 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::core::Voidable;
-use crate::domain::DebugCallStack;
 
 use super::compiler::types::{CodeObject, Constant};
 use super::vm::types::{Class, FunctionObject, Method, Object, Reference};
@@ -123,41 +122,6 @@ impl Value {
             _ => panic!("expected object"),
         }
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct VmError {
-    pub debug_call_stack: DebugCallStack,
-    error_type: VmErrorType,
-}
-
-impl VmError {
-    pub fn new(debug_call_stack: DebugCallStack, error_type: VmErrorType) -> Self {
-        Self {
-            debug_call_stack,
-            error_type,
-        }
-    }
-}
-
-impl Display for VmError {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{}", self.debug_call_stack)?;
-        match &self.error_type {
-            VmErrorType::NameError(name) => {
-                write!(f, "NameError: name '{}' is not defined", name)
-            }
-            _ => unimplemented!("Unsupported error type in bytecode VM"),
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum VmErrorType {
-    StackUnderflow,
-    StackOverflow,
-    NameError(String),
-    RuntimeError,
 }
 
 #[allow(clippy::enum_variant_names)]

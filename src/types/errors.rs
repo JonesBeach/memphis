@@ -1,7 +1,7 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    bytecode_vm::types::{CompilerError, VmError},
+    bytecode_vm::types::CompilerError,
     core::{log, LogLevel},
     domain::DebugCallStack,
     lexer::types::Token,
@@ -13,7 +13,6 @@ pub enum MemphisError {
     Parser(ParserError),
     Interpreter(InterpreterError),
     Compiler(CompilerError),
-    Vm(VmError),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -31,7 +30,7 @@ pub enum ParserError {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct InterpreterError {
-    debug_call_stack: DebugCallStack,
+    pub debug_call_stack: DebugCallStack,
     pub execution_error_kind: ExecutionErrorKind,
 }
 
@@ -146,7 +145,6 @@ impl Display for MemphisError {
         match self {
             MemphisError::Parser(e) => write!(f, "{}", e),
             MemphisError::Interpreter(e) => write!(f, "{}", e),
-            MemphisError::Vm(e) => write!(f, "{}", e),
             MemphisError::Compiler(e) => write!(f, "{}", e),
         }
     }

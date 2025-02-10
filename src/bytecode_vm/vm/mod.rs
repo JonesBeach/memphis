@@ -7,11 +7,12 @@ use crate::{
             types::{CompiledProgram, Constant},
         },
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
-        types::{Value, VmError, VmErrorType},
+        types::Value,
         Opcode,
     },
     core::{log, log_impure, LogLevel},
     domain::{DebugCallStack, Dunder, ToDebugStackFrame},
+    ExecutionErrorKind, InterpreterError,
 };
 
 mod frame;
@@ -21,6 +22,8 @@ use self::{
     frame::Frame,
     types::{Class, FunctionObject, Method, Object, Reference},
 };
+
+type VmResult<T> = Result<T, InterpreterError>;
 
 pub struct VirtualMachine {
     /// All code which is executed lives inside a [`Frame`] on this call stack.
@@ -112,15 +115,17 @@ impl VirtualMachine {
         &self.call_stack[frame_index].function.code_object.names[*index]
     }
 
-    fn load_global(&self, index: NonlocalIndex) -> Result<Reference, VmError> {
+    fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
         let name = self.lookup_global_name(index);
-        self.global_store.get(name).copied().ok_or(VmError::new(
-            self.debug_call_stack.clone(),
-            VmErrorType::NameError(name.to_string()),
-        ))
+        self.global_store.get(name).copied().ok_or_else(|| {
+            InterpreterError::new(
+                self.debug_call_stack.clone(),
+                ExecutionErrorKind::NameError(name.to_string()),
+            )
+        })
     }
 
-    fn pop(&mut self) -> Result<Reference, VmError> {
+    fn pop(&mut self) -> VmResult<Reference> {
         if let Some(frame) = self.call_stack.last_mut() {
             if let Some(value) = frame.locals.pop() {
                 log_impure(LogLevel::Trace, || {
@@ -135,13 +140,13 @@ impl VirtualMachine {
             }
         }
 
-        Err(VmError::new(
+        Err(InterpreterError::new(
             self.debug_call_stack.clone(),
-            VmErrorType::StackUnderflow,
+            ExecutionErrorKind::RuntimeError,
         ))
     }
 
-    fn push(&mut self, value: Reference) -> Result<(), VmError> {
+    fn push(&mut self, value: Reference) -> VmResult<()> {
         if let Some(frame) = self.call_stack.last_mut() {
             frame.locals.push(value);
         }
@@ -237,7 +242,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_loop(&mut self) -> Result<Value, VmError> {
+    pub fn run_loop(&mut self) -> VmResult<Value> {
         // If we call a function or something that requires us to enter a new frame, we do not want
         // to do so until the end of this loop.
         let mut deferred_frame: Option<Frame> = None;
@@ -479,9 +484,9 @@ impl VirtualMachine {
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
                 Opcode::Placeholder => {
-                    return Err(VmError::new(
+                    return Err(InterpreterError::new(
                         self.debug_call_stack.clone(),
-                        VmErrorType::RuntimeError,
+                        ExecutionErrorKind::RuntimeError,
                     ))
                 }
             }
