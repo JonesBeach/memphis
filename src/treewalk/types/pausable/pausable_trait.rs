@@ -1,6 +1,4 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::Container,
     domain::ToDebugStackFrame,
@@ -9,7 +7,6 @@ use crate::{
         types::{ExprResult, Function, List},
         Interpreter, Scope,
     },
-    types::errors::ExecutionError,
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -151,12 +148,7 @@ pub trait Pausable {
                 let items: Container<List> = interpreter
                     .evaluate_expr(iterable)?
                     .try_into()
-                    .map_err(|_| {
-                        TreewalkDisruption::Error(ExecutionError::new(
-                            interpreter.state.call_stack(),
-                            ExecutionErrorKind::TypeError(Some("Expected a list".to_string())),
-                        ))
-                    })?;
+                    .map_err(|_| interpreter.type_error("Expected an iterable"))?;
 
                 let mut queue = items.borrow().as_queue();
 

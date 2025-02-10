@@ -1,11 +1,8 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
     treewalk::Interpreter,
-    types::errors::ExecutionError,
 };
 
 use super::{
@@ -53,12 +50,9 @@ impl MemberReader for Container<Super> {
 
         // Retrieve the MRO for the class, excluding the class itself
         let super_mro = class.super_mro();
-        let parent_class = super_mro.first().ok_or_else(|| {
-            TreewalkDisruption::Error(ExecutionError::new(
-                interpreter.state.call_stack(),
-                ExecutionErrorKind::TypeError(Some("Expected a class".to_string())),
-            ))
-        })?;
+        let parent_class = super_mro
+            .first()
+            .ok_or_else(|| interpreter.type_error("Expected a class"))?;
 
         if let Some(attr) = parent_class.get_member(interpreter, name)? {
             log(LogLevel::Debug, || {

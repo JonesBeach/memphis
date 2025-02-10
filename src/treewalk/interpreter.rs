@@ -329,11 +329,11 @@ impl Interpreter {
         if left.is_integer() && right.is_integer() {
             let left = left.expect_integer(self)?;
             let right = right.expect_integer(self)?;
-            evaluators::evaluate_integer_operation(left, op, right, self.state.call_stack())
+            evaluators::evaluate_integer_operation(left, op, right, self)
         } else if left.is_fp() && right.is_fp() {
             let left = left.expect_fp(self)?;
             let right = right.expect_fp(self)?;
-            evaluators::evaluate_floating_point_operation(left, op, right, self.state.call_stack())
+            evaluators::evaluate_floating_point_operation(left, op, right, self)
         } else if left.as_list().is_some() && right.as_list().is_some() {
             let left = left.expect_list(self)?;
             let right = right.expect_list(self)?;
@@ -395,7 +395,7 @@ impl Interpreter {
 
     fn evaluate_unary_operation(&self, op: &UnaryOp, right: &Expr) -> TreewalkResult<ExprResult> {
         let right = self.evaluate_expr(right)?;
-        evaluators::evaluate_unary_operation(op, right, self.state.call_stack())
+        evaluators::evaluate_unary_operation(op, right, self)
     }
 
     fn evaluate_ternary_operation(
