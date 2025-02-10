@@ -91,28 +91,19 @@ impl Callable for NewBuiltin {
             2 => match args.get_arg(1).as_fp() {
                 Some(re) => Complex::new(re, DEFAULT_IM),
                 None => {
-                    let input = &args
-                        .get_arg(1)
-                        .as_string()
-                        .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                            Some(format!(
-                                "complex() first argument must be a string or a number, not '{}'",
-                                args.get_arg(1).get_type()
-                            )),
-                            interpreter.state.call_stack(),
-                        )))?;
-                    Complex::from_str(input).ok_or(TreewalkDisruption::Error(
-                        InterpreterError::TypeError(None, interpreter.state.call_stack()),
-                    ))?
+                    let input = &args.get_arg(1).as_string().ok_or_else(|| {
+                        interpreter.type_error(format!(
+                            "complex() first argument must be a string or a number, not '{}'",
+                            args.get_arg(1).get_type()
+                        ))
+                    })?;
+                    Complex::from_str(input)
+                        .ok_or_else(|| interpreter.type_error("Expected a complex number"))?
                 }
             },
             3 => {
-                let re = args.get_arg(1).as_fp().ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedFloatingPoint(interpreter.state.call_stack()),
-                ))?;
-                let im = args.get_arg(2).as_fp().ok_or(TreewalkDisruption::Error(
-                    InterpreterError::ExpectedFloatingPoint(interpreter.state.call_stack()),
-                ))?;
+                let re = args.get_arg(1).as_fp_or_disrupt(interpreter)?;
+                let im = args.get_arg(2).as_fp_or_disrupt(interpreter)?;
                 Complex::new(re, im)
             }
             _ => {

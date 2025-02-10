@@ -201,10 +201,7 @@ impl Callable for CPythonObject {
                     unimplemented!()
                 }
             } else {
-                Err(InterpreterError::FunctionNotFound(
-                    self.name(),
-                    interpreter.state.call_stack(),
-                ))
+                Err(interpreter.name_error(self.name()))
             }
         })
     }

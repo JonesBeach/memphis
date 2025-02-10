@@ -6,7 +6,7 @@ use crate::{
         interpreter::{TreewalkDisruption, TreewalkResult},
         Interpreter,
     },
-    types::errors::InterpreterError,
+    types::errors::{ExecutionErrorKind, InterpreterError},
 };
 
 use super::{
@@ -118,64 +118,22 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         if args.len() == 2 {
-            let stop = args
-                .get_arg(1)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
+            let stop = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
 
             Ok(ExprResult::Range(Range::with_stop(stop)))
         } else if args.len() == 3 {
-            let start = args
-                .get_arg(1)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
-            let stop = args
-                .get_arg(2)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
+            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
+            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
 
             Ok(ExprResult::Range(Range::with_start_stop(start, stop)))
         } else if args.len() == 4 {
-            let start = args
-                .get_arg(1)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
-            let stop = args
-                .get_arg(2)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
-            let step = args
-                .get_arg(3)
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
+            let start = args.get_arg(1).as_integer_or_disrupt(interpreter)?;
+            let stop = args.get_arg(2).as_integer_or_disrupt(interpreter)?;
+            let step = args.get_arg(3).as_integer_or_disrupt(interpreter)?;
 
             Ok(ExprResult::Range(Range::new(start, stop, step)))
         } else {
-            Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    1,
-                    args.len(),
-                    interpreter.state.call_stack(),
-                ),
-            ))
+            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len())))
         }
     }
 

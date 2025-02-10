@@ -106,22 +106,12 @@ impl Callable for NewBuiltin {
         }
         utils::validate_args(&args, 4, interpreter.state.call_stack())?;
 
-        let mcls = args.get_arg(0).as_class().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedClass(interpreter.state.call_stack()),
-        ))?;
-        let name = args
-            .get_arg(1)
-            .as_string()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedString(
-                interpreter.state.call_stack(),
-            )))?;
+        let mcls = args.get_arg(0).as_class_or_disrupt(interpreter)?;
+        let name = args.get_arg(1).as_string_or_disrupt(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)
-            .as_tuple()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            )))?
+            .as_tuple_or_disrupt(interpreter)?
             .into_iter()
             .map(|c| c.as_class().unwrap())
             .collect::<Vec<Container<Class>>>();
@@ -132,16 +122,12 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let namespace = args
-            .get_arg(3)
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+        let namespace = args.get_arg(3).as_dict_or_disrupt(interpreter)?;
 
         let scope = Scope::try_from(namespace.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::ExpectedDict(
+            TreewalkDisruption::Error(InterpreterError::new(
                 interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
             ))
         })?;
 

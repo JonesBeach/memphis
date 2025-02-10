@@ -1,5 +1,6 @@
 use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
+use crate::types::errors::ExecutionErrorKind;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
@@ -57,7 +58,7 @@ impl Set {
 }
 
 impl TryFrom<ExprResult> for Container<Set> {
-    type Error = TreewalkDisruption;
+    type Error = ();
 
     fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
         match value {
@@ -65,7 +66,7 @@ impl TryFrom<ExprResult> for Container<Set> {
             ExprResult::List(list) => Ok(list.clone().into()),
             ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
             ExprResult::Range(range) => Ok(range.clone().into()),
-            _ => Err(TreewalkDisruption::Error(InterpreterError::RuntimeError)),
+            _ => Err(()),
         }
     }
 }
@@ -138,34 +139,21 @@ impl Callable for InitBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         let output_set = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(
-                InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
-            ))?
-            .as_set()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_set_or_disrupt(interpreter)?;
 
         if args.is_empty() {
             Ok(ExprResult::None)
         } else if args.len() == 1 {
-            let input_set: Container<Set> = args.get_arg(0).try_into().map_err(|_| {
-                TreewalkDisruption::Error(InterpreterError::ExpectedSet(
-                    interpreter.state.call_stack(),
-                ))
-            })?;
+            let input_set: Container<Set> = args
+                .get_arg(0)
+                .try_into()
+                .map_err(|_| interpreter.type_error("Expected a set".to_string()))?;
 
             *output_set.borrow_mut() = input_set.borrow().clone();
             Ok(ExprResult::None)
         } else {
-            Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    1,
-                    args.len(),
-                    interpreter.state.call_stack(),
-                ),
-            ))
+            Err(interpreter.type_error(format!("Expected {}, found {} args", 1, args.len())))
         }
     }
 
@@ -183,14 +171,8 @@ impl Callable for AddBuiltin {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
         let set = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            )))?
-            .as_set()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_set_or_disrupt(interpreter)?;
 
         let result = set.borrow_mut().add(args.get_arg(0));
 

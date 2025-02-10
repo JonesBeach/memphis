@@ -63,10 +63,7 @@ impl Class {
         ];
         interpreter
             .invoke_method(ExprResult::Class(metaclass), Dunder::New, args)?
-            .as_class()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedClass(
-                interpreter.state.call_stack(),
-            )))
+            .as_class_or_disrupt(interpreter)
     }
 
     /// Create the class. This is used by `Dunder::New` for `Type::Type` under the hood.

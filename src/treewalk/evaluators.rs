@@ -1,4 +1,5 @@
 use crate::treewalk::interpreter::TreewalkResult;
+use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::Container,
     domain::DebugCallStack,
@@ -28,9 +29,9 @@ pub fn evaluate_integer_operation(
         BinOp::Mul => Ok(ExprResult::Integer(left * right)),
         BinOp::Div => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::DivisionByZero(
-                    "division by zero".into(),
+                Err(TreewalkDisruption::Error(InterpreterError::new(
                     call_stack,
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
             } else {
                 Ok(ExprResult::Integer(left / right))
@@ -38,9 +39,9 @@ pub fn evaluate_integer_operation(
         }
         BinOp::IntegerDiv => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::DivisionByZero(
-                    "integer division or modulo by zero".into(),
+                Err(TreewalkDisruption::Error(InterpreterError::new(
                     call_stack,
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
             } else {
                 Ok(ExprResult::Integer(left / right))
@@ -48,9 +49,9 @@ pub fn evaluate_integer_operation(
         }
         BinOp::Mod => {
             if right == 0 {
-                Err(TreewalkDisruption::Error(InterpreterError::DivisionByZero(
-                    "integer division or modulo by zero".into(),
+                Err(TreewalkDisruption::Error(InterpreterError::new(
                     call_stack,
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 )))
             } else {
                 Ok(ExprResult::Integer(left % right))
@@ -75,18 +76,19 @@ pub fn evaluate_integer_operation(
             }
         }
         BinOp::RightShift => Ok(ExprResult::Integer(left >> right)),
-        BinOp::In => Err(TreewalkDisruption::Error(
-            InterpreterError::ExpectedIterable(call_stack),
-        )),
-        BinOp::NotIn => Err(TreewalkDisruption::Error(
-            InterpreterError::ExpectedIterable(call_stack),
-        )),
         BinOp::Expo => {
-            let right: u32 = right
-                .try_into()
-                .map_err(|_| TreewalkDisruption::Error(InterpreterError::RuntimeError))?;
+            let right: u32 = right.try_into().map_err(|_| {
+                TreewalkDisruption::Error(InterpreterError::new(
+                    call_stack,
+                    ExecutionErrorKind::RuntimeError,
+                ))
+            })?;
             Ok(ExprResult::Integer(left.pow(right)))
         }
+        BinOp::In | BinOp::NotIn => Err(TreewalkDisruption::Error(InterpreterError::new(
+            call_stack,
+            ExecutionErrorKind::TypeError(Some("Expected an iterable".to_string())),
+        ))),
         _ => unreachable!(),
     }
 }
@@ -146,15 +148,15 @@ pub fn evaluate_unary_operation(
         UnaryOp::Plus => Ok(right),
         UnaryOp::Not => Ok(right.inverted()),
         UnaryOp::BitwiseNot => {
-            let i = right.as_integer().ok_or(TreewalkDisruption::Error(
-                InterpreterError::TypeError(
-                    Some(format!(
+            let i = right
+                .as_integer()
+                .ok_or(TreewalkDisruption::Error(InterpreterError::new(
+                    call_stack,
+                    ExecutionErrorKind::TypeError(Some(format!(
                         "bad operand type for unary ~: '{}'",
                         right.get_type()
-                    )),
-                    call_stack,
-                ),
-            ))?;
+                    ))),
+                )))?;
 
             Ok(ExprResult::Integer(!i))
         }
@@ -162,12 +164,12 @@ pub fn evaluate_unary_operation(
             let list = right
                 .as_list()
                 // Attempted to unpack a non-iterable
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    Some(format!(
+                .ok_or(TreewalkDisruption::Error(InterpreterError::new(
+                    call_stack,
+                    ExecutionErrorKind::TypeError(Some(format!(
                         "Value after * must be an iterable, not {}",
                         right.get_type()
-                    )),
-                    call_stack,
+                    ))),
                 )))?;
             Ok(ExprResult::List(list))
         }

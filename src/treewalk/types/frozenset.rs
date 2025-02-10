@@ -1,4 +1,7 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::{
+    treewalk::interpreter::{TreewalkDisruption, TreewalkResult},
+    types::errors::ExecutionErrorKind,
+};
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
@@ -81,20 +84,16 @@ impl Callable for NewBuiltin {
         if args.len() == 1 {
             Ok(ExprResult::FrozenSet(FrozenSet::default()))
         } else if args.len() == 2 {
-            let input_set: Container<Set> = args.get_arg(1).try_into().map_err(|_| {
-                TreewalkDisruption::Error(InterpreterError::ExpectedSet(
-                    interpreter.state.call_stack(),
-                ))
-            })?;
+            let input_set: Container<Set> = args
+                .get_arg(1)
+                .try_into()
+                .map_err(|_| interpreter.type_error("Expected a set"))?;
             Ok(ExprResult::FrozenSet(input_set.into()))
         } else {
-            Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    1,
-                    args.len(),
-                    interpreter.state.call_stack(),
-                ),
-            ))
+            Err(interpreter.type_error(format!("Expected {}, found {} args"
+                1,
+                args.len(),
+            )))
         }
     }
 

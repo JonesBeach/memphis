@@ -30,40 +30,85 @@ pub enum ParserError {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum InterpreterError {
-    Exception(DebugCallStack),
-    TypeError(Option<String>, DebugCallStack),
-    KeyError(String, DebugCallStack),
-    ValueError(String, DebugCallStack),
-    NameError(String, DebugCallStack),
-    AttributeError(String, String, DebugCallStack),
-    FunctionNotFound(String, DebugCallStack),
-    MethodNotFound(String, DebugCallStack),
-    ClassNotFound(String, DebugCallStack),
-    ModuleNotFound(String, DebugCallStack),
-    DivisionByZero(String, DebugCallStack),
-    ExpectedVariable(DebugCallStack),
-    ExpectedString(DebugCallStack),
-    ExpectedList(DebugCallStack),
-    ExpectedTuple(DebugCallStack),
-    ExpectedRange(DebugCallStack),
-    ExpectedSet(DebugCallStack),
-    ExpectedDict(DebugCallStack),
-    ExpectedFloatingPoint(DebugCallStack),
-    ExpectedBoolean(DebugCallStack),
-    ExpectedObject(DebugCallStack),
-    ExpectedClass(DebugCallStack),
-    ExpectedFunction(DebugCallStack),
-    ExpectedIterable(DebugCallStack),
-    ExpectedCoroutine(DebugCallStack),
-    WrongNumberOfArguments(usize, usize, DebugCallStack),
-    StopIteration(DebugCallStack),
-    AssertionError(DebugCallStack),
-    MissingContextManagerProtocol(DebugCallStack),
+pub struct InterpreterError {
+    debug_call_stack: DebugCallStack,
+    pub execution_error_kind: ExecutionErrorKind,
+}
+
+impl InterpreterError {
+    pub fn new(debug_call_stack: DebugCallStack, execution_error_kind: ExecutionErrorKind) -> Self {
+        Self {
+            debug_call_stack,
+            execution_error_kind,
+        }
+    }
+}
+
+impl Display for InterpreterError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{}", self.debug_call_stack)?;
+        match &self.execution_error_kind {
+            ExecutionErrorKind::Exception => write!(f, "Exception!"),
+            ExecutionErrorKind::RuntimeError => write!(f, "RuntimeError"),
+            ExecutionErrorKind::ImportError(name) => {
+                write!(f, "ImportError: No module named {}", name)
+            }
+            ExecutionErrorKind::TypeError(message) => match message {
+                Some(message) => write!(f, "TypeError: {}", message),
+                None => write!(f, "TypeError"),
+            },
+            ExecutionErrorKind::KeyError(key) => write!(f, "KeyError: '{}'", key),
+            ExecutionErrorKind::ValueError(message) => write!(f, "ValueError: '{}'", message),
+            ExecutionErrorKind::NameError(name) => {
+                write!(f, "NameError: name '{}' is not defined", name)
+            }
+            ExecutionErrorKind::AttributeError(class_name, field) => {
+                write!(
+                    f,
+                    "AttributeError: '{}' object has no attribute '{}'",
+                    class_name, field
+                )
+            }
+            ExecutionErrorKind::DivisionByZero(message) => {
+                write!(f, "ZeroDivisionError: {}", message)
+            }
+            ExecutionErrorKind::ExpectedVariable => {
+                write!(f, "Expected variable")
+            }
+            ExecutionErrorKind::StopIteration => {
+                write!(f, "Expected object")
+            }
+            ExecutionErrorKind::AssertionError => {
+                write!(f, "AssertionError")
+            }
+            ExecutionErrorKind::MissingContextManagerProtocol => {
+                write!(f, "object does not support the context manager protocol")
+            }
+            ExecutionErrorKind::SyntaxError => {
+                todo!()
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ExecutionErrorKind {
+    Exception,
+    RuntimeError,
+    ImportError(String),
+    TypeError(Option<String>),
+    KeyError(String),
+    ValueError(String),
+    NameError(String),
+    AttributeError(String, String),
+    DivisionByZero(String),
+    ExpectedVariable,
+    StopIteration,
+    AssertionError,
+    MissingContextManagerProtocol,
     // TODO where this is used should really be moved into the parser but we currently don't have
     // enough scope context during that stage to do so.
-    SyntaxError(DebugCallStack),
-    RuntimeError,
+    SyntaxError,
 }
 
 impl InterpreterError {
@@ -135,146 +180,6 @@ impl Display for ParserError {
             }
             ParserError::SyntaxError => {
                 write!(f, "SyntaxError")
-            }
-        }
-    }
-}
-
-impl Display for InterpreterError {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self {
-            InterpreterError::Exception(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Exception!")
-            }
-            InterpreterError::TypeError(message, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                match message {
-                    Some(message) => write!(f, "TypeError: {}", message),
-                    None => write!(f, "TypeError"),
-                }
-            }
-            InterpreterError::KeyError(key, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "KeyError: '{}'", key)
-            }
-            InterpreterError::ValueError(message, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "ValueError: '{}'", message)
-            }
-            InterpreterError::NameError(name, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "NameError: name '{}' is not defined", name)
-            }
-            InterpreterError::AttributeError(class_name, field, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(
-                    f,
-                    "AttributeError: '{}' object has no attribute '{}'",
-                    class_name, field
-                )
-            }
-            InterpreterError::DivisionByZero(message, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "ZeroDivisionError: {}", message)
-            }
-            InterpreterError::ClassNotFound(name, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Class \"{}\" not found", name)
-            }
-            InterpreterError::MethodNotFound(name, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Method \"{}\" not found", name)
-            }
-            InterpreterError::ModuleNotFound(name, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Module \"{}\" not found", name)
-            }
-            InterpreterError::FunctionNotFound(name, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Function \"{}\" not found", name)
-            }
-            InterpreterError::ExpectedVariable(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected variable")
-            }
-            InterpreterError::ExpectedString(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected string")
-            }
-            InterpreterError::ExpectedList(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected list")
-            }
-            InterpreterError::ExpectedTuple(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected tuple")
-            }
-            InterpreterError::ExpectedRange(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected range")
-            }
-            InterpreterError::ExpectedSet(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected set")
-            }
-            InterpreterError::ExpectedDict(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected dict")
-            }
-            InterpreterError::ExpectedFloatingPoint(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected floating point")
-            }
-            InterpreterError::ExpectedBoolean(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected boolean")
-            }
-            InterpreterError::ExpectedObject(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected object")
-            }
-            InterpreterError::ExpectedClass(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected class")
-            }
-            InterpreterError::ExpectedFunction(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected function")
-            }
-            InterpreterError::ExpectedIterable(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected iterable")
-            }
-            InterpreterError::ExpectedCoroutine(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected coroutine")
-            }
-            InterpreterError::WrongNumberOfArguments(expected, found, call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(
-                    f,
-                    "Wrong number of arguments, expected {} found {}",
-                    expected, found
-                )
-            }
-            InterpreterError::StopIteration(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "Expected object")
-            }
-            InterpreterError::AssertionError(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "AssertionError")
-            }
-            InterpreterError::MissingContextManagerProtocol(call_stack) => {
-                write!(f, "{}", call_stack)?;
-                write!(f, "object does not support the context manager protocol")
-            }
-            InterpreterError::SyntaxError(call_stack) => {
-                write!(f, "{}", call_stack)
-            }
-            InterpreterError::RuntimeError => {
-                write!(f, "RuntimeError")
             }
         }
     }

@@ -38,13 +38,11 @@ impl Scope {
         // Function expects fewer positional args than it was invoked with and there is not an
         // `args_var` in which to store the rest.
         if function_args.args.len() < arguments.bound_len() && function_args.args_var.is_none() {
-            return Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    function_args.args.len(),
-                    arguments.bound_len(),
-                    interpreter.state.call_stack(),
-                ),
-            ));
+            return Err(interpreter.type_error(format!(
+                "Expected {}, found {} args",
+                function_args.args.len(),
+                arguments.bound_len(),
+            )));
         }
 
         let bound_args = arguments.bound_args();
@@ -83,16 +81,12 @@ impl Scope {
                 .map(|a| format!("'{}'", a))
                 .collect::<Vec<_>>()
                 .join(" and ");
-            let message = format!(
+            return Err(interpreter.type_error(format!(
                 "{}() missing {} required positional {}: {}",
                 function.borrow().name,
                 num_missing,
                 noun,
                 arg_names
-            );
-            return Err(TreewalkDisruption::Error(InterpreterError::TypeError(
-                Some(message),
-                interpreter.state.call_stack(),
             )));
         }
 

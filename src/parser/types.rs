@@ -8,7 +8,7 @@ use std::{
 use crate::{
     domain::Dunder,
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    types::errors::{InterpreterError, ParserError},
+    types::errors::{ExecutionErrorKind, InterpreterError, ParserError},
 };
 
 use super::Parser;
@@ -465,16 +465,16 @@ impl From<String> for ExceptionLiteral {
 }
 
 impl TryFrom<InterpreterError> for ExceptionLiteral {
-    type Error = InterpreterError;
+    type Error = ();
 
     fn try_from(value: InterpreterError) -> Result<Self, Self::Error> {
-        match value {
-            InterpreterError::DivisionByZero(..) => Ok(ExceptionLiteral::ZeroDivisionError),
-            InterpreterError::ModuleNotFound(..) => Ok(ExceptionLiteral::ImportError),
-            InterpreterError::TypeError(..) => Ok(ExceptionLiteral::TypeError),
-            InterpreterError::AttributeError(..) => Ok(ExceptionLiteral::AttributeError),
-            InterpreterError::NameError(..) => Ok(ExceptionLiteral::NameError),
-            _ => Err(InterpreterError::RuntimeError),
+        match value.execution_error_kind {
+            ExecutionErrorKind::DivisionByZero(..) => Ok(ExceptionLiteral::ZeroDivisionError),
+            ExecutionErrorKind::ImportError(..) => Ok(ExceptionLiteral::ImportError),
+            ExecutionErrorKind::TypeError(..) => Ok(ExceptionLiteral::TypeError),
+            ExecutionErrorKind::AttributeError(..) => Ok(ExceptionLiteral::AttributeError),
+            ExecutionErrorKind::NameError(..) => Ok(ExceptionLiteral::NameError),
+            _ => Err(()),
         }
     }
 }

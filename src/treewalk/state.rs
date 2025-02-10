@@ -9,6 +9,7 @@ use crate::{
         ExecutionContextManager, Executor, ModuleLoader, ModuleSource, Scope, ScopeManager,
         TypeRegistry,
     },
+    types::errors::ExecutionErrorKind,
 };
 
 #[cfg(feature = "c_stdlib")]
@@ -68,6 +69,19 @@ impl Container<State> {
     /// Attempt to read an `ExprResult`, adhering to Python scoping rules.
     pub fn read(&self, name: &str) -> Option<ExprResult> {
         self.borrow().scope_manager.read(name)
+    }
+
+    pub fn read_or_disrupt(
+        &self,
+        name: &str,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<ExprResult> {
+        self.read(name).ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::NameError(name.to_string()),
+            ))
+        })
     }
 
     /// Attempt to delete an `ExprResult`, adhering to Python scoping rules.

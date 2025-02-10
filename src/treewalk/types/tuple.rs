@@ -64,13 +64,7 @@ impl IndexRead for Tuple {
         interpreter: &Interpreter,
         index: ExprResult,
     ) -> TreewalkResult<Option<ExprResult>> {
-        let i =
-            index
-                .as_integer()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::TypeError(
-                    None,
-                    interpreter.state.call_stack(),
-                )))?;
+        let i = index.as_integer_or_disrupt(interpreter)?;
         Ok(self.get_item(i as usize))
     }
 }
@@ -80,6 +74,7 @@ impl From<Container<Set>> for Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<ExprResult> = set.into_iter().collect();
         let mut items: Vec<ExprResult> = set.borrow().items.clone().into_iter().collect();
+        // TODO remove unwrap
         items.sort_by_key(|x| x.as_integer().unwrap());
         Tuple::new(items)
     }
@@ -126,9 +121,7 @@ impl Callable for NewBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
 
-        let tuple = args.get_arg(1).as_tuple().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedTuple(interpreter.state.call_stack()),
-        ))?;
+        let tuple = args.get_arg(1).as_tuple_or_disrupt(interpreter)?;
         Ok(ExprResult::Tuple(tuple))
     }
 

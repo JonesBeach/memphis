@@ -52,10 +52,7 @@ impl Callable for NewBuiltin {
             )))),
             2 => match args.get_arg(1) {
                 ExprResult::String(_) => {
-                    Err(TreewalkDisruption::Error(InterpreterError::TypeError(
-                        Some("string argument without an encoding".into()),
-                        interpreter.state.call_stack(),
-                    )))
+                    Err(interpreter.type_error("string argument without an encoding"))
                 }
                 ExprResult::Bytes(s) => {
                     Ok(ExprResult::ByteArray(Container::new(ByteArray::new(s))))
@@ -64,13 +61,7 @@ impl Callable for NewBuiltin {
             },
             // TODO support an optional encoding
             3 => todo!(),
-            _ => Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    args.len(),
-                    1,
-                    interpreter.state.call_stack(),
-                ),
-            )),
+            _ => Err(interpreter.type_error(format!("Expected {}, found {} args", args.len(), 1,))),
         }
     }
 

@@ -1,5 +1,6 @@
 use crate::treewalk::interpreter::TreewalkDisruption;
 use crate::treewalk::interpreter::TreewalkResult;
+use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::Container,
     domain::ToDebugStackFrame,
@@ -151,8 +152,9 @@ pub trait Pausable {
                     .evaluate_expr(iterable)?
                     .try_into()
                     .map_err(|_| {
-                        TreewalkDisruption::Error(InterpreterError::ExpectedList(
+                        TreewalkDisruption::Error(InterpreterError::new(
                             interpreter.state.call_stack(),
+                            ExecutionErrorKind::TypeError(Some("Expected a list".to_string())),
                         ))
                     })?;
 

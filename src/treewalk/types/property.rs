@@ -50,14 +50,7 @@ impl Callable for NewBuiltin {
     ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
-        let function = args
-            .get_arg(1)
-            .as_callable()
-            .ok_or(TreewalkDisruption::Error(
-                InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
-            ))?;
-
+        let function = args.get_arg(1).as_callable_or_disrupt(interpreter)?;
         Ok(ExprResult::Property(Property::new(function)))
     }
 

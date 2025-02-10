@@ -12,7 +12,7 @@ use crate::{
         interpreter::{TreewalkDisruption, TreewalkResult},
         Interpreter, ModuleSource, Scope,
     },
-    types::errors::{InterpreterError, MemphisError},
+    types::errors::{ExecutionErrorKind, InterpreterError, MemphisError},
 };
 
 use super::{domain::traits::MemberReader, Dict, ExprResult};
@@ -47,10 +47,7 @@ impl Module {
         let loaded_module = interpreter
             .state
             .load_module(import_path, call_stack.current_path())
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ModuleNotFound(
-                import_path.as_str().to_string(),
-                call_stack,
-            )))?;
+            .ok_or_else(|| interpreter.import_error(import_path.as_str()))?;
 
         let mut context = MemphisContext::from_module_with_state(
             loaded_module.clone(),
@@ -65,8 +62,9 @@ impl Module {
             Err(MemphisError::Interpreter(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{}", e);
-                return Err(TreewalkDisruption::Error(InterpreterError::SyntaxError(
+                return Err(TreewalkDisruption::Error(InterpreterError::new(
                     interpreter.state.call_stack(),
+                    ExecutionErrorKind::SyntaxError,
                 )));
             }
             _ => unreachable!(),
@@ -76,7 +74,7 @@ impl Module {
         let module = interpreter
             .state
             .pop_module()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::RuntimeError))?;
+            .ok_or_else(|| interpreter.runtime_error())?;
         interpreter.state.store_module(import_path, module.clone());
         Ok(module)
     }

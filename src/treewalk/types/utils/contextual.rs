@@ -1,4 +1,4 @@
-use crate::treewalk::interpreter::TreewalkDisruption;
+use crate::{treewalk::interpreter::TreewalkDisruption, types::errors::ExecutionErrorKind};
 use std::{
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -131,9 +131,9 @@ impl Contextual<ExprResult> {
             Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
             Ok(_) => self
                 .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(InterpreterError::TypeError(
-                    None,
+                .handle_runtime_error(MemphisError::Interpreter(InterpreterError::new(
                     self.interpreter.state.call_stack(),
+                    ExecutionErrorKind::TypeError(None),
                 ))),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => self

@@ -149,12 +149,7 @@ impl Callable for AsyncioRunBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let coroutine = args
-            .get_arg(0)
-            .as_coroutine()
-            .ok_or(TreewalkDisruption::Error(
-                InterpreterError::ExpectedCoroutine(interpreter.state.call_stack()),
-            ))?;
+        let coroutine = args.get_arg(0).as_coroutine_or_disrupt(interpreter)?;
 
         let executor = interpreter.state.get_executor();
         let result = executor.borrow().run(interpreter, coroutine);
@@ -174,11 +169,7 @@ impl Callable for AsyncioSleepBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
-
-        let duration = args.get_arg(0).as_fp().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedFloatingPoint(interpreter.state.call_stack()),
-        ))?;
-
+        let duration = args.get_arg(0).as_fp_or_disrupt(interpreter)?;
         interpreter.state.get_executor().borrow().sleep(duration)
     }
 
@@ -195,13 +186,7 @@ impl Callable for AsyncioCreateTaskBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let coroutine = args
-            .get_arg(0)
-            .as_coroutine()
-            .ok_or(TreewalkDisruption::Error(
-                InterpreterError::ExpectedCoroutine(interpreter.state.call_stack()),
-            ))?;
-
+        let coroutine = args.get_arg(0).as_coroutine_or_disrupt(interpreter)?;
         interpreter.state.get_executor().borrow().spawn(coroutine)
     }
 

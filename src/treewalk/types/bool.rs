@@ -1,4 +1,5 @@
 use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::types::errors::ExecutionErrorKind;
 use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
 
 use super::{
@@ -38,13 +39,7 @@ impl Callable for NewBuiltin {
             let input = args.get_arg(1).as_boolean();
             Ok(ExprResult::Boolean(input))
         } else {
-            Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    1,
-                    args.len(),
-                    interpreter.state.call_stack(),
-                ),
-            ))
+            Err(interpreter.type_error(format!("Expected {} found {} args", 1, args.len())))
         }
     }
 

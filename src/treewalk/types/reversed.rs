@@ -75,11 +75,7 @@ impl Callable for NewBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
-        let list = args.get_arg(1).as_list().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedList(interpreter.state.call_stack()),
-        ))?;
-
+        let list = args.get_arg(1).as_list_or_disrupt(interpreter)?;
         Ok(ExprResult::ReversedIterator(ReversedIterator::new(
             interpreter.clone(),
             list.clone(),

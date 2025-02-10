@@ -91,9 +91,7 @@ impl Pausable for Container<Generator> {
     }
 
     fn finish(&self, interpreter: &Interpreter, _result: ExprResult) -> TreewalkResult<ExprResult> {
-        Err(TreewalkDisruption::Error(InterpreterError::StopIteration(
-            interpreter.state.call_stack(),
-        )))
+        Err(interpreter.stop_iteration())
     }
 
     fn handle_step(
@@ -169,7 +167,11 @@ impl Iterator for GeneratorIterator {
         // we need a better way to surface error during a generator run
         match self.generator.run_until_pause(&self.interpreter) {
             Ok(result) => Some(result),
-            Err(TreewalkDisruption::Error(InterpreterError::StopIteration(_))) => None,
+            Err(TreewalkDisruption::Error(e))
+                if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration) =>
+            {
+                None
+            }
             _ => panic!("Unexpected error during generator run."),
         }
     }

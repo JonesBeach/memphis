@@ -102,19 +102,19 @@ impl Callable for NewBuiltin {
                 let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                 if !all_equal {
-                    return Err(TreewalkDisruption::Error(InterpreterError::RuntimeError));
+                    return Err(TreewalkDisruption::Error(InterpreterError::new(
+                        interpreter.state.call_stack(),
+                        ExecutionErrorKind::Exception,
+                    )));
                 }
             }
 
             Ok(ExprResult::Zip(ZipIterator::new(iters)))
         } else {
-            Err(TreewalkDisruption::Error(
-                InterpreterError::WrongNumberOfArguments(
-                    2,
-                    args.len(),
-                    interpreter.state.call_stack(),
-                ),
-            ))
+            Err(TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::WrongNumberOfArguments(2, args.len()),
+            )))
         }
     }
 

@@ -1,4 +1,7 @@
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult};
+use crate::{
+    treewalk::interpreter::{TreewalkDisruption, TreewalkResult},
+    types::errors::ExecutionErrorKind,
+};
 use std::{
     collections::{hash_map::Keys, HashMap},
     fmt::{Debug, Display, Error, Formatter},
@@ -175,18 +178,13 @@ impl Callable for DictItemsBuiltin {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
         let dict = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_dict_or_disrupt(interpreter)?;
 
         let dict_items = DictItems::try_from(dict.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::ExpectedDict(
+            TreewalkDisruption::Error(InterpreterError::new(
                 interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
             ))
         })?;
         Ok(ExprResult::DictItems(dict_items))
@@ -206,14 +204,8 @@ impl Callable for DictKeysBuiltin {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
         let dict = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_dict_or_disrupt(interpreter)?;
 
         Ok(ExprResult::DictKeys(dict.clone().borrow().clone().into()))
     }
@@ -232,18 +224,13 @@ impl Callable for DictValuesBuiltin {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
 
         let dict = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_dict_or_disrupt(interpreter)?;
 
         let dict_values = DictValues::try_from(dict.clone().borrow().clone()).map_err(|_| {
-            TreewalkDisruption::Error(InterpreterError::ExpectedDict(
+            TreewalkDisruption::Error(InterpreterError::new(
                 interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
             ))
         })?;
         Ok(ExprResult::DictValues(dict_values))
@@ -291,21 +278,10 @@ impl Callable for InitBuiltin {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
         let output = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_dict_or_disrupt(interpreter)?;
 
-        let input = args
-            .get_arg(0)
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+        let input = args.get_arg(0).as_dict_or_disrupt(interpreter)?;
 
         *output.borrow_mut() = input.borrow().clone();
 
@@ -328,14 +304,8 @@ impl Callable for GetBuiltin {
         }
 
         let dict = args
-            .get_self()
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?;
+            .get_self_or_disrupt(interpreter)?
+            .as_dict_or_disrupt(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

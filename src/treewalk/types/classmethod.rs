@@ -56,12 +56,7 @@ impl Callable for NewBuiltin {
             return Ok(ExprResult::None);
         }
 
-        let function = args
-            .get_arg(1)
-            .as_callable()
-            .ok_or(TreewalkDisruption::Error(
-                InterpreterError::ExpectedFunction(interpreter.state.call_stack()),
-            ))?;
+        let function = args.get_arg(1).as_callable_or_disrupt(interpreter)?;
         Ok(ExprResult::Classmethod(Classmethod::new(function)))
     }
 

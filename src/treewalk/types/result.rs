@@ -9,8 +9,12 @@ use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
     domain::Dunder,
-    treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
-    types::errors::InterpreterError,
+    treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
+        typing::TypeExpr,
+        Interpreter,
+    },
+    types::errors::{ExecutionErrorKind, InterpreterError},
 };
 
 use super::{
@@ -394,12 +398,22 @@ impl ExprResult {
         }
     }
 
+    pub fn as_integer_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<i64> {
+        self.as_integer()
+            .ok_or_else(|| interpreter.type_error("Expected an integer"))
+    }
+
     pub fn as_fp(&self) -> Option<f64> {
         match self {
             ExprResult::FloatingPoint(i) => Some(*i),
             ExprResult::Integer(i) => Some(*i as f64),
             _ => None,
         }
+    }
+
+    pub fn as_fp_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<f64> {
+        self.as_fp()
+            .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
 
     pub fn as_class(&self) -> Option<Container<Class>> {
@@ -410,6 +424,14 @@ impl ExprResult {
             // ExprResult::CPythonClass(i) => Some(i),
             _ => None,
         }
+    }
+
+    pub fn as_class_or_disrupt(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Class>> {
+        self.as_class()
+            .ok_or_else(|| interpreter.type_error("Expected a class"))
     }
 
     pub fn as_module(&self) -> Option<Box<dyn MemberReader>> {
@@ -502,13 +524,6 @@ impl ExprResult {
         }
     }
 
-    pub fn as_function(&self) -> Option<Container<Function>> {
-        match self {
-            ExprResult::Function(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
     fn as_nondata_descriptor(
         &self,
         interpreter: &Interpreter,
@@ -589,6 +604,37 @@ impl ExprResult {
         }
     }
 
+    pub fn as_callable_or_disrupt(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Box<dyn Callable>>> {
+        self.as_callable().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a callable".to_string())),
+            ))
+        })
+    }
+
+    pub fn as_function(&self) -> Option<Container<Function>> {
+        match self {
+            ExprResult::Function(i) => Some(i.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_function_or_disrupt(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Function>> {
+        self.as_function().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a function".to_string())),
+            ))
+        })
+    }
+
     pub fn as_generator(&self) -> Option<Container<GeneratorIterator>> {
         match self {
             ExprResult::Generator(i) => Some(i.clone()),
@@ -601,6 +647,18 @@ impl ExprResult {
             ExprResult::Coroutine(i) => Some(i.clone()),
             _ => None,
         }
+    }
+
+    pub fn as_coroutine_or_disrupt(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Coroutine>> {
+        self.as_coroutine().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a coroutine".to_string())),
+            ))
+        })
     }
 
     pub fn as_boolean(&self) -> bool {
@@ -621,6 +679,18 @@ impl ExprResult {
         }
     }
 
+    pub fn as_object_or_disrupt(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Object>> {
+        self.as_object().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected an object".to_string())),
+            ))
+        })
+    }
+
     /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
     /// coercion.
     pub fn as_list(&self) -> Option<Container<List>> {
@@ -630,6 +700,15 @@ impl ExprResult {
         }
     }
 
+    pub fn as_list_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<List>> {
+        self.as_list().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a list".to_string())),
+            ))
+        })
+    }
+
     /// Returns a `Container<Set>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
     /// coercion.
     pub fn as_set(&self) -> Option<Container<Set>> {
@@ -637,6 +716,15 @@ impl ExprResult {
             ExprResult::Set(set) => Some(set.clone()),
             _ => None,
         }
+    }
+
+    pub fn as_set_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Set>> {
+        self.as_set().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a set".to_string())),
+            ))
+        })
     }
 
     pub fn as_dict(&self, interpreter: &Interpreter) -> Option<Container<Dict>> {
@@ -656,6 +744,15 @@ impl ExprResult {
         }
     }
 
+    pub fn as_dict_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Dict>> {
+        self.as_dict(interpreter).ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a dict".to_string())),
+            ))
+        })
+    }
+
     pub fn as_range(&self) -> Option<Range> {
         match self {
             ExprResult::Range(i) => Some(i.clone()),
@@ -673,12 +770,30 @@ impl ExprResult {
         }
     }
 
+    pub fn as_tuple_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<Tuple> {
+        self.as_tuple().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a tuple".to_string())),
+            ))
+        })
+    }
+
     pub fn as_string(&self) -> Option<String> {
         match self {
             ExprResult::String(i) => Some(i.to_string()),
             ExprResult::Integer(i) => Some(i.to_string()),
             _ => None,
         }
+    }
+
+    pub fn as_string_or_disrupt(&self, interpreter: &Interpreter) -> TreewalkResult<String> {
+        self.as_string().ok_or_else(|| {
+            TreewalkDisruption::Error(InterpreterError::new(
+                interpreter.state.call_stack(),
+                ExecutionErrorKind::TypeError(Some("Expected a string".to_string())),
+            ))
+        })
     }
 
     pub fn negated(&self) -> Self {

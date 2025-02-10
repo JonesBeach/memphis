@@ -217,26 +217,15 @@ impl MemberWriter for Container<Object> {
         if !result
             .as_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
-            .ok_or(TreewalkDisruption::Error(InterpreterError::AttributeError(
-                result.get_type().to_string(),
-                name.to_string(),
-                interpreter.state.call_stack(),
-            )))?
-            .as_dict(interpreter)
-            .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            )))?
+            .ok_or_else(|| interpreter.attribute_error(result.clone(), Dunder::Dict.as_ref()))?
+            .as_dict_or_disrupt(interpreter)?
             .borrow()
             .has(
                 interpreter.clone(),
                 &ExprResult::String(Str::new(name.to_owned())),
             )
         {
-            return Err(TreewalkDisruption::Error(InterpreterError::AttributeError(
-                result.get_class(interpreter).borrow().name().to_string(),
-                name.to_string(),
-                interpreter.state.call_stack(),
-            )));
+            return Err(interpreter.attribute_error(result, name));
         }
 
         log(LogLevel::Debug, || {
@@ -321,10 +310,7 @@ impl Callable for NewBuiltin {
     ) -> TreewalkResult<ExprResult> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
-        let class = args.get_arg(0).as_class().ok_or(TreewalkDisruption::Error(
-            InterpreterError::ExpectedClass(interpreter.state.call_stack()),
-        ))?;
-
+        let class = args.get_arg(0).as_class_or_disrupt(interpreter)?;
         Ok(ExprResult::Object(Object::new_object_base(class)?))
     }
 
@@ -361,12 +347,7 @@ impl Callable for EqBuiltin {
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 1, interpreter.state.call_stack())?;
 
-        let a =
-            args.get_self()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
-                    interpreter.state.call_stack(),
-                )))?;
-
+        let a = args.get_self_or_disrupt(interpreter)?;
         let b = args.get_arg(0);
 
         Ok(ExprResult::Boolean(a == b))
@@ -386,13 +367,7 @@ impl Callable for HashBuiltin {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-
-        let object =
-            args.get_self()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
-                    interpreter.state.call_stack(),
-                )))?;
-
+        let object = args.get_self_or_disrupt(interpreter)?;
         Ok(ExprResult::Integer(object.hash() as i64))
     }
 
@@ -411,11 +386,7 @@ impl Callable for NeBuiltin {
         interpreter: &Interpreter,
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
-        let receiver =
-            args.get_self()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
-                    interpreter.state.call_stack(),
-                )))?;
+        let receiver = args.get_self_or_disrupt(interpreter)?;
         let result =
             interpreter.invoke_method(receiver, Dunder::Eq, &resolved_args![args.get_arg(0)])?;
 
@@ -454,14 +425,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
-            Some(i) => i
-                .as_object()
-                .ok_or(TreewalkDisruption::Error(InterpreterError::ExpectedObject(
-                    interpreter.state.call_stack(),
-                )))?
-                .borrow()
-                .scope
-                .clone(),
+            Some(i) => i.as_object_or_disrupt(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(ExprResult::Dict(scope.as_dict(interpreter)))
