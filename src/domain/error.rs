@@ -1,7 +1,5 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::core::{log, LogLevel};
-
 use super::DebugCallStack;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -36,29 +34,13 @@ impl ExecutionError {
             return true;
         }
 
-        for clause_literal in handled_exception_types {
-            // Any types match against Exception, which is considered the parent literal
-            if clause_literal == &ExceptionLiteral::Exception {
-                return true;
-            }
-
-            let found_literal: Result<ExceptionLiteral, _> = self.clone().try_into();
-
-            match &found_literal {
-                Ok(found_literal) => {
-                    // if we found a matching type, we're good to return, but not finding a match
-                    // means we should keep looking.
-                    if found_literal == clause_literal {
-                        return true;
-                    }
-                }
-                Err(_) => log(LogLevel::Warn, || {
-                    format!("Unmatched exception type!\n{}", self)
-                }),
-            }
+        if let Ok(literal) = self.try_into() {
+            // Always match `Exception`
+            handled_exception_types.contains(&ExceptionLiteral::Exception)
+                || handled_exception_types.contains(&literal)
+        } else {
+            false
         }
-
-        false
     }
 }
 
@@ -152,10 +134,10 @@ impl From<String> for ExceptionLiteral {
     }
 }
 
-impl TryFrom<ExecutionError> for ExceptionLiteral {
+impl TryFrom<&ExecutionError> for ExceptionLiteral {
     type Error = ();
 
-    fn try_from(value: ExecutionError) -> Result<Self, Self::Error> {
+    fn try_from(value: &ExecutionError) -> Result<Self, Self::Error> {
         match value.execution_error_kind {
             ExecutionErrorKind::DivisionByZero(..) => Ok(Self::ZeroDivisionError),
             ExecutionErrorKind::ImportError(..) => Ok(Self::ImportError),
