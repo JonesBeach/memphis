@@ -1,21 +1,12 @@
 use memphis::{
     crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter},
-    domain::{ExecutionError, ExecutionErrorKind},
+    domain::test_utils,
     MemphisError,
 };
 
 // TODO This proc macro is working, but I should really add tests in its own crate before too long.
 // #[crosscheck::test]
 // fn test_function_call(mut adapter: Adapter) {
-
-fn assert_name_error(e: &ExecutionError, expected_name: &str) {
-    match &e.execution_error_kind {
-        ExecutionErrorKind::NameError(name) => {
-            assert_eq!(name, expected_name, "Unexpected NameError message");
-        }
-        _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
-    }
-}
 
 fn run_test<T: InterpreterTest>(mut adapter: T) {
     let input = r#"
@@ -49,7 +40,7 @@ middle_call()
 
     match adapter.evaluate(input) {
         Err(MemphisError::Execution(e)) => {
-            assert_name_error(&e, "unknown");
+            test_utils::assert_name_error(&e, "unknown");
             assert_eq!(e.debug_call_stack.len(), 3);
             assert_eq!(e.debug_call_stack.get(0).name(), "__main__");
             assert_eq!(e.debug_call_stack.get(0).file_path_str(), "");
