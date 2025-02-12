@@ -11,8 +11,7 @@ use crate::{
         Opcode,
     },
     core::{log, log_impure, LogLevel},
-    domain::{DebugCallStack, Dunder, ToDebugStackFrame},
-    ExecutionError, ExecutionErrorKind,
+    domain::{DebugCallStack, Dunder, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
 };
 
 mod frame;

@@ -6,9 +6,9 @@ use std::{
 };
 
 use crate::{
-    domain::Dunder,
+    domain::{Dunder, ExceptionLiteral},
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    types::errors::{ExecutionError, ExecutionErrorKind, ParserError},
+    types::errors::ParserError,
 };
 
 use super::Parser;
@@ -431,51 +431,6 @@ impl Hash for Expr {
     where
         H: Hasher,
     {
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExceptionLiteral {
-    Exception,
-    ZeroDivisionError,
-    IOError,
-    ImportError,
-    StopIteration,
-    TypeError,
-    AttributeError,
-    NameError,
-    Custom(String),
-}
-
-impl From<String> for ExceptionLiteral {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "ZeroDivisionError" => ExceptionLiteral::ZeroDivisionError,
-            "Exception" => ExceptionLiteral::Exception,
-            "IOError" => ExceptionLiteral::IOError,
-            "ImportError" => ExceptionLiteral::ImportError,
-            "StopIteration" => ExceptionLiteral::StopIteration,
-            "TypeError" => ExceptionLiteral::TypeError,
-            "AttributeError" => ExceptionLiteral::AttributeError,
-            "NameError" => ExceptionLiteral::NameError,
-            // TODO we don't handle ExceptionLiteral::Custom in the interpreter yet
-            _ => ExceptionLiteral::Custom(value.to_owned()),
-        }
-    }
-}
-
-impl TryFrom<ExecutionError> for ExceptionLiteral {
-    type Error = ();
-
-    fn try_from(value: ExecutionError) -> Result<Self, Self::Error> {
-        match value.execution_error_kind {
-            ExecutionErrorKind::DivisionByZero(..) => Ok(ExceptionLiteral::ZeroDivisionError),
-            ExecutionErrorKind::ImportError(..) => Ok(ExceptionLiteral::ImportError),
-            ExecutionErrorKind::TypeError(..) => Ok(ExceptionLiteral::TypeError),
-            ExecutionErrorKind::AttributeError(..) => Ok(ExceptionLiteral::AttributeError),
-            ExecutionErrorKind::NameError(..) => Ok(ExceptionLiteral::NameError),
-            _ => Err(()),
-        }
     }
 }
 

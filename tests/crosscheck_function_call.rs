@@ -1,6 +1,7 @@
 use memphis::{
     crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter},
-    ExecutionError, ExecutionErrorKind, MemphisError,
+    domain::{ExecutionError, ExecutionErrorKind},
+    MemphisError,
 };
 
 // TODO This proc macro is working, but I should really add tests in its own crate before too long.

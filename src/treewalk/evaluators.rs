@@ -1,5 +1,5 @@
+use crate::domain::ExecutionErrorKind;
 use crate::treewalk::interpreter::TreewalkResult;
-use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::Container,
     parser::types::{BinOp, LogicalOp, UnaryOp},

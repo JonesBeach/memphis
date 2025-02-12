@@ -84,14 +84,19 @@ impl DebugCallStack {
     /// Retrieves a specific stack frame by its index.
     ///
     /// # Panics
-    /// Panics if the index is out of bounds. This method is available only during tests.
+    /// Panics if the index is out of bounds.
     pub fn get(&self, index: usize) -> &DebugStackFrame {
         self.frames.get(index).expect("Index out of bounds!")
     }
 
-    /// Returns the number of frames in the call stack. This method is available only during tests.
+    /// Returns the number of frames in the call stack.
     pub fn len(&self) -> usize {
         self.frames.len()
+    }
+
+    /// Return true if the number of frames in the call stack is 0, false otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

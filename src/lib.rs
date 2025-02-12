@@ -1,7 +1,7 @@
 mod bytecode_vm;
 mod core;
 pub mod crosscheck_utils;
-mod domain;
+pub mod domain;
 pub mod init;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
@@ -11,7 +11,7 @@ mod treewalk;
 mod types;
 
 // We need these public for crosscheck
-pub use types::errors::{ExecutionError, ExecutionErrorKind, MemphisError};
+pub use types::errors::MemphisError;
 
 #[derive(PartialEq)]
 pub enum Engine {

@@ -6,13 +6,14 @@ pub mod types;
 use crate::{
     ast,
     core::{log, Container, LogLevel},
+    domain::ExceptionLiteral,
     lexer::types::Token,
     parser::types::{
         Alias, Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
-        ExceptionInstance, ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause,
-        FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex,
-        ParsedArgDefinition, ParsedArgDefinitions, ParsedArgument, ParsedArguments,
-        ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
+        ExceptionInstance, Expr, ExprFormat, FStringPart, ForClause, FormatOption, ImportPath,
+        ImportedItem, KwargsOperation, LogicalOp, LoopIndex, ParsedArgDefinition,
+        ParsedArgDefinitions, ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport,
+        Statement, TypeNode, UnaryOp, Variable,
     },
     treewalk::State,
     types::errors::ParserError,

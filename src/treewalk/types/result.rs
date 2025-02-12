@@ -8,9 +8,8 @@ use std::{
 use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
-    domain::Dunder,
+    domain::{Dunder, ExecutionError},
     treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
-    types::errors::ExecutionError,
 };
 
 use super::{

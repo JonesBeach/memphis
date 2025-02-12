@@ -1,4 +1,4 @@
-use crate::{treewalk::interpreter::TreewalkDisruption, types::errors::ExecutionErrorKind};
+use crate::treewalk::interpreter::TreewalkDisruption;
 use std::{
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -7,10 +7,10 @@ use std::{
 
 use crate::{
     core::InterpreterEntrypoint,
-    domain::Dunder,
+    domain::{Dunder, ExecutionError, ExecutionErrorKind},
     resolved_args,
     treewalk::{types::ExprResult, Interpreter},
-    types::errors::{ExecutionError, MemphisError},
+    types::errors::MemphisError,
 };
 
 use super::ResolvedArguments;

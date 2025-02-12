@@ -1,5 +1,6 @@
 use crate::{
     core::Container,
+    domain::ExecutionErrorKind,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement},
     treewalk::{
         interpreter::{TreewalkDisruption, TreewalkResult},
@@ -9,7 +10,6 @@ use crate::{
         },
         Interpreter, Scope, State,
     },
-    types::errors::ExecutionErrorKind,
 };
 
 pub struct Generator {

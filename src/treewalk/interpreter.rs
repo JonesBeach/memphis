@@ -4,16 +4,15 @@ use std::fmt::Write;
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
 use super::{evaluators, Scope, State};
-use crate::types::errors::ExecutionErrorKind;
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
-    domain::{Dunder, ToDebugStackFrame},
+    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
     parser::{
         types::{
             Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
-            ExceptionInstance, ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath,
-            ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinitions, ParsedArguments,
-            ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
+            ExceptionInstance, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
+            LoopIndex, ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport,
+            Statement, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -26,7 +25,7 @@ use crate::{
         Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
         Tuple,
     },
-    types::errors::{ExecutionError, MemphisError},
+    types::errors::MemphisError,
 };
 
 #[derive(Debug, PartialEq, Clone)]

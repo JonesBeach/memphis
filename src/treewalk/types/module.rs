@@ -6,13 +6,14 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::ExecutionErrorKind,
     init::MemphisContext,
     parser::types::ImportPath,
     treewalk::{
         interpreter::{TreewalkDisruption, TreewalkResult},
         Interpreter, ModuleSource, Scope,
     },
-    types::errors::{ExecutionErrorKind, MemphisError},
+    types::errors::MemphisError,
 };
 
 use super::{domain::traits::MemberReader, Dict, ExprResult};
