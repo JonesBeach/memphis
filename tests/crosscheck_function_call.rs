@@ -43,14 +43,14 @@ middle_call()
             test_utils::assert_name_error(&e, "unknown");
             assert_eq!(e.debug_call_stack.len(), 3);
             assert_eq!(e.debug_call_stack.get(0).name(), "__main__");
-            assert_eq!(e.debug_call_stack.get(0).file_path_str(), "");
-            assert_eq!(e.debug_call_stack.get(0).line_number(), 0);
+            assert_eq!(e.debug_call_stack.get(0).file_path_str(), "<stdin>");
+            assert_eq!(e.debug_call_stack.get(0).line_number(), 8);
             assert_eq!(e.debug_call_stack.get(1).name(), "middle_call");
-            assert_eq!(e.debug_call_stack.get(1).file_path_str(), "");
-            assert_eq!(e.debug_call_stack.get(1).line_number(), 0);
+            assert_eq!(e.debug_call_stack.get(1).file_path_str(), "<stdin>");
+            assert_eq!(e.debug_call_stack.get(1).line_number(), 3);
             assert_eq!(e.debug_call_stack.get(2).name(), "last_call");
-            assert_eq!(e.debug_call_stack.get(2).file_path_str(), "");
-            assert_eq!(e.debug_call_stack.get(2).line_number(), 0);
+            assert_eq!(e.debug_call_stack.get(2).file_path_str(), "<stdin>");
+            assert_eq!(e.debug_call_stack.get(2).line_number(), 6);
         }
         _ => panic!("Expected an exception!"),
     }
