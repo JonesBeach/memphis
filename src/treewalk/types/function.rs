@@ -164,16 +164,19 @@ impl Function {
     }
 
     fn get_closure(&self) -> ExprResult {
+        let free_vars = self.closure.free_vars();
+
+        if free_vars.is_empty() {
+            return ExprResult::None;
+        }
+
         let mut items = vec![];
-        for key in self.closure.get_free_vars() {
+        for key in free_vars {
             let value = self.captured_env.borrow().read(key.as_str()).unwrap();
             items.push(ExprResult::Cell(Container::new(Cell::new(value))));
         }
 
-        match items.is_empty() {
-            true => ExprResult::None,
-            false => ExprResult::Tuple(Tuple::new(items)),
-        }
+        ExprResult::Tuple(Tuple::new(items))
     }
 }
 

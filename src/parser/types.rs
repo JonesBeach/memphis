@@ -220,8 +220,8 @@ impl Closure {
         Self { free_vars }
     }
 
-    pub fn get_free_vars(&self) -> Vec<Variable> {
-        self.free_vars.clone()
+    pub fn free_vars(&self) -> &[Variable] {
+        self.free_vars.as_ref()
     }
 }
 
