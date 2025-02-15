@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame},
+    domain::{DebugCallStack, DebugStackFrame, ToDebugStackFrame},
     parser::types::{ImportPath, LoopIndex},
     treewalk::{
         types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
@@ -32,6 +32,7 @@ impl Default for State {
 
 impl State {
     pub fn new(module_source: ModuleSource) -> Self {
+        let stack_frame = module_source.to_stack_frame();
         let type_registry = TypeRegistry::new();
         let mut scope_manager = ScopeManager::new(module_source);
 
@@ -42,7 +43,7 @@ impl State {
         State {
             scope_manager,
             module_loader: ModuleLoader::new(),
-            call_stack: DebugCallStack::new(),
+            call_stack: DebugCallStack::new(stack_frame),
             executor: Container::new(Executor::new()),
             type_registry,
             execution_context: ExecutionContextManager::new(),
@@ -122,16 +123,16 @@ impl Container<State> {
         self.borrow_mut().scope_manager.pop_local()
     }
 
-    pub fn push_context(&self, stack_frame: DebugStackFrame) {
-        self.borrow_mut().call_stack.push_context(stack_frame);
+    pub fn push_stack_frame(&self, stack_frame: DebugStackFrame) {
+        self.borrow_mut().call_stack.push_stack_frame(stack_frame);
     }
 
     pub fn set_line(&self, line: usize) {
         self.borrow_mut().call_stack.set_line(line);
     }
 
-    pub fn pop_context(&self) -> Option<DebugStackFrame> {
-        self.borrow_mut().call_stack.pop_context()
+    pub fn pop_stack_frame(&self) -> Option<DebugStackFrame> {
+        self.borrow_mut().call_stack.pop_stack_frame()
     }
 
     pub fn push_module(&self, module: Container<Module>) {

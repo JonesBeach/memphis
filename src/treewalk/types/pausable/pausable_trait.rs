@@ -66,13 +66,13 @@ pub trait Pausable {
         interpreter.state.push_local(self.scope());
         interpreter
             .state
-            .push_context(self.function().borrow().to_stack_frame());
+            .push_stack_frame(self.function().borrow().to_stack_frame());
     }
 
     /// The default behavior required to perform the necessary context switching when exiting a
     /// pausable function.
     fn on_exit(&self, interpreter: &Interpreter) {
-        interpreter.state.pop_context();
+        interpreter.state.pop_stack_frame();
         if let Some(scope) = interpreter.state.pop_local() {
             self.set_scope(scope);
         }

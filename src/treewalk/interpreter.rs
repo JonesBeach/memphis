@@ -176,7 +176,7 @@ impl Interpreter {
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
         self.state
-            .push_context(function.borrow().clone().to_stack_frame());
+            .push_stack_frame(function.borrow().clone().to_stack_frame());
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things
@@ -188,7 +188,7 @@ impl Interpreter {
             result,
             Ok(_) | Err(TreewalkDisruption::Signal(TreewalkSignal::Return(_)))
         ) {
-            self.state.pop_context();
+            self.state.pop_stack_frame();
             self.state.pop_function();
             self.state.pop_local();
             self.state.pop_captured_env();

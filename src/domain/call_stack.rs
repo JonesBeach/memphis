@@ -32,23 +32,25 @@ pub struct DebugCallStack {
 impl Default for DebugCallStack {
     /// Provides a default, empty call stack.
     fn default() -> Self {
-        Self::new()
+        Self { frames: vec![] }
     }
 }
 
 impl DebugCallStack {
     /// Creates a new, empty call stack.
-    pub fn new() -> Self {
-        Self { frames: vec![] }
+    pub fn new(debug_stack_frame: DebugStackFrame) -> Self {
+        Self {
+            frames: vec![debug_stack_frame],
+        }
     }
 
     /// Adds a new stack frame to the top of the call stack.
-    pub fn push_context(&mut self, stack_frame: DebugStackFrame) {
+    pub fn push_stack_frame(&mut self, stack_frame: DebugStackFrame) {
         self.frames.push(stack_frame);
     }
 
     /// Removes and returns the top stack frame from the call stack.
-    pub fn pop_context(&mut self) -> Option<DebugStackFrame> {
+    pub fn pop_stack_frame(&mut self) -> Option<DebugStackFrame> {
         self.frames.pop()
     }
 

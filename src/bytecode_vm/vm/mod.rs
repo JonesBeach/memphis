@@ -193,13 +193,13 @@ impl VirtualMachine {
     /// new frame.
     fn enter_context(&mut self, frame: Frame) {
         self.debug_call_stack
-            .push_context(frame.function.to_stack_frame());
+            .push_stack_frame(frame.function.to_stack_frame());
 
         self.call_stack.push(frame);
     }
 
     fn exit_context(&mut self) -> Frame {
-        self.debug_call_stack.pop_context();
+        self.debug_call_stack.pop_stack_frame();
         self.call_stack.pop().expect("Empty call stack!")
     }
 

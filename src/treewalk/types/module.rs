@@ -45,19 +45,19 @@ impl Module {
         // Fetch the call stack separately so we don't produce a mutable borrow error in the
         // next statement.
         let call_stack = interpreter.state.call_stack();
-        let loaded_module = interpreter
+        let module_source = interpreter
             .state
             .load_module(import_path, call_stack.current_path())
             .ok_or_else(|| interpreter.import_error(import_path.as_str()))?;
 
         let mut context = MemphisContext::from_module_with_state(
-            loaded_module.clone(),
+            module_source.clone(),
             Some(interpreter.state.clone()),
         );
 
         interpreter
             .state
-            .push_module(Container::new(Module::new(loaded_module, Scope::default())));
+            .push_module(Container::new(Module::new(module_source, Scope::default())));
         match context.run() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
@@ -68,7 +68,7 @@ impl Module {
             _ => unreachable!(),
         };
 
-        interpreter.state.pop_context();
+        let _ = interpreter.state.pop_stack_frame();
         let module = interpreter
             .state
             .pop_module()

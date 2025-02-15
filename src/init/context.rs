@@ -56,8 +56,6 @@ impl MemphisContext {
     ) -> Self {
         let mut context = Self::with_state(module_source.clone(), state);
         context.init_lexer(module_source.text());
-
-        context.state.push_context(module_source.to_stack_frame());
         context
     }
 
@@ -148,6 +146,11 @@ impl MemphisContext {
     /// This is the base constructor but it isn't public because there are other entry points for
     /// that.
     fn with_state(module_source: ModuleSource, state: Option<Container<State>>) -> Self {
+        // TODO this is messy. if we're given a initial state to use, we must ensure it
+        // has its call stack initialized
+        if let Some(ref state) = state {
+            state.push_stack_frame(module_source.to_stack_frame());
+        }
         Self {
             state: state.unwrap_or_else(|| Container::new(State::new(module_source))),
             lexer: None,
