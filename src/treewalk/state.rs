@@ -26,14 +26,14 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
-        Self::new()
+        Self::new(ModuleSource::default())
     }
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(module_source: ModuleSource) -> Self {
         let type_registry = TypeRegistry::new();
-        let mut scope_manager = ScopeManager::new();
+        let mut scope_manager = ScopeManager::new(module_source);
 
         // We still want the `TypeRegistry` to own the type classes, but we must make some of them
         // available in the builtin scope before execution begins.

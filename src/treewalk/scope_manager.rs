@@ -96,11 +96,11 @@ pub struct ScopeManager {
 }
 
 impl ScopeManager {
-    pub fn new() -> Self {
+    pub fn new(module_source: ModuleSource) -> Self {
         ScopeManager {
             local_scope_stack: vec![Container::new(Scope::default())],
             captured_env_stack: vec![],
-            module_stack: vec![Container::new(Module::default())],
+            module_stack: vec![Container::new(Module::new(module_source, Scope::default()))],
             builtin_scope: init_builtin_scope(),
             context_stack: vec![Context::Global],
         }

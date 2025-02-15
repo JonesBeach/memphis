@@ -2918,7 +2918,7 @@ foo = Foo()
         let foo = Class::new_base("Foo".to_string(), vec![], None, Scope::default());
         symbol_table.insert("Foo", ExprResult::Class(foo));
 
-        let state = Container::new(State::new());
+        let state = Container::new(State::default());
         state.push_local(Container::new(symbol_table));
 
         let context = init_state(input, state);
@@ -2943,7 +2943,7 @@ foo = Foo()
         let foo = Class::new_base("Foo".to_string(), vec![], None, Scope::default());
         symbol_table.insert("Foo", ExprResult::Class(foo));
 
-        let state = Container::new(State::new());
+        let state = Container::new(State::default());
         state.push_local(Container::new(symbol_table));
 
         let input = r#"

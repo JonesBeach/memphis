@@ -40,7 +40,7 @@ pub enum FunctionType {
 #[derive(Clone)]
 pub struct Code;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Function {
     pub name: String,
     pub args: ParsedArgDefinitions,

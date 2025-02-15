@@ -24,7 +24,7 @@ pub struct MemphisContext {
 
 impl Default for MemphisContext {
     fn default() -> Self {
-        Self::with_state(None)
+        Self::with_state(ModuleSource::default(), None)
     }
 }
 
@@ -33,14 +33,14 @@ impl MemphisContext {
     where
         P: AsRef<Path> + Display,
     {
-        let module =
+        let module_source =
             ModuleLoader::load_module_source(DEFAULT_MODULE, filepath.as_ref().to_path_buf())
                 .unwrap_or_else(|| {
                     eprintln!("Error reading file: {}", filepath);
                     process::exit(1);
                 });
 
-        let context = Self::from_module_with_state(module, state);
+        let context = Self::from_module_with_state(module_source, state);
         context.state.register_root(filepath.as_ref().to_path_buf());
         context
     }
@@ -50,11 +50,14 @@ impl MemphisContext {
         Self::from_module_with_state(module, state)
     }
 
-    pub fn from_module_with_state(module: ModuleSource, state: Option<Container<State>>) -> Self {
-        let mut context = Self::with_state(state);
-        context.init_lexer(module.text());
+    pub fn from_module_with_state(
+        module_source: ModuleSource,
+        state: Option<Container<State>>,
+    ) -> Self {
+        let mut context = Self::with_state(module_source.clone(), state);
+        context.init_lexer(module_source.text());
 
-        context.state.push_context(module.to_stack_frame());
+        context.state.push_context(module_source.to_stack_frame());
         context
     }
 
@@ -144,9 +147,9 @@ impl MemphisContext {
 
     /// This is the base constructor but it isn't public because there are other entry points for
     /// that.
-    fn with_state(state: Option<Container<State>>) -> Self {
+    fn with_state(module_source: ModuleSource, state: Option<Container<State>>) -> Self {
         Self {
-            state: state.unwrap_or_else(|| Container::new(State::default())),
+            state: state.unwrap_or_else(|| Container::new(State::new(module_source))),
             lexer: None,
             interpreter: None,
             vm_interpreter: None,

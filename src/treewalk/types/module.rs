@@ -21,7 +21,7 @@ use super::{domain::traits::MemberReader, Dict, ExprResult};
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
     scope: Scope,
-    loaded_module: ModuleSource,
+    module_source: ModuleSource,
 }
 
 impl Module {
@@ -77,19 +77,19 @@ impl Module {
         Ok(module)
     }
 
-    pub fn new(loaded_module: ModuleSource, scope: Scope) -> Self {
+    pub fn new(module_source: ModuleSource, scope: Scope) -> Self {
         Self {
-            loaded_module,
+            module_source,
             scope,
         }
     }
 
     pub fn path(&self) -> &Path {
-        self.loaded_module.path()
+        self.module_source.path()
     }
 
     pub fn name(&self) -> &str {
-        self.loaded_module.name()
+        self.module_source.name()
     }
 
     pub fn get(&self, name: &str) -> Option<ExprResult> {

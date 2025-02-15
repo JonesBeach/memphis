@@ -2424,8 +2424,6 @@ j = +(-3)
                 let call_stack = context.ensure_treewalk().state.call_stack();
                 test_utils::assert_name_error(&e, "unknown");
 
-                dbg!(&call_stack);
-
                 assert_eq!(call_stack.len(), 3);
                 assert_eq!(call_stack.get(0).name(), "<module>");
                 assert_eq!(call_stack.get(1).name(), "middle_call");
