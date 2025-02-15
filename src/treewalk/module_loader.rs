@@ -143,11 +143,14 @@ impl ModuleLoader {
     }
 
     pub fn load_module_source(name: &str, filepath: PathBuf) -> Option<ModuleSource> {
-        if let Ok(text) = fs::read_to_string(filepath.clone()) {
+        // Ensure filepath is absolute, but fall back to the original if it fails
+        let absolute_path = filepath.canonicalize().unwrap_or_else(|_| filepath.clone());
+
+        if let Ok(text) = fs::read_to_string(&absolute_path) {
             log(LogLevel::Debug, || {
-                format!("Loading: {}", filepath.display())
+                format!("Loading: {}", absolute_path.display())
             });
-            Some(ModuleSource::new(name, filepath, &text))
+            Some(ModuleSource::new(name, absolute_path, &text))
         } else {
             None
         }
