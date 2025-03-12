@@ -1,8 +1,7 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -61,10 +60,8 @@ impl IndexRead for Tuple {
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
-        let i = index.as_integer().ok_or(InterpreterError::ExpectedInteger(
-            interpreter.state.call_stack(),
-        ))?;
+    ) -> TreewalkResult<Option<ExprResult>> {
+        let i = index.expect_integer(interpreter)?;
         Ok(self.get_item(i as usize))
     }
 }
@@ -74,6 +71,7 @@ impl From<Container<Set>> for Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<ExprResult> = set.into_iter().collect();
         let mut items: Vec<ExprResult> = set.borrow().items.clone().into_iter().collect();
+        // TODO remove unwrap
         items.sort_by_key(|x| x.as_integer().unwrap());
         Tuple::new(items)
     }
@@ -117,15 +115,9 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
-        let tuple = args
-            .get_arg(1)
-            .as_tuple()
-            .ok_or(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            ))?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
+        let tuple = args.get_arg(1).expect_tuple(interpreter)?;
         Ok(ExprResult::Tuple(tuple))
     }
 

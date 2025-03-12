@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Display, Error, Formatter},
-    path::PathBuf,
-};
+use std::fmt::{Debug, Display, Error, Formatter};
 
 use super::DebugStackFrame;
 
@@ -23,7 +20,7 @@ use super::DebugStackFrame;
 /// ```
 ///
 /// Events in a call stack can include module imports, function calls, and errors.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct DebugCallStack {
     /// A vector of stack frames representing the call history.
     frames: Vec<DebugStackFrame>,
@@ -37,63 +34,44 @@ impl Default for DebugCallStack {
 }
 
 impl DebugCallStack {
-    /// Creates a new, empty call stack.
+    /// Initializes an empty call stack.
     pub fn new() -> Self {
         Self { frames: vec![] }
     }
 
     /// Adds a new stack frame to the top of the call stack.
-    pub fn push_context(&mut self, stack_frame: DebugStackFrame) {
+    pub fn push_stack_frame(&mut self, stack_frame: DebugStackFrame) {
         self.frames.push(stack_frame);
     }
 
     /// Removes and returns the top stack frame from the call stack.
-    pub fn pop_context(&mut self) -> Option<DebugStackFrame> {
+    pub fn pop_stack_frame(&mut self) -> Option<DebugStackFrame> {
         self.frames.pop()
     }
 
-    /// Updates the line number of the top stack frame.
-    ///
-    /// # Panics
-    /// Panics if the call stack is empty.
-    pub fn set_line(&mut self, line: usize) {
+    pub fn update_line_number(&mut self, line_number: usize) {
         self.frames
             .last_mut()
-            .expect("No stack frame! Did you properly set the state?")
-            .set_line_number(line);
-    }
-
-    /// Retrieves the line number of the top stack frame.
-    ///
-    /// # Panics
-    /// Panics if the call stack is empty.
-    pub fn line_number(&self) -> usize {
-        self.frames.last().expect("No stack frame!").line_number()
-    }
-
-    /// Retrieves the file path of the top stack frame.
-    ///
-    /// This is useful for relative imports or locating the current execution context.
-    ///
-    /// # Panics
-    /// Panics if the call stack is empty.
-    pub fn current_path(&self) -> &PathBuf {
-        self.frames.last().expect("No stack frame!").file_path()
+            .expect("Empty call stack!")
+            .update_line_number(line_number);
     }
 
     /// Retrieves a specific stack frame by its index.
     ///
     /// # Panics
-    /// Panics if the index is out of bounds. This method is available only during tests.
-    #[cfg(test)]
+    /// Panics if the index is out of bounds.
     pub fn get(&self, index: usize) -> &DebugStackFrame {
         self.frames.get(index).expect("Index out of bounds!")
     }
 
-    /// Returns the number of frames in the call stack. This method is available only during tests.
-    #[cfg(test)]
+    /// Returns the number of frames in the call stack.
     pub fn len(&self) -> usize {
         self.frames.len()
+    }
+
+    /// Return true if the number of frames in the call stack is 0, false otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -112,5 +90,11 @@ impl Display for DebugCallStack {
             writeln!(f, "  {}", frame)?;
         }
         Ok(())
+    }
+}
+
+impl Debug for DebugCallStack {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self, f)
     }
 }

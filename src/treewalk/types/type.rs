@@ -1,8 +1,8 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
     domain::Dunder,
     treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
 };
 
 use super::{
@@ -49,7 +49,7 @@ impl NonDataDescriptor for DictAttribute {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
             Some(instance) => instance.as_class().unwrap().borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
@@ -71,7 +71,7 @@ impl NonDataDescriptor for MroAttribute {
         _interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let mro = match instance {
             Some(instance) => instance
                 .as_class()
@@ -98,31 +98,18 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }
-        utils::validate_args(&args, 4, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 4, interpreter)?;
 
-        let mcls = args
-            .get_arg(0)
-            .as_class()
-            .ok_or(InterpreterError::ExpectedClass(
-                interpreter.state.call_stack(),
-            ))?;
-        let name = args
-            .get_arg(1)
-            .as_string()
-            .ok_or(InterpreterError::ExpectedString(
-                interpreter.state.call_stack(),
-            ))?;
+        let mcls = args.get_arg(0).expect_class(interpreter)?;
+        let name = args.get_arg(1).expect_string(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)
-            .as_tuple()
-            .ok_or(InterpreterError::ExpectedTuple(
-                interpreter.state.call_stack(),
-            ))?
+            .expect_tuple(interpreter)?
             .into_iter()
             .map(|c| c.as_class().unwrap())
             .collect::<Vec<Container<Class>>>();
@@ -133,15 +120,10 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let namespace =
-            args.get_arg(3)
-                .as_dict(interpreter)
-                .ok_or(InterpreterError::ExpectedDict(
-                    interpreter.state.call_stack(),
-                ))?;
+        let namespace = args.get_arg(3).expect_dict(interpreter)?;
 
         let scope = Scope::try_from(namespace.clone().borrow().clone())
-            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
 
         Ok(ExprResult::Class(Class::new_base(
             name,

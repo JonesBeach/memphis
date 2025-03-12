@@ -1,9 +1,10 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     fmt::{Display, Error, Formatter},
     ops::Deref,
 };
 
-use crate::{treewalk::Interpreter, types::errors::InterpreterError};
+use crate::treewalk::Interpreter;
 
 use super::{
     domain::{
@@ -65,7 +66,7 @@ impl IndexRead for Str {
         &self,
         _interpreter: &Interpreter,
         key: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Ok(match key {
             ExprResult::Integer(i) => self
                 .0
@@ -87,7 +88,7 @@ impl Callable for JoinBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 
@@ -103,7 +104,7 @@ impl Callable for MaketransBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 

@@ -1,6 +1,5 @@
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -40,12 +39,10 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
         let function = args.get_arg(1);
-
         Ok(ExprResult::Staticmethod(Staticmethod::new(Box::new(
             function,
         ))))
@@ -62,7 +59,7 @@ impl NonDataDescriptor for Staticmethod {
         _interpreter: &Interpreter,
         _instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(*self.0.clone())
     }
 

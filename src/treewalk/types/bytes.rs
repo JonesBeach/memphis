@@ -1,5 +1,7 @@
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{domain::Dunder, treewalk::Interpreter};
 
+use super::domain::builtins::utils;
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
@@ -32,25 +34,24 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        match args.len() {
-            1 => Ok(ExprResult::Bytes("".into())),
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+
+        let bytes = match args.len() {
+            1 => "".into(),
             2 => match args.get_arg(1) {
-                ExprResult::String(_) => Err(InterpreterError::TypeError(
-                    Some("string argument without an encoding".into()),
-                    interpreter.state.call_stack(),
-                )),
-                ExprResult::Bytes(s) => Ok(ExprResult::Bytes(s)),
+                ExprResult::Bytes(b) => b,
+                ExprResult::String(_) => {
+                    return Err(interpreter.type_error("string argument without an encoding"));
+                }
                 _ => todo!(),
             },
             // TODO support an optional encoding
             3 => todo!(),
-            _ => Err(InterpreterError::WrongNumberOfArguments(
-                args.len(),
-                1,
-                interpreter.state.call_stack(),
-            )),
-        }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Bytes(bytes))
     }
 
     fn name(&self) -> String {

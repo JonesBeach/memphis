@@ -1,4 +1,4 @@
-use std::{fmt::Display, process};
+use std::fmt::Display;
 
 mod container;
 mod log;
@@ -20,11 +20,17 @@ pub trait InterpreterEntrypoint {
 
     /// The primary interpreter entrypoint which is provided an AST in the form of the `Parser`.
     fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError>;
+}
+
+pub mod memphis_utils {
+    use std::process;
+
+    use crate::MemphisError;
 
     /// The primary exit point from the interpreter. This should be used sparingly: either at the
     /// top level of the `Memphis` runtime or inline in select cases where a hard interface
     /// constraits the caller from propagating an error upwards.
-    fn handle_runtime_error(&self, err: MemphisError) -> ! {
+    pub fn exit(err: MemphisError) -> ! {
         eprintln!("{}", err);
         process::exit(1);
     }

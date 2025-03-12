@@ -4,8 +4,7 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
     resolved_args,
-    treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
+    treewalk::{interpreter::TreewalkResult, Interpreter, Scope},
 };
 
 use super::{
@@ -61,7 +60,7 @@ impl DataDescriptorProvider for Object {
 impl Object {
     /// Create the object with an empty symbol table. This is also called by the [`Dunder::New`]
     /// for [`Type::Object`] builtin.
-    fn new_object_base(class: Container<Class>) -> Result<Container<Object>, InterpreterError> {
+    fn new_object_base(class: Container<Class>) -> TreewalkResult<Container<Object>> {
         Ok(Container::new(Self {
             class,
             scope: Scope::default(),
@@ -75,7 +74,7 @@ impl IndexWrite for Container<Object> {
         interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::SetItem,
@@ -85,11 +84,7 @@ impl IndexWrite for Container<Object> {
         Ok(())
     }
 
-    fn delitem(
-        &mut self,
-        interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
         let _ = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::DelItem,
@@ -105,7 +100,7 @@ impl IndexRead for Container<Object> {
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         let result = interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::GetItem,
@@ -123,7 +118,7 @@ impl MemberReader for Container<Object> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}.{}", self, name)
         });
@@ -168,7 +163,7 @@ impl MemberWriter for Container<Object> {
         interpreter: &Interpreter,
         name: &str,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         if let Some(attr) = self.borrow().class.get_from_class(name) {
             log(LogLevel::Debug, || {
                 format!(
@@ -194,11 +189,7 @@ impl MemberWriter for Container<Object> {
         Ok(())
     }
 
-    fn delete_member(
-        &mut self,
-        interpreter: &Interpreter,
-        name: &str,
-    ) -> Result<(), InterpreterError> {
+    fn delete_member(&mut self, interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
         if let Some(attr) = self.borrow().class.get_from_class(name) {
             log(LogLevel::Debug, || {
                 format!(
@@ -222,26 +213,15 @@ impl MemberWriter for Container<Object> {
         if !result
             .as_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
-            .ok_or(InterpreterError::AttributeError(
-                result.get_type().to_string(),
-                name.to_string(),
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
+            .ok_or_else(|| interpreter.attribute_error(result.clone(), Dunder::Dict.as_ref()))?
+            .expect_dict(interpreter)?
             .borrow()
             .has(
                 interpreter.clone(),
                 &ExprResult::String(Str::new(name.to_owned())),
             )
         {
-            return Err(InterpreterError::AttributeError(
-                result.get_class(interpreter).borrow().name().to_string(),
-                name.to_string(),
-                interpreter.state.call_stack(),
-            ));
+            return Err(interpreter.attribute_error(result, name));
         }
 
         log(LogLevel::Debug, || {
@@ -259,7 +239,7 @@ impl NonDataDescriptor for Container<Object> {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::Get,
@@ -284,7 +264,7 @@ impl DataDescriptor for Container<Object> {
         interpreter: &Interpreter,
         instance: ExprResult,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::Set,
@@ -294,11 +274,7 @@ impl DataDescriptor for Container<Object> {
         Ok(())
     }
 
-    fn delete_attr(
-        &self,
-        interpreter: &Interpreter,
-        instance: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delete_attr(&self, interpreter: &Interpreter, instance: ExprResult) -> TreewalkResult<()> {
         interpreter.invoke_method(
             ExprResult::Object(self.clone()),
             Dunder::Delete,
@@ -327,16 +303,10 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
-        let class = args
-            .get_arg(0)
-            .as_class()
-            .ok_or(InterpreterError::ExpectedClass(
-                interpreter.state.call_stack(),
-            ))?;
-
+        let class = args.get_arg(0).expect_class(interpreter)?;
         Ok(ExprResult::Object(Object::new_object_base(class)?))
     }
 
@@ -352,7 +322,7 @@ impl Callable for InitBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::None)
     }
 
@@ -370,13 +340,10 @@ impl Callable for EqBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.get_self().ok_or(InterpreterError::ExpectedObject(
-            interpreter.state.call_stack(),
-        ))?;
-
+        let a = args.expect_self(interpreter)?;
         let b = args.get_arg(0);
 
         Ok(ExprResult::Boolean(a == b))
@@ -394,13 +361,9 @@ impl Callable for HashBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-
-        let object = args.get_self().ok_or(InterpreterError::ExpectedObject(
-            interpreter.state.call_stack(),
-        ))?;
-
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
+        let object = args.expect_self(interpreter)?;
         Ok(ExprResult::Integer(object.hash() as i64))
     }
 
@@ -418,10 +381,8 @@ impl Callable for NeBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        let receiver = args.get_self().ok_or(InterpreterError::ExpectedObject(
-            interpreter.state.call_stack(),
-        ))?;
+    ) -> TreewalkResult<ExprResult> {
+        let receiver = args.expect_self(interpreter)?;
         let result =
             interpreter.invoke_method(receiver, Dunder::Eq, &resolved_args![args.get_arg(0)])?;
 
@@ -440,7 +401,7 @@ impl Callable for StrBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 
@@ -458,16 +419,9 @@ impl NonDataDescriptor for DictDescriptor {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let scope = match instance {
-            Some(i) => i
-                .as_object()
-                .ok_or(InterpreterError::ExpectedObject(
-                    interpreter.state.call_stack(),
-                ))?
-                .borrow()
-                .scope
-                .clone(),
+            Some(i) => i.expect_object(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(ExprResult::Dict(scope.as_dict(interpreter)))
@@ -484,15 +438,11 @@ impl DataDescriptor for DictDescriptor {
         _interpreter: &Interpreter,
         _instance: ExprResult,
         _value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         todo!();
     }
 
-    fn delete_attr(
-        &self,
-        _interpreter: &Interpreter,
-        _instance: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delete_attr(&self, _interpreter: &Interpreter, _instance: ExprResult) -> TreewalkResult<()> {
         todo!();
     }
 }

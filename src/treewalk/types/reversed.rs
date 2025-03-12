@@ -1,5 +1,7 @@
 use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
+    core::Container,
+    domain::Dunder,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
 };
 
 use super::{
@@ -67,16 +69,9 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
-        let list = args
-            .get_arg(1)
-            .as_list()
-            .ok_or(InterpreterError::ExpectedList(
-                interpreter.state.call_stack(),
-            ))?;
-
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
+        let list = args.get_arg(1).expect_list(interpreter)?;
         Ok(ExprResult::ReversedIterator(ReversedIterator::new(
             interpreter.clone(),
             list.clone(),

@@ -1,7 +1,8 @@
 use crate::{
     bytecode_vm::{types::Value, Compiler, VirtualMachine},
-    core::{log, InterpreterEntrypoint, LogLevel},
+    core::{log, Container, InterpreterEntrypoint, LogLevel},
     parser::Parser,
+    treewalk::State,
     types::errors::MemphisError,
 };
 
@@ -14,27 +15,27 @@ pub struct VmInterpreter {
 }
 
 impl VmInterpreter {
-    pub fn new() -> Self {
+    pub fn new(state: Container<State>) -> Self {
         Self {
-            compiler: Compiler::new(),
-            vm: VirtualMachine::new(),
+            compiler: Compiler::new(state.clone()),
+            vm: VirtualMachine::new(state),
         }
     }
 
     pub fn take(&mut self, name: &str) -> Option<Value> {
-        let reference = self.vm.load_global_by_name(name)?;
+        let reference = self.vm.load_global_by_name(name).ok()?;
         Some(self.vm.take(reference))
     }
 
     pub fn compile(&mut self, parser: &mut Parser) -> Result<CompiledProgram, MemphisError> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
-        self.compiler.compile(ast).map_err(MemphisError::Compiler)
+        self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
 }
 
 impl Default for VmInterpreter {
     fn default() -> Self {
-        Self::new()
+        Self::new(Container::new(State::default()))
     }
 }
 
@@ -45,7 +46,7 @@ impl InterpreterEntrypoint for VmInterpreter {
         let program = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", program));
         self.vm.load(program);
-        self.vm.run_loop().map_err(MemphisError::Vm)
+        self.vm.run_loop().map_err(MemphisError::Execution)
     }
 }
 
@@ -54,12 +55,17 @@ mod vm_interpreter_tests {
     use super::*;
 
     use crate::{
-        bytecode_vm::{types::VmError, vm::types::Object},
+        bytecode_vm::vm::types::Object,
+        domain::{ExecutionError, ExecutionErrorKind},
         init::MemphisContext,
     };
 
     fn init(text: &str) -> MemphisContext {
         MemphisContext::from_text(text)
+    }
+
+    fn init_path(path: &str) -> MemphisContext {
+        MemphisContext::from_path(path)
     }
 
     fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> Value {
@@ -108,20 +114,34 @@ mod vm_interpreter_tests {
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(e) => {
-                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+            Err(MemphisError::Execution(e)) => {
+                let interpreter = context.ensure_vm();
+                assert_eq!(
+                    e,
+                    ExecutionError::new(
+                        interpreter.vm.state.debug_call_stack(),
+                        ExecutionErrorKind::NameError("x".to_string())
+                    )
+                )
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let text = "x()";
         let mut context = init(text);
 
         match context.run_vm() {
-            Err(e) => {
-                assert_eq!(e, MemphisError::Vm(VmError::NameError("x".to_string())));
+            Err(MemphisError::Execution(e)) => {
+                let interpreter = context.ensure_vm();
+                assert_eq!(
+                    e,
+                    ExecutionError::new(
+                        interpreter.vm.state.debug_call_stack(),
+                        ExecutionErrorKind::NameError("x".to_string())
+                    )
+                )
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -310,7 +330,7 @@ class Foo:
                 else {
                     panic!("Did not find function bar")
                 };
-                assert_eq!(function.code_object.name, "bar");
+                assert_eq!(function.code_object.name(), "bar");
             }
         }
     }
@@ -502,11 +522,90 @@ b = f.bar()
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(_) => {
                 let interpreter = context.ensure_vm();
-                let Some(Value::Integer(i)) = interpreter.take("b") else {
+                let Some(Value::Integer(b)) = interpreter.take("b") else {
                     panic!("Did not find object f")
                 };
-                assert_eq!(i, 10);
+                assert_eq!(b, 10);
             }
+        }
+    }
+
+    #[test]
+    fn stack_trace() {
+        let text = r#"
+def middle_call():
+    last_call()
+
+def last_call():
+    unknown()
+
+middle_call()
+"#;
+        let mut context = init(text);
+
+        match context.run_vm() {
+            Err(MemphisError::Execution(e)) => {
+                let interpreter = context.ensure_vm();
+                assert_eq!(
+                    e,
+                    ExecutionError::new(
+                        interpreter.vm.state.debug_call_stack(),
+                        ExecutionErrorKind::NameError("unknown".to_string())
+                    )
+                );
+                let call_stack = e.debug_call_stack;
+                assert_eq!(call_stack.len(), 3);
+                assert_eq!(call_stack.get(0).name(), "<module>");
+                assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
+                assert_eq!(call_stack.get(0).line_number(), 8);
+                assert_eq!(call_stack.get(1).name(), "middle_call");
+                assert_eq!(call_stack.get(1).file_path_str(), "<stdin>");
+                assert_eq!(call_stack.get(1).line_number(), 3);
+                assert_eq!(call_stack.get(2).name(), "last_call");
+                assert_eq!(call_stack.get(2).file_path_str(), "<stdin>");
+                assert_eq!(call_stack.get(2).line_number(), 6);
+            }
+            _ => panic!("Expected an exception!"),
+        }
+
+        let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+
+        match context.run_vm() {
+            Err(MemphisError::Execution(e)) => {
+                let interpreter = context.ensure_vm();
+                assert_eq!(
+                    e,
+                    ExecutionError::new(
+                        interpreter.vm.state.debug_call_stack(),
+                        ExecutionErrorKind::NameError("unknown".to_string())
+                    )
+                );
+
+                let call_stack = e.debug_call_stack;
+                assert_eq!(call_stack.len(), 3);
+                assert_eq!(call_stack.get(0).name(), "<module>");
+                assert!(call_stack
+                    .get(0)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(0).file_path_str().starts_with("/"));
+                assert_eq!(call_stack.get(0).line_number(), 7);
+                assert_eq!(call_stack.get(1).name(), "middle_call");
+                assert!(call_stack
+                    .get(1)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(1).file_path_str().starts_with("/"));
+                assert_eq!(call_stack.get(1).line_number(), 2);
+                assert_eq!(call_stack.get(2).name(), "last_call");
+                assert!(call_stack
+                    .get(2)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(2).file_path_str().starts_with("/"));
+                assert_eq!(call_stack.get(2).line_number(), 5);
+            }
+            _ => panic!("Expected an exception!"),
         }
     }
 }

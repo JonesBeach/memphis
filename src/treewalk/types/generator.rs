@@ -1,19 +1,19 @@
 use crate::{
     core::Container,
-    parser::types::{Ast, Expr, ForClause, LoopIndex, Statement},
+    domain::ExecutionErrorKind,
+    parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
         types::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
             ExprResult, Function,
         },
         Interpreter, Scope, State,
     },
-    types::errors::InterpreterError,
 };
 
 pub struct Generator {
     scope: Container<Scope>,
-    function: Container<Function>,
     context: Container<PausableContext>,
 }
 
@@ -23,7 +23,6 @@ impl Generator {
 
         Self {
             scope,
-            function,
             context: PausableContext::new(frame),
         }
     }
@@ -58,12 +57,15 @@ impl Generator {
                 unimplemented!()
             };
 
-            let for_in_loop = Statement::ForInLoop {
-                index: LoopIndex::Variable(index.to_string()),
-                iterable: first_clause.iterable.clone(),
-                body: loop_body,
-                else_block: None,
-            };
+            let for_in_loop = Statement::new(
+                1,
+                StatementKind::ForInLoop {
+                    index: LoopIndex::Variable(index.to_string()),
+                    iterable: first_clause.iterable.clone(),
+                    body: loop_body,
+                    else_block: None,
+                },
+            );
 
             Ast::new(vec![for_in_loop])
         } else {
@@ -81,31 +83,21 @@ impl Pausable for Container<Generator> {
         self.borrow().scope.clone()
     }
 
-    fn function(&self) -> Container<Function> {
-        self.borrow().function.clone()
-    }
-
     fn set_scope(&self, scope: Container<Scope>) {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(
-        &self,
-        interpreter: &Interpreter,
-        _result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
-        Err(InterpreterError::StopIteration(
-            interpreter.state.call_stack(),
-        ))
+    fn finish(&self, interpreter: &Interpreter, _result: ExprResult) -> TreewalkResult<ExprResult> {
+        Err(interpreter.stop_iteration())
     }
 
     fn handle_step(
         &self,
         interpreter: &Interpreter,
-        statement: Statement,
+        stmt: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError> {
-        match self.execute_statement(interpreter, statement, control_flow)? {
+    ) -> TreewalkResult<PausableStepResult> {
+        match self.execute_statement(interpreter, stmt, control_flow)? {
             Some(yielded) => {
                 self.on_exit(interpreter);
                 Ok(PausableStepResult::BreakAndReturn(yielded))
@@ -124,19 +116,19 @@ impl Container<Generator> {
     fn execute_statement(
         &self,
         interpreter: &Interpreter,
-        statement: Statement,
+        stmt: Statement,
         control_flow: bool,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         if !control_flow {
-            match statement {
-                Statement::Expression(Expr::Yield(None)) => Ok(None),
-                Statement::Expression(Expr::Yield(Some(expr))) => {
-                    Ok(Some(interpreter.evaluate_expr(&expr)?))
+            match &stmt.kind {
+                StatementKind::Expression(Expr::Yield(None)) => Ok(None),
+                StatementKind::Expression(Expr::Yield(Some(expr))) => {
+                    Ok(Some(interpreter.evaluate_expr(expr)?))
                 }
-                Statement::Expression(Expr::YieldFrom(_)) => unimplemented!(),
+                StatementKind::Expression(Expr::YieldFrom(_)) => unimplemented!(),
                 _ => {
                     // would we ever need to support a return statement here?
-                    let _ = interpreter.evaluate_statement(&statement)?;
+                    let _ = interpreter.evaluate_statement(&stmt)?;
                     Ok(None)
                 }
             }
@@ -172,7 +164,11 @@ impl Iterator for GeneratorIterator {
         // we need a better way to surface error during a generator run
         match self.generator.run_until_pause(&self.interpreter) {
             Ok(result) => Some(result),
-            Err(InterpreterError::StopIteration(_)) => None,
+            Err(TreewalkDisruption::Error(e))
+                if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration) =>
+            {
+                None
+            }
             _ => panic!("Unexpected error during generator run."),
         }
     }

@@ -1,6 +1,6 @@
-use memphis::crosscheck::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
 
-fn run_test<T: InterpreterTest>(interpreter: &T) {
+fn run_test<T: InterpreterTest>(mut interpreter: T) {
     let input = r#"
 class Foo:
     def bar(self):
@@ -9,7 +9,8 @@ class Foo:
 f = Foo()
 b = f.bar()
 "#;
-    interpreter.assert_var_expected(input, "b", TestValue::Integer(4));
+    let _ = interpreter.evaluate(input);
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(4)));
 
     let input = r#"
 class Foo:
@@ -22,15 +23,16 @@ class Foo:
 f = Foo(10)
 b = f.bar()
 "#;
-    interpreter.assert_var_expected(input, "b", TestValue::Integer(10));
+    let _ = interpreter.evaluate(input);
+    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(10)));
 }
 
 #[test]
 fn test_treewalk_method_call() {
-    run_test(&TreewalkAdapter);
+    run_test(TreewalkAdapter::new());
 }
 
 #[test]
 fn test_bytecode_vm_method_call() {
-    run_test(&BytecodeVmAdapter);
+    run_test(BytecodeVmAdapter::new());
 }

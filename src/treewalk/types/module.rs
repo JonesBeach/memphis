@@ -6,10 +6,14 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
+    domain::ExecutionErrorKind,
     init::MemphisContext,
     parser::types::ImportPath,
-    treewalk::{Interpreter, ModuleSource, Scope},
-    types::errors::{InterpreterError, MemphisError},
+    treewalk::{
+        interpreter::{TreewalkDisruption, TreewalkResult},
+        Interpreter, ModuleSource, Scope,
+    },
+    types::errors::MemphisError,
 };
 
 use super::{domain::traits::MemberReader, Dict, ExprResult};
@@ -17,14 +21,14 @@ use super::{domain::traits::MemberReader, Dict, ExprResult};
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
     scope: Scope,
-    loaded_module: ModuleSource,
+    module_source: ModuleSource,
 }
 
 impl Module {
     pub fn import(
         interpreter: &Interpreter,
         import_path: &ImportPath,
-    ) -> Result<Container<Self>, InterpreterError> {
+    ) -> TreewalkResult<Container<Self>> {
         log(LogLevel::Debug, || format!("Reading {}", import_path));
         if let Some(module) = interpreter.state.fetch_module(import_path) {
             return Ok(module);
@@ -38,59 +42,63 @@ impl Module {
             .state
             .store_module(import_path, Container::new(Module::default()));
 
-        // Fetch the call stack separately so we don't produce a mutable borrow error in the
-        // next statement.
-        let call_stack = interpreter.state.call_stack();
-        let loaded_module = interpreter
+        let module_source = interpreter
             .state
-            .load_module(import_path, call_stack.current_path())
-            .ok_or(InterpreterError::ModuleNotFound(
-                import_path.as_str().to_string(),
-                call_stack,
-            ))?;
+            .load_module_source(import_path)
+            .ok_or_else(|| interpreter.import_error(import_path.as_str()))?;
 
-        let mut context = MemphisContext::from_module_with_state(
-            loaded_module.clone(),
-            Some(interpreter.state.clone()),
-        );
-
+        interpreter.state.save_line_number();
         interpreter
             .state
-            .push_module(Container::new(Module::new(loaded_module, Scope::default())));
+            .push_module(Container::new(Module::new(module_source.clone())));
+
+        let mut context =
+            MemphisContext::from_module_with_state(module_source, interpreter.state.clone());
+
         match context.run() {
             Ok(_) => {}
-            Err(MemphisError::Interpreter(e)) => return Err(e),
+            Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{}", e);
-                return Err(InterpreterError::SyntaxError(
-                    interpreter.state.call_stack(),
-                ));
+                return Err(interpreter.error(ExecutionErrorKind::SyntaxError));
             }
             _ => unreachable!(),
         };
 
-        interpreter.state.pop_context();
+        let _ = interpreter.state.pop_stack_frame();
         let module = interpreter
             .state
             .pop_module()
-            .ok_or(InterpreterError::RuntimeError)?;
+            .ok_or_else(|| interpreter.runtime_error())?;
+
         interpreter.state.store_module(import_path, module.clone());
         Ok(module)
     }
 
-    pub fn new(loaded_module: ModuleSource, scope: Scope) -> Self {
+    pub fn new(module_source: ModuleSource) -> Self {
         Self {
-            loaded_module,
+            scope: Scope::default(),
+            module_source,
+        }
+    }
+
+    pub fn from_scope(module_source: ModuleSource, scope: Scope) -> Self {
+        Self {
             scope,
+            module_source,
         }
     }
 
     pub fn path(&self) -> &Path {
-        self.loaded_module.path()
+        self.module_source.display_path()
     }
 
     pub fn name(&self) -> &str {
-        self.loaded_module.name()
+        self.module_source.name()
+    }
+
+    pub fn context(&self) -> &str {
+        self.module_source.context()
     }
 
     pub fn get(&self, name: &str) -> Option<ExprResult> {
@@ -123,7 +131,7 @@ impl MemberReader for Module {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         Ok(self.scope.get(name))
     }
 

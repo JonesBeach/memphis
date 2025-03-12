@@ -1,14 +1,14 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
+        builtins::utils::validate_args,
         traits::{Callable, MethodProvider, Typed},
         Type,
     },
@@ -76,22 +76,22 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        if args.len() == 1 {
-            Ok(ExprResult::FrozenSet(FrozenSet::default()))
-        } else if args.len() == 2 {
-            let input_set: Container<Set> = args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| InterpreterError::ExpectedSet(interpreter.state.call_stack()))?;
-            Ok(ExprResult::FrozenSet(input_set.into()))
-        } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                1,
-                args.len(),
-                interpreter.state.call_stack(),
-            ))
-        }
+    ) -> TreewalkResult<ExprResult> {
+        validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let frozen_set = match args.len() {
+            1 => FrozenSet::default(),
+            2 => {
+                let input_set: Container<Set> = args
+                    .get_arg(1)
+                    .try_into()
+                    .map_err(|_| interpreter.type_error("Expected a set"))?;
+                input_set.into()
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::FrozenSet(frozen_set))
     }
 
     fn name(&self) -> String {
@@ -104,7 +104,7 @@ impl Callable for ContainsBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!();
     }
 

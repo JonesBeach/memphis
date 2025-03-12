@@ -8,9 +8,8 @@ use std::{
 use super::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{Container, Voidable},
-    domain::Dunder,
-    treewalk::{typing::TypeExpr, Interpreter},
-    types::errors::InterpreterError,
+    domain::{Dunder, ExecutionError},
+    treewalk::{interpreter::TreewalkResult, typing::TypeExpr, Interpreter},
 };
 
 use super::{
@@ -72,7 +71,7 @@ pub enum ExprResult {
     MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
-    Exception(Box<InterpreterError>),
+    Exception(Box<ExecutionError>),
     Traceback(Traceback),
     Frame,
     ListIterator(ListIterator),
@@ -171,7 +170,7 @@ impl ExprResult {
         interpreter: &Interpreter,
         class: Container<Class>,
         arguments: ResolvedArguments,
-    ) -> Result<Self, InterpreterError> {
+    ) -> TreewalkResult<Self> {
         // We have to handle calls to `type()` with only one parameter as a special case because
         // this doesn't actually call the `Type::Type` `Dunder::New` method, which expects more
         // arguments and would return a new class. Overloading the `Dunder::Init` method
@@ -394,12 +393,22 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_integer(&self, interpreter: &Interpreter) -> TreewalkResult<i64> {
+        self.as_integer()
+            .ok_or_else(|| interpreter.type_error("Expected an integer"))
+    }
+
     pub fn as_fp(&self) -> Option<f64> {
         match self {
             ExprResult::FloatingPoint(i) => Some(*i),
             ExprResult::Integer(i) => Some(*i as f64),
             _ => None,
         }
+    }
+
+    pub fn expect_fp(&self, interpreter: &Interpreter) -> TreewalkResult<f64> {
+        self.as_fp()
+            .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
 
     pub fn as_class(&self) -> Option<Container<Class>> {
@@ -410,6 +419,11 @@ impl ExprResult {
             // ExprResult::CPythonClass(i) => Some(i),
             _ => None,
         }
+    }
+
+    pub fn expect_class(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Class>> {
+        self.as_class()
+            .ok_or_else(|| interpreter.type_error("Expected a class"))
     }
 
     pub fn as_module(&self) -> Option<Box<dyn MemberReader>> {
@@ -502,17 +516,10 @@ impl ExprResult {
         }
     }
 
-    pub fn as_function(&self) -> Option<Container<Function>> {
-        match self {
-            ExprResult::Function(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
     fn as_nondata_descriptor(
         &self,
         interpreter: &Interpreter,
-    ) -> Result<Option<Container<Box<dyn NonDataDescriptor>>>, InterpreterError> {
+    ) -> TreewalkResult<Option<Container<Box<dyn NonDataDescriptor>>>> {
         Ok(match self {
             ExprResult::NonDataDescriptor(i) => Some(i.clone()),
             ExprResult::Object(i) => self
@@ -528,7 +535,7 @@ impl ExprResult {
     pub fn as_data_descriptor(
         &self,
         interpreter: &Interpreter,
-    ) -> Result<Option<Container<Box<dyn DataDescriptor>>>, InterpreterError> {
+    ) -> TreewalkResult<Option<Container<Box<dyn DataDescriptor>>>> {
         Ok(match self {
             ExprResult::Object(i) => self
                 .map_hasattr(interpreter, Dunder::Set)
@@ -545,7 +552,7 @@ impl ExprResult {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // Similar to callable below, ideally we'd be able to handle this inside
         // `Result::as_nondata_descriptor` but we don't yet have a way to downcast in this way
         // (i.e. treat `S` as a different `dyn T` when `S : T`)
@@ -589,6 +596,29 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_callable(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Box<dyn Callable>>> {
+        self.as_callable()
+            .ok_or_else(|| interpreter.type_error("Expected a callable"))
+    }
+
+    pub fn as_function(&self) -> Option<Container<Function>> {
+        match self {
+            ExprResult::Function(i) => Some(i.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn expect_function(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Function>> {
+        self.as_function()
+            .ok_or_else(|| interpreter.type_error("Expected a function"))
+    }
+
     pub fn as_generator(&self) -> Option<Container<GeneratorIterator>> {
         match self {
             ExprResult::Generator(i) => Some(i.clone()),
@@ -601,6 +631,14 @@ impl ExprResult {
             ExprResult::Coroutine(i) => Some(i.clone()),
             _ => None,
         }
+    }
+
+    pub fn expect_coroutine(
+        &self,
+        interpreter: &Interpreter,
+    ) -> TreewalkResult<Container<Coroutine>> {
+        self.as_coroutine()
+            .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
     }
 
     pub fn as_boolean(&self) -> bool {
@@ -621,6 +659,11 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_object(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Object>> {
+        self.as_object()
+            .ok_or_else(|| interpreter.type_error("Expected an object"))
+    }
+
     /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
     /// coercion.
     pub fn as_list(&self) -> Option<Container<List>> {
@@ -630,6 +673,11 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_list(&self, interpreter: &Interpreter) -> TreewalkResult<Container<List>> {
+        self.as_list()
+            .ok_or_else(|| interpreter.type_error("Expected a list"))
+    }
+
     /// Returns a `Container<Set>` with _no_ type coercion. Use `TryFrom<ExprResult>` for type
     /// coercion.
     pub fn as_set(&self) -> Option<Container<Set>> {
@@ -637,6 +685,11 @@ impl ExprResult {
             ExprResult::Set(set) => Some(set.clone()),
             _ => None,
         }
+    }
+
+    pub fn expect_set(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Set>> {
+        self.as_set()
+            .ok_or_else(|| interpreter.type_error("Expected a set"))
     }
 
     pub fn as_dict(&self, interpreter: &Interpreter) -> Option<Container<Dict>> {
@@ -656,6 +709,11 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_dict(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Dict>> {
+        self.as_dict(interpreter)
+            .ok_or_else(|| interpreter.type_error("Expected a dict"))
+    }
+
     pub fn as_range(&self) -> Option<Range> {
         match self {
             ExprResult::Range(i) => Some(i.clone()),
@@ -673,12 +731,22 @@ impl ExprResult {
         }
     }
 
+    pub fn expect_tuple(&self, interpreter: &Interpreter) -> TreewalkResult<Tuple> {
+        self.as_tuple()
+            .ok_or_else(|| interpreter.type_error("Expected a tuple"))
+    }
+
     pub fn as_string(&self) -> Option<String> {
         match self {
             ExprResult::String(i) => Some(i.to_string()),
             ExprResult::Integer(i) => Some(i.to_string()),
             _ => None,
         }
+    }
+
+    pub fn expect_string(&self, interpreter: &Interpreter) -> TreewalkResult<String> {
+        self.as_string()
+            .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
 
     pub fn negated(&self) -> Self {

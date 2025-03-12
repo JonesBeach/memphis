@@ -2,13 +2,17 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::{CompiledProgram, Constant},
-        indices::{ConstantIndex, GlobalStoreIndex, Index, LocalIndex, ObjectTableIndex},
-        types::{Value, VmError},
+        compiler::{
+            find_index,
+            types::{CompiledProgram, Constant},
+        },
+        indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
+        types::Value,
         Opcode,
     },
-    core::{log, log_impure, LogLevel},
-    domain::Dunder,
+    core::{log, log_impure, Container, LogLevel},
+    domain::{Dunder, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
+    treewalk::State,
 };
 
 mod frame;
@@ -19,21 +23,19 @@ use self::{
     types::{Class, FunctionObject, Method, Object, Reference},
 };
 
-use super::{compiler::find_index, indices::NonlocalIndex};
+type VmResult<T> = Result<T, ExecutionError>;
 
 pub struct VirtualMachine {
+    pub state: Container<State>,
+
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
 
     /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
     constant_pool: Vec<Constant>,
 
-    /// Just like its name says, we need a map to translate from the indices found in the compiled
-    /// bytecode and that variables location in the global store.
-    index_map: HashMap<NonlocalIndex, GlobalStoreIndex>,
-
     /// The runtime mapping of global variables to their values.
-    global_store: Vec<Reference>,
+    global_store: HashMap<String, Reference>,
 
     /// This is kind of similar to the heap. When an object is created, it will live here and a
     /// reference to it will be placed on the stack. Objects here can be from any function context.
@@ -49,12 +51,12 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn new() -> Self {
+    pub fn new(state: Container<State>) -> Self {
         Self {
+            state,
             call_stack: vec![],
             constant_pool: vec![],
-            index_map: HashMap::new(),
-            global_store: vec![],
+            global_store: HashMap::new(),
             object_table: vec![],
             class_stack: vec![],
         }
@@ -65,12 +67,47 @@ impl VirtualMachine {
         self.constant_pool = program.constant_pool;
 
         let function = FunctionObject::new(program.code);
-        let new_frame = Frame::new(function, vec![]);
-        self.call_stack.push(new_frame);
+        let frame = Frame::new(function, vec![]);
+
+        // We used to do this, but we no longer need to because the MemphisState handles it (kind
+        // of)
+        // self.enter_context(frame);
+        self.call_stack.push(frame);
+    }
+
+    pub fn current_frame_index(&self) -> VmResult<usize> {
+        self.call_stack
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| self.runtime_error())
+    }
+
+    pub fn current_frame(&self) -> VmResult<&Frame> {
+        let index = self.current_frame_index()?;
+        Ok(&self.call_stack[index])
+    }
+
+    fn current_frame_mut(&mut self) -> VmResult<&mut Frame> {
+        let index = self.current_frame_index()?;
+        Ok(&mut self.call_stack[index])
     }
 
     pub fn read_constant(&self, index: ConstantIndex) -> Option<Value> {
         self.constant_pool.get(*index).map(|c| c.into())
+    }
+
+    fn runtime_error(&self) -> ExecutionError {
+        ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::RuntimeError,
+        )
+    }
+
+    fn name_error(&self, name: &str) -> ExecutionError {
+        ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::NameError(name.to_string()),
+        )
     }
 
     fn update_fn<F>(&mut self, index: ObjectTableIndex, function: F)
@@ -82,63 +119,46 @@ impl VirtualMachine {
         }
     }
 
-    fn store_global(&mut self, index: NonlocalIndex, value: Reference) {
-        let global_store_index = if let Some(index) = self.index_map.get(&index) {
-            *index
-        } else {
-            let next_index = Index::new(self.global_store.len());
-            self.index_map.insert(index, next_index);
-            next_index
-        };
-
-        if self.global_store.len() == *global_store_index {
-            self.global_store.push(value);
-        } else {
-            self.global_store[*global_store_index] = value;
-        }
+    fn store_global(&mut self, index: NonlocalIndex, value: Reference) -> VmResult<()> {
+        let name = self.lookup_global_name(index)?;
+        self.global_store.insert(name.to_string(), value);
+        Ok(())
     }
 
-    fn store_local(&mut self, index: LocalIndex, value: Reference) {
-        let frame_index = self.call_stack.len().checked_sub(1).unwrap();
-        if self.call_stack[frame_index].locals.len() == *index {
-            self.call_stack[frame_index].locals.push(value);
+    fn store_local(&mut self, index: LocalIndex, value: Reference) -> VmResult<()> {
+        let current_frame = self.current_frame_mut()?;
+        if current_frame.locals.len() == *index {
+            current_frame.locals.push(value);
         } else {
-            self.call_stack[frame_index].locals[*index] = value;
+            current_frame.locals[*index] = value;
         }
+        Ok(())
     }
 
     // this should only be used by the tests and/or after the VM has run. we should probably move
     // this somewhere else.
-    pub fn load_global_by_name(&self, name: &str) -> Option<Reference> {
-        let frame_index = self.call_stack.len().checked_sub(1).unwrap();
-        let index = find_index(
-            &self.call_stack[frame_index].function.code_object.names,
-            name,
-        )
-        .map(Index::new)?;
-        self.load_global(index).ok()
+    pub fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
+        let current_frame = self.current_frame()?;
+        let index = find_index(&current_frame.function.code_object.names, name)
+            .map(Index::new)
+            .ok_or_else(|| self.runtime_error())?;
+        self.load_global(index)
     }
 
-    fn load_global(&self, index: NonlocalIndex) -> Result<Reference, VmError> {
-        let name_error_closure = Box::new(|| {
-            let frame_index = self.call_stack.len().checked_sub(1).unwrap();
-            let name = &self.call_stack[frame_index].function.code_object.names[*index];
-            VmError::NameError(name.to_string())
-        });
-        let global_store_index = self
-            .index_map
-            .get(&index)
-            .ok_or_else(name_error_closure.clone())?;
+    fn lookup_global_name(&self, index: NonlocalIndex) -> VmResult<&str> {
+        let current_frame = self.current_frame()?;
+        Ok(&current_frame.function.code_object.names[*index])
+    }
 
-        // is it possible to find a global_store_index and then fail to look it up? that seems more
-        // like an internal error, while the previous failure is assuredly a NameError
+    fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
+        let name = self.lookup_global_name(index)?;
         self.global_store
-            .get(**global_store_index)
+            .get(name)
             .copied()
-            .ok_or_else(name_error_closure)
+            .ok_or_else(|| self.name_error(name))
     }
 
-    fn pop(&mut self) -> Result<Reference, VmError> {
+    fn pop(&mut self) -> VmResult<Reference> {
         if let Some(frame) = self.call_stack.last_mut() {
             if let Some(value) = frame.locals.pop() {
                 log_impure(LogLevel::Trace, || {
@@ -153,10 +173,10 @@ impl VirtualMachine {
             }
         }
 
-        Err(VmError::StackUnderflow)
+        Err(self.runtime_error())
     }
 
-    fn push(&mut self, value: Reference) -> Result<(), VmError> {
+    fn push(&mut self, value: Reference) -> VmResult<()> {
         if let Some(frame) = self.call_stack.last_mut() {
             frame.locals.push(value);
         }
@@ -182,18 +202,38 @@ impl VirtualMachine {
         Value::None
     }
 
-    /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
-    /// new frame.
-    fn execute_function(&mut self, function: FunctionObject, args: Vec<Reference>) {
-        let frame = Frame::new(function, args);
-        self.call_stack.push(frame);
+    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
+    fn build_class(&mut self, args: Vec<Reference>) -> Frame {
+        let code = self.dereference(args[0]).as_code().clone();
+        let name = code.name().to_string();
+        let function = FunctionObject::new(code);
+
+        self.class_stack.push(name);
+
+        Frame::new(function, vec![])
     }
 
-    fn execute_method(&mut self, method: Method, args: Vec<Reference>) {
+    fn convert_method_to_frame(&mut self, method: Method, args: Vec<Reference>) -> Frame {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
 
-        self.execute_function(method.function.clone(), bound_args);
+        Frame::new(method.function.clone(), bound_args)
+    }
+
+    /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
+    /// new frame.
+    fn enter_context(&mut self, frame: Frame) {
+        let current_frame = self.current_frame().unwrap();
+        // This is a bit counterintuitive: when we enter a new frame, we will begin tracking its
+        // latest opcode/statements in `run_loop`. To keep track of where we came from, we push the
+        // previous frame onto the stack.
+        self.state.push_stack_frame(current_frame.to_stack_frame());
+        self.call_stack.push(frame);
+    }
+
+    fn exit_context(&mut self) -> Frame {
+        self.state.pop_stack_frame();
+        self.call_stack.pop().expect("Empty call stack!")
     }
 
     /// Extract primitives and resolve any references to a [`Value`]. A [`Cow`] is returned to make
@@ -234,13 +274,20 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_loop(&mut self) -> Result<Value, VmError> {
+    pub fn run_loop(&mut self) -> VmResult<Value> {
+        // If we call a function or something that requires us to enter a new frame, we do not want
+        // to do so until the end of this loop.
+        let mut deferred_frame: Option<Frame> = None;
+
         while let Some(current_frame_index) = self.call_stack.len().checked_sub(1) {
-            let opcode = self.call_stack[current_frame_index].get_inst();
+            let frame = self.current_frame()?;
+            let opcode = frame.get_inst();
 
             log(LogLevel::Debug, || {
-                format!("Frame ({}) Opcode: {:?}", current_frame_index, opcode)
+                let code_name = &frame.function.code_object.name();
+                format!("{}: {:?}", code_name, opcode)
             });
+            self.state.push_stack_frame(frame.to_stack_frame());
 
             match opcode {
                 Opcode::Iadd => {
@@ -306,11 +353,11 @@ impl VirtualMachine {
                 }
                 Opcode::StoreFast(index) => {
                     let reference = self.pop()?;
-                    self.store_local(index, reference);
+                    self.store_local(index, reference)?;
                 }
                 Opcode::StoreGlobal(index) => {
                     let reference = self.pop()?;
-                    self.store_global(index, reference);
+                    self.store_global(index, reference)?;
                 }
                 Opcode::LoadFast(index) => {
                     if let Some(frame) = self.call_stack.last() {
@@ -399,11 +446,11 @@ impl VirtualMachine {
                     match *callable {
                         // this is the placeholder for __build_class__ at the moment
                         Value::BuiltinFunction => {
-                            self.build_class(args);
+                            deferred_frame = Some(self.build_class(args));
                         }
                         Value::Function(ref function) => {
                             let function = function.clone();
-                            self.execute_function(function, args);
+                            deferred_frame = Some(Frame::new(function, args));
                         }
                         Value::Class(ref class) => {
                             let init_method = class.read(Dunder::Init);
@@ -418,7 +465,7 @@ impl VirtualMachine {
                                 // after the constructor executes.
                                 self.push(reference)?;
 
-                                self.execute_method(method, args);
+                                deferred_frame = Some(self.convert_method_to_frame(method, args));
                             } else {
                                 self.push(reference)?;
                             }
@@ -432,7 +479,8 @@ impl VirtualMachine {
                         .collect::<Result<Vec<_>, _>>()?;
                     let reference = self.pop()?;
                     let method = self.dereference(reference);
-                    self.execute_method(method.as_method().clone(), args);
+                    deferred_frame =
+                        Some(self.convert_method_to_frame(method.as_method().clone(), args));
                 }
                 Opcode::ReturnValue => {
                     // TODO is reference of 0 a safe default here?
@@ -443,7 +491,7 @@ impl VirtualMachine {
                         break;
                     }
 
-                    self.call_stack.pop();
+                    let _ = self.exit_context();
                     // Push the return value to the caller's frame
                     self.push(return_value)?;
 
@@ -454,7 +502,7 @@ impl VirtualMachine {
                 Opcode::EndClass => {
                     // Grab the frame before it gets popped off the call stack below. Its locals
                     // are the class namespace for the class we just finished defining.
-                    let frame = self.call_stack.pop().unwrap();
+                    let frame = self.exit_context();
 
                     let name = self.class_stack.pop().expect("Failed to get class name");
                     let class = Class::new(name.clone(), frame.namespace());
@@ -466,36 +514,32 @@ impl VirtualMachine {
                 Opcode::Halt => break,
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
-                Opcode::Placeholder => return Err(VmError::RuntimeError),
+                Opcode::Placeholder => return Err(self.runtime_error()),
             }
 
-            // Increment PC for all instructions. A select few may skip this step by calling
-            // `continue` above but this is not recommended.
+            // Increment PC for all instructions.
             self.call_stack[current_frame_index].pc += 1;
+            self.state.pop_stack_frame();
+
+            // Check if we need to enter a new function frame
+            if let Some(frame) = deferred_frame.take() {
+                self.enter_context(frame);
+                continue; // Restart loop immediately in new frame
+            }
 
             // Handle functions that complete without explicit return
             if self.call_stack[current_frame_index].is_finished() {
-                self.call_stack.pop();
+                let _ = self.exit_context();
             }
         }
 
         Ok(self.return_val())
     }
-
-    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
-    fn build_class(&mut self, args: Vec<Reference>) {
-        let code = self.dereference(args[0]).as_code().clone();
-        let name = code.name.clone();
-        let function = FunctionObject::new(code);
-
-        self.class_stack.push(name);
-        self.execute_function(function, vec![]);
-    }
 }
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        Self::new()
+        Self::new(Container::new(State::default()))
     }
 }
 
@@ -555,7 +599,7 @@ d = foo(2, 9)
             Ok(_) => {
                 let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
-                assert_eq!(interpreter.vm.call_stack.last().unwrap().locals.len(), 0);
+                assert_eq!(interpreter.vm.current_frame().unwrap().locals.len(), 0);
             }
         }
     }

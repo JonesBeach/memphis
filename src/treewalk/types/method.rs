@@ -1,6 +1,9 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Container, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    core::Container,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
+};
 
 use super::{domain::traits::Callable, utils::ResolvedArguments, ExprResult};
 
@@ -29,7 +32,7 @@ impl Callable for Container<Method> {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         interpreter
             .state
             .push_receiver(self.borrow().receiver.clone());

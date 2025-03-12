@@ -1,7 +1,7 @@
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
+use super::domain::builtins::utils;
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
@@ -73,45 +73,47 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
+        // This function cannot be called with 2 args (1 unbound arg) because there would be
+        // nothing to zip.
+        utils::validate_args(&args, |len| len == 1 || len >= 3, interpreter)?;
+
         // The default behavior will stop zipping when the shortest iterator is exhausted,
         // which matches default behavior from Python. Using strict=True causes this to throw an
         // exception instead.
-        if args.len() == 1 {
-            Ok(ExprResult::Zip(ZipIterator::default()))
-        } else if args.len() >= 3 {
-            // The first arg is the class, so we must consume it before beginning the zip
-            // operation.
-            let mut iter = args.iter_args();
-            iter.next();
+        let zip = match args.len() {
+            1 => ZipIterator::default(),
+            n if n >= 3 => {
+                // The first arg is the class, so we must consume it before beginning the zip
+                // operation.
+                let mut iter = args.iter_args();
+                iter.next();
 
-            let iters = iter
-                .map(|a| a.clone().into_iter())
-                .collect::<Vec<ExprResultIterator>>();
+                let iters = iter
+                    .map(|a| a.clone().into_iter())
+                    .collect::<Vec<ExprResultIterator>>();
 
-            if args
-                .get_kwarg(&ExprResult::String(Str::new("strict".to_string())))
-                .is_some_and(|k| k == ExprResult::Boolean(true))
-            {
-                let lengths = iters
-                    .iter()
-                    .map(|i| i.clone().count())
-                    .collect::<Vec<usize>>();
-                let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
+                if args
+                    .get_kwarg(&ExprResult::String(Str::new("strict".to_string())))
+                    .is_some_and(|k| k == ExprResult::Boolean(true))
+                {
+                    let lengths = iters
+                        .iter()
+                        .map(|i| i.clone().count())
+                        .collect::<Vec<usize>>();
+                    let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
-                if !all_equal {
-                    return Err(InterpreterError::RuntimeError);
+                    if !all_equal {
+                        return Err(interpreter.runtime_error());
+                    }
                 }
-            }
 
-            Ok(ExprResult::Zip(ZipIterator::new(iters)))
-        } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                2,
-                args.len(),
-                interpreter.state.call_stack(),
-            ))
-        }
+                ZipIterator::new(iters)
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Zip(zip))
     }
 
     fn name(&self) -> String {

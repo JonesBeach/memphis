@@ -1,12 +1,11 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
-    domain::ToDebugStackFrame,
-    parser::types::Statement,
+    parser::types::{Statement, StatementKind},
     treewalk::{
-        types::{ExprResult, Function, List},
+        types::{ExprResult, List},
         Interpreter, Scope,
     },
-    types::errors::InterpreterError,
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -30,16 +29,9 @@ pub trait Pausable {
     /// A setter for the [`Scope`] of a pausable function.
     fn set_scope(&self, scope: Container<Scope>);
 
-    /// A getter for the [`Function`] of a pausable function.
-    fn function(&self) -> Container<Function>;
-
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
-    fn finish(
-        &self,
-        interpreter: &Interpreter,
-        result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError>;
+    fn finish(&self, interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult>;
 
     /// A handle to invoke the discrete operation of evaluating an individual statement and
     /// producing a [`PausableStepResult`] based on the control flow instructions and or the
@@ -49,12 +41,12 @@ pub trait Pausable {
         interpreter: &Interpreter,
         statement: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError>;
+    ) -> TreewalkResult<PausableStepResult>;
 
     /// The default behavior which selects the next [`Statement`] and manually evaluates any
     /// control flow statements. This then calls [`Pausable::handle_step`] to set up any return
     /// values based on whether a control flow structure was encountered.
-    fn step(&self, interpreter: &Interpreter) -> Result<PausableStepResult, InterpreterError> {
+    fn step(&self, interpreter: &Interpreter) -> TreewalkResult<PausableStepResult> {
         let statement = self.context().next_statement();
 
         // Delegate to the common function for control flow
@@ -66,17 +58,15 @@ pub trait Pausable {
 
     /// The default behavior required to perform the necessary context switching when entering a
     /// pausable function.
+    /// TODO we used to push a new stack frame here, perhaps we need do to that for each statement
+    /// now?
     fn on_entry(&self, interpreter: &Interpreter) {
         interpreter.state.push_local(self.scope());
-        interpreter
-            .state
-            .push_context(self.function().borrow().to_stack_frame());
     }
 
     /// The default behavior required to perform the necessary context switching when exiting a
     /// pausable function.
     fn on_exit(&self, interpreter: &Interpreter) {
-        interpreter.state.pop_context();
         if let Some(scope) = interpreter.state.pop_local() {
             self.set_scope(scope);
         }
@@ -92,11 +82,11 @@ pub trait Pausable {
     /// A boolean is returned indicated whether a control flow statement was encountered.
     fn execute_control_flow_statement(
         &self,
-        statement: &Statement,
+        stmt: &Statement,
         interpreter: &Interpreter,
-    ) -> Result<bool, InterpreterError> {
-        match statement {
-            Statement::WhileLoop { body, condition } => {
+    ) -> TreewalkResult<bool> {
+        match &stmt.kind {
+            StatementKind::WhileLoop { body, condition } => {
                 if interpreter.evaluate_expr(condition)?.as_boolean() {
                     self.context().push_context(PausableToken::new(
                         Frame::new(body.clone()),
@@ -106,7 +96,7 @@ pub trait Pausable {
 
                 Ok(true)
             }
-            Statement::IfElse {
+            StatementKind::IfElse {
                 if_part,
                 elif_parts,
                 else_part,
@@ -143,7 +133,7 @@ pub trait Pausable {
 
                 Ok(true)
             }
-            Statement::ForInLoop {
+            StatementKind::ForInLoop {
                 index,
                 iterable,
                 body,
@@ -152,12 +142,12 @@ pub trait Pausable {
                 let items: Container<List> = interpreter
                     .evaluate_expr(iterable)?
                     .try_into()
-                    .map_err(|_| InterpreterError::ExpectedList(interpreter.state.call_stack()))?;
+                    .map_err(|_| interpreter.type_error("Expected an iterable"))?;
 
                 let mut queue = items.borrow().as_queue();
 
                 if let Some(item) = queue.pop_front() {
-                    interpreter.state.write_loop_index(index, item);
+                    interpreter.write_loop_index(index, item);
                     self.context().push_context(PausableToken::new(
                         Frame::new(body.clone()),
                         PausableState::InForLoop {
@@ -174,7 +164,7 @@ pub trait Pausable {
     }
 
     /// Run this [`Pausable`] until it reaches a pause event.
-    fn run_until_pause(&self, interpreter: &Interpreter) -> Result<ExprResult, InterpreterError> {
+    fn run_until_pause(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
         self.on_entry(interpreter);
 
         let mut result = ExprResult::None;
@@ -207,7 +197,7 @@ pub trait Pausable {
                     if self.context().current_frame().is_finished() {
                         let item = queue.borrow_mut().pop_front();
                         if let Some(item) = item {
-                            interpreter.state.write_loop_index(&index, item);
+                            interpreter.write_loop_index(&index, item);
                             self.context().restart_frame();
                         } else {
                             self.context().pop_context();

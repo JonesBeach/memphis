@@ -63,7 +63,7 @@ fn init_builtin_scope() -> Scope {
 
     scope.insert(
         "asyncio",
-        ExprResult::Module(Container::new(Module::new(
+        ExprResult::Module(Container::new(Module::from_scope(
             ModuleSource::default(),
             asyncio_scope,
         ))),
@@ -100,9 +100,9 @@ impl ScopeManager {
         ScopeManager {
             local_scope_stack: vec![Container::new(Scope::default())],
             captured_env_stack: vec![],
-            module_stack: vec![Container::new(Module::default())],
+            module_stack: vec![],
             builtin_scope: init_builtin_scope(),
-            context_stack: vec![Context::Global],
+            context_stack: vec![],
         }
     }
 

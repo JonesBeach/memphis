@@ -28,12 +28,12 @@ pub enum Opcode {
     UnaryInvert,
     /// Push an integer value onto the stack. This is in preparation for another instruction.
     Push(i64),
-    /// Push the value found at the specified index in the constant pool onto the stack.
-    LoadConst(ConstantIndex),
     /// Write the top value of the stack into the local variable indicated by the specified index.
     StoreFast(LocalIndex),
     /// Write the top value of the stack into the global variable indicated by the specified index.
     StoreGlobal(NonlocalIndex),
+    /// Push the value found at the specified index in the constant pool onto the stack.
+    LoadConst(ConstantIndex),
     /// Read the local variable indicated by the specified index and push the value onto the stack.
     LoadFast(LocalIndex),
     /// Read the global variable indicated by the specified index and push the value onto the stack.

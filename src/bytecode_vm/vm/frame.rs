@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::bytecode_vm::opcode::Opcode;
+use crate::{
+    bytecode_vm::opcode::Opcode,
+    domain::{DebugStackFrame, ToDebugStackFrame},
+};
 
 use super::types::{FunctionObject, Namespace, Reference};
 
@@ -46,5 +49,15 @@ impl Frame {
             namespace.insert(varname.to_owned(), self.locals[index]);
         }
         namespace
+    }
+}
+
+impl ToDebugStackFrame for Frame {
+    fn to_stack_frame(&self) -> DebugStackFrame {
+        DebugStackFrame::new(
+            self.function.code_object.context(),
+            self.function.code_object.path().to_path_buf(),
+            self.function.code_object.get_line_number(self.pc),
+        )
     }
 }

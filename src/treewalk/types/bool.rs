@@ -1,4 +1,5 @@
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -30,18 +31,14 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if args.len() == 1 {
             Ok(ExprResult::Boolean(false))
         } else if args.len() == 2 {
             let input = args.get_arg(1).as_boolean();
             Ok(ExprResult::Boolean(input))
         } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                1,
-                args.len(),
-                interpreter.state.call_stack(),
-            ))
+            Err(interpreter.type_error(format!("Expected {} found {} args", 1, args.len())))
         }
     }
 

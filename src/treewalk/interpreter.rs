@@ -6,13 +6,13 @@ use super::types::cpython::import_from_cpython;
 use super::{evaluators, Scope, State};
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
-    domain::{Dunder, ToDebugStackFrame},
+    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
     parser::{
         types::{
             Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
-            ExceptionInstance, ExceptionLiteral, Expr, FStringPart, ForClause, ImportPath,
-            ImportedItem, LogicalOp, LoopIndex, ParsedArgDefinitions, ParsedArguments,
-            ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
+            ExceptionInstance, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
+            LoopIndex, ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport,
+            Statement, StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -25,8 +25,26 @@ use crate::{
         Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
         Tuple,
     },
-    types::errors::{InterpreterError, MemphisError},
+    types::errors::MemphisError,
 };
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TreewalkDisruption {
+    Signal(TreewalkSignal), // Control flow (not errors)
+    Error(ExecutionError),  // Actual Python runtime errors
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TreewalkSignal {
+    Return(ExprResult),
+    Raise,
+    Await,
+    Sleep,
+    Break,
+    Continue,
+}
+
+pub type TreewalkResult<T> = Result<T, TreewalkDisruption>;
 
 #[derive(Clone)]
 pub struct Interpreter {
@@ -38,18 +56,100 @@ impl Interpreter {
         Interpreter { state }
     }
 
+    pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            error_kind,
+        ))
+    }
+
+    pub fn type_error(&self, message: impl Into<String>) -> TreewalkDisruption {
+        self.type_error_optional_message(Some(message.into()))
+    }
+
+    pub fn type_error_optional_message(&self, message: Option<String>) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::TypeError(message),
+        ))
+    }
+
+    pub fn value_error(&self, message: impl Into<String>) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::ValueError(message.into()),
+        ))
+    }
+
+    pub fn key_error(&self, key: impl Into<String>) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::KeyError(key.into()),
+        ))
+    }
+
+    pub fn name_error(&self, name: impl Into<String>) -> TreewalkDisruption {
+        self.state.save_line_number();
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::NameError(name.into()),
+        ))
+    }
+
+    pub fn import_error(&self, name: impl Into<String>) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::ImportError(name.into()),
+        ))
+    }
+
+    pub fn runtime_error(&self) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::RuntimeError,
+        ))
+    }
+
+    pub fn assertion_error(&self) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::AssertionError,
+        ))
+    }
+
+    pub fn stop_iteration(&self) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::StopIteration,
+        ))
+    }
+
+    pub fn attribute_error(
+        &self,
+        object: ExprResult,
+        attr: impl Into<String>,
+    ) -> TreewalkDisruption {
+        TreewalkDisruption::Error(ExecutionError::new(
+            self.state.debug_call_stack(),
+            ExecutionErrorKind::AttributeError(
+                object.get_class(self).borrow().name().to_string(),
+                attr.into(),
+            ),
+        ))
+    }
+
     pub fn call(
         &self,
         callable: Container<Box<dyn Callable>>,
         arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let mut bound_args = arguments.clone();
         if let Some(receiver) = callable.borrow().receiver() {
             bound_args.bind(receiver);
         }
 
         match callable.borrow().call(self, bound_args) {
-            Err(InterpreterError::EncounteredReturn(result)) => Ok(result),
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => Ok(result),
             Err(e) => Err(e),
             Ok(result) => Ok(result),
         }
@@ -59,7 +159,7 @@ impl Interpreter {
         &self,
         name: &str,
         arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let function = self.read_callable(name)?;
         self.call_function_inner(function, arguments)
     }
@@ -68,7 +168,7 @@ impl Interpreter {
         &self,
         function: Container<Function>,
         scope: Container<Scope>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let cross_module = !self
             .state
             .current_module()
@@ -76,11 +176,13 @@ impl Interpreter {
         if cross_module {
             self.state.push_module(function.borrow().module.clone());
         }
+
         self.state
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
+        self.state.save_line_number();
         self.state
-            .push_context(function.borrow().clone().to_stack_frame());
+            .push_stack_frame(function.borrow().clone().to_stack_frame());
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things
@@ -88,8 +190,11 @@ impl Interpreter {
         let result = self.evaluate_ast(&function.borrow().body);
 
         // If an error is thrown, we should return that immediately without restoring any state.
-        if matches!(result, Ok(_) | Err(InterpreterError::EncounteredReturn(_))) {
-            self.state.pop_context();
+        if matches!(
+            result,
+            Ok(_) | Err(TreewalkDisruption::Signal(TreewalkSignal::Return(_)))
+        ) {
+            self.state.pop_stack_frame();
             self.state.pop_function();
             self.state.pop_local();
             self.state.pop_captured_env();
@@ -105,17 +210,13 @@ impl Interpreter {
         &self,
         receiver: ExprResult,
         name: S,
-    ) -> Result<Container<Box<dyn Callable>>, InterpreterError>
+    ) -> TreewalkResult<Container<Box<dyn Callable>>>
     where
         S: AsRef<str>,
     {
         let name = name.as_ref();
         self.evaluate_member_access_inner(&receiver, name)?
-            .as_callable()
-            .ok_or(InterpreterError::MethodNotFound(
-                name.to_string(),
-                self.state.call_stack(),
-            ))
+            .expect_callable(self)
     }
 
     pub fn invoke_method<S>(
@@ -123,7 +224,7 @@ impl Interpreter {
         receiver: ExprResult,
         name: S,
         arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError>
+    ) -> TreewalkResult<ExprResult>
     where
         S: AsRef<str>,
     {
@@ -151,7 +252,7 @@ impl Interpreter {
         &self,
         function: Container<Box<dyn Callable>>,
         arguments: &ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let function_type = function.borrow().function_type();
         match function_type {
             FunctionType::Generator => {
@@ -162,7 +263,7 @@ impl Interpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
+                    .ok_or_else(|| self.type_error("Expected a function"))?;
                 let scope = Scope::new(self, &function, arguments)?;
                 let generator_function = Generator::new(scope, function);
                 let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
@@ -174,7 +275,7 @@ impl Interpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or(InterpreterError::ExpectedFunction(self.state.call_stack()))?;
+                    .ok_or_else(|| self.type_error("Expected a function"))?;
                 let scope = Scope::new(self, &function, arguments)?;
                 let coroutine = Coroutine::new(scope, function);
                 Ok(ExprResult::Coroutine(Container::new(coroutine)))
@@ -187,35 +288,40 @@ impl Interpreter {
     // End of higher-order functions
     // -----------------------------
 
-    fn read_callable(&self, name: &str) -> Result<Container<Box<dyn Callable>>, InterpreterError> {
+    pub fn write_loop_index(&self, index: &LoopIndex, value: ExprResult) {
+        match index {
+            LoopIndex::Variable(var) => {
+                self.state.write(var, value);
+            }
+            LoopIndex::Tuple(tuple_index) => {
+                for (key, value) in tuple_index.iter().zip(value) {
+                    self.state.write(key, value);
+                }
+            }
+        };
+    }
+
+    fn read_callable(&self, name: &str) -> TreewalkResult<Container<Box<dyn Callable>>> {
         self.state
-            .read(name)
-            .and_then(|val| val.as_callable())
-            .ok_or(InterpreterError::FunctionNotFound(
-                name.to_string(),
-                self.state.call_stack(),
-            ))
+            .read_or_disrupt(name, self)?
+            .expect_callable(self)
     }
 
     pub fn read_index(
         &self,
         object: &ExprResult,
         index: &ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         object
             .as_index_read(self)
-            .ok_or(InterpreterError::TypeError(
-                Some(format!(
+            .ok_or_else(|| {
+                self.type_error(format!(
                     "'{}' object is not subscriptable",
                     object.get_type()
-                )),
-                self.state.call_stack(),
-            ))?
+                ))
+            })?
             .getitem(self, index.clone())?
-            .ok_or(InterpreterError::KeyError(
-                index.to_string(),
-                self.state.call_stack(),
-            ))
+            .ok_or_else(|| self.key_error(index.to_string()))
     }
 
     fn evaluate_binary_operation_inner(
@@ -223,65 +329,37 @@ impl Interpreter {
         left: ExprResult,
         op: &BinOp,
         right: ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if matches!(op, BinOp::In) {
             if let Some(mut iterable) = right.try_into_iter() {
                 return Ok(ExprResult::Boolean(iterable.contains(left)));
             }
-            return Err(InterpreterError::ExpectedIterable(self.state.call_stack()));
+            return Err(self.type_error("Expected an iterable"));
         }
 
         if matches!(op, BinOp::NotIn) {
             if let Some(mut iterable) = right.try_into_iter() {
                 return Ok(ExprResult::Boolean(!iterable.contains(left)));
             }
-            return Err(InterpreterError::ExpectedIterable(self.state.call_stack()));
+            return Err(self.type_error("Expected an iterable"));
         }
 
         if left.is_integer() && right.is_integer() {
-            left.as_integer()
-                .and_then(|left| {
-                    right.as_integer().map(|right| {
-                        evaluators::evaluate_integer_operation(
-                            left,
-                            op,
-                            right,
-                            self.state.call_stack(),
-                        )
-                    })
-                })
-                .ok_or(InterpreterError::ExpectedInteger(self.state.call_stack()))?
+            let left = left.expect_integer(self)?;
+            let right = right.expect_integer(self)?;
+            evaluators::evaluate_integer_operation(left, op, right, self)
         } else if left.is_fp() && right.is_fp() {
-            left.as_fp()
-                .and_then(|left| {
-                    right.as_fp().map(|right| {
-                        evaluators::evaluate_floating_point_operation(
-                            left,
-                            op,
-                            right,
-                            self.state.call_stack(),
-                        )
-                    })
-                })
-                .ok_or(InterpreterError::ExpectedFloatingPoint(
-                    self.state.call_stack(),
-                ))?
+            let left = left.expect_fp(self)?;
+            let right = right.expect_fp(self)?;
+            evaluators::evaluate_floating_point_operation(left, op, right, self)
         } else if left.as_list().is_some() && right.as_list().is_some() {
-            left.as_list()
-                .and_then(|left| {
-                    right
-                        .as_list()
-                        .map(|right| evaluators::evaluate_list_operation(left, op, right))
-                })
-                .ok_or(InterpreterError::ExpectedIterable(self.state.call_stack()))?
+            let left = left.expect_list(self)?;
+            let right = right.expect_list(self)?;
+            evaluators::evaluate_list_operation(left, op, right)
         } else if left.as_set().is_some() && right.as_set().is_some() {
-            left.as_set()
-                .and_then(|left| {
-                    right
-                        .as_set()
-                        .map(|right| evaluators::evaluate_set_operation(left, op, right))
-                })
-                .ok_or(InterpreterError::ExpectedSet(self.state.call_stack()))?
+            let left = left.expect_set(self)?;
+            let right = right.expect_set(self)?;
+            evaluators::evaluate_set_operation(left, op, right)
         } else if left.as_object().is_some()
             && right.as_object().is_some()
             && Dunder::try_from(op).is_ok()
@@ -297,7 +375,7 @@ impl Interpreter {
         &self,
         result: &ExprResult,
         field: S,
-    ) -> Result<ExprResult, InterpreterError>
+    ) -> TreewalkResult<ExprResult>
     where
         S: AsRef<str>,
     {
@@ -307,21 +385,14 @@ impl Interpreter {
         result
             .as_member_reader(self)
             .get_member(self, field.as_ref())?
-            .ok_or(InterpreterError::AttributeError(
-                result.get_class(self).borrow().name().to_string(),
-                field.as_ref().to_string(),
-                self.state.call_stack(),
-            ))
+            .ok_or_else(|| self.attribute_error(result.clone(), field.as_ref()))
     }
 
     // -----------------------------
     // End of medium-order functions
     // -----------------------------
 
-    fn evaluate_module_import(
-        &self,
-        import_path: &ImportPath,
-    ) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<ExprResult> {
         // is this useful? is it valuable to read a module directly from the scope as opposed from
         // the module cache
         if let Some(module) = self.state.read(&import_path.as_str()) {
@@ -336,20 +407,9 @@ impl Interpreter {
         Ok(ExprResult::Module(Module::import(self, import_path)?))
     }
 
-    fn evaluate_variable(&self, name: &str) -> Result<ExprResult, InterpreterError> {
-        self.state.read(name).ok_or(InterpreterError::NameError(
-            name.to_owned(),
-            self.state.call_stack(),
-        ))
-    }
-
-    fn evaluate_unary_operation(
-        &self,
-        op: &UnaryOp,
-        right: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_unary_operation(&self, op: &UnaryOp, right: &Expr) -> TreewalkResult<ExprResult> {
         let right = self.evaluate_expr(right)?;
-        evaluators::evaluate_unary_operation(op, right, self.state.call_stack())
+        evaluators::evaluate_unary_operation(op, right, self)
     }
 
     fn evaluate_ternary_operation(
@@ -357,7 +417,7 @@ impl Interpreter {
         condition: &Expr,
         if_value: &Expr,
         else_value: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if self.evaluate_expr(condition)?.as_boolean() {
             self.evaluate_expr(if_value)
         } else {
@@ -370,7 +430,7 @@ impl Interpreter {
         left: &Expr,
         op: &LogicalOp,
         right: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let left = self.evaluate_expr(left)?.as_boolean();
         let right = self.evaluate_expr(right)?.as_boolean();
         evaluators::evaluate_logical_op(left, op, right)
@@ -381,18 +441,14 @@ impl Interpreter {
         left: &Expr,
         op: &BinOp,
         right: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let left = self.evaluate_expr(left)?;
         let right = self.evaluate_expr(right)?;
 
         self.evaluate_binary_operation_inner(left, op, right)
     }
 
-    fn evaluate_member_access<S>(
-        &self,
-        object: &Expr,
-        field: S,
-    ) -> Result<ExprResult, InterpreterError>
+    fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<ExprResult>
     where
         S: AsRef<str>,
     {
@@ -404,25 +460,21 @@ impl Interpreter {
         &self,
         object: &Expr,
         params: &ParsedSliceParams,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let object_result = self.evaluate_expr(object)?;
         let slice = Slice::resolve(self, params)?;
 
         self.read_index(&object_result, &ExprResult::Slice(slice))
     }
 
-    fn evaluate_index_access(
-        &self,
-        object: &Expr,
-        index: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_index_access(&self, object: &Expr, index: &Expr) -> TreewalkResult<ExprResult> {
         let object_result = self.evaluate_expr(object)?;
         let index_result = self.evaluate_expr(index)?;
 
         self.read_index(&object_result, &index_result)
     }
 
-    fn evaluate_list(&self, items: &[Expr]) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_list(&self, items: &[Expr]) -> TreewalkResult<ExprResult> {
         items
             .iter()
             .map(|arg| self.evaluate_expr(arg))
@@ -430,7 +482,7 @@ impl Interpreter {
             .map(|l| ExprResult::List(Container::new(List::new(l))))
     }
 
-    fn evaluate_tuple(&self, items: &[Expr]) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_tuple(&self, items: &[Expr]) -> TreewalkResult<ExprResult> {
         let mut results = vec![];
         for item in items {
             let evaluated = self.evaluate_expr(item)?;
@@ -439,7 +491,9 @@ impl Interpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    let list: Container<List> = evaluated.try_into()?;
+                    let list: Container<List> = evaluated
+                        .try_into()
+                        .map_err(|_| self.type_error("Expected a list"))?;
                     for elem in list {
                         results.push(elem);
                     }
@@ -453,7 +507,7 @@ impl Interpreter {
         Ok(ExprResult::Tuple(Tuple::new(results)))
     }
 
-    fn evaluate_set(&self, items: &HashSet<Expr>) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_set(&self, items: &HashSet<Expr>) -> TreewalkResult<ExprResult> {
         items
             .iter()
             .map(|arg| self.evaluate_expr(arg))
@@ -463,7 +517,7 @@ impl Interpreter {
             .map(ExprResult::Set)
     }
 
-    fn evaluate_dict(&self, dict_ops: &[DictOperation]) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_dict(&self, dict_ops: &[DictOperation]) -> TreewalkResult<ExprResult> {
         // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
@@ -485,11 +539,8 @@ impl Interpreter {
         Ok(ExprResult::Dict(Container::new(Dict::new(self, result))))
     }
 
-    fn evaluate_await(&self, expr: &Expr) -> Result<ExprResult, InterpreterError> {
-        let coroutine_to_await = self
-            .evaluate_expr(expr)?
-            .as_coroutine()
-            .ok_or(InterpreterError::ExpectedCoroutine(self.state.call_stack()))?;
+    fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<ExprResult> {
+        let coroutine_to_await = self.evaluate_expr(expr)?.expect_coroutine(self)?;
 
         if let Some(result) = coroutine_to_await.clone().borrow().is_finished() {
             Ok(result)
@@ -505,13 +556,13 @@ impl Interpreter {
                 .get_executor()
                 .borrow()
                 .set_wait_on(current_coroutine, coroutine_to_await);
-            Err(InterpreterError::EncounteredAwait)
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Await))
         } else {
-            Err(InterpreterError::ExpectedCoroutine(self.state.call_stack()))
+            Err(self.type_error("Expected a coroutine"))
         }
     }
 
-    fn evaluate_delete(&self, exprs: &[Expr]) -> Result<(), InterpreterError> {
+    fn evaluate_delete(&self, exprs: &[Expr]) -> TreewalkResult<()> {
         for expr in exprs {
             match expr {
                 Expr::Variable(name) => {
@@ -522,34 +573,29 @@ impl Interpreter {
                     let object_result = self.evaluate_expr(object)?;
                     object_result
                         .as_index_write(self)
-                        .ok_or(InterpreterError::TypeError(
-                            Some(format!(
+                        .ok_or_else(|| {
+                            self.type_error(format!(
                                 "'{}' object does not support item deletion",
                                 object_result.get_type()
-                            )),
-                            self.state.call_stack(),
-                        ))?
+                            ))
+                        })?
                         .delitem(self, index_result)?;
                 }
                 Expr::MemberAccess { object, field } => {
-                    let result = self.evaluate_expr(object)?;
-                    result
+                    let object_result = self.evaluate_expr(object)?;
+                    object_result
                         .as_member_writer()
-                        .ok_or(InterpreterError::AttributeError(
-                            result.get_type().to_string(),
-                            field.to_string(),
-                            self.state.call_stack(),
-                        ))?
+                        .ok_or_else(|| self.attribute_error(object_result.clone(), field))?
                         .delete_member(self, field)?;
                 }
-                _ => return Err(InterpreterError::ExpectedVariable(self.state.call_stack())),
+                _ => return Err(self.type_error("cannot delete")),
             }
         }
 
         Ok(())
     }
 
-    fn evaluate_return(&self, exprs: &[Expr]) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_return(&self, exprs: &[Expr]) -> TreewalkResult<ExprResult> {
         assert!(!exprs.is_empty());
 
         let results = exprs
@@ -563,18 +609,20 @@ impl Interpreter {
             results[0].clone()
         };
 
-        Err(InterpreterError::EncounteredReturn(return_val))
+        Err(TreewalkDisruption::Signal(TreewalkSignal::Return(
+            return_val,
+        )))
     }
 
-    fn evaluate_assert(&self, expr: &Expr) -> Result<(), InterpreterError> {
+    fn evaluate_assert(&self, expr: &Expr) -> TreewalkResult<()> {
         if self.evaluate_expr(expr)?.as_boolean() {
             Ok(())
         } else {
-            Err(InterpreterError::AssertionError(self.state.call_stack()))
+            Err(self.assertion_error())
         }
     }
 
-    fn evaluate_f_string(&self, parts: &[FStringPart]) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_f_string(&self, parts: &[FStringPart]) -> TreewalkResult<ExprResult> {
         let mut result = String::new();
         for part in parts {
             match part {
@@ -591,7 +639,7 @@ impl Interpreter {
         Ok(ExprResult::String(Str::new(result)))
     }
 
-    fn evaluate_ast(&self, ast: &Ast) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<ExprResult> {
         let mut result = ExprResult::None;
         for statement in ast.iter() {
             result = self.evaluate_statement(statement)?;
@@ -604,17 +652,14 @@ impl Interpreter {
         name: &str,
         arguments: &ParsedArguments,
         callee: &Option<Box<Expr>>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let arguments = ResolvedArguments::from(self, arguments)?;
 
-        let function =
-            if let Some(callee) = callee {
-                self.evaluate_expr(callee)?.as_callable().ok_or(
-                    InterpreterError::FunctionNotFound("<callee>".into(), self.state.call_stack()),
-                )?
-            } else {
-                self.read_callable(name)?
-            };
+        let function = if let Some(callee) = callee {
+            self.evaluate_expr(callee)?.expect_callable(self)?
+        } else {
+            self.read_callable(name)?
+        };
 
         self.call_function_inner(function, &arguments)
     }
@@ -624,7 +669,7 @@ impl Interpreter {
         obj: &Expr,
         name: S,
         arguments: &ParsedArguments,
-    ) -> Result<ExprResult, InterpreterError>
+    ) -> TreewalkResult<ExprResult>
     where
         S: AsRef<str>,
     {
@@ -638,7 +683,7 @@ impl Interpreter {
         &self,
         name: &str,
         arguments: &ParsedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         log(LogLevel::Debug, || format!("Instantiating: {}", name));
         log(LogLevel::Trace, || {
             format!("... from module: {}", self.state.current_module())
@@ -653,20 +698,8 @@ impl Interpreter {
             log(LogLevel::Trace, || format!("... from class: {}", class));
         }
 
-        let result = self
-            .state
-            .read(name)
-            .ok_or(InterpreterError::ClassNotFound(
-                name.to_string(),
-                self.state.call_stack(),
-            ))?;
-        let class = result.as_callable().ok_or(InterpreterError::ClassNotFound(
-            name.to_string(),
-            self.state.call_stack(),
-        ))?;
-
+        let class = self.read_callable(name)?;
         let arguments = ResolvedArguments::from(self, arguments)?;
-
         self.call(class, &arguments)
     }
 
@@ -675,7 +708,7 @@ impl Interpreter {
         operator: &CompoundOperator,
         target: &Expr,
         value: &Expr,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let bin_op = BinOp::from(operator);
         let result = self.evaluate_binary_operation(target, &bin_op, value)?;
         self.evaluate_assignment_inner(target, result)
@@ -683,11 +716,7 @@ impl Interpreter {
 
     /// Assignment functionality shared by traditional assignment such as `a = 1` and compound
     /// assignment such as `a += 1`.
-    fn evaluate_assignment_inner(
-        &self,
-        name: &Expr,
-        value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn evaluate_assignment_inner(&self, name: &Expr, value: ExprResult) -> TreewalkResult<()> {
         match name {
             Expr::Variable(name) => {
                 self.state.write(name, value.clone());
@@ -697,42 +726,33 @@ impl Interpreter {
                 let object_result = self.evaluate_expr(object)?;
                 object_result
                     .as_index_write(self)
-                    .ok_or(InterpreterError::TypeError(
-                        Some(format!(
+                    .ok_or_else(|| {
+                        self.type_error(format!(
                             "'{}' object does not support item assignment",
                             object_result.get_type()
-                        )),
-                        self.state.call_stack(),
-                    ))?
+                        ))
+                    })?
                     .setitem(self, index_result, value)?;
             }
             Expr::MemberAccess { object, field } => {
                 let result = self.evaluate_expr(object)?;
                 result
                     .as_member_writer()
-                    .ok_or(InterpreterError::AttributeError(
-                        result.get_type().to_string(),
-                        field.to_string(),
-                        self.state.call_stack(),
-                    ))?
+                    .ok_or_else(|| self.attribute_error(result, field))?
                     .set_member(self, field, value)?;
             }
-            _ => return Err(InterpreterError::ExpectedVariable(self.state.call_stack())),
+            _ => return Err(self.type_error("cannot assign")),
         }
 
         Ok(())
     }
 
-    fn evaluate_assignment(&self, name: &Expr, expr: &Expr) -> Result<(), InterpreterError> {
+    fn evaluate_assignment(&self, name: &Expr, expr: &Expr) -> TreewalkResult<()> {
         let result = self.evaluate_expr(expr)?;
         self.evaluate_assignment_inner(name, result)
     }
 
-    fn evaluate_multiple_assignment(
-        &self,
-        left: &[Expr],
-        expr: &Expr,
-    ) -> Result<(), InterpreterError> {
+    fn evaluate_multiple_assignment(&self, left: &[Expr], expr: &Expr) -> TreewalkResult<()> {
         let value = self.evaluate_expr(expr)?;
         for name in left {
             self.evaluate_assignment_inner(name, value.clone())?;
@@ -742,31 +762,22 @@ impl Interpreter {
     }
 
     /// Python can unpack any iterables, not any index reads.
-    fn evaluate_unpacking_assignment(
-        &self,
-        left: &[Expr],
-        expr: &Expr,
-    ) -> Result<(), InterpreterError> {
+    fn evaluate_unpacking_assignment(&self, left: &[Expr], expr: &Expr) -> TreewalkResult<()> {
         let results = self.evaluate_expr(expr)?.into_iter();
         let right_len = results.clone().count();
         let left_len = left.len();
 
         if left_len < right_len {
-            return Err(InterpreterError::ValueError(
-                "too many values to unpack (expected ".to_string() + &left_len.to_string() + ")",
-                self.state.call_stack(),
-            ));
+            return Err(
+                self.value_error(format!("too many values to unpack (expected {})", left_len,))
+            );
         }
 
         if left.len() > right_len {
-            return Err(InterpreterError::ValueError(
-                "not enough values to unpack (expected ".to_string()
-                    + &left_len.to_string()
-                    + ", got "
-                    + &right_len.to_string()
-                    + ")",
-                self.state.call_stack(),
-            ));
+            return Err(self.value_error(format!(
+                "not enough values to unpack (expected {}, got {})",
+                left_len, right_len
+            )));
         }
 
         for (key, value) in left.iter().zip(results) {
@@ -780,7 +791,7 @@ impl Interpreter {
         &self,
         arguments: &ParsedArgDefinitions,
         expr: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let block = Ast::from_expr(expr.clone());
 
         let function = Container::new(Function::new_lambda(
@@ -799,14 +810,16 @@ impl Interpreter {
         body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
-    ) -> Result<(), InterpreterError> {
+        line_number: usize,
+    ) -> TreewalkResult<()> {
         let function = Container::new(Function::new(
             self.state.clone(),
-            name.to_string(),
+            name,
             arguments.clone(),
             body.clone(),
-            decorators.to_vec(),
+            decorators,
             *is_async,
+            line_number,
         ));
 
         // Decorators are applied to a function when it is defined and then the decorated version
@@ -826,26 +839,20 @@ impl Interpreter {
         parents: &[Expr],
         metaclass: &Option<String>,
         body: &Ast,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         log(LogLevel::Debug, || format!("Defining class: {}", name));
         let parent_classes = parents
             .iter()
             .map(|p| self.evaluate_expr(p))
             .collect::<Result<Vec<_>, _>>()?
             .iter()
-            .map(|f| {
-                f.as_class()
-                    .ok_or(InterpreterError::ExpectedClass(self.state.call_stack()))
-            })
+            .map(|f| f.expect_class(self))
             .collect::<Result<Vec<_>, _>>()?;
 
         let metaclass = metaclass
             .clone()
             .and_then(|p| self.state.read(p.as_str()))
-            .map(|d| {
-                d.as_class()
-                    .ok_or(InterpreterError::ExpectedClass(self.state.call_stack()))
-            })
+            .map(|d| d.expect_class(self))
             .transpose()?;
 
         // We will update the scope on this class before we write it to the symbol table, but we
@@ -863,7 +870,7 @@ impl Interpreter {
         class.borrow_mut().scope = self
             .state
             .pop_local()
-            .ok_or(InterpreterError::RuntimeError)?
+            .ok_or_else(|| self.runtime_error())?
             .borrow()
             .clone();
 
@@ -879,7 +886,7 @@ impl Interpreter {
         if_part: &ConditionalBlock,
         elif_parts: &[ConditionalBlock],
         else_part: &Option<Ast>,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
         if if_condition_result.as_boolean() {
             self.evaluate_ast(&if_part.block)?;
@@ -902,13 +909,13 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_while_loop(&self, condition: &Expr, body: &Ast) -> Result<(), InterpreterError> {
+    fn evaluate_while_loop(&self, condition: &Expr, body: &Ast) -> TreewalkResult<()> {
         while self.evaluate_expr(condition)?.as_boolean() {
             match self.evaluate_ast(body) {
-                Err(InterpreterError::EncounteredBreak) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     break;
                 }
-                Err(InterpreterError::EncounteredContinue) => {}
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)) => {}
                 Err(e) => return Err(e),
                 _ => {}
             }
@@ -921,7 +928,7 @@ impl Interpreter {
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let generator = Generator::new_from_comprehension(self.state.clone(), body, clauses);
         let iterator = GeneratorIterator::new(generator, self.clone());
         Ok(ExprResult::Generator(Container::new(iterator)))
@@ -931,7 +938,7 @@ impl Interpreter {
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         if let Some((first_clause, remaining_clauses)) = clauses.split_first() {
             // Recursive case: Process the first ForClause
             let mut output = vec![];
@@ -969,10 +976,10 @@ impl Interpreter {
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         self.evaluate_list_comprehension(body, clauses)?
             .try_into()
-            .map_err(|_| InterpreterError::ExpectedSet(self.state.call_stack()))
+            .map_err(|_| self.type_error("Expected a set"))
             .map(ExprResult::Set)
     }
 
@@ -981,7 +988,7 @@ impl Interpreter {
         clauses: &[ForClause],
         key_body: &Expr,
         value_body: &Expr,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let first_clause = match clauses {
             [first] => first,
             _ => unimplemented!(),
@@ -1008,19 +1015,19 @@ impl Interpreter {
         range: &Expr,
         body: &Ast,
         else_block: &Option<Ast>,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let range_expr = self.evaluate_expr(range)?;
         let mut encountered_break = false;
 
         for val_for_iteration in range_expr {
-            self.state.write_loop_index(index, val_for_iteration);
+            self.write_loop_index(index, val_for_iteration);
 
             match self.evaluate_ast(body) {
-                Err(InterpreterError::EncounteredBreak) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     encountered_break = true;
                     break;
                 }
-                Err(InterpreterError::EncounteredContinue) => {}
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)) => {}
                 Err(e) => return Err(e),
                 _ => {}
             }
@@ -1035,7 +1042,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_regular_import(&self, items: &[RegularImport]) -> Result<(), InterpreterError> {
+    fn evaluate_regular_import(&self, items: &[RegularImport]) -> TreewalkResult<()> {
         for item in items.iter() {
             self.evaluate_regular_import_inner(&item.import_path, &item.alias)?;
         }
@@ -1047,7 +1054,7 @@ impl Interpreter {
         &self,
         import_path: &ImportPath,
         alias: &Option<String>,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         // A mutable ExprResult::Module that will be updated on each loop iteration
         let mut inner_module = self.evaluate_module_import(import_path)?;
 
@@ -1084,14 +1091,11 @@ impl Interpreter {
         import_path: &ImportPath,
         arguments: &[ImportedItem],
         wildcard: &bool,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let module = self
             .evaluate_module_import(import_path)?
             .as_module()
-            .ok_or(InterpreterError::ModuleNotFound(
-                import_path.as_str().to_string(),
-                self.state.call_stack(),
-            ))?;
+            .ok_or_else(|| self.import_error(import_path.as_str()))?;
 
         let mapped_imports = arguments
             .iter()
@@ -1117,10 +1121,7 @@ impl Interpreter {
             if let Some(value) = module.get_member(self, module_symbol.as_str())? {
                 self.state.write(&aliased_symbol, value.clone());
             } else {
-                return Err(InterpreterError::FunctionNotFound(
-                    aliased_symbol.to_string(),
-                    self.state.call_stack(),
-                ));
+                return Err(self.name_error(aliased_symbol));
             }
         }
 
@@ -1132,19 +1133,14 @@ impl Interpreter {
         expr: &Expr,
         variable: &Option<String>,
         block: &Ast,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
-
-        let object = expr_result
-            .as_object()
-            .ok_or(InterpreterError::ExpectedObject(self.state.call_stack()))?;
+        let object = expr_result.expect_object(self)?;
 
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(InterpreterError::MissingContextManagerProtocol(
-                self.state.call_stack(),
-            ));
+            return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &resolved_args![])?;
@@ -1166,10 +1162,10 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_raise(&self, instance: &Option<ExceptionInstance>) -> Result<(), InterpreterError> {
+    fn evaluate_raise(&self, instance: &Option<ExceptionInstance>) -> TreewalkResult<()> {
         // TODO we should throw a 'RuntimeError: No active exception to reraise'
         if instance.is_none() {
-            return Err(InterpreterError::EncounteredRaise);
+            return Err(TreewalkDisruption::Signal(TreewalkSignal::Raise));
         }
 
         let instance = instance.as_ref().unwrap();
@@ -1177,16 +1173,12 @@ impl Interpreter {
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
-                    Some(
-                        args.get_arg(0)
-                            .as_string()
-                            .ok_or(InterpreterError::ExpectedString(self.state.call_stack()))?,
-                    )
+                    Some(args.get_arg(0).expect_string(self)?)
                 } else {
                     None
                 };
 
-                InterpreterError::TypeError(message, self.state.call_stack())
+                self.type_error_optional_message(message)
             }
             _ => unimplemented!(),
         };
@@ -1200,8 +1192,8 @@ impl Interpreter {
         except_clauses: &[ExceptClause],
         else_block: &Option<Ast>,
         finally_block: &Option<Ast>,
-    ) -> Result<(), InterpreterError> {
-        if let Err(error) = self.evaluate_ast(try_block) {
+    ) -> TreewalkResult<()> {
+        if let Err(TreewalkDisruption::Error(error)) = self.evaluate_ast(try_block) {
             // Only the first matching clause should be evaluated. They will still be in order
             // here from the parsed code.
             if let Some(except_clause) = except_clauses
@@ -1214,13 +1206,15 @@ impl Interpreter {
                 }
 
                 match self.evaluate_ast(&except_clause.block) {
-                    Err(InterpreterError::EncounteredRaise) => return Err(error),
+                    Err(TreewalkDisruption::Signal(TreewalkSignal::Raise)) => {
+                        return Err(TreewalkDisruption::Error(error))
+                    }
                     Err(second_error) => return Err(second_error),
                     Ok(_) => {}
                 }
             } else {
                 // Uncaught errors should be raised
-                return Err(error);
+                return Err(TreewalkDisruption::Error(error));
             }
         } else if let Some(else_block) = else_block {
             // Else block is only evaluated if an error was not thrown
@@ -1236,24 +1230,24 @@ impl Interpreter {
     }
 
     /// TODO This should be moved to the semantic analysis
-    fn validate_nonlocal_context(&self, name: &str) -> Result<(), InterpreterError> {
+    fn validate_nonlocal_context(&self, name: &str) -> TreewalkResult<()> {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(InterpreterError::SyntaxError(self.state.call_stack()));
+                return Err(self.error(ExecutionErrorKind::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(InterpreterError::SyntaxError(self.state.call_stack()));
+            return Err(self.error(ExecutionErrorKind::SyntaxError));
         }
 
         Ok(())
     }
 
-    fn evaluate_nonlocal(&self, names: &[Variable]) -> Result<(), InterpreterError> {
+    fn evaluate_nonlocal(&self, names: &[Variable]) -> TreewalkResult<()> {
         for name in names {
             self.validate_nonlocal_context(name)?;
             self.state.mark_nonlocal(name);
@@ -1262,7 +1256,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_global(&self, names: &[Variable]) -> Result<(), InterpreterError> {
+    fn evaluate_global(&self, names: &[Variable]) -> TreewalkResult<()> {
         for name in names {
             self.state.mark_global(name);
         }
@@ -1270,11 +1264,11 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_type_node(&self, type_node: &TypeNode) -> Result<ExprResult, InterpreterError> {
+    fn evaluate_type_node(&self, type_node: &TypeNode) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::TypeNode(type_node.into()))
     }
 
-    pub fn evaluate_expr(&self, expr: &Expr) -> Result<ExprResult, InterpreterError> {
+    pub fn evaluate_expr(&self, expr: &Expr) -> TreewalkResult<ExprResult> {
         match expr {
             Expr::None => Ok(ExprResult::None),
             Expr::Ellipsis => Ok(ExprResult::Ellipsis),
@@ -1284,7 +1278,7 @@ impl Interpreter {
             Expr::Boolean(value) => Ok(ExprResult::Boolean(*value)),
             Expr::StringLiteral(value) => Ok(ExprResult::String(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(ExprResult::Bytes(value.clone())),
-            Expr::Variable(name) => self.evaluate_variable(name),
+            Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
             Expr::Dict(dict_ops) => self.evaluate_dict(dict_ops),
@@ -1338,75 +1332,81 @@ impl Interpreter {
         }
     }
 
-    pub fn evaluate_statement(&self, stmt: &Statement) -> Result<ExprResult, InterpreterError> {
+    pub fn evaluate_statement(&self, stmt: &Statement) -> TreewalkResult<ExprResult> {
+        self.state.set_line_number(stmt.start_line);
+
         // These are the only types of statements that will return a value.
-        match stmt {
-            Statement::Expression(expr) => return self.evaluate_expr(expr),
-            Statement::Return(expr) => return self.evaluate_return(expr),
+        match &stmt.kind {
+            StatementKind::Expression(expr) => return self.evaluate_expr(expr),
+            StatementKind::Return(expr) => return self.evaluate_return(expr),
             _ => {}
         };
 
-        let result = match stmt {
+        let result = match &stmt.kind {
             // These are handled above
-            Statement::Expression(_) | Statement::Return(_) => unreachable!(),
-            Statement::Pass => Ok(()),
-            Statement::Break => Err(InterpreterError::EncounteredBreak),
-            Statement::Continue => Err(InterpreterError::EncounteredContinue),
-            Statement::Assert(expr) => self.evaluate_assert(expr),
-            Statement::Delete(expr) => self.evaluate_delete(expr),
-            Statement::Nonlocal(names) => self.evaluate_nonlocal(names),
-            Statement::Global(names) => self.evaluate_global(names),
-            Statement::Assignment { left, right } => self.evaluate_assignment(left, right),
-            Statement::MultipleAssignment { left, right } => {
+            StatementKind::Expression(_) | StatementKind::Return(_) => unreachable!(),
+            StatementKind::Pass => Ok(()),
+            StatementKind::Break => Err(TreewalkDisruption::Signal(TreewalkSignal::Break)),
+            StatementKind::Continue => Err(TreewalkDisruption::Signal(TreewalkSignal::Continue)),
+            StatementKind::Assert(expr) => self.evaluate_assert(expr),
+            StatementKind::Delete(expr) => self.evaluate_delete(expr),
+            StatementKind::Nonlocal(names) => self.evaluate_nonlocal(names),
+            StatementKind::Global(names) => self.evaluate_global(names),
+            StatementKind::Assignment { left, right } => self.evaluate_assignment(left, right),
+            StatementKind::MultipleAssignment { left, right } => {
                 self.evaluate_multiple_assignment(left, right)
             }
-            Statement::UnpackingAssignment { left, right } => {
+            StatementKind::UnpackingAssignment { left, right } => {
                 self.evaluate_unpacking_assignment(left, right)
             }
-            Statement::CompoundAssignment {
+            StatementKind::CompoundAssignment {
                 operator,
                 target,
                 value,
             } => self.evaluate_compound_assignment(operator, target, value),
-            Statement::FunctionDef {
+            StatementKind::FunctionDef {
                 name,
                 args,
                 body,
                 decorators,
                 is_async,
-            } => self.evaluate_function_def(name, args, body, decorators, is_async),
-            Statement::IfElse {
+            } => {
+                self.evaluate_function_def(name, args, body, decorators, is_async, stmt.start_line)
+            }
+            StatementKind::IfElse {
                 if_part,
                 elif_parts,
                 else_part,
             } => self.evaluate_if_else(if_part, elif_parts, else_part),
-            Statement::WhileLoop { condition, body } => self.evaluate_while_loop(condition, body),
-            Statement::ForInLoop {
+            StatementKind::WhileLoop { condition, body } => {
+                self.evaluate_while_loop(condition, body)
+            }
+            StatementKind::ForInLoop {
                 index,
                 iterable: range,
                 body,
                 else_block,
             } => self.evaluate_for_in_loop(index, range, body, else_block),
-            Statement::ClassDef {
+            StatementKind::ClassDef {
                 name,
                 parents,
                 metaclass,
                 body,
             } => self.evaluate_class_definition(name, parents, metaclass, body),
-            Statement::RegularImport(items) => self.evaluate_regular_import(items),
-            Statement::SelectiveImport {
+            StatementKind::RegularImport(items) => self.evaluate_regular_import(items),
+            StatementKind::SelectiveImport {
                 import_path,
                 items,
                 wildcard,
             } => self.evaluate_selective_import(import_path, items, wildcard),
-            Statement::TryExcept {
+            StatementKind::TryExcept {
                 try_block,
                 except_clauses,
                 else_block,
                 finally_block,
             } => self.evaluate_try_except(try_block, except_clauses, else_block, finally_block),
-            Statement::Raise(exception) => self.evaluate_raise(exception),
-            Statement::ContextManager {
+            StatementKind::Raise(exception) => self.evaluate_raise(exception),
+            StatementKind::ContextManager {
                 expr,
                 variable,
                 block,
@@ -1427,9 +1427,11 @@ impl InterpreterEntrypoint for Interpreter {
         let mut result = ExprResult::None;
         while !parser.is_finished() {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
-            result = self
-                .evaluate_statement(&stmt)
-                .map_err(MemphisError::Interpreter)?;
+            result = match self.evaluate_statement(&stmt) {
+                Ok(result) => result,
+                Err(TreewalkDisruption::Error(e)) => return Err(MemphisError::Execution(e)),
+                Err(TreewalkDisruption::Signal(_)) => todo!(),
+            }
         }
 
         Ok(result)
@@ -1440,6 +1442,8 @@ impl InterpreterEntrypoint for Interpreter {
 mod tests {
     use super::*;
     use crate::{
+        ast,
+        domain::test_utils,
         init::MemphisContext,
         treewalk::types::{
             domain::Type, ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet,
@@ -1463,23 +1467,20 @@ mod tests {
         evaluate(text).expect("Failed to evaluate test string!")
     }
 
+    fn stmt(kind: StatementKind) -> Statement {
+        Statement::new(1, kind)
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                let interpreter = context.ensure_treewalk();
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::NameError(
-                        "x".to_string(),
-                        interpreter.state.call_stack(),
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_name_error(&e, "x");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -1489,16 +1490,15 @@ mod tests {
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::DivisionByZero(
-                        "division by zero".into(),
-                        context.ensure_treewalk().state.call_stack(),
-                    ))
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::DivisionByZero(
+                        "integer division or modulo by zero".to_string(),
+                    ),
                 );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -1517,12 +1517,17 @@ mod tests {
         assert_eq!(evaluate_and_expect(input), ExprResult::Integer(1));
 
         let input = "5 // 0";
-        let result = evaluate(input);
-        let Err(MemphisError::Interpreter(InterpreterError::DivisionByZero(msg, _))) = result
-        else {
-            panic!("Expected DivisionByZero error");
-        };
-        assert_eq!(msg, "integer division or modulo by zero",);
+        match evaluate(input) {
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::DivisionByZero(
+                        "integer division or modulo by zero".to_string(),
+                    ),
+                );
+            }
+            _ => panic!("Expected an exception!"),
+        }
     }
 
     #[test]
@@ -1774,7 +1779,7 @@ y = _f.__type_params__
                 let Function { ref body, .. } = b;
                 assert_eq!(
                     body,
-                    &Ast::new(vec![Statement::Expression(Expr::Integer(4))])
+                    &Ast::new(vec![stmt(StatementKind::Expression(Expr::Integer(4)))])
                 );
                 assert_eq!(interpreter.state.read("c"), Some(ExprResult::Integer(4)));
                 let d = interpreter
@@ -1788,7 +1793,7 @@ y = _f.__type_params__
                 let Function { ref body, .. } = d;
                 assert_eq!(
                     body,
-                    &Ast::new(vec![Statement::Expression(Expr::Yield(None))])
+                    &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
                 );
                 assert!(matches!(
                     interpreter.state.read("e").unwrap(),
@@ -2222,7 +2227,10 @@ foo.bar()
                 assert_eq!(interpreter.state.read("y"), Some(ExprResult::Integer(7)));
             }
         }
+    }
 
+    #[test]
+    fn regular_import_relative() {
         let mut context = init_path("src/fixtures/imports/relative/main_b.py");
 
         match context.run_and_return_interpreter() {
@@ -2266,16 +2274,10 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/selective_import_c.py");
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::FunctionNotFound(
-                        "something_third".to_string(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_name_error(&e, "something_third");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let mut context = init_path("src/fixtures/imports/selective_import_d.py");
@@ -2305,7 +2307,10 @@ foo.bar()
                 assert_eq!(interpreter.state.read("z"), Some(ExprResult::Integer(6)));
             }
         }
+    }
 
+    #[test]
+    fn selective_import_relative() {
         let mut context = init_path("src/fixtures/imports/relative/main_a.py");
 
         match context.run_and_return_interpreter() {
@@ -2418,15 +2423,9 @@ j = +(-3)
         let mut context = init_path("src/fixtures/call_stack/call_stack.py");
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::FunctionNotFound(
-                        "unknown".to_string(),
-                        call_stack.clone(),
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                let call_stack = context.ensure_treewalk().state.debug_call_stack();
+                test_utils::assert_name_error(&e, "unknown");
 
                 assert_eq!(call_stack.len(), 3);
                 assert!(call_stack
@@ -2449,7 +2448,40 @@ j = +(-3)
                 assert_eq!(call_stack.get(1).line_number(), 2);
                 assert_eq!(call_stack.get(2).line_number(), 5);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
+        }
+
+        let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+
+        match context.run_and_return_interpreter() {
+            Err(MemphisError::Execution(e)) => {
+                let call_stack = context.ensure_treewalk().state.debug_call_stack();
+                test_utils::assert_name_error(&e, "unknown");
+
+                assert_eq!(call_stack.len(), 3);
+                assert_eq!(call_stack.get(0).name(), "<module>");
+                assert_eq!(call_stack.get(1).name(), "middle_call");
+                assert_eq!(call_stack.get(2).name(), "last_call");
+                assert_eq!(call_stack.get(0).line_number(), 7);
+                assert_eq!(call_stack.get(1).line_number(), 2);
+                assert_eq!(call_stack.get(2).line_number(), 5);
+                assert!(call_stack
+                    .get(0)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(0).file_path_str().starts_with("/"));
+                assert!(call_stack
+                    .get(1)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(1).file_path_str().starts_with("/"));
+                assert!(call_stack
+                    .get(2)
+                    .file_path_str()
+                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+                assert!(call_stack.get(2).file_path_str().starts_with("/"));
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -2467,22 +2499,16 @@ c = foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                let call_stack = context.ensure_treewalk().state.call_stack();
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::FunctionNotFound(
-                        "foo".to_string(),
-                        call_stack.clone(),
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                let call_stack = context.ensure_treewalk().state.debug_call_stack();
+                test_utils::assert_name_error(&e, "foo");
 
                 assert_eq!(call_stack.len(), 1);
                 assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(0).name(), "__main__");
+                assert_eq!(call_stack.get(0).name(), "<module>");
                 assert_eq!(call_stack.get(0).line_number(), 11);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -2644,17 +2670,10 @@ t.extend([3,4])
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        1,
-                        3,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 3 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -2764,17 +2783,10 @@ l = {1} <= {2}
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        1,
-                        2,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 3 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -2867,18 +2879,10 @@ j = 9, 10
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    // TODO these numbers are wrong because it comes out of Dunder::new
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        2,
-                        3,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 3 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -2921,16 +2925,13 @@ d[0] = 10
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("'tuple' object does not support item assignment".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "'tuple' object does not support item assignment",
                 );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -2940,16 +2941,10 @@ del d[0]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("'tuple' object does not support item deletion".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "'tuple' object does not support item deletion");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -2958,16 +2953,10 @@ del d[0]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("'int' object is not subscriptable".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "'int' object is not subscriptable");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -3383,15 +3372,10 @@ c = next(a)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::StopIteration(
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::StopIteration);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -3676,17 +3660,10 @@ d = ChildTwo().three()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "ChildTwo".into(),
-                        "x".to_string(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "ChildTwo", "x");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         // Test that multiple levels of a hierarchy can be traversed.
@@ -3927,7 +3904,7 @@ a = Foo.__mro__
             Ok(interpreter) => {
                 let mro = interpreter.state.read("a").map(|a| {
                     a.as_tuple()
-                        .unwrap()
+                        .expect("Expected a tuple")
                         .into_iter()
                         .map(|i| i.as_class().unwrap().borrow().name().to_string())
                         .collect::<Vec<String>>()
@@ -4272,15 +4249,10 @@ assert False
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AssertionError(
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::AssertionError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -4430,14 +4402,10 @@ except Exception as e:
             Ok(interpreter) => {
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Integer(3)));
                 match interpreter.state.read("e") {
-                    Some(ExprResult::Exception(e)) => assert_eq!(
-                        e,
-                        Box::new(InterpreterError::NameError(
-                            "b".into(),
-                            interpreter.state.call_stack()
-                        ))
-                    ),
-                    _ => panic!(),
+                    Some(ExprResult::Exception(e)) => {
+                        test_utils::assert_name_error(&*e, "b");
+                    }
+                    _ => panic!("Expected an exception!"),
                 }
             }
         }
@@ -4524,16 +4492,13 @@ except ValueError:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::DivisionByZero(
-                        "division by zero".into(),
-                        context.ensure_treewalk().state.call_stack(),
-                    ))
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -4545,16 +4510,13 @@ except ZeroDivisionError:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::DivisionByZero(
-                        "division by zero".into(),
-                        context.ensure_treewalk().state.call_stack(),
-                    ))
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
                 );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -4702,16 +4664,13 @@ b = test_args(0)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("test_args() missing 1 required positional argument: 'two'".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "test_args() missing 1 required positional argument: 'two'",
+                );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -4723,16 +4682,13 @@ b = test_args(0)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("test_args() missing 2 required positional arguments: 'two' and 'three'".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "test_args() missing 2 required positional arguments: 'two' and 'three'",
+                );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -4744,17 +4700,10 @@ b = test_args(1, 2, 3)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        2,
-                        3,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 3 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5058,16 +5007,10 @@ raise TypeError
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        None,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error_optional_message(&e, None);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5076,16 +5019,10 @@ raise TypeError('type is no good')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("type is no good".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "type is no good");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -5265,13 +5202,13 @@ with MyContextManager() as cm:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::MissingContextManagerProtocol(
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an exception!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::MissingContextManagerProtocol,
+                );
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5292,13 +5229,13 @@ with MyContextManager() as cm:
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::MissingContextManagerProtocol(
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an exception!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(
+                    &e,
+                    ExecutionErrorKind::MissingContextManagerProtocol,
+                );
+            }
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -5325,16 +5262,10 @@ c = a['b']
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::KeyError(
-                        "b".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_key_error(&e, "b");
             }
-            Ok(_) => panic!("Expected an error"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5368,17 +5299,10 @@ a = f.x
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "Foo".into(),
-                        "x".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "Foo", "x");
             }
-            Ok(_) => panic!("Expected an error"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5392,17 +5316,10 @@ del f.bar
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "Foo".into(),
-                        "bar".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "Foo", "bar");
             }
-            Ok(_) => panic!("Expected an error"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5513,16 +5430,10 @@ a = bytearray('hello')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("string argument without an encoding".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "string argument without an encoding");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5594,16 +5505,10 @@ a = bytes('hello')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("string argument without an encoding".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "string argument without an encoding");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -5978,14 +5883,10 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::TypeError(
-                    Some("bad operand type for unary ~: 'float'".to_string()),
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "bad operand type for unary ~: 'float'");
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         // This tests the right-associativity of exponentiation.
@@ -6243,10 +6144,10 @@ f = [ i for i in zip(range(5), range(4), strict=True) ]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(e, MemphisError::Interpreter(InterpreterError::RuntimeError));
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exeception!"),
         }
     }
 
@@ -6469,17 +6370,10 @@ b = Foo.make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "Foo".into(),
-                        "val".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "Foo", "val");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -6496,17 +6390,10 @@ b = Foo().make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "Foo".into(),
-                        "val".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "Foo", "val");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -6543,17 +6430,10 @@ c = Foo().make()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        0,
-                        1,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 0 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -6684,15 +6564,10 @@ except Exception as e:
                 assert_eq!(interpreter.state.read("a"), Some(ExprResult::Integer(5)));
                 assert_eq!(interpreter.state.read("b"), Some(ExprResult::Integer(5)));
                 match interpreter.state.read("d") {
-                    Some(ExprResult::Exception(e)) => assert_eq!(
-                        e,
-                        Box::new(InterpreterError::AttributeError(
-                            "ConcreteImplementation".into(),
-                            "run".into(),
-                            interpreter.state.call_stack()
-                        ))
-                    ),
-                    _ => panic!("Expected error!"),
+                    Some(ExprResult::Exception(e)) => {
+                        test_utils::assert_attribute_error(&*e, "ConcreteImplementation", "run");
+                    }
+                    _ => panic!("Expected an exception!"),
                 }
             }
         }
@@ -6872,17 +6747,10 @@ foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    // this should become a parser error but it will require adding scope
-                    // context to the parser
-                    MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -6893,17 +6761,10 @@ foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    // this should become a parser error but it will require adding scope
-                    // context to the parser
-                    MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -6912,17 +6773,10 @@ nonlocal a
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    // this should become a parser error but it will require adding scope
-                    // context to the parser
-                    MemphisError::Interpreter(InterpreterError::SyntaxError(
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                );
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -7086,14 +6940,13 @@ b = Child.one()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::TypeError(
-                    Some("one() missing 1 required positional argument: 'self'".to_string()),
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "one() missing 1 required positional argument: 'self'",
+                );
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -7163,14 +7016,10 @@ b, c = [1, 2, 3]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::ValueError(
-                    "too many values to unpack (expected 2)".into(),
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_value_error(&e, "too many values to unpack (expected 2)");
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -7180,14 +7029,13 @@ a, b, c = [2, 3]
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::ValueError(
-                    "not enough values to unpack (expected 3, got 2)".into(),
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_value_error(
+                    &e,
+                    "not enough values to unpack (expected 3, got 2)",
+                );
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -7241,14 +7089,10 @@ a = (*5)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => assert_eq!(
-                e,
-                MemphisError::Interpreter(InterpreterError::TypeError(
-                    Some("Value after * must be an iterable, not int".into()),
-                    context.ensure_treewalk().state.call_stack()
-                ))
-            ),
-            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Value after * must be an iterable, not int");
+            }
+            _ => panic!("Expected an exception!"),
         }
 
         // TODO not sure where to detect this, probably in semantic analysis
@@ -7574,17 +7418,10 @@ e = frozenset().__contains__
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::WrongNumberOfArguments(
-                        1,
-                        3,
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "Found 3 args");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -7618,16 +7455,13 @@ b = foo()
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("foo() missing 1 required positional argument: 'data_one'".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "foo() missing 1 required positional argument: 'data_one'",
+                );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -7664,17 +7498,10 @@ b = getattr(f, 'val_two')
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::AttributeError(
-                        "Foo".into(),
-                        "val_two".into(),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_attribute_error(&e, "Foo", "val_two");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -7749,19 +7576,13 @@ isinstance([], (int, 5))
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some(
-                            "isinstance() arg 2 must be a type, a tuple of types, or a union"
-                                .into()
-                        ),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "isinstance() arg 2 must be a type, a tuple of types, or a union",
+                );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -7826,16 +7647,10 @@ issubclass([], type)
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some("issubclass() arg 1 must be a class".into()),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(&e, "issubclass() arg 1 must be a class");
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
 
         let input = r#"
@@ -7845,19 +7660,13 @@ issubclass(object, [])
         let mut context = init(input);
 
         match context.run_and_return_interpreter() {
-            Err(e) => {
-                assert_eq!(
-                    e,
-                    MemphisError::Interpreter(InterpreterError::TypeError(
-                        Some(
-                            "issubclass() arg 2 must be a type, a tuple of types, or a union"
-                                .into()
-                        ),
-                        context.ensure_treewalk().state.call_stack()
-                    ))
-                )
+            Err(MemphisError::Execution(e)) => {
+                test_utils::assert_type_error(
+                    &e,
+                    "issubclass() arg 2 must be a type, a tuple of types, or a union",
+                );
             }
-            Ok(_) => panic!("Expected an error!"),
+            _ => panic!("Expected an exception!"),
         }
     }
 
@@ -8411,14 +8220,13 @@ except Exception as e:
                 }
                 assert_eq!(interpreter.state.read("d"), Some(ExprResult::Boolean(true)));
                 match interpreter.state.read("the_exp") {
-                    Some(ExprResult::Exception(e)) => assert_eq!(
-                        e,
-                        Box::new(InterpreterError::TypeError(
-                            Some("__hash__ method should return an integer".into()),
-                            interpreter.state.call_stack()
-                        ))
-                    ),
-                    _ => panic!("Expected error!"),
+                    Some(ExprResult::Exception(e)) => {
+                        test_utils::assert_type_error(
+                            &*e,
+                            "__hash__ method should return an integer",
+                        );
+                    }
+                    _ => panic!("Expected an exception!"),
                 }
             }
         }

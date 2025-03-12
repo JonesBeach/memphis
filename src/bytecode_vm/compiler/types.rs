@@ -1,6 +1,9 @@
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::{
+    fmt::{Debug, Display, Error, Formatter},
+    path::Path,
+};
 
-use crate::bytecode_vm::opcode::Opcode;
+use crate::{bytecode_vm::opcode::Opcode, domain::Dunder, treewalk::ModuleSource};
 
 pub type Bytecode = Vec<Opcode>;
 
@@ -40,7 +43,7 @@ impl CompiledProgram {
 
 impl Display for CompiledProgram {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        writeln!(f, "CodeObject: {}", self.code.name)?;
+        writeln!(f, "CodeObject: {}", self.code.name())?;
         writeln!(f, "names:")?;
         for (index, name) in self.code.names.iter().enumerate() {
             writeln!(f, "{}: {:?}", name, index)?;
@@ -53,14 +56,14 @@ impl Display for CompiledProgram {
 
         for constant in self.constant_pool.iter() {
             if let Constant::Code(code) = constant {
-                writeln!(f, "\n{}:", code.name)?;
+                writeln!(f, "\n{}:", code.name())?;
                 for (index, opcode) in code.bytecode.iter().enumerate() {
                     writeln!(f, "{}: {}", index, opcode)?;
                 }
             }
         }
 
-        writeln!(f, "\n{}:", self.code.name)?;
+        writeln!(f, "\n{}:", self.code.name())?;
         for (index, opcode) in self.code.bytecode.iter().enumerate() {
             writeln!(f, "{}: {}", index, opcode)?;
         }
@@ -81,33 +84,79 @@ impl Debug for CompiledProgram {
 /// to the global or local variables it operates on.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CodeObject {
-    pub name: String,
+    pub name: Option<String>,
     pub bytecode: Bytecode,
     pub arg_count: usize,
     /// Local variable names
     pub varnames: Vec<String>,
     /// Non-local identifiers
     pub names: Vec<String>,
+
+    // this may not be the right thing here? We don't really need a full module source
+    pub module_source: ModuleSource,
+    pub line_map: Vec<(usize, usize)>,
 }
 
 impl CodeObject {
-    pub fn new(name: String) -> Self {
-        Self::with_args(name, vec![])
+    const DEFAULT_NAME: Dunder = Dunder::Main;
+
+    pub fn new_root(module_source: ModuleSource) -> Self {
+        Self::with_args(None, &[], module_source)
     }
 
-    pub fn with_args(name: String, varnames: Vec<String>) -> Self {
+    pub fn new(name: &str, module_source: ModuleSource) -> Self {
+        Self::with_args(Some(name.to_string()), &[], module_source)
+    }
+
+    pub fn with_args(
+        name: Option<String>,
+        varnames: &[String],
+        module_source: ModuleSource,
+    ) -> Self {
         Self {
             name,
             bytecode: vec![],
             arg_count: varnames.len(),
-            varnames,
+            varnames: varnames.to_vec(),
             names: vec![],
+            module_source,
+            line_map: vec![],
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_deref().unwrap_or(Self::DEFAULT_NAME.into())
+    }
+
+    pub fn context(&self) -> &str {
+        self.name
+            .as_deref()
+            .unwrap_or_else(|| self.module_source.context())
+    }
+
+    pub fn path(&self) -> &Path {
+        self.module_source.display_path()
+    }
+
+    pub fn get_line_number(&self, pc: usize) -> usize {
+        match self
+            .line_map
+            .binary_search_by_key(&pc, |(offset, _)| *offset)
+        {
+            Ok(index) => self.line_map[index].1, // Exact match
+            Err(index) => {
+                if index == 0 {
+                    0 // Default to first line if before first instruction
+                } else {
+                    self.line_map[index - 1].1 // Use the last known line number
+                }
+            }
         }
     }
 }
 
 impl Display for CodeObject {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "<code {}>", self.name)
+        write!(f, "<code {}>", self.name())
     }
 }

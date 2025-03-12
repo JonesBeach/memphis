@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::Container;
 use crate::parser::types::Statement;
+use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult, TreewalkSignal};
 use crate::{
     treewalk::types::{
         domain::{
@@ -14,7 +15,6 @@ use crate::{
         ExprResult, Function,
     },
     treewalk::{Interpreter, Scope},
-    types::errors::InterpreterError,
 };
 
 pub enum Poll {
@@ -26,7 +26,6 @@ pub enum Poll {
 /// `CoroutineExecutor` to be run.
 pub struct Coroutine {
     scope: Container<Scope>,
-    function: Container<Function>,
     context: Container<PausableContext>,
     wait_on: Option<Container<Coroutine>>,
     wake_at: Option<Instant>,
@@ -51,7 +50,6 @@ impl Coroutine {
 
         Self {
             scope,
-            function,
             context: PausableContext::new(frame),
             wait_on: None,
             wake_at: None,
@@ -99,19 +97,11 @@ impl Pausable for Container<Coroutine> {
         self.borrow().scope.clone()
     }
 
-    fn function(&self) -> Container<Function> {
-        self.borrow().function.clone()
-    }
-
     fn set_scope(&self, scope: Container<Scope>) {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(
-        &self,
-        _interpreter: &Interpreter,
-        result: ExprResult,
-    ) -> Result<ExprResult, InterpreterError> {
+    fn finish(&self, _interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult> {
         self.borrow_mut().set_return_val(result.clone());
         Ok(ExprResult::None)
     }
@@ -119,10 +109,10 @@ impl Pausable for Container<Coroutine> {
     fn handle_step(
         &self,
         interpreter: &Interpreter,
-        statement: Statement,
+        stmt: Statement,
         control_flow: bool,
-    ) -> Result<PausableStepResult, InterpreterError> {
-        match self.execute_statement(interpreter, statement, control_flow)? {
+    ) -> TreewalkResult<PausableStepResult> {
+        match self.execute_statement(interpreter, stmt, control_flow)? {
             Poll::Ready(val) => Ok(PausableStepResult::Return(val)),
             Poll::Waiting => {
                 self.on_exit(interpreter);
@@ -143,20 +133,22 @@ impl Container<Coroutine> {
     fn execute_statement(
         &self,
         interpreter: &Interpreter,
-        statement: Statement,
+        stmt: Statement,
         control_flow: bool,
-    ) -> Result<Poll, InterpreterError> {
+    ) -> TreewalkResult<Poll> {
         if !control_flow {
-            match interpreter.evaluate_statement(&statement) {
+            match interpreter.evaluate_statement(&stmt) {
                 // We cannot return the default value here because certain statement types may
                 // actually have a return value (expression, return, etc).
                 Ok(result) => Ok(Poll::Ready(result)),
-                Err(InterpreterError::EncounteredSleep) => Ok(Poll::Waiting),
-                Err(InterpreterError::EncounteredAwait) => {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep)) => Ok(Poll::Waiting),
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Await)) => {
                     self.context().step_back();
                     Ok(Poll::Waiting)
                 }
-                Err(InterpreterError::EncounteredReturn(result)) => Ok(Poll::Ready(result)),
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => {
+                    Ok(Poll::Ready(result))
+                }
                 Err(e) => Err(e),
             }
         } else {
@@ -177,8 +169,8 @@ impl Callable for CloseBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
         Ok(ExprResult::None)
     }
 

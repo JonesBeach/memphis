@@ -1,7 +1,7 @@
 mod bytecode_vm;
 mod core;
-pub mod crosscheck;
-mod domain;
+pub mod crosscheck_utils;
+pub mod domain;
 pub mod init;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
@@ -9,6 +9,9 @@ mod llvm_backend;
 mod parser;
 mod treewalk;
 mod types;
+
+// We need these public for crosscheck
+pub use types::errors::MemphisError;
 
 #[derive(PartialEq)]
 pub enum Engine {

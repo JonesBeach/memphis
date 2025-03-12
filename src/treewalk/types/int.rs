@@ -1,5 +1,7 @@
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{domain::Dunder, treewalk::Interpreter};
 
+use super::domain::builtins::utils;
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
@@ -30,25 +32,16 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        if args.len() == 1 {
-            Ok(ExprResult::Integer(0))
-        } else if args.len() == 2 {
-            let input = args
-                .get_arg(1)
-                .as_integer()
-                .ok_or(InterpreterError::ExpectedInteger(
-                    interpreter.state.call_stack(),
-                ))?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-            Ok(ExprResult::Integer(input))
-        } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                1,
-                args.len(),
-                interpreter.state.call_stack(),
-            ))
-        }
+        let int = match args.len() {
+            1 => 0,
+            2 => args.get_arg(1).expect_integer(interpreter)?,
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Integer(int))
     }
 
     fn name(&self) -> String {

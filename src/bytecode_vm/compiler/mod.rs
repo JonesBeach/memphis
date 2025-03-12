@@ -2,19 +2,24 @@ pub mod types;
 
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
-    core::{log, LogLevel},
+    core::{log, Container, LogLevel},
     domain::Context,
     parser::types::{
         Ast, BinOp, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments, Statement,
-        UnaryOp,
+        StatementKind, UnaryOp,
     },
+    treewalk::State,
 };
 
-use self::types::{Bytecode, CodeObject, CompiledProgram, Constant};
+use self::types::{CodeObject, CompiledProgram, Constant};
 
 use super::indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex};
 
+type CompilerResult<T> = Result<T, CompilerError>;
+
 pub struct Compiler {
+    state: Container<State>,
+
     /// Constants discovered during compilation. These will be compiled into the
     /// [`CompiledProgram`] which is handed off to the VM.
     constant_pool: Vec<Constant>,
@@ -24,38 +29,126 @@ pub struct Compiler {
     code_stack: Vec<CodeObject>,
 
     context_stack: Vec<Context>,
+
+    line_number: usize,
 }
 
 impl Compiler {
-    pub fn new() -> Self {
-        let code = CodeObject::new("__main__".to_string());
+    pub fn new(state: Container<State>) -> Self {
+        let code = CodeObject::new_root(*state.current_module_source());
         Self {
+            state,
             constant_pool: vec![],
             code_stack: vec![code],
             context_stack: vec![Context::Global],
+            line_number: 0,
         }
     }
 
-    pub fn compile(&mut self, ast: Ast) -> Result<CompiledProgram, CompilerError> {
-        let mut bytecode = self.compile_ast(&ast)?;
-        bytecode.push(Opcode::Halt);
+    // We previously used this when we compiled the entire AST at once, before we switched to an
+    // AST-walking approach to make line numbers work. We may bring this back.
+    pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CompiledProgram> {
+        self.compile_ast(ast)?;
+        self.emit(Opcode::Halt);
 
-        let mut code = self.code_stack.pop().ok_or(CompilerError::StackUnderflow)?;
-
-        code.bytecode = bytecode;
-
+        let code = self.code_stack.pop().ok_or(CompilerError::StackUnderflow)?;
         Ok(CompiledProgram::new(code, self.constant_pool.clone()))
     }
 
-    fn compile_ast(&mut self, ast: &Ast) -> Result<Bytecode, CompilerError> {
-        let mut opcodes = vec![];
-        for stmt in ast.iter() {
-            opcodes.extend(self.compile_stmt(stmt)?);
-        }
-        Ok(opcodes)
+    fn current_offset(&self) -> usize {
+        let code = self.ensure_code_object();
+        code.bytecode.len()
     }
 
-    fn compile_load(&mut self, name: &str) -> Opcode {
+    fn emit(&mut self, opcode: Opcode) {
+        let line_number = self.line_number;
+        let offset = self.current_offset();
+
+        let code = self.ensure_code_object_mut();
+        code.bytecode.push(opcode);
+        code.line_map.push((offset, line_number));
+    }
+
+    fn emit_at(&mut self, offset: usize, opcode: Opcode) {
+        let code = self.ensure_code_object_mut();
+        code.bytecode[offset] = opcode;
+    }
+
+    fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
+        self.line_number = stmt.start_line;
+
+        match &stmt.kind {
+            StatementKind::Pass => {}
+            StatementKind::Expression(expr) => self.compile_expr(expr)?,
+            StatementKind::Return(expr) => self.compile_return(expr)?,
+            StatementKind::Assignment { left, right } => self.compile_assignment(left, right)?,
+            StatementKind::WhileLoop { condition, body } => {
+                self.compile_while_loop(condition, body)?
+            }
+            StatementKind::IfElse {
+                if_part,
+                elif_parts,
+                else_part,
+            } => self.compile_if_else(if_part, elif_parts, else_part)?,
+            StatementKind::FunctionDef {
+                name,
+                args,
+                body,
+                decorators,
+                is_async,
+            } => self.compile_function_definition(name, args, body, decorators, is_async)?,
+            StatementKind::ClassDef {
+                name,
+                parents,
+                metaclass,
+                body,
+            } => self.compile_class_definition(name, parents, metaclass, body)?,
+            _ => unimplemented!("Statement type {:?} not implemented for bytecode VM", stmt),
+        };
+
+        Ok(())
+    }
+
+    fn compile_expr(&mut self, expr: &Expr) -> CompilerResult<()> {
+        match expr {
+            Expr::None => {
+                self.compile_none();
+            }
+            Expr::Boolean(value) => {
+                self.compile_bool(*value);
+            }
+            Expr::Integer(value) => {
+                self.emit(Opcode::Push(*value));
+            }
+            Expr::StringLiteral(value) => {
+                self.compile_string_literal(value);
+            }
+            Expr::Variable(name) => self.compile_load(name),
+            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right)?,
+            Expr::BinaryOperation { left, op, right } => {
+                self.compile_binary_operation(left, op, right)?
+            }
+            Expr::MemberAccess { object, field } => self.compile_member_access(object, field)?,
+            Expr::FunctionCall { name, args, callee } => {
+                self.compile_function_call(name, args, callee)?
+            }
+            Expr::MethodCall { object, name, args } => {
+                self.compile_method_call(object, name, args)?
+            }
+            _ => unimplemented!("Expression type {:?} not implemented for bytecode VM", expr),
+        };
+
+        Ok(())
+    }
+
+    fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
+        for stmt in ast.iter() {
+            self.compile_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn generate_load(&mut self, name: &str) -> Opcode {
         match self.ensure_context() {
             Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)),
             Context::Local => {
@@ -70,77 +163,74 @@ impl Compiler {
         }
     }
 
-    fn compile_store(&mut self, name: &str) -> Opcode {
+    fn generate_store(&mut self, name: &str) -> Opcode {
         match self.ensure_context() {
             Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)),
             Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)),
         }
     }
 
-    fn compile_return(&mut self, expr: &[Expr]) -> Result<Bytecode, CompilerError> {
+    fn compile_return(&mut self, expr: &[Expr]) -> CompilerResult<()> {
         if expr.len() > 1 {
             unimplemented!("Multiple return values not yet supported in the bytecode VM.")
         }
 
-        let mut opcodes = vec![];
-        opcodes.extend(self.compile_expr(&expr[0])?);
-        opcodes.push(Opcode::ReturnValue);
-        Ok(opcodes)
+        self.compile_expr(&expr[0])?;
+        self.emit(Opcode::ReturnValue);
+        Ok(())
     }
 
-    fn compile_assignment(&mut self, left: &Expr, right: &Expr) -> Result<Bytecode, CompilerError> {
-        let mut opcodes = vec![];
-
+    fn compile_assignment(&mut self, left: &Expr, right: &Expr) -> CompilerResult<()> {
         match left {
             Expr::Variable(name) => {
-                opcodes.extend(self.compile_expr(right)?);
-                let opcode = self.compile_store(name);
-                opcodes.push(opcode);
-                Ok(opcodes)
+                self.compile_expr(right)?;
+                self.compile_store(name);
             }
             Expr::MemberAccess { object, field } => {
                 // Push the object onto the stack
-                opcodes.extend(self.compile_expr(object)?);
+                self.compile_expr(object)?;
                 // Push the value to be assigned onto the stack
-                opcodes.extend(self.compile_expr(right)?);
+                self.compile_expr(right)?;
                 let attr_index = self.get_or_set_nonlocal_index(field);
-                opcodes.push(Opcode::SetAttr(attr_index));
-                Ok(opcodes)
+                self.emit(Opcode::SetAttr(attr_index));
             }
             Expr::IndexAccess { .. } => {
                 unimplemented!("Index access assignment not yet supported in bytecode VM.");
             }
-            _ => Err(CompilerError::SyntaxError(
-                "cannot assign to that expression type here.".into(),
-            )),
-        }
+            _ => {
+                return Err(CompilerError::SyntaxError(
+                    "cannot assign to that expression type here.".into(),
+                ))
+            }
+        };
+
+        Ok(())
     }
 
-    fn compile_while_loop(
-        &mut self,
-        condition: &Expr,
-        body: &Ast,
-    ) -> Result<Bytecode, CompilerError> {
-        let mut opcodes = vec![];
-        let condition_start = opcodes.len();
-        opcodes.extend(self.compile_expr(condition)?);
+    fn compile_while_loop(&mut self, condition: &Expr, body: &Ast) -> CompilerResult<()> {
+        let condition_start = self.current_offset();
+        self.compile_expr(condition)?;
 
         // Temporary offset, we will change this once we know the length of the loop body
-        let jump_if_false_placeholder = opcodes.len();
-        opcodes.push(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset();
+        self.emit(Opcode::Placeholder);
 
-        opcodes.extend(self.compile_ast(body)?);
+        self.compile_ast(body)?;
 
         // Unconditional jump back to the start of the condition
         // We must mark these as isize because we are doing subtraction with potential overflow
-        let jump_back_offset = condition_start as isize - opcodes.len() as isize - 1;
-        opcodes.push(Opcode::Jump(jump_back_offset));
+        let jump_back_offset = condition_start as isize - self.current_offset() as isize - 1;
+        self.emit(Opcode::Jump(jump_back_offset));
 
         // Update the JUMP_IF_FALSE offset now that we know the length of the loop body
-        let jump_if_false_offset = opcodes.len() as isize - jump_if_false_placeholder as isize - 1;
-        opcodes[jump_if_false_placeholder] = Opcode::JumpIfFalse(jump_if_false_offset);
+        let jump_if_false_offset =
+            self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+        self.emit_at(
+            jump_if_false_placeholder,
+            Opcode::JumpIfFalse(jump_if_false_offset),
+        );
 
-        Ok(opcodes)
+        Ok(())
     }
 
     fn compile_if_else(
@@ -148,37 +238,45 @@ impl Compiler {
         if_part: &ConditionalBlock,
         elif_parts: &[ConditionalBlock],
         else_part: &Option<Ast>,
-    ) -> Result<Bytecode, CompilerError> {
+    ) -> CompilerResult<()> {
         if !elif_parts.is_empty() {
             unreachable!("elif not yet supported in the bytecode VM.")
         }
 
-        let mut opcodes = vec![];
-        opcodes.extend(self.compile_expr(&if_part.condition)?);
+        self.compile_expr(&if_part.condition)?;
 
         // Temporary offset, we will change this once we know the length of the if condition body
-        let jump_if_false_placeholder = opcodes.len();
-        opcodes.push(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset();
+        self.emit(Opcode::Placeholder);
 
-        opcodes.extend(self.compile_ast(&if_part.block)?);
+        self.compile_ast(&if_part.block)?;
+
         if let Some(else_part) = else_part {
-            let jump_else_placeholder = opcodes.len();
-            opcodes.push(Opcode::Placeholder);
+            let jump_else_placeholder = self.current_offset();
+            self.emit(Opcode::Placeholder);
 
             let jump_if_false_offset =
-                opcodes.len() as isize - jump_if_false_placeholder as isize - 1;
-            opcodes[jump_if_false_placeholder] = Opcode::JumpIfFalse(jump_if_false_offset);
+                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+            self.emit_at(
+                jump_if_false_placeholder,
+                Opcode::JumpIfFalse(jump_if_false_offset),
+            );
 
-            opcodes.extend(self.compile_ast(else_part)?);
-            let jump_else_offset = opcodes.len() as isize - jump_else_placeholder as isize - 1;
-            opcodes[jump_else_placeholder] = Opcode::Jump(jump_else_offset);
+            self.compile_ast(else_part)?;
+
+            let jump_else_offset =
+                self.current_offset() as isize - jump_else_placeholder as isize - 1;
+            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset));
         } else {
             let jump_if_false_offset =
-                opcodes.len() as isize - jump_if_false_placeholder as isize - 1;
-            opcodes[jump_if_false_placeholder] = Opcode::JumpIfFalse(jump_if_false_offset);
+                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+            self.emit_at(
+                jump_if_false_placeholder,
+                Opcode::JumpIfFalse(jump_if_false_offset),
+            );
         }
 
-        Ok(opcodes)
+        Ok(())
     }
 
     fn compile_function_definition(
@@ -188,31 +286,34 @@ impl Compiler {
         body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
-    ) -> Result<Bytecode, CompilerError> {
+    ) -> CompilerResult<()> {
         if !decorators.is_empty() || *is_async {
             unimplemented!(
                 "Decorators and async functions are not yet supported in the bytecode VM."
             )
         }
 
+        let varnames = args
+            .args
+            .iter()
+            .map(|p| p.arg.clone())
+            .collect::<Vec<String>>();
+        let code_object = CodeObject::with_args(
+            Some(name.to_string()),
+            &varnames,
+            *self.state.current_module_source(),
+        );
+
         self.context_stack.push(Context::Local);
-
-        let varnames = args.args.iter().map(|p| p.arg.clone()).collect();
-        let code_object = CodeObject::with_args(name.to_string(), varnames);
-
         self.code_stack.push(code_object);
-        let bytecode = self.compile_ast(body)?;
-
-        let mut code = self.code_stack.pop().unwrap();
+        self.compile_ast(body)?;
+        let code = self.code_stack.pop().expect("Internal Compiler Error");
         self.context_stack.pop();
 
-        code.bytecode = bytecode;
-
-        Ok(vec![
-            self.compile_code(code),
-            Opcode::MakeFunction,
-            self.compile_store(name),
-        ])
+        self.compile_code(code);
+        self.emit(Opcode::MakeFunction);
+        self.compile_store(name);
+        Ok(())
     }
 
     fn compile_class_definition(
@@ -221,7 +322,7 @@ impl Compiler {
         parents: &[Expr],
         metaclass: &Option<String>,
         body: &Ast,
-    ) -> Result<Bytecode, CompilerError> {
+    ) -> CompilerResult<()> {
         if !parents.is_empty() {
             unimplemented!("Inheritance not yet supported in the bytecode VM.")
         }
@@ -229,59 +330,62 @@ impl Compiler {
             unimplemented!("Metaclasses are not yet supported in the bytecode VM.")
         }
 
-        let code_object = CodeObject::new(name.to_string());
+        let code_object = CodeObject::new(name, *self.state.current_module_source());
 
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
 
-        let class_body = self.compile_ast(body)?;
+        self.compile_ast(body)?;
+        self.emit(Opcode::EndClass);
 
-        let mut code = self.code_stack.pop().unwrap();
+        let code = self.code_stack.pop().expect("Internal Compiler Error");
         self.context_stack.pop();
 
-        code.bytecode = class_body;
-        code.bytecode.push(Opcode::EndClass);
-
-        let mut bytecode = vec![Opcode::LoadBuildClass];
-        bytecode.push(self.compile_code(code));
+        self.emit(Opcode::LoadBuildClass);
+        self.compile_code(code);
 
         // subtract one to ignore Opcode::LoadBuildClass
-        let num_args = bytecode.len() - 1;
-        bytecode.push(Opcode::Call(num_args));
+        let num_args = 1;
+        self.emit(Opcode::Call(num_args));
 
-        bytecode.push(self.compile_store(name));
-
-        Ok(bytecode)
+        self.compile_store(name);
+        Ok(())
     }
 
-    fn compile_string_literal(&mut self, value: &str) -> Opcode {
+    fn compile_string_literal(&mut self, value: &str) {
         self.compile_constant(Constant::String(value.to_string()))
     }
 
-    fn compile_none(&mut self) -> Opcode {
+    fn compile_none(&mut self) {
         self.compile_constant(Constant::None)
     }
 
-    fn compile_bool(&mut self, bool: bool) -> Opcode {
+    fn compile_bool(&mut self, bool: bool) {
         self.compile_constant(Constant::Boolean(bool))
     }
 
-    fn compile_code(&mut self, code: CodeObject) -> Opcode {
+    fn compile_code(&mut self, code: CodeObject) {
         self.compile_constant(Constant::Code(code))
     }
 
-    fn compile_constant(&mut self, constant: Constant) -> Opcode {
+    fn compile_constant(&mut self, constant: Constant) {
         let index = self.get_or_set_constant_index(constant);
-        Opcode::LoadConst(index)
+        self.emit(Opcode::LoadConst(index))
     }
 
-    fn compile_unary_operation(
-        &mut self,
-        op: &UnaryOp,
-        right: &Expr,
-    ) -> Result<Bytecode, CompilerError> {
-        let mut opcodes = Vec::new();
-        opcodes.extend(self.compile_expr(right)?);
+    fn compile_load(&mut self, name: &str) {
+        let load = self.generate_load(name);
+        self.emit(load);
+    }
+
+    fn compile_store(&mut self, name: &str) {
+        let store = self.generate_store(name);
+        self.emit(store);
+    }
+
+    fn compile_unary_operation(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
+        self.compile_expr(right)?;
+
         let opcode = match op {
             UnaryOp::Minus => Some(Opcode::UnaryNegative),
             // this acts as a no-op. can be overridden with __pos__ for custom classes
@@ -297,9 +401,9 @@ impl Compiler {
             ),
         };
         if let Some(opcode) = opcode {
-            opcodes.push(opcode);
+            self.emit(opcode);
         }
-        Ok(opcodes)
+        Ok(())
     }
 
     fn compile_binary_operation(
@@ -307,10 +411,10 @@ impl Compiler {
         left: &Expr,
         op: &BinOp,
         right: &Expr,
-    ) -> Result<Bytecode, CompilerError> {
-        let mut opcodes = Vec::new();
-        opcodes.extend(self.compile_expr(left)?);
-        opcodes.extend(self.compile_expr(right)?);
+    ) -> CompilerResult<()> {
+        self.compile_expr(left)?;
+        self.compile_expr(right)?;
+
         let opcode = match op {
             BinOp::Add => Opcode::Iadd,
             BinOp::Sub => Opcode::Isub,
@@ -326,8 +430,9 @@ impl Compiler {
                 )
             ),
         };
-        opcodes.push(opcode);
-        Ok(opcodes)
+
+        self.emit(opcode);
+        Ok(())
     }
 
     fn compile_function_call(
@@ -335,7 +440,7 @@ impl Compiler {
         name: &str,
         args: &ParsedArguments,
         callee: &Option<Box<Expr>>,
-    ) -> Result<Bytecode, CompilerError> {
+    ) -> CompilerResult<()> {
         if callee.is_some() {
             unimplemented!("Callees for function calls not yet supported in the bytecode VM.")
         }
@@ -349,20 +454,20 @@ impl Compiler {
             }
             let index =
                 self.get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()));
-            return Ok(vec![Opcode::PrintConst(index)]);
+            self.emit(Opcode::PrintConst(index));
+            return Ok(());
         }
 
-        let mut opcodes = vec![self.compile_load(name)];
+        self.compile_load(name);
 
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
         for arg in args.args.iter().rev() {
-            opcodes.extend(self.compile_expr(arg)?);
+            self.compile_expr(arg)?;
         }
 
-        let argc = opcodes.len() - 1;
-        opcodes.push(Opcode::Call(argc));
-        Ok(opcodes)
+        self.emit(Opcode::Call(args.args.len()));
+        Ok(())
     }
 
     fn compile_method_call(
@@ -370,81 +475,26 @@ impl Compiler {
         object: &Expr,
         name: &str,
         args: &ParsedArguments,
-    ) -> Result<Bytecode, CompilerError> {
+    ) -> CompilerResult<()> {
         if !args.kwargs.is_empty() {
             unimplemented!(
                 "Method calls with kwargs not yet supported for print in the bytecode VM."
             )
         }
 
-        let mut bytecode = vec![];
-        bytecode.extend(self.compile_member_access(object, name)?);
+        self.compile_member_access(object, name)?;
         for arg in args.args.iter().rev() {
-            bytecode.extend(self.compile_expr(arg)?);
+            self.compile_expr(arg)?;
         }
-        bytecode.push(Opcode::CallMethod(args.args.len()));
-        Ok(bytecode)
+        self.emit(Opcode::CallMethod(args.args.len()));
+        Ok(())
     }
 
-    fn compile_member_access(
-        &mut self,
-        object: &Expr,
-        field: &str,
-    ) -> Result<Bytecode, CompilerError> {
-        let mut bytecode = vec![];
-        bytecode.extend(self.compile_expr(object)?);
+    fn compile_member_access(&mut self, object: &Expr, field: &str) -> CompilerResult<()> {
+        self.compile_expr(object)?;
         let attr_index = self.get_or_set_nonlocal_index(field);
-        bytecode.push(Opcode::LoadAttr(attr_index));
-        Ok(bytecode)
-    }
-
-    fn compile_expr(&mut self, expr: &Expr) -> Result<Bytecode, CompilerError> {
-        match expr {
-            Expr::None => Ok(vec![self.compile_none()]),
-            Expr::Boolean(value) => Ok(vec![self.compile_bool(*value)]),
-            Expr::Integer(value) => Ok(vec![Opcode::Push(*value)]),
-            Expr::StringLiteral(value) => Ok(vec![self.compile_string_literal(value)]),
-            Expr::Variable(name) => Ok(vec![self.compile_load(name)]),
-            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
-            Expr::BinaryOperation { left, op, right } => {
-                self.compile_binary_operation(left, op, right)
-            }
-            Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
-            Expr::FunctionCall { name, args, callee } => {
-                self.compile_function_call(name, args, callee)
-            }
-            Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
-            _ => unimplemented!("Expression type {:?} not implemented for bytecode VM", expr),
-        }
-    }
-
-    fn compile_stmt(&mut self, stmt: &Statement) -> Result<Bytecode, CompilerError> {
-        match stmt {
-            Statement::Pass => Ok(vec![]),
-            Statement::Expression(expr) => self.compile_expr(expr),
-            Statement::Return(expr) => self.compile_return(expr),
-            Statement::Assignment { left, right } => self.compile_assignment(left, right),
-            Statement::WhileLoop { condition, body } => self.compile_while_loop(condition, body),
-            Statement::IfElse {
-                if_part,
-                elif_parts,
-                else_part,
-            } => self.compile_if_else(if_part, elif_parts, else_part),
-            Statement::FunctionDef {
-                name,
-                args,
-                body,
-                decorators,
-                is_async,
-            } => self.compile_function_definition(name, args, body, decorators, is_async),
-            Statement::ClassDef {
-                name,
-                parents,
-                metaclass,
-                body,
-            } => self.compile_class_definition(name, parents, metaclass, body),
-            _ => unimplemented!("Statement type {:?} not implemented for bytecode VM", stmt),
-        }
+        self.emit(Opcode::LoadAttr(attr_index));
+        Ok(())
     }
 
     fn get_or_set_local_index(&mut self, name: &str) -> LocalIndex {
@@ -531,12 +581,35 @@ where
 
 #[cfg(test)]
 mod bytecode_tests {
-    use super::*;
+    use super::{types::Bytecode, *};
 
-    use crate::parser::types::ParsedArguments;
+    use crate::{ast, parser::types::ParsedArguments, treewalk::ModuleSource};
 
     fn init_compiler() -> Compiler {
-        Compiler::new()
+        let state = Container::new(State::default());
+        state.push_module_source(ModuleSource::default());
+        Compiler::new(state)
+    }
+
+    fn compile_expr<'a>(compiler: &'a mut Compiler, expr: &Expr) -> CompilerResult<&'a Bytecode> {
+        compiler.compile_expr(&expr)?;
+        let code = compiler.ensure_code_object();
+
+        Ok(code.bytecode.as_ref())
+    }
+
+    fn compile_stmt<'a>(
+        compiler: &'a mut Compiler,
+        stmt: &Statement,
+    ) -> CompilerResult<&'a Bytecode> {
+        compiler.compile_stmt(&stmt)?;
+        let code = compiler.ensure_code_object();
+
+        Ok(code.bytecode.as_ref())
+    }
+
+    fn stmt(kind: StatementKind) -> Statement {
+        Statement::new(1, kind)
     }
 
     #[test]
@@ -552,12 +625,12 @@ mod bytecode_tests {
             }),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(4),
                         Opcode::Push(2),
                         Opcode::Push(3),
@@ -578,12 +651,12 @@ mod bytecode_tests {
             right: Box::new(Expr::Integer(5)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![Opcode::Push(4), Opcode::Push(5), Opcode::LessThan,]
+                    &[Opcode::Push(4), Opcode::Push(5), Opcode::LessThan,]
                 );
             }
         }
@@ -595,12 +668,12 @@ mod bytecode_tests {
             right: Box::new(Expr::Integer(5)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![Opcode::Push(4), Opcode::Push(5), Opcode::GreaterThan,]
+                    &[Opcode::Push(4), Opcode::Push(5), Opcode::GreaterThan,]
                 );
             }
         }
@@ -614,10 +687,10 @@ mod bytecode_tests {
             right: Box::new(Expr::Integer(4)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
-                assert_eq!(bytecode, vec![Opcode::Push(4), Opcode::UnaryNegative]);
+                assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryNegative]);
             }
         }
 
@@ -627,10 +700,10 @@ mod bytecode_tests {
             right: Box::new(Expr::Integer(4)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
-                assert_eq!(bytecode, vec![Opcode::Push(4)]);
+                assert_eq!(bytecode, &[Opcode::Push(4)]);
             }
         }
 
@@ -640,12 +713,12 @@ mod bytecode_tests {
             right: Box::new(Expr::Boolean(false)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![Opcode::LoadConst(Index::new(0)), Opcode::UnaryNot]
+                    &[Opcode::LoadConst(Index::new(0)), Opcode::UnaryNot]
                 );
             }
         }
@@ -656,10 +729,10 @@ mod bytecode_tests {
             right: Box::new(Expr::Integer(4)),
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
-                assert_eq!(bytecode, vec![Opcode::Push(4), Opcode::UnaryInvert]);
+                assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryInvert]);
             }
         }
     }
@@ -667,21 +740,21 @@ mod bytecode_tests {
     #[test]
     fn assignment() {
         let mut compiler = init_compiler();
-        let stmt = Statement::Assignment {
+        let s = stmt(StatementKind::Assignment {
             left: Expr::Variable("var".into()),
             right: Expr::BinaryOperation {
                 left: Box::new(Expr::Integer(5)),
                 op: BinOp::Sub,
                 right: Box::new(Expr::Integer(2)),
             },
-        };
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(5),
                         Opcode::Push(2),
                         Opcode::Isub,
@@ -692,17 +765,17 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        let stmt = Statement::Assignment {
+        let s = stmt(StatementKind::Assignment {
             left: Expr::Variable("var".into()),
             right: Expr::StringLiteral("Hello World".into()),
-        };
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadConst(Index::new(0)),
                         Opcode::StoreGlobal(Index::new(0)),
                     ]
@@ -711,17 +784,17 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        let stmt = Statement::Assignment {
+        let s = stmt(StatementKind::Assignment {
             left: Expr::Variable("var".into()),
             right: Expr::None,
-        };
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadConst(Index::new(0)),
                         Opcode::StoreGlobal(Index::new(0)),
                     ]
@@ -730,18 +803,18 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        let stmt = Statement::Expression(Expr::BinaryOperation {
+        let s = stmt(StatementKind::Expression(Expr::BinaryOperation {
             left: Box::new(Expr::Integer(2)),
             op: BinOp::Add,
             right: Box::new(Expr::Variable("a".into())),
-        });
+        }));
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(2),
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::Iadd,
@@ -754,20 +827,20 @@ mod bytecode_tests {
     #[test]
     fn member_access() {
         let mut compiler = init_compiler();
-        let stmt = Statement::Assignment {
+        let s = stmt(StatementKind::Assignment {
             left: Expr::MemberAccess {
                 object: Box::new(Expr::Variable("foo".into())),
                 field: "x".into(),
             },
             right: Expr::Integer(4),
-        };
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::Push(4),
                         Opcode::SetAttr(Index::new(1))
@@ -777,17 +850,17 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        let stmt = Statement::Expression(Expr::MemberAccess {
+        let s = stmt(StatementKind::Expression(Expr::MemberAccess {
             object: Box::new(Expr::Variable("foo".into())),
             field: "x".into(),
-        });
+        }));
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::LoadAttr(Index::new(1))
                     ]
@@ -799,21 +872,21 @@ mod bytecode_tests {
     #[test]
     fn while_loop() {
         let mut compiler = init_compiler();
-        let stmt = Statement::WhileLoop {
+        let s = stmt(StatementKind::WhileLoop {
             condition: Expr::BinaryOperation {
                 left: Box::new(Expr::Integer(4)),
                 op: BinOp::LessThan,
                 right: Box::new(Expr::Integer(5)),
             },
-            body: Ast::new(vec![]),
-        };
+            body: ast![],
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(4),
                         Opcode::Push(5),
                         Opcode::LessThan,
@@ -828,28 +901,28 @@ mod bytecode_tests {
     #[test]
     fn if_else() {
         let mut compiler = init_compiler();
-        let stmt = Statement::IfElse {
+        let s = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::BinaryOperation {
                     left: Box::new(Expr::Integer(4)),
                     op: BinOp::LessThan,
                     right: Box::new(Expr::Integer(5)),
                 },
-                block: Ast::new(vec![Statement::Assignment {
+                block: ast![stmt(StatementKind::Assignment {
                     left: Expr::Variable("a".into()),
                     right: Expr::Integer(-1),
-                }]),
+                })],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(4),
                         Opcode::Push(5),
                         Opcode::LessThan,
@@ -862,31 +935,31 @@ mod bytecode_tests {
         }
 
         let mut compiler = init_compiler();
-        let stmt = Statement::IfElse {
+        let s = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::BinaryOperation {
                     left: Box::new(Expr::Integer(4)),
                     op: BinOp::LessThan,
                     right: Box::new(Expr::Integer(5)),
                 },
-                block: Ast::new(vec![Statement::Assignment {
+                block: ast![stmt(StatementKind::Assignment {
                     left: Expr::Variable("a".into()),
                     right: Expr::Integer(-3),
-                }]),
+                })],
             },
             elif_parts: vec![],
-            else_part: Some(Ast::new(vec![Statement::Assignment {
+            else_part: Some(ast![stmt(StatementKind::Assignment {
                 left: Expr::Variable("a".into()),
                 right: Expr::Integer(3),
-            }])),
-        };
+            })]),
+        });
 
-        match compiler.compile_stmt(&stmt) {
+        match compile_stmt(&mut compiler, &s) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::Push(4),
                         Opcode::Push(5),
                         Opcode::LessThan,
@@ -915,12 +988,12 @@ mod bytecode_tests {
             callee: None,
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::LoadGlobal(Index::new(1)),
                         Opcode::LoadGlobal(Index::new(2)),
@@ -944,12 +1017,12 @@ mod bytecode_tests {
             },
         };
 
-        match compiler.compile_expr(&expr) {
+        match compile_expr(&mut compiler, &expr) {
             Err(e) => panic!("Unexpected error: {:?}", e),
             Ok(bytecode) => {
                 assert_eq!(
                     bytecode,
-                    vec![
+                    &[
                         Opcode::LoadGlobal(Index::new(0)),
                         Opcode::LoadAttr(Index::new(1)),
                         Opcode::Push(99),
@@ -966,7 +1039,7 @@ mod bytecode_tests {
 mod compiler_state_tests {
     use super::*;
 
-    use crate::init::MemphisContext;
+    use crate::{init::MemphisContext, treewalk::ModuleSource};
 
     fn init(text: &str) -> MemphisContext {
         MemphisContext::from_text(text)
@@ -985,6 +1058,31 @@ mod compiler_state_tests {
             panic!("Code at index {} not found!", index)
         };
         code
+    }
+
+    macro_rules! assert_code_eq {
+        ($actual:expr, $expected:expr) => {
+            assert_eq!(
+                $actual.name, $expected.name,
+                "Code object names do not match"
+            );
+            assert_eq!(
+                $actual.bytecode, $expected.bytecode,
+                "Code object bytecode does not match"
+            );
+            assert_eq!(
+                $actual.arg_count, $expected.arg_count,
+                "Code object arg_count does not match"
+            );
+            assert_eq!(
+                $actual.varnames, $expected.varnames,
+                "Code object varnames do not match"
+            );
+            assert_eq!(
+                $actual.names, $expected.names,
+                "Code object names do not match"
+            );
+        };
     }
 
     #[test]
@@ -1009,10 +1107,10 @@ def foo(a, b):
                 );
                 assert_eq!(program.constant_pool.len(), 1);
                 let foo = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     foo,
                     &CodeObject {
-                        name: "foo".into(),
+                        name: Some("foo".into()),
                         bytecode: vec![
                             Opcode::LoadFast(Index::new(0)),
                             Opcode::LoadFast(Index::new(1)),
@@ -1021,6 +1119,8 @@ def foo(a, b):
                         arg_count: 2,
                         varnames: vec!["a".into(), "b".into()],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.code.names.len(), 1);
@@ -1053,21 +1153,23 @@ def foo(a, b):
                 );
                 assert_eq!(program.constant_pool.len(), 2);
                 let inner = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     inner,
                     &CodeObject {
-                        name: "inner".into(),
+                        name: Some("inner".into()),
                         bytecode: vec![Opcode::Push(10), Opcode::ReturnValue,],
                         arg_count: 0,
                         varnames: vec![],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 let foo = get_code_at_index(&program, 1);
-                assert_eq!(
+                assert_code_eq!(
                     foo,
                     &CodeObject {
-                        name: "foo".into(),
+                        name: Some("foo".into()),
                         bytecode: vec![
                             Opcode::LoadConst(Index::new(0)),
                             Opcode::MakeFunction,
@@ -1079,6 +1181,8 @@ def foo(a, b):
                         arg_count: 2,
                         varnames: vec!["a".into(), "b".into(), "inner".into()],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.code.names.len(), 1);
@@ -1109,14 +1213,16 @@ def foo():
                 );
                 assert_eq!(program.constant_pool.len(), 1);
                 let foo = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     foo,
                     &CodeObject {
-                        name: "foo".into(),
+                        name: Some("foo".into()),
                         bytecode: vec![Opcode::Push(10), Opcode::StoreFast(Index::new(0))],
                         arg_count: 0,
                         varnames: vec!["c".into()],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.code.names.len(), 1);
@@ -1148,10 +1254,10 @@ def foo():
                 );
                 assert_eq!(program.constant_pool.len(), 1);
                 let foo = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     foo,
                     &CodeObject {
-                        name: "foo".into(),
+                        name: Some("foo".into()),
                         bytecode: vec![
                             Opcode::Push(10),
                             Opcode::StoreFast(Index::new(0)),
@@ -1161,6 +1267,8 @@ def foo():
                         arg_count: 0,
                         varnames: vec!["c".into()],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.code.names.len(), 1);
@@ -1205,26 +1313,30 @@ world()
                 assert_eq!(program.constant_pool.len(), 4);
                 assert_eq!(program.constant_pool[0], Constant::String("Hello".into()));
                 let hello = get_code_at_index(&program, 1);
-                assert_eq!(
+                assert_code_eq!(
                     hello,
                     &CodeObject {
-                        name: "hello".into(),
+                        name: Some("hello".into()),
                         bytecode: vec![Opcode::PrintConst(Index::new(0)),],
                         arg_count: 0,
                         varnames: vec![],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.constant_pool[2], Constant::String("World".into()));
                 let world = get_code_at_index(&program, 3);
-                assert_eq!(
+                assert_code_eq!(
                     world,
                     &CodeObject {
-                        name: "world".into(),
+                        name: Some("world".into()),
                         bytecode: vec![Opcode::PrintConst(Index::new(2)),],
                         arg_count: 0,
                         varnames: vec![],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 assert_eq!(program.code.names.len(), 2);
@@ -1248,14 +1360,16 @@ class Foo:
             Ok(program) => {
                 assert_eq!(program.constant_pool.len(), 2);
                 let bar = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     bar,
                     &CodeObject {
-                        name: "bar".into(),
+                        name: Some("bar".into()),
                         bytecode: vec![Opcode::Push(99), Opcode::ReturnValue,],
                         arg_count: 1,
                         varnames: vec!["self".into()],
                         names: vec![],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 let foo = get_code_at_index(&program, 1);
@@ -1300,10 +1414,10 @@ class Foo:
             Ok(program) => {
                 assert_eq!(program.constant_pool.len(), 2);
                 let bar = get_code_at_index(&program, 0);
-                assert_eq!(
+                assert_code_eq!(
                     bar,
                     &CodeObject {
-                        name: "bar".into(),
+                        name: Some("bar".into()),
                         bytecode: vec![
                             Opcode::LoadFast(Index::new(0)),
                             Opcode::LoadAttr(Index::new(0)),
@@ -1312,6 +1426,8 @@ class Foo:
                         arg_count: 1,
                         varnames: vec!["self".into()],
                         names: vec!["val".into()],
+                        module_source: ModuleSource::default(),
+                        line_map: vec![],
                     }
                 );
                 let foo = get_code_at_index(&program, 1);
@@ -1421,7 +1537,7 @@ b = f.bar()
 
                 // this should be the code for the class definition
                 let class = get_code_at_index(&program, 1);
-                assert_eq!(class.name, "Foo");
+                assert_eq!(class.name(), "Foo");
             }
         }
     }

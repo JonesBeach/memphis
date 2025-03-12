@@ -1,11 +1,10 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -31,11 +30,7 @@ impl Typed for Set {
 
 impl MethodProvider for Set {
     fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![
-            Box::new(NewBuiltin),
-            Box::new(InitBuiltin),
-            Box::new(AddBuiltin),
-        ]
+        vec![Box::new(NewBuiltin), Box::new(AddBuiltin)]
     }
 }
 
@@ -55,7 +50,7 @@ impl Set {
 }
 
 impl TryFrom<ExprResult> for Container<Set> {
-    type Error = InterpreterError;
+    type Error = ();
 
     fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
         match value {
@@ -63,7 +58,7 @@ impl TryFrom<ExprResult> for Container<Set> {
             ExprResult::List(list) => Ok(list.clone().into()),
             ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
             ExprResult::Range(range) => Ok(range.clone().into()),
-            _ => Err(InterpreterError::RuntimeError),
+            _ => Err(()),
         }
     }
 }
@@ -112,60 +107,30 @@ impl Display for Container<Set> {
 }
 
 struct NewBuiltin;
-struct InitBuiltin;
 struct AddBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(
         &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        Ok(ExprResult::Set(Container::new(Set::default())))
+        interpreter: &Interpreter,
+        args: ResolvedArguments,
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let set = match args.len() {
+            1 => Container::new(Set::default()),
+            2 => args
+                .get_arg(1)
+                .try_into()
+                .map_err(|_| interpreter.type_error("Expected a set".to_string()))?,
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::Set(set))
     }
 
     fn name(&self) -> String {
         Dunder::New.into()
-    }
-}
-
-impl Callable for InitBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        let output_set = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedFunction(
-                interpreter.state.call_stack(),
-            ))?
-            .as_set()
-            .ok_or(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            ))?;
-
-        if args.is_empty() {
-            Ok(ExprResult::None)
-        } else if args.len() == 1 {
-            let input_set: Container<Set> = args
-                .get_arg(0)
-                .try_into()
-                .map_err(|_| InterpreterError::ExpectedSet(interpreter.state.call_stack()))?;
-
-            *output_set.borrow_mut() = input_set.borrow().clone();
-            Ok(ExprResult::None)
-        } else {
-            Err(InterpreterError::WrongNumberOfArguments(
-                1,
-                args.len(),
-                interpreter.state.call_stack(),
-            ))
-        }
-    }
-
-    fn name(&self) -> String {
-        Dunder::Init.into()
     }
 }
 
@@ -174,19 +139,10 @@ impl Callable for AddBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
-        let set = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            ))?
-            .as_set()
-            .ok_or(InterpreterError::ExpectedSet(
-                interpreter.state.call_stack(),
-            ))?;
-
+        let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
         Ok(ExprResult::Boolean(result))

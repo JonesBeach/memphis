@@ -6,9 +6,9 @@ use std::{
 };
 
 use crate::{
-    domain::Dunder,
+    domain::{Dunder, ExceptionLiteral},
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    types::errors::{InterpreterError, ParserError},
+    types::errors::ParserError,
 };
 
 use super::Parser;
@@ -24,7 +24,8 @@ impl Ast {
     }
 
     pub fn from_expr(expr: Expr) -> Self {
-        Self::new(vec![Statement::Expression(expr)])
+        // TODO we lose the line number here
+        Self::new(vec![Statement::new(1, StatementKind::Expression(expr))])
     }
 
     pub fn len(&self) -> usize {
@@ -145,10 +146,10 @@ impl ImportPath {
         }
     }
 
-    pub fn segments(&self) -> Vec<String> {
+    pub fn segments(&self) -> &[String] {
         match self {
-            ImportPath::Absolute(path) => path.clone(),
-            ImportPath::Relative(_, path) => path.clone(),
+            ImportPath::Absolute(path) => path,
+            ImportPath::Relative(_, path) => path,
         }
     }
 }
@@ -220,8 +221,8 @@ impl Closure {
         Self { free_vars }
     }
 
-    pub fn get_free_vars(&self) -> Vec<Variable> {
-        self.free_vars.clone()
+    pub fn free_vars(&self) -> &[Variable] {
+        self.free_vars.as_ref()
     }
 }
 
@@ -434,51 +435,6 @@ impl Hash for Expr {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExceptionLiteral {
-    Exception,
-    ZeroDivisionError,
-    IOError,
-    ImportError,
-    StopIteration,
-    TypeError,
-    AttributeError,
-    NameError,
-    Custom(String),
-}
-
-impl From<String> for ExceptionLiteral {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "ZeroDivisionError" => ExceptionLiteral::ZeroDivisionError,
-            "Exception" => ExceptionLiteral::Exception,
-            "IOError" => ExceptionLiteral::IOError,
-            "ImportError" => ExceptionLiteral::ImportError,
-            "StopIteration" => ExceptionLiteral::StopIteration,
-            "TypeError" => ExceptionLiteral::TypeError,
-            "AttributeError" => ExceptionLiteral::AttributeError,
-            "NameError" => ExceptionLiteral::NameError,
-            // TODO we don't handle ExceptionLiteral::Custom in the interpreter yet
-            _ => ExceptionLiteral::Custom(value.to_owned()),
-        }
-    }
-}
-
-impl TryFrom<InterpreterError> for ExceptionLiteral {
-    type Error = InterpreterError;
-
-    fn try_from(value: InterpreterError) -> Result<Self, Self::Error> {
-        match value {
-            InterpreterError::DivisionByZero(..) => Ok(ExceptionLiteral::ZeroDivisionError),
-            InterpreterError::ModuleNotFound(..) => Ok(ExceptionLiteral::ImportError),
-            InterpreterError::TypeError(..) => Ok(ExceptionLiteral::TypeError),
-            InterpreterError::AttributeError(..) => Ok(ExceptionLiteral::AttributeError),
-            InterpreterError::NameError(..) => Ok(ExceptionLiteral::NameError),
-            _ => Err(InterpreterError::RuntimeError),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExceptionInstance {
     pub literal: ExceptionLiteral,
@@ -604,7 +560,19 @@ impl From<&CompoundOperator> for BinOp {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Statement {
+pub struct Statement {
+    pub start_line: usize,
+    pub kind: StatementKind,
+}
+
+impl Statement {
+    pub fn new(start_line: usize, kind: StatementKind) -> Self {
+        Self { start_line, kind }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum StatementKind {
     Expression(Expr),
     Pass,
     Break,
@@ -688,20 +656,20 @@ impl Statement {
     pub fn accept<V: Visitor>(&self, visitor: &mut V) {
         visitor.visit_statement(self);
 
-        match self {
-            Statement::FunctionDef { body, .. } => {
+        match &self.kind {
+            StatementKind::FunctionDef { body, .. } => {
                 body.accept(visitor);
             }
-            Statement::WhileLoop { body, .. } => {
+            StatementKind::WhileLoop { body, .. } => {
                 body.accept(visitor);
             }
-            Statement::ForInLoop { body, .. } => {
+            StatementKind::ForInLoop { body, .. } => {
                 body.accept(visitor);
             }
-            Statement::ContextManager { block, .. } => {
+            StatementKind::ContextManager { block, .. } => {
                 block.accept(visitor);
             }
-            Statement::IfElse {
+            StatementKind::IfElse {
                 if_part,
                 elif_parts,
                 else_part,

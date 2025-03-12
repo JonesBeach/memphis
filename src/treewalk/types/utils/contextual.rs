@@ -1,3 +1,4 @@
+use crate::{core::memphis_utils, treewalk::interpreter::TreewalkDisruption};
 use std::{
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -5,11 +6,10 @@ use std::{
 };
 
 use crate::{
-    core::InterpreterEntrypoint,
-    domain::Dunder,
+    domain::{Dunder, ExecutionError, ExecutionErrorKind},
     resolved_args,
     treewalk::{types::ExprResult, Interpreter},
-    types::errors::{InterpreterError, MemphisError},
+    types::errors::MemphisError,
 };
 
 use super::ResolvedArguments;
@@ -94,9 +94,8 @@ impl Contextual<ExprResult> {
             .interpreter
             .resolve_method(self.value.clone(), Dunder::Eq)
         {
-            Err(e) => self
-                .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
             Ok(eq) => eq,
         };
         if eq.borrow().receiver().is_none() {
@@ -112,9 +111,8 @@ impl Contextual<ExprResult> {
         match result {
             Ok(ExprResult::Boolean(true)) => true,
             Ok(_) => false,
-            Err(e) => self
-                .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
         }
     }
 
@@ -126,14 +124,12 @@ impl Contextual<ExprResult> {
 
         match result {
             Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
-            Ok(_) => self
-                .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(
-                    InterpreterError::ExpectedInteger(self.interpreter.state.call_stack()),
-                )),
-            Err(e) => self
-                .interpreter
-                .handle_runtime_error(MemphisError::Interpreter(e)),
+            Ok(_) => memphis_utils::exit(MemphisError::Execution(ExecutionError::new(
+                self.interpreter.state.debug_call_stack(),
+                ExecutionErrorKind::TypeError(None),
+            ))),
+            Err(TreewalkDisruption::Signal(_)) => todo!(),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
         }
     }
 }

@@ -3,20 +3,27 @@ use std::collections::HashSet;
 pub mod static_analysis;
 pub mod types;
 
+use types::Statement;
+
 use crate::{
     ast,
     core::{log, Container, LogLevel},
+    domain::ExceptionLiteral,
     lexer::types::Token,
     parser::types::{
         Alias, Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
-        ExceptionInstance, ExceptionLiteral, Expr, ExprFormat, FStringPart, ForClause,
-        FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex,
-        ParsedArgDefinition, ParsedArgDefinitions, ParsedArgument, ParsedArguments,
-        ParsedSliceParams, RegularImport, Statement, TypeNode, UnaryOp, Variable,
+        ExceptionInstance, Expr, ExprFormat, FStringPart, ForClause, FormatOption, ImportPath,
+        ImportedItem, KwargsOperation, LogicalOp, LoopIndex, ParsedArgDefinition,
+        ParsedArgDefinitions, ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport,
+        StatementKind, TypeNode, UnaryOp, Variable,
     },
     treewalk::State,
     types::errors::ParserError,
 };
+
+fn int(val: i64) -> Expr {
+    Expr::Integer(val)
+}
 
 static EOF: Token = Token::Eof;
 
@@ -511,7 +518,7 @@ impl<'a> Parser<'a> {
         match self.current_token.clone() {
             Token::Integer(i) => {
                 self.consume(&Token::Integer(i))?;
-                Ok(Expr::Integer(-(i as i64)))
+                Ok(int(-(i as i64)))
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
@@ -534,7 +541,7 @@ impl<'a> Parser<'a> {
         match self.current_token.clone() {
             Token::Integer(i) => {
                 self.consume(&Token::Integer(i))?;
-                Ok(Expr::Integer(i as i64))
+                Ok(int(i as i64))
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
@@ -618,7 +625,7 @@ impl<'a> Parser<'a> {
             }
             Token::Integer(i) => {
                 self.consume(&Token::Integer(i))?;
-                Ok(Expr::Integer(i as i64))
+                Ok(int(i as i64))
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
@@ -739,7 +746,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_regular_import(&mut self) -> Result<Statement, ParserError> {
+    fn parse_regular_import(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Import)?;
 
         let mut items = vec![];
@@ -755,10 +762,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Statement::RegularImport(items))
+        Ok(StatementKind::RegularImport(items))
     }
 
-    fn parse_selective_import(&mut self) -> Result<Statement, ParserError> {
+    fn parse_selective_import(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::From)?;
         let import_path = self.parse_import_path()?;
 
@@ -766,7 +773,7 @@ impl<'a> Parser<'a> {
         let stmt = match self.current_token {
             Token::Asterisk => {
                 self.consume(&Token::Asterisk)?;
-                Statement::SelectiveImport {
+                StatementKind::SelectiveImport {
                     import_path,
                     items: vec![],
                     wildcard: true,
@@ -810,7 +817,7 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-                Statement::SelectiveImport {
+                StatementKind::SelectiveImport {
                     import_path,
                     items,
                     wildcard: false,
@@ -825,14 +832,14 @@ impl<'a> Parser<'a> {
         self.consume(&Token::BinaryLiteral(literal.clone()))?;
 
         let result = i64::from_str_radix(&literal[2..], 2).map_err(|_| ParserError::SyntaxError)?;
-        Ok(Expr::Integer(result))
+        Ok(int(result))
     }
 
     fn parse_octal_literal(&mut self, literal: String) -> Result<Expr, ParserError> {
         self.consume(&Token::OctalLiteral(literal.clone()))?;
 
         let result = i64::from_str_radix(&literal[2..], 8).map_err(|_| ParserError::SyntaxError)?;
-        Ok(Expr::Integer(result))
+        Ok(int(result))
     }
 
     fn parse_hex_literal(&mut self, literal: String) -> Result<Expr, ParserError> {
@@ -840,7 +847,7 @@ impl<'a> Parser<'a> {
 
         let result =
             i64::from_str_radix(&literal[2..], 16).map_err(|_| ParserError::SyntaxError)?;
-        Ok(Expr::Integer(result))
+        Ok(int(result))
     }
 
     fn parse_type_node(&mut self) -> Result<TypeNode, ParserError> {
@@ -908,7 +915,7 @@ impl<'a> Parser<'a> {
         Ok(symbol.into())
     }
 
-    fn parse_context_manager(&mut self) -> Result<Statement, ParserError> {
+    fn parse_context_manager(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::With)?;
         let expr = self.parse_simple_expr()?;
 
@@ -921,14 +928,14 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Colon)?;
         let block = self.parse_indented_block()?;
 
-        Ok(Statement::ContextManager {
+        Ok(StatementKind::ContextManager {
             expr,
             variable,
             block,
         })
     }
 
-    fn parse_raise(&mut self) -> Result<Statement, ParserError> {
+    fn parse_raise(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Raise)?;
 
         let instance = if matches!(self.current_token, Token::Identifier(_)) {
@@ -950,10 +957,10 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Statement::Raise(instance))
+        Ok(StatementKind::Raise(instance))
     }
 
-    fn parse_try_except(&mut self) -> Result<Statement, ParserError> {
+    fn parse_try_except(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Try)?;
         self.consume(&Token::Colon)?;
         let try_block = self.parse_indented_block()?;
@@ -1020,7 +1027,7 @@ impl<'a> Parser<'a> {
             return Err(ParserError::SyntaxError);
         }
 
-        Ok(Statement::TryExcept {
+        Ok(StatementKind::TryExcept {
             try_block,
             except_clauses,
             else_block,
@@ -1028,7 +1035,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_if_else(&mut self) -> Result<Statement, ParserError> {
+    fn parse_if_else(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::If)?;
         let condition = self.parse_simple_expr()?;
         self.consume(&Token::Colon)?;
@@ -1059,14 +1066,14 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Statement::IfElse {
+        Ok(StatementKind::IfElse {
             if_part,
             elif_parts,
             else_part,
         })
     }
 
-    fn parse_for_in_loop(&mut self) -> Result<Statement, ParserError> {
+    fn parse_for_in_loop(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::For)?;
 
         let index_a = self.parse_identifier()?;
@@ -1091,7 +1098,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok(Statement::ForInLoop {
+        Ok(StatementKind::ForInLoop {
             index,
             iterable: range,
             body,
@@ -1130,7 +1137,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_class_definition(&mut self) -> Result<Statement, ParserError> {
+    fn parse_class_definition(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Class)?;
         let name = self.parse_identifier()?;
 
@@ -1166,7 +1173,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Colon)?;
         let body = self.parse_block()?;
 
-        Ok(Statement::ClassDef {
+        Ok(StatementKind::ClassDef {
             name,
             parents,
             metaclass,
@@ -1174,7 +1181,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function_definition(&mut self) -> Result<Statement, ParserError> {
+    fn parse_function_definition(&mut self) -> Result<StatementKind, ParserError> {
         let mut decorators: Vec<Expr> = vec![];
 
         while self.current_token == &Token::AtSign {
@@ -1207,7 +1214,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Colon)?;
         let body = self.parse_block()?;
 
-        Ok(Statement::FunctionDef {
+        Ok(StatementKind::FunctionDef {
             name,
             args,
             body,
@@ -1231,20 +1238,20 @@ impl<'a> Parser<'a> {
         Ok(exprs)
     }
 
-    fn parse_delete(&mut self) -> Result<Statement, ParserError> {
+    fn parse_delete(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Del)?;
         let exprs = self.parse_comma_separated_expr()?;
-        Ok(Statement::Delete(exprs))
+        Ok(StatementKind::Delete(exprs))
     }
 
-    fn parse_return(&mut self) -> Result<Statement, ParserError> {
+    fn parse_return(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Return)?;
         let exprs = if self.end_of_statement() {
             vec![]
         } else {
             self.parse_comma_separated_expr()?
         };
-        Ok(Statement::Return(exprs))
+        Ok(StatementKind::Return(exprs))
     }
 
     /// Return the full AST. This will consume all the tokens.
@@ -1260,7 +1267,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_statement(&mut self) -> Result<Statement, ParserError> {
         self.consume_optional_many(&Token::Newline);
-        self.state.set_line(self.line_number);
+        let start_line = self.line_number;
         let stmt = match self.current_token.clone() {
             Token::Del => self.parse_delete(),
             Token::Def => self.parse_function_definition(),
@@ -1269,31 +1276,31 @@ impl<'a> Parser<'a> {
             Token::Assert => {
                 self.consume(&Token::Assert)?;
                 let expr = self.parse_simple_expr()?;
-                Ok(Statement::Assert(expr))
+                Ok(StatementKind::Assert(expr))
             }
             Token::Class => self.parse_class_definition(),
             Token::Return => self.parse_return(),
             Token::Pass => {
                 self.consume(&Token::Pass)?;
-                Ok(Statement::Pass)
+                Ok(StatementKind::Pass)
             }
             Token::Break => {
                 self.consume(&Token::Break)?;
-                Ok(Statement::Break)
+                Ok(StatementKind::Break)
             }
             Token::Continue => {
                 self.consume(&Token::Continue)?;
-                Ok(Statement::Continue)
+                Ok(StatementKind::Continue)
             }
             Token::Nonlocal => {
                 self.consume(&Token::Nonlocal)?;
                 let identifiers = self.parse_identifiers()?;
-                Ok(Statement::Nonlocal(identifiers))
+                Ok(StatementKind::Nonlocal(identifiers))
             }
             Token::Global => {
                 self.consume(&Token::Global)?;
                 let identifiers = self.parse_identifiers()?;
-                Ok(Statement::Global(identifiers))
+                Ok(StatementKind::Global(identifiers))
             }
             Token::If => self.parse_if_else(),
             Token::While => {
@@ -1301,7 +1308,7 @@ impl<'a> Parser<'a> {
                 let condition = self.parse_simple_expr()?;
                 self.consume(&Token::Colon)?;
                 let body = self.parse_indented_block()?;
-                Ok(Statement::WhileLoop { condition, body })
+                Ok(StatementKind::WhileLoop { condition, body })
             }
             Token::For => self.parse_for_in_loop(),
             Token::Import => self.parse_regular_import(),
@@ -1310,19 +1317,19 @@ impl<'a> Parser<'a> {
             Token::Raise => self.parse_raise(),
             Token::With => self.parse_context_manager(),
             _ => self.parse_statement_without_starting_keyword(),
-        };
+        }?;
 
         self.consume_optional_many(&Token::Newline);
-        stmt
+        Ok(Statement::new(start_line, stmt))
     }
 
-    fn parse_statement_without_starting_keyword(&mut self) -> Result<Statement, ParserError> {
+    fn parse_statement_without_starting_keyword(&mut self) -> Result<StatementKind, ParserError> {
         let left = self.parse_expr()?;
 
         if self.current_token == &Token::Assign {
             self.consume(&Token::Assign)?;
             match left {
-                Expr::Tuple(vars) => Ok(Statement::UnpackingAssignment {
+                Expr::Tuple(vars) => Ok(StatementKind::UnpackingAssignment {
                     left: vars,
                     right: self.parse_expr()?,
                 }),
@@ -1337,12 +1344,12 @@ impl<'a> Parser<'a> {
                     }
 
                     if left_items.len() > 1 {
-                        Ok(Statement::MultipleAssignment {
+                        Ok(StatementKind::MultipleAssignment {
                             left: left_items,
                             right,
                         })
                     } else {
-                        Ok(Statement::Assignment {
+                        Ok(StatementKind::Assignment {
                             left: left_items[0].clone(),
                             right,
                         })
@@ -1369,13 +1376,13 @@ impl<'a> Parser<'a> {
             self.consume(self.current_token)?;
 
             let value = self.parse_simple_expr()?;
-            Ok(Statement::CompoundAssignment {
+            Ok(StatementKind::CompoundAssignment {
                 operator,
                 target: Box::new(left),
                 value: Box::new(value),
             })
         } else {
-            Ok(Statement::Expression(left))
+            Ok(StatementKind::Expression(left))
         }
     }
 
@@ -1797,8 +1804,8 @@ impl<'a> Parser<'a> {
     ///
     /// For example:
     ///
-    /// (4) => Expr::Integer(4)
-    /// (4,) => Expr::Tuple(vec!\[Expr::Integer(4)\])
+    /// (4) => int(4)
+    /// (4,) => Expr::Tuple(vec!\[int(4)\])
     ///
     fn parse_tuple(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_tuple".to_string());
@@ -1871,8 +1878,341 @@ mod tests {
         MemphisContext::from_text(text)
     }
 
-    fn init_state(text: &str, state: Container<State>) -> MemphisContext {
-        MemphisContext::from_text_with_state(text, Some(state))
+    fn stmt(kind: StatementKind) -> Statement {
+        Statement::new(1, kind)
+    }
+
+    fn var(name: &str) -> Expr {
+        Expr::Variable(name.to_string())
+    }
+
+    macro_rules! assert_stmt_eq {
+        ($actual:expr, $expected:expr) => {
+            assert_stmt_eq(&$actual, &$expected)
+        };
+    }
+
+    fn assert_stmt_eq(actual: &Statement, expected: &Statement) {
+        match (&actual.kind, &expected.kind) {
+            // Function definitions (compare nested body statements)
+            (
+                StatementKind::FunctionDef {
+                    name: actual_name,
+                    args: actual_args,
+                    body: actual_body,
+                    decorators: actual_decorators,
+                    is_async: actual_is_async,
+                },
+                StatementKind::FunctionDef {
+                    name: expected_name,
+                    args: expected_args,
+                    body: expected_body,
+                    decorators: expected_decorators,
+                    is_async: expected_is_async,
+                },
+            ) => {
+                assert_eq!(
+                    actual_body.len(),
+                    expected_body.len(),
+                    "Function body length mismatch"
+                );
+                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+
+                assert_eq!(actual_name, expected_name, "Function name mismatch");
+                assert_eq!(actual_args, expected_args, "Function args mismatch");
+                assert_eq!(
+                    actual_decorators, expected_decorators,
+                    "Function decorators mismatch"
+                );
+                assert_eq!(
+                    actual_is_async, expected_is_async,
+                    "Function is_async mismatch"
+                );
+            }
+
+            (
+                StatementKind::ClassDef {
+                    name: actual_name,
+                    parents: actual_parents,
+                    metaclass: actual_metaclass,
+                    body: actual_body,
+                },
+                StatementKind::ClassDef {
+                    name: expected_name,
+                    parents: expected_parents,
+                    metaclass: expected_metaclass,
+                    body: expected_body,
+                },
+            ) => {
+                assert_eq!(actual_name, expected_name, "Class name mismatch");
+                assert_eq!(actual_parents, expected_parents, "Class parents mismatch");
+                assert_eq!(
+                    actual_metaclass, expected_metaclass,
+                    "Class metaclass mismatch"
+                );
+
+                assert_eq!(
+                    actual_body.len(),
+                    expected_body.len(),
+                    "Class body length mismatch"
+                );
+                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+            }
+
+            (
+                StatementKind::ContextManager {
+                    expr: actual_expr,
+                    variable: actual_variable,
+                    block: actual_block,
+                },
+                StatementKind::ContextManager {
+                    expr: expected_expr,
+                    variable: expected_variable,
+                    block: expected_block,
+                },
+            ) => {
+                assert_eq!(actual_expr, expected_expr, "Context manager expr mismatch");
+                assert_eq!(
+                    actual_variable, expected_variable,
+                    "Context manager variable mismatch"
+                );
+
+                assert_eq!(
+                    actual_block.len(),
+                    expected_block.len(),
+                    "Context manager block length mismatch"
+                );
+                for (a, e) in actual_block.iter().zip(expected_block.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+            }
+
+            (
+                StatementKind::TryExcept {
+                    try_block: actual_try_block,
+                    except_clauses: actual_except_clauses,
+                    else_block: actual_else_block,
+                    finally_block: actual_finally_block,
+                },
+                StatementKind::TryExcept {
+                    try_block: expected_try_block,
+                    except_clauses: expected_except_clauses,
+                    else_block: expected_else_block,
+                    finally_block: expected_finally_block,
+                },
+            ) => {
+                assert_eq!(
+                    actual_try_block.len(),
+                    expected_try_block.len(),
+                    "Try block length mismatch"
+                );
+                for (a, e) in actual_try_block.iter().zip(expected_try_block.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+
+                assert_eq!(
+                    actual_except_clauses.len(),
+                    expected_except_clauses.len(),
+                    "Except clauses length mismatch"
+                );
+                for (actual_except_clause, expected_except_clause) in actual_except_clauses
+                    .iter()
+                    .zip(expected_except_clauses.iter())
+                {
+                    assert_eq!(
+                        actual_except_clause.exception_types,
+                        expected_except_clause.exception_types,
+                        "Except clause types mismatch"
+                    );
+                    assert_eq!(
+                        actual_except_clause.alias, expected_except_clause.alias,
+                        "Except clause alias mismatch"
+                    );
+                    assert_eq!(
+                        actual_except_clause.block.len(),
+                        expected_except_clause.block.len(),
+                        "Except_clause.block length mismatch"
+                    );
+                    for (a, e) in actual_except_clause
+                        .block
+                        .iter()
+                        .zip(expected_except_clause.block.iter())
+                    {
+                        assert_stmt_eq(a, e);
+                    }
+                }
+
+                match (actual_else_block, expected_else_block) {
+                    (Some(actual), Some(expected)) => {
+                        assert_eq!(actual.len(), expected.len(), "Else block length mismatch");
+                        for (a, e) in actual.iter().zip(expected.iter()) {
+                            assert_stmt_eq(a, e);
+                        }
+                    }
+                    (None, None) => {} // Both bodies are None—nothing to compare
+                    (None, Some(_)) | (Some(_), None) => {
+                        panic!("Else block mismatch: one body is None while the other is Some");
+                    }
+                }
+
+                match (actual_finally_block, expected_finally_block) {
+                    (Some(actual), Some(expected)) => {
+                        assert_eq!(
+                            actual.len(),
+                            expected.len(),
+                            "Finally block length mismatch"
+                        );
+                        for (a, e) in actual.iter().zip(expected.iter()) {
+                            assert_stmt_eq(a, e);
+                        }
+                    }
+                    (None, None) => {} // Both bodies are None—nothing to compare
+                    (None, Some(_)) | (Some(_), None) => {
+                        panic!("Finally block mismatch: one body is None while the other is Some");
+                    }
+                }
+            }
+
+            (
+                StatementKind::IfElse {
+                    if_part: actual_if_part,
+                    elif_parts: actual_elif_parts,
+                    else_part: actual_else_part,
+                },
+                StatementKind::IfElse {
+                    if_part: expected_if_part,
+                    elif_parts: expected_elif_parts,
+                    else_part: expected_else_part,
+                },
+            ) => {
+                assert_eq!(
+                    actual_if_part.condition, expected_if_part.condition,
+                    "If/else condition mismatch"
+                );
+                assert_eq!(
+                    actual_if_part.block.len(),
+                    expected_if_part.block.len(),
+                    "If/else if_part.block length mismatch"
+                );
+                for (a, e) in actual_if_part
+                    .block
+                    .iter()
+                    .zip(expected_if_part.block.iter())
+                {
+                    assert_stmt_eq(a, e);
+                }
+
+                assert_eq!(
+                    actual_elif_parts.len(),
+                    expected_elif_parts.len(),
+                    "Elif parts length mismatch"
+                );
+                for (actual_elif_part, expected_elif_part) in
+                    actual_elif_parts.iter().zip(expected_elif_parts.iter())
+                {
+                    assert_eq!(
+                        actual_elif_part.condition, expected_elif_part.condition,
+                        "If/else condition mismatch"
+                    );
+                    assert_eq!(
+                        actual_elif_part.block.len(),
+                        expected_elif_part.block.len(),
+                        "If/else elif_part.block length mismatch"
+                    );
+                    for (a, e) in actual_elif_part
+                        .block
+                        .iter()
+                        .zip(expected_elif_part.block.iter())
+                    {
+                        assert_stmt_eq(a, e);
+                    }
+                }
+
+                match (actual_else_part, expected_else_part) {
+                    (Some(actual), Some(expected)) => {
+                        assert_eq!(actual.len(), expected.len(), "Else part length mismatch");
+                        for (a, e) in actual.iter().zip(expected.iter()) {
+                            assert_stmt_eq(a, e);
+                        }
+                    }
+                    (None, None) => {} // Both bodies are None—nothing to compare
+                    (None, Some(_)) | (Some(_), None) => {
+                        panic!("Else part mismatch: one body is None while the other is Some");
+                    }
+                }
+            }
+
+            (
+                StatementKind::WhileLoop {
+                    condition: actual_cond,
+                    body: actual_body,
+                },
+                StatementKind::WhileLoop {
+                    condition: expected_cond,
+                    body: expected_body,
+                },
+            ) => {
+                assert_eq!(actual_cond, expected_cond, "Loop condition mismatch");
+
+                assert_eq!(
+                    actual_body.len(),
+                    expected_body.len(),
+                    "Loop body length mismatch"
+                );
+                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+            }
+
+            (
+                StatementKind::ForInLoop {
+                    index: actual_index,
+                    iterable: actual_iterable,
+                    body: actual_body,
+                    else_block: actual_else_block,
+                },
+                StatementKind::ForInLoop {
+                    index: expected_index,
+                    iterable: expected_iterable,
+                    body: expected_body,
+                    else_block: expected_else_block,
+                },
+            ) => {
+                assert_eq!(actual_index, expected_index, "Loop index mismatch");
+                assert_eq!(actual_iterable, expected_iterable, "Loop iterable mismatch");
+
+                assert_eq!(
+                    actual_body.len(),
+                    expected_body.len(),
+                    "Loop body length mismatch"
+                );
+                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
+                    assert_stmt_eq(a, e);
+                }
+
+                match (actual_else_block, expected_else_block) {
+                    (Some(actual), Some(expected)) => {
+                        assert_eq!(actual.len(), expected.len(), "Loop body length mismatch");
+                        for (a, e) in actual.iter().zip(expected.iter()) {
+                            assert_stmt_eq(a, e);
+                        }
+                    }
+                    (None, None) => {} // Both bodies are None—nothing to compare
+                    (None, Some(_)) | (Some(_), None) => {
+                        panic!("Loop body mismatch: one body is None while the other is Some");
+                    }
+                }
+            }
+
+            // Default case (compare only kinds, ignoring start_line)
+            _ => {
+                assert_eq!(actual.kind, expected.kind, "AST nodes do not match");
+            }
+        }
     }
 
     #[test]
@@ -1881,15 +2221,15 @@ mod tests {
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Integer(2)),
+            left: Box::new(int(2)),
             op: BinOp::Add,
             right: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(3)),
+                left: Box::new(int(3)),
                 op: BinOp::Mul,
                 right: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
+                    left: Box::new(int(4)),
                     op: BinOp::Sub,
-                    right: Box::new(Expr::Integer(1)),
+                    right: Box::new(int(1)),
                 }),
             }),
         };
@@ -1903,9 +2243,9 @@ mod tests {
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Integer(2)),
+            left: Box::new(int(2)),
             op: BinOp::IntegerDiv,
-            right: Box::new(Expr::Integer(3)),
+            right: Box::new(int(3)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -1952,14 +2292,14 @@ a = 2
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
-            right: Expr::Integer(2),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: int(2),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -1967,18 +2307,18 @@ b = a + 3
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("b".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("b"),
             right: Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("a".to_string())),
+                left: Box::new(var("a")),
                 op: BinOp::Add,
-                right: Box::new(Expr::Integer(3)),
+                right: Box::new(int(3)),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -1986,17 +2326,14 @@ a, b = (1, 2)
 ";
         let context = init(input);
 
-        let expected_ast = Statement::UnpackingAssignment {
-            left: vec![
-                Expr::Variable("a".to_string()),
-                Expr::Variable("b".to_string()),
-            ],
-            right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2)]),
-        };
+        let expected_ast = stmt(StatementKind::UnpackingAssignment {
+            left: vec![var("a"), var("b")],
+            right: Expr::Tuple(vec![int(1), Expr::Integer(2)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2025,25 +2362,25 @@ a(*self.args, **self.kwargs)
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "a".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![KwargsOperation::Unpacking(Expr::MemberAccess {
-                    object: Box::new(Expr::Variable("self".into())),
+                    object: Box::new(var("self")),
                     field: "kwargs".into(),
                 })],
                 args_var: Some(Box::new(Expr::MemberAccess {
-                    object: Box::new(Expr::Variable("self".into())),
+                    object: Box::new(var("self")),
                     field: "args".into(),
                 })),
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2055,7 +2392,7 @@ def add(x, y):
 ";
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "add".to_string(),
             args: ParsedArgDefinitions {
                 args: vec![
@@ -2071,18 +2408,18 @@ def add(x, y):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: ast![Statement::Return(vec![Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("x".to_string())),
+            body: ast![stmt(StatementKind::Return(vec![Expr::BinaryOperation {
+                left: Box::new(var("x")),
                 op: BinOp::Add,
-                right: Box::new(Expr::Variable("y".to_string())),
-            }])],
+                right: Box::new(var("y")),
+            }]))],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2090,21 +2427,17 @@ def _f(): pass
 ";
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "_f".to_string(),
-            args: ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            },
-            body: ast![Statement::Pass],
+            args: ParsedArgDefinitions::default(),
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2112,18 +2445,14 @@ lambda: 4
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            }),
-            expr: Box::new(Expr::Integer(4)),
-        });
+        let expected_ast = stmt(StatementKind::Expression(Expr::Lambda {
+            args: Box::new(ParsedArgDefinitions::default()),
+            expr: Box::new(int(4)),
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2131,7 +2460,7 @@ lambda index: 4
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Lambda {
+        let expected_ast = stmt(StatementKind::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
                 args: vec![ParsedArgDefinition {
                     arg: "index".into(),
@@ -2140,12 +2469,12 @@ lambda index: 4
                 args_var: None,
                 kwargs_var: None,
             }),
-            expr: Box::new(Expr::Integer(4)),
-        });
+            expr: Box::new(int(4)),
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2153,7 +2482,7 @@ lambda index, val: 4
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Lambda {
+        let expected_ast = stmt(StatementKind::Expression(Expr::Lambda {
             args: Box::new(ParsedArgDefinitions {
                 args: vec![
                     ParsedArgDefinition {
@@ -2168,12 +2497,12 @@ lambda index, val: 4
                 args_var: None,
                 kwargs_var: None,
             }),
-            expr: Box::new(Expr::Integer(4)),
-        });
+            expr: Box::new(int(4)),
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2181,18 +2510,14 @@ lambda: (yield)
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            }),
+        let expected_ast = stmt(StatementKind::Expression(Expr::Lambda {
+            args: Box::new(ParsedArgDefinitions::default()),
             expr: Box::new(Expr::Yield(None)),
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2200,7 +2525,7 @@ lambda: (yield)
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "<anonymous_from_callee>".into(),
             args: ParsedArguments {
                 args: vec![],
@@ -2208,18 +2533,14 @@ lambda: (yield)
                 args_var: None,
             },
             callee: Some(Box::new(Expr::Lambda {
-                args: Box::new(ParsedArgDefinitions {
-                    args: vec![],
-                    args_var: None,
-                    kwargs_var: None,
-                }),
+                args: Box::new(ParsedArgDefinitions::default()),
                 expr: Box::new(Expr::Yield(None)),
             })),
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2230,7 +2551,7 @@ def __init__(
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "__init__".into(),
             args: ParsedArgDefinitions {
                 args: vec![
@@ -2246,14 +2567,14 @@ def __init__(
                 args_var: None,
                 kwargs_var: None,
             },
-            body: ast![Statement::Pass],
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -2261,12 +2582,11 @@ return a, b
 ";
         let context = init(input);
 
-        let expected_ast =
-            Statement::Return(vec![Expr::Variable("a".into()), Expr::Variable("b".into())]);
+        let expected_ast = stmt(StatementKind::Return(vec![var("a"), var("b")]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2276,9 +2596,9 @@ return a, b
         let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: LogicalOp::And,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2290,9 +2610,9 @@ return a, b
         let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: LogicalOp::Or,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2304,11 +2624,11 @@ return a, b
         let context = init(input);
 
         let expected_ast = Expr::LogicalOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: LogicalOp::Or,
             right: Box::new(Expr::UnaryOperation {
                 op: UnaryOp::Not,
-                right: Box::new(Expr::Variable("y".to_string())),
+                right: Box::new(var("y")),
             }),
         };
 
@@ -2323,9 +2643,9 @@ return a, b
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Not,
             right: Box::new(Expr::LogicalOperation {
-                left: Box::new(Expr::Variable("x".to_string())),
+                left: Box::new(var("x")),
                 op: LogicalOp::Or,
-                right: Box::new(Expr::Variable("y".to_string())),
+                right: Box::new(var("y")),
             }),
         };
 
@@ -2341,22 +2661,22 @@ if (a
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::LogicalOperation {
-                    left: Box::new(Expr::Variable("a".to_string())),
+                    left: Box::new(var("a")),
                     op: LogicalOp::Or,
-                    right: Box::new(Expr::Variable("b".to_string())),
+                    right: Box::new(var("b")),
                 },
-                block: ast![Statement::Pass],
+                block: ast![stmt(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2366,9 +2686,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::Equals,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2380,9 +2700,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::NotEquals,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2394,9 +2714,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::LessThan,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2408,9 +2728,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::GreaterThan,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2422,9 +2742,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::GreaterThanOrEqual,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2436,9 +2756,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::LessThanOrEqual,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2450,9 +2770,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::In,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2464,9 +2784,9 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::NotIn,
-            right: Box::new(Expr::Variable("y".to_string())),
+            right: Box::new(var("y")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -2478,7 +2798,7 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::Is,
             right: Box::new(Expr::None),
         };
@@ -2492,7 +2812,7 @@ if (a
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("x".to_string())),
+            left: Box::new(var("x")),
             op: BinOp::IsNot,
             right: Box::new(Expr::None),
         };
@@ -2508,14 +2828,14 @@ if (a
         let input = "x = True\n";
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("x".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("x"),
             right: Expr::Boolean(true),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "True or False\n";
@@ -2535,24 +2855,24 @@ if (a
         let input = "x = None\n";
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("x".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("x"),
             right: Expr::None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "return None\n";
         let context = init(input);
 
-        let expected_ast = Statement::Return(vec![Expr::None]);
+        let expected_ast = stmt(StatementKind::Return(vec![Expr::None]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2568,14 +2888,14 @@ else:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("x".to_string())),
+                    left: Box::new(var("x")),
                     op: BinOp::GreaterThan,
-                    right: Box::new(Expr::Integer(0)),
+                    right: Box::new(int(0)),
                 },
-                block: ast![Statement::Expression(Expr::FunctionCall {
+                block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("Greater".to_string())],
@@ -2583,15 +2903,15 @@ else:
                         args_var: None,
                     },
                     callee: None,
-                })],
+                }))],
             },
             elif_parts: vec![ConditionalBlock {
                 condition: Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("x".to_string())),
+                    left: Box::new(var("x")),
                     op: BinOp::GreaterThan,
-                    right: Box::new(Expr::Integer(-10)),
+                    right: Box::new(int(-10)),
                 },
-                block: ast![Statement::Expression(Expr::FunctionCall {
+                block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("Medium".to_string())],
@@ -2599,9 +2919,9 @@ else:
                         args_var: None,
                     },
                     callee: None,
-                })],
+                }))],
             }],
-            else_part: Some(ast![Statement::Expression(Expr::FunctionCall {
+            else_part: Some(ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                 name: "print".to_string(),
                 args: ParsedArguments {
                     args: vec![Expr::StringLiteral("Less".to_string())],
@@ -2609,12 +2929,12 @@ else:
                     args_var: None,
                 },
                 callee: None,
-            })]),
-        };
+            }))]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2627,14 +2947,14 @@ elif x > -20:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("x".to_string())),
+                    left: Box::new(var("x")),
                     op: BinOp::GreaterThan,
-                    right: Box::new(Expr::Integer(0)),
+                    right: Box::new(int(0)),
                 },
-                block: ast![Statement::Expression(Expr::FunctionCall {
+                block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("Greater".to_string())],
@@ -2642,16 +2962,16 @@ elif x > -20:
                         args_var: None,
                     },
                     callee: None,
-                })],
+                }))],
             },
             elif_parts: vec![
                 ConditionalBlock {
                     condition: Expr::BinaryOperation {
-                        left: Box::new(Expr::Variable("x".to_string())),
+                        left: Box::new(var("x")),
                         op: BinOp::GreaterThan,
-                        right: Box::new(Expr::Integer(-10)),
+                        right: Box::new(int(-10)),
                     },
-                    block: ast![Statement::Expression(Expr::FunctionCall {
+                    block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Medium".to_string())],
@@ -2659,15 +2979,15 @@ elif x > -20:
                             args_var: None,
                         },
                         callee: None,
-                    })],
+                    }))],
                 },
                 ConditionalBlock {
                     condition: Expr::BinaryOperation {
-                        left: Box::new(Expr::Variable("x".to_string())),
+                        left: Box::new(var("x")),
                         op: BinOp::GreaterThan,
-                        right: Box::new(Expr::Integer(-20)),
+                        right: Box::new(int(-20)),
                     },
-                    block: ast![Statement::Expression(Expr::FunctionCall {
+                    block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::StringLiteral("Less".to_string())],
@@ -2675,15 +2995,15 @@ elif x > -20:
                             args_var: None,
                         },
                         callee: None,
-                    })],
+                    }))],
                 },
             ],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2692,14 +3012,14 @@ if x > 0:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("x".to_string())),
+                    left: Box::new(var("x")),
                     op: BinOp::GreaterThan,
-                    right: Box::new(Expr::Integer(0)),
+                    right: Box::new(int(0)),
                 },
-                block: ast![Statement::Expression(Expr::FunctionCall {
+                block: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                     name: "print".to_string(),
                     args: ParsedArguments {
                         args: vec![Expr::StringLiteral("Greater".to_string())],
@@ -2707,15 +3027,15 @@ if x > 0:
                         args_var: None,
                     },
                     callee: None,
-                })],
+                }))],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2723,18 +3043,18 @@ if True: return False
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::Boolean(true),
-                block: ast![Statement::Return(vec![Expr::Boolean(false)])],
+                block: ast![stmt(StatementKind::Return(vec![Expr::Boolean(false)]))],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2745,30 +3065,30 @@ if (a == 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::LogicalOperation {
                     left: Box::new(Expr::LogicalOperation {
                         left: Box::new(Expr::BinaryOperation {
-                            left: Box::new(Expr::Variable("a".into())),
+                            left: Box::new(var("a")),
                             op: BinOp::Equals,
-                            right: Box::new(Expr::Integer(1)),
+                            right: Box::new(int(1)),
                         }),
                         op: LogicalOp::And,
-                        right: Box::new(Expr::Variable("b".into())),
+                        right: Box::new(var("b")),
                     }),
                     op: LogicalOp::And,
-                    right: Box::new(Expr::Variable("c".into())),
+                    right: Box::new(var("c")),
                 },
-                block: ast![Statement::Pass],
+                block: ast![stmt(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2780,9 +3100,9 @@ while True:
 ";
         let context = init(input);
 
-        let expected_ast = Statement::WhileLoop {
+        let expected_ast = stmt(StatementKind::WhileLoop {
             condition: Expr::Boolean(true),
-            body: ast![Statement::Expression(Expr::FunctionCall {
+            body: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                 name: "print".to_string(),
                 args: ParsedArguments {
                     args: vec![Expr::StringLiteral("busy loop".to_string())],
@@ -2790,12 +3110,12 @@ while True:
                     args_var: None,
                 },
                 callee: None,
-            })],
-        };
+            }))],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2811,12 +3131,12 @@ class Foo:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: None,
             body: ast![
-                Statement::FunctionDef {
+                stmt(StatementKind::FunctionDef {
                     name: "__init__".to_string(),
                     args: ParsedArgDefinitions {
                         args: vec![ParsedArgDefinition {
@@ -2826,17 +3146,17 @@ class Foo:
                         args_var: None,
                         kwargs_var: None,
                     },
-                    body: ast![Statement::Assignment {
+                    body: ast![stmt(StatementKind::Assignment {
                         left: Expr::MemberAccess {
-                            object: Box::new(Expr::Variable("self".to_string())),
+                            object: Box::new(var("self")),
                             field: "x".to_string(),
                         },
-                        right: Expr::Integer(0),
-                    }],
+                        right: int(0),
+                    })],
                     decorators: vec![],
                     is_async: false,
-                },
-                Statement::FunctionDef {
+                }),
+                stmt(StatementKind::FunctionDef {
                     name: "bar".to_string(),
                     args: ParsedArgDefinitions {
                         args: vec![ParsedArgDefinition {
@@ -2846,27 +3166,27 @@ class Foo:
                         args_var: None,
                         kwargs_var: None,
                     },
-                    body: ast![Statement::Expression(Expr::FunctionCall {
+                    body: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                         name: "print".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::MemberAccess {
-                                object: Box::new(Expr::Variable("self".to_string())),
+                                object: Box::new(var("self")),
                                 field: "x".to_string(),
                             }],
                             kwargs: vec![],
                             args_var: None,
                         },
                         callee: None,
-                    })],
+                    }))],
                     decorators: vec![],
                     is_async: false,
-                },
+                }),
             ],
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2874,16 +3194,16 @@ class Foo(Bar, Baz): pass
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
-            parents: vec![Expr::Variable("Bar".into()), Expr::Variable("Baz".into())],
+            parents: vec![var("Bar"), var("Baz")],
             metaclass: None,
-            body: ast![Statement::Pass],
-        };
+            body: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -2891,19 +3211,19 @@ class Foo(module.Bar): pass
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![Expr::MemberAccess {
-                object: Box::new(Expr::Variable("module".into())),
+                object: Box::new(var("module")),
                 field: "Bar".into(),
             }],
             metaclass: None,
-            body: ast![Statement::Pass],
-        };
+            body: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2913,70 +3233,67 @@ class Foo(module.Bar): pass
 foo = Foo()
 "#;
 
-        let mut symbol_table = Scope::default();
+        let mut scope = Scope::default();
         let foo = Class::new_base("Foo".to_string(), vec![], None, Scope::default());
-        symbol_table.insert("Foo", ExprResult::Class(foo));
+        scope.insert("Foo", ExprResult::Class(foo));
 
-        let state = Container::new(State::new());
-        state.push_local(Container::new(symbol_table));
+        let context = init(input);
+        context.state.push_local(Container::new(scope));
 
-        let context = init_state(input, state);
-
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("foo".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("foo"),
             right: Expr::ClassInstantiation {
                 name: "Foo".to_string(),
                 args: ParsedArguments::default(),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
     #[test]
     fn method_invocation() {
-        let mut symbol_table = Scope::default();
+        let mut scope = Scope::default();
         let foo = Class::new_base("Foo".to_string(), vec![], None, Scope::default());
-        symbol_table.insert("Foo", ExprResult::Class(foo));
-
-        let state = Container::new(State::new());
-        state.push_local(Container::new(symbol_table));
+        scope.insert("Foo", ExprResult::Class(foo));
 
         let input = r#"
 foo = Foo()
 "#;
-        let context = init_state(input, state.clone());
+        let context = init(input);
+        context.state.push_local(Container::new(scope.clone()));
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("foo".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("foo"),
             right: Expr::ClassInstantiation {
                 name: "Foo".to_string(),
                 args: ParsedArguments::default(),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
 foo.bar()
 "#;
-        let context = init_state(input, state);
+        let context = init(input);
+        context.state.push_local(Container::new(scope));
 
-        let expected_ast = Statement::Expression(Expr::MethodCall {
-            object: Box::new(Expr::Variable("foo".to_string())),
+        let expected_ast = stmt(StatementKind::Expression(Expr::MethodCall {
+            object: Box::new(var("foo")),
             name: "bar".to_string(),
             args: ParsedArguments::default(),
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -2985,14 +3302,14 @@ foo.bar()
         let input = "import other";
         let context = init(input);
 
-        let expected_ast = Statement::RegularImport(vec![RegularImport {
+        let expected_ast = stmt(StatementKind::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: None,
-        }]);
+        }]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3001,10 +3318,10 @@ def foo():
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "foo".to_string(),
             args: ParsedArgDefinitions::default(),
-            body: ast![Statement::RegularImport(vec![
+            body: ast![stmt(StatementKind::RegularImport(vec![
                 RegularImport {
                     import_path: ImportPath::Absolute(vec!["other".into()]),
                     alias: None,
@@ -3013,16 +3330,16 @@ def foo():
                     import_path: ImportPath::Absolute(vec!["second".into()]),
                     alias: Some("third".into()),
                 },
-            ])],
+            ]))],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         // We test this inside a function so that it will attempt to parse more than one statement,
         // which is what originally caught the bug related to parsing the comma and beyond.
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3031,10 +3348,10 @@ pass
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::RegularImport(vec![RegularImport {
+        let expected_ast = stmt(StatementKind::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: Some("b".into()),
-        }]);
+        }]));
 
         // Before we handling Token::As processing, this test would fail, but only once it began
         // parsing the next statement. We needed to parse two statements here to produce the
@@ -3042,11 +3359,11 @@ pass
         let mut parser = context.init_parser();
         match parser.parse_statement() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
         match parser.parse_statement() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, Statement::Pass),
+            Ok(ast) => assert_stmt_eq!(ast, stmt(StatementKind::Pass)),
         }
 
         let input = "mypackage.myothermodule.add('1', '1')";
@@ -3054,7 +3371,7 @@ pass
 
         let expected_ast = Expr::MethodCall {
             object: Box::new(Expr::MemberAccess {
-                object: Box::new(Expr::Variable("mypackage".into())),
+                object: Box::new(var("mypackage")),
                 field: "myothermodule".into(),
             }),
             name: "add".into(),
@@ -3078,22 +3395,22 @@ cls._abc_registry.add(subclass)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::MethodCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::MethodCall {
             object: Box::new(Expr::MemberAccess {
-                object: Box::new(Expr::Variable("cls".into())),
+                object: Box::new(var("cls")),
                 field: "_abc_registry".into(),
             }),
             name: "add".into(),
             args: ParsedArguments {
-                args: vec![Expr::Variable("subclass".into())],
+                args: vec![var("subclass")],
                 kwargs: vec![],
                 args_var: None,
             },
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3102,52 +3419,52 @@ cls._abc_registry.add(subclass)
         let input = "from other import something";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![ImportedItem::Direct("something".to_string())],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from other import something, something_else";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
                 ImportedItem::Direct("something_else".to_string()),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from other import *";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![],
             wildcard: true,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from other import something, something_else as imported_name";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -3157,17 +3474,17 @@ cls._abc_registry.add(subclass)
                 }),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from other.module import something, something_else as imported_name";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -3177,31 +3494,31 @@ cls._abc_registry.add(subclass)
                 }),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from . import something";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(0, vec![]),
             items: vec![ImportedItem::Direct("something".to_string())],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from .other.module import something, something_else as imported_name";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(0, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -3211,17 +3528,17 @@ cls._abc_registry.add(subclass)
                 }),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "from ..other.module import something, something_else as imported_name";
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -3231,11 +3548,11 @@ cls._abc_registry.add(subclass)
                 }),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3244,7 +3561,7 @@ from ..other.module import (something,
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -3254,11 +3571,11 @@ from ..other.module import (something,
                 }),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3267,7 +3584,7 @@ from ..other.module import (something as imported_name,
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::SelectiveImport {
+        let expected_ast = stmt(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Alias(Alias {
@@ -3277,11 +3594,11 @@ from ..other.module import (something as imported_name,
                 ImportedItem::Direct("something_else".to_string()),
             ],
             wildcard: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3292,14 +3609,14 @@ a = 3.14
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::FloatingPoint(3.14),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3307,18 +3624,18 @@ b = a + 2.5e-3
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("b".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("b"),
             right: Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("a".to_string())),
+                left: Box::new(var("a")),
                 op: BinOp::Add,
                 right: Box::new(Expr::FloatingPoint(2.5e-3)),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3335,7 +3652,7 @@ b = a + 2.5e-3
 
         let input = "-3";
         let context = init(input);
-        let expected_ast = Expr::Integer(-3);
+        let expected_ast = int(-3);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3345,9 +3662,9 @@ b = a + 2.5e-3
         let input = "2 - 3";
         let context = init(input);
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Integer(2)),
+            left: Box::new(int(2)),
             op: BinOp::Sub,
-            right: Box::new(Expr::Integer(3)),
+            right: Box::new(int(3)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3367,9 +3684,9 @@ b = a + 2.5e-3
         let input = "2 + -3";
         let context = init(input);
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Integer(2)),
+            left: Box::new(int(2)),
             op: BinOp::Add,
-            right: Box::new(Expr::Integer(-3)),
+            right: Box::new(int(-3)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3381,7 +3698,7 @@ b = a + 2.5e-3
         let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Minus,
-            right: Box::new(Expr::Integer(3)),
+            right: Box::new(int(3)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3393,7 +3710,7 @@ b = a + 2.5e-3
         let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Plus,
-            right: Box::new(Expr::Integer(3)),
+            right: Box::new(int(3)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3406,9 +3723,9 @@ b = a + 2.5e-3
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::Minus,
             right: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(2)),
+                left: Box::new(int(2)),
                 op: BinOp::Add,
-                right: Box::new(Expr::Integer(3)),
+                right: Box::new(int(3)),
             }),
         };
 
@@ -3422,7 +3739,7 @@ b = a + 2.5e-3
     fn lists() {
         let input = "[1,2,3]";
         let context = init(input);
-        let expected_ast = Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
+        let expected_ast = Expr::List(vec![int(1), Expr::Integer(2), Expr::Integer(3)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3431,7 +3748,7 @@ b = a + 2.5e-3
 
         let input = "[1, 2, 3]";
         let context = init(input);
-        let expected_ast = Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
+        let expected_ast = Expr::List(vec![int(1), Expr::Integer(2), Expr::Integer(3)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3444,28 +3761,28 @@ a = [1,
     3
 ]"#;
         let context = init(input);
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
-            right: Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: Expr::List(vec![int(1), Expr::Integer(2), Expr::Integer(3)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
 a = [1, 2, 3]
 ";
         let context = init(input);
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
-            right: Expr::List(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: Expr::List(vec![int(1), Expr::Integer(2), Expr::Integer(3)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "list([1, 2, 3])";
@@ -3473,11 +3790,7 @@ a = [1, 2, 3]
         let expected_ast = Expr::ClassInstantiation {
             name: "list".to_string(),
             args: ParsedArguments {
-                args: vec![Expr::List(vec![
-                    Expr::Integer(1),
-                    Expr::Integer(2),
-                    Expr::Integer(3),
-                ])],
+                args: vec![Expr::List(vec![int(1), int(2), int(3)])],
                 kwargs: vec![],
                 args_var: None,
             },
@@ -3493,11 +3806,7 @@ a = [1, 2, 3]
     fn sets() {
         let input = "{1,2,3}";
         let context = init(input);
-        let expected_ast = Expr::Set(HashSet::from([
-            Expr::Integer(1),
-            Expr::Integer(2),
-            Expr::Integer(3),
-        ]));
+        let expected_ast = Expr::Set(HashSet::from([int(1), int(2), int(3)]));
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3506,11 +3815,7 @@ a = [1, 2, 3]
 
         let input = "{1, 2, 3}";
         let context = init(input);
-        let expected_ast = Expr::Set(HashSet::from([
-            Expr::Integer(1),
-            Expr::Integer(2),
-            Expr::Integer(3),
-        ]));
+        let expected_ast = Expr::Set(HashSet::from([int(1), int(2), int(3)]));
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3519,18 +3824,14 @@ a = [1, 2, 3]
 
         let input = "a = {1, 2, 3}";
         let context = init(input);
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
-            right: Expr::Set(HashSet::from([
-                Expr::Integer(1),
-                Expr::Integer(2),
-                Expr::Integer(3),
-            ])),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: Expr::Set(HashSet::from([int(1), int(2), int(3)])),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "set({1, 2, 3})";
@@ -3538,11 +3839,7 @@ a = [1, 2, 3]
         let expected_ast = Expr::ClassInstantiation {
             name: "set".to_string(),
             args: ParsedArguments {
-                args: vec![Expr::Set(HashSet::from([
-                    Expr::Integer(1),
-                    Expr::Integer(2),
-                    Expr::Integer(3),
-                ]))],
+                args: vec![Expr::Set(HashSet::from([int(1), int(2), int(3)]))],
                 kwargs: vec![],
                 args_var: None,
             },
@@ -3560,15 +3857,15 @@ a = [1, 2, 3]
     3
 }"#;
         let context = init(input);
-        let expected_ast = Statement::Expression(Expr::Set(HashSet::from([
-            Expr::Integer(1),
-            Expr::Integer(2),
-            Expr::Integer(3),
-        ])));
+        let expected_ast = stmt(StatementKind::Expression(Expr::Set(HashSet::from([
+            int(1),
+            int(2),
+            int(3),
+        ]))));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3578,15 +3875,15 @@ a = [1, 2, 3]
     3,
 }"#;
         let context = init(input);
-        let expected_ast = Statement::Expression(Expr::Set(HashSet::from([
-            Expr::Integer(1),
-            Expr::Integer(2),
-            Expr::Integer(3),
-        ])));
+        let expected_ast = stmt(StatementKind::Expression(Expr::Set(HashSet::from([
+            int(1),
+            int(2),
+            int(3),
+        ]))));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3594,7 +3891,7 @@ a = [1, 2, 3]
     fn tuples() {
         let input = "(1,2,3)";
         let context = init(input);
-        let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
+        let expected_ast = Expr::Tuple(vec![int(1), Expr::Integer(2), Expr::Integer(3)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3603,7 +3900,7 @@ a = [1, 2, 3]
 
         let input = "(1, 2, 3)";
         let context = init(input);
-        let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
+        let expected_ast = Expr::Tuple(vec![int(1), Expr::Integer(2), Expr::Integer(3)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3612,7 +3909,7 @@ a = [1, 2, 3]
 
         let input = "1, 2, 3";
         let context = init(input);
-        let expected_ast = Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]);
+        let expected_ast = Expr::Tuple(vec![int(1), Expr::Integer(2), Expr::Integer(3)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3621,7 +3918,7 @@ a = [1, 2, 3]
 
         let input = "1,";
         let context = init(input);
-        let expected_ast = Expr::Tuple(vec![Expr::Integer(1)]);
+        let expected_ast = Expr::Tuple(vec![int(1)]);
 
         match context.parse_oneshot::<Expr>() {
             Err(e) => panic!("Parser error: {:?}", e),
@@ -3630,26 +3927,26 @@ a = [1, 2, 3]
 
         let input = "a = (1, 2, 3)";
         let context = init(input);
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
-            right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: Expr::Tuple(vec![int(1), Expr::Integer(2), Expr::Integer(3)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "a = 1, 2, 3";
         let context = init(input);
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
-            right: Expr::Tuple(vec![Expr::Integer(1), Expr::Integer(2), Expr::Integer(3)]),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: Expr::Tuple(vec![int(1), Expr::Integer(2), Expr::Integer(3)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "tuple((1, 2, 3))";
@@ -3657,11 +3954,7 @@ a = [1, 2, 3]
         let expected_ast = Expr::ClassInstantiation {
             name: "tuple".to_string(),
             args: ParsedArguments {
-                args: vec![Expr::Tuple(vec![
-                    Expr::Integer(1),
-                    Expr::Integer(2),
-                    Expr::Integer(3),
-                ])],
+                args: vec![Expr::Tuple(vec![int(1), int(2), int(3)])],
                 kwargs: vec![],
                 args_var: None,
             },
@@ -3678,22 +3971,18 @@ tuple((1,
        3))
 "#;
         let context = init(input);
-        let expected_ast = Statement::Expression(Expr::ClassInstantiation {
+        let expected_ast = stmt(StatementKind::Expression(Expr::ClassInstantiation {
             name: "tuple".to_string(),
             args: ParsedArguments {
-                args: vec![Expr::Tuple(vec![
-                    Expr::Integer(1),
-                    Expr::Integer(2),
-                    Expr::Integer(3),
-                ])],
+                args: vec![Expr::Tuple(vec![int(1), int(2), int(3)])],
                 kwargs: vec![],
                 args_var: None,
             },
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3702,8 +3991,8 @@ tuple((1,
         let input = "a[0]";
         let context = init(input);
         let expected_ast = Expr::IndexAccess {
-            object: Box::new(Expr::Variable("a".to_string())),
-            index: Box::new(Expr::Integer(0)),
+            object: Box::new(var("a")),
+            index: Box::new(int(0)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3714,8 +4003,8 @@ tuple((1,
         let input = "[0,1][1]";
         let context = init(input);
         let expected_ast = Expr::IndexAccess {
-            object: Box::new(Expr::List(vec![Expr::Integer(0), Expr::Integer(1)])),
-            index: Box::new(Expr::Integer(1)),
+            object: Box::new(Expr::List(vec![int(0), Expr::Integer(1)])),
+            index: Box::new(int(1)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -3725,17 +4014,17 @@ tuple((1,
 
         let input = "a[1] = 0";
         let context = init(input);
-        let expected_ast = Statement::Assignment {
+        let expected_ast = stmt(StatementKind::Assignment {
             left: Expr::IndexAccess {
-                object: Box::new(Expr::Variable("a".to_string())),
-                index: Box::new(Expr::Integer(1)),
+                object: Box::new(var("a")),
+                index: Box::new(int(1)),
             },
-            right: Expr::Integer(0),
-        };
+            right: int(0),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3746,24 +4035,24 @@ for i in a:
     print(i)
 "#;
         let context = init(input);
-        let expected_ast = Statement::ForInLoop {
+        let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
-            iterable: Expr::Variable("a".into()),
-            body: ast![Statement::Expression(Expr::FunctionCall {
+            iterable: var("a"),
+            body: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                 name: "print".into(),
                 args: ParsedArguments {
-                    args: vec![Expr::Variable("i".into())],
+                    args: vec![var("i")],
                     kwargs: vec![],
                     args_var: None,
                 },
                 callee: None,
-            })],
+            }))],
             else_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3771,28 +4060,28 @@ for k, v in a.items():
     print(v)
 "#;
         let context = init(input);
-        let expected_ast = Statement::ForInLoop {
+        let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
             iterable: Expr::MethodCall {
-                object: Box::new(Expr::Variable("a".into())),
+                object: Box::new(var("a")),
                 name: "items".into(),
                 args: ParsedArguments::default(),
             },
-            body: ast![Statement::Expression(Expr::FunctionCall {
+            body: ast![stmt(StatementKind::Expression(Expr::FunctionCall {
                 name: "print".into(),
                 args: ParsedArguments {
-                    args: vec![Expr::Variable("v".into())],
+                    args: vec![var("v")],
                     kwargs: vec![],
                     args_var: None,
                 },
                 callee: None,
-            })],
+            }))],
             else_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3802,13 +4091,13 @@ for k, v in a.items():
         let context = init(input);
         let expected_ast = Expr::ListComprehension {
             body: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("i".to_string())),
+                left: Box::new(var("i")),
                 op: BinOp::Mul,
-                right: Box::new(Expr::Integer(2)),
+                right: Box::new(int(2)),
             }),
             clauses: vec![ForClause {
                 indices: vec!["i".to_string()],
-                iterable: Expr::Variable("a".to_string()),
+                iterable: var("a"),
                 condition: None,
             }],
         };
@@ -3822,13 +4111,13 @@ for k, v in a.items():
         let context = init(input);
         let expected_ast = Expr::ListComprehension {
             body: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("i".to_string())),
+                left: Box::new(var("i")),
                 op: BinOp::Mul,
-                right: Box::new(Expr::Integer(2)),
+                right: Box::new(int(2)),
             }),
             clauses: vec![ForClause {
                 indices: vec!["i".to_string()],
-                iterable: Expr::Variable("a".to_string()),
+                iterable: var("a"),
                 condition: Some(Expr::Boolean(true)),
             }],
         };
@@ -3852,31 +4141,41 @@ def countdown(n):
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
-                let expected_body = ast![Statement::WhileLoop {
-                    condition: Expr::BinaryOperation {
-                        left: Box::new(Expr::Variable("n".to_string())),
-                        op: BinOp::GreaterThan,
-                        right: Box::new(Expr::Integer(0)),
+                let expected_ast = stmt(StatementKind::FunctionDef {
+                    name: "countdown".to_string(),
+                    args: ParsedArgDefinitions {
+                        args: vec![ParsedArgDefinition {
+                            arg: "n".into(),
+                            default: None,
+                        }],
+                        args_var: None,
+                        kwargs_var: None,
                     },
-                    body: ast![
-                        Statement::Expression(Expr::Yield(Some(Box::new(Expr::Variable(
-                            "n".to_string(),
-                        ))))),
-                        Statement::Assignment {
-                            left: Expr::Variable("n".to_string()),
-                            right: Expr::BinaryOperation {
-                                left: Box::new(Expr::Variable("n".to_string())),
-                                op: BinOp::Sub,
-                                right: Box::new(Expr::Integer(1)),
-                            },
+                    body: ast![stmt(StatementKind::WhileLoop {
+                        condition: Expr::BinaryOperation {
+                            left: Box::new(var("n")),
+                            op: BinOp::GreaterThan,
+                            right: Box::new(int(0)),
                         },
-                    ],
-                }];
+                        body: ast![
+                            stmt(StatementKind::Expression(Expr::Yield(Some(Box::new(var(
+                                "n"
+                            )))))),
+                            stmt(StatementKind::Assignment {
+                                left: var("n"),
+                                right: Expr::BinaryOperation {
+                                    left: Box::new(var("n")),
+                                    op: BinOp::Sub,
+                                    right: Box::new(int(1)),
+                                },
+                            }),
+                        ],
+                    })],
+                    decorators: vec![],
+                    is_async: false,
+                });
 
-                assert!(matches!(ast, Statement::FunctionDef {
-                    body,
-                    ..
-                } if body == expected_body))
+                assert_stmt_eq!(ast, expected_ast)
             }
         }
 
@@ -3885,12 +4184,13 @@ yield from a
 "#;
         let context = init(input);
 
-        let expected_ast =
-            Statement::Expression(Expr::YieldFrom(Box::new(Expr::Variable("a".into()))));
+        let expected_ast = stmt(StatementKind::Expression(Expr::YieldFrom(Box::new(var(
+            "a",
+        )))));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3906,11 +4206,12 @@ class Foo(Parent):
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
-                let expected_parent = vec![Expr::Variable("Parent".into())];
-                assert!(matches!(ast, Statement::ClassDef {
-                    parents,
-                    ..
-                } if parents == expected_parent))
+                let expected_parent = vec![var("Parent")];
+
+                let StatementKind::ClassDef { parents, .. } = ast.kind else {
+                    panic!("Expected a class def!")
+                };
+                assert_eq!(parents, expected_parent)
             }
         }
 
@@ -3920,16 +4221,16 @@ class Foo(metaclass=Parent):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: Some("Parent".to_string()),
-            body: ast![Statement::Pass],
-        };
+            body: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3938,16 +4239,16 @@ class Foo(Bar, metaclass=Parent):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
-            parents: vec![Expr::Variable("Bar".into())],
+            parents: vec![var("Bar")],
             metaclass: Some("Parent".to_string()),
-            body: ast![Statement::Pass],
-        };
+            body: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3956,16 +4257,16 @@ class InterfaceMeta(type):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ClassDef {
+        let expected_ast = stmt(StatementKind::ClassDef {
             name: "InterfaceMeta".to_string(),
-            parents: vec![Expr::Variable("type".into())],
+            parents: vec![var("type")],
             metaclass: None,
-            body: ast![Statement::Pass],
-        };
+            body: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -3976,17 +4277,17 @@ a = { "b": 4, 'c': 5 }
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::Dict(vec![
-                DictOperation::Pair(Expr::StringLiteral("b".to_string()), Expr::Integer(4)),
-                DictOperation::Pair(Expr::StringLiteral("c".to_string()), Expr::Integer(5)),
+                DictOperation::Pair(Expr::StringLiteral("b".to_string()), int(4)),
+                DictOperation::Pair(Expr::StringLiteral("c".to_string()), int(5)),
             ]),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -3996,25 +4297,25 @@ namespace = {
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("namespace".to_string()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("namespace"),
             right: Expr::Dict(vec![DictOperation::Pair(
                 Expr::StringLiteral("__name__".to_string()),
-                Expr::Integer(4),
+                int(4),
             )]),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"{ **first, **second }"#;
         let context = init(input);
 
         let expected_ast = Expr::Dict(vec![
-            DictOperation::Unpack(Expr::Variable("first".to_string())),
-            DictOperation::Unpack(Expr::Variable("second".to_string())),
+            DictOperation::Unpack(var("first")),
+            DictOperation::Unpack(var("second")),
         ]);
 
         match context.parse_oneshot::<Expr>() {
@@ -4026,8 +4327,8 @@ namespace = {
         let context = init(input);
 
         let expected_ast = Expr::Dict(vec![
-            DictOperation::Unpack(Expr::Variable("first".to_string())),
-            DictOperation::Unpack(Expr::Variable("second".to_string())),
+            DictOperation::Unpack(var("first")),
+            DictOperation::Unpack(var("second")),
         ]);
 
         match context.parse_oneshot::<Expr>() {
@@ -4057,14 +4358,14 @@ namespace = {
         let expected_ast = Expr::DictComprehension {
             clauses: vec![ForClause {
                 indices: vec!["key".to_string(), "val".to_string()],
-                iterable: Expr::Variable("d".to_string()),
+                iterable: var("d"),
                 condition: None,
             }],
-            key_body: Box::new(Expr::Variable("key".to_string())),
+            key_body: Box::new(var("key")),
             value_body: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("val".to_string())),
+                left: Box::new(var("val")),
                 op: BinOp::Mul,
-                right: Box::new(Expr::Integer(2)),
+                right: Box::new(int(2)),
             }),
         };
 
@@ -4079,14 +4380,14 @@ namespace = {
         let expected_ast = Expr::DictComprehension {
             clauses: vec![ForClause {
                 indices: vec!["key".to_string(), "val".to_string()],
-                iterable: Expr::Variable("d".to_string()),
+                iterable: var("d"),
                 condition: None,
             }],
-            key_body: Box::new(Expr::Variable("key".to_string())),
+            key_body: Box::new(var("key")),
             value_body: Box::new(Expr::BinaryOperation {
-                left: Box::new(Expr::Variable("val".to_string())),
+                left: Box::new(var("val")),
                 op: BinOp::Mul,
-                right: Box::new(Expr::Integer(2)),
+                right: Box::new(int(2)),
             }),
         };
 
@@ -4105,18 +4406,14 @@ async def main():
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "main".to_string(),
-            args: ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: ParsedArgDefinitions::default(),
             body: ast![
-                Statement::Assignment {
-                    left: Expr::Variable("task_1".to_string()),
+                stmt(StatementKind::Assignment {
+                    left: var("task_1"),
                     right: Expr::MethodCall {
-                        object: Box::new(Expr::Variable("asyncio".to_string())),
+                        object: Box::new(var("asyncio")),
                         name: "create_task".to_string(),
                         args: ParsedArguments {
                             args: vec![Expr::FunctionCall {
@@ -4128,18 +4425,18 @@ async def main():
                             args_var: None,
                         },
                     },
-                },
-                Statement::Return(vec![Expr::Await {
-                    right: Box::new(Expr::Variable("task_1".to_string())),
-                }]),
+                }),
+                stmt(StatementKind::Return(vec![Expr::Await {
+                    right: Box::new(var("task_1")),
+                }])),
             ],
             decorators: vec![],
             is_async: true,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4150,11 +4447,11 @@ assert True
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assert(Expr::Boolean(true));
+        let expected_ast = stmt(StatementKind::Assert(Expr::Boolean(true)));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4170,30 +4467,30 @@ finally:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::TryExcept {
-            try_block: ast![Statement::Expression(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(4)),
+        let expected_ast = stmt(StatementKind::TryExcept {
+            try_block: ast![stmt(StatementKind::Expression(Expr::BinaryOperation {
+                left: Box::new(int(4)),
                 op: BinOp::Div,
-                right: Box::new(Expr::Integer(0)),
-            })],
+                right: Box::new(int(0)),
+            }))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
-                block: ast![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(2),
-                }],
+                block: ast![stmt(StatementKind::Assignment {
+                    left: var("a"),
+                    right: int(2),
+                })],
             }],
             else_block: None,
-            finally_block: Some(ast![Statement::Assignment {
-                left: Expr::Variable("a".into()),
-                right: Expr::Integer(3),
-            }]),
-        };
+            finally_block: Some(ast![stmt(StatementKind::Assignment {
+                left: var("a"),
+                right: int(3),
+            })]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4206,30 +4503,30 @@ finally:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::TryExcept {
-            try_block: ast![Statement::Expression(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(4)),
+        let expected_ast = stmt(StatementKind::TryExcept {
+            try_block: ast![stmt(StatementKind::Expression(Expr::BinaryOperation {
+                left: Box::new(int(4)),
                 op: BinOp::Div,
-                right: Box::new(Expr::Integer(0)),
-            })],
+                right: Box::new(int(0)),
+            }))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
-                block: ast![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(2),
-                }],
+                block: ast![stmt(StatementKind::Assignment {
+                    left: var("a"),
+                    right: int(2),
+                })],
             }],
             else_block: None,
-            finally_block: Some(ast![Statement::Assignment {
-                left: Expr::Variable("a".into()),
-                right: Expr::Integer(3),
-            }]),
-        };
+            finally_block: Some(ast![stmt(StatementKind::Assignment {
+                left: var("a"),
+                right: int(3),
+            })]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4240,30 +4537,30 @@ except (ZeroDivisionError, IOError) as e:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::TryExcept {
-            try_block: ast![Statement::Expression(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(4)),
+        let expected_ast = stmt(StatementKind::TryExcept {
+            try_block: ast![stmt(StatementKind::Expression(Expr::BinaryOperation {
+                left: Box::new(int(4)),
                 op: BinOp::Div,
-                right: Box::new(Expr::Integer(0)),
-            })],
+                right: Box::new(int(0)),
+            }))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![
                     ExceptionLiteral::ZeroDivisionError,
                     ExceptionLiteral::IOError,
                 ],
                 alias: Some("e".into()),
-                block: ast![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(2),
-                }],
+                block: ast![stmt(StatementKind::Assignment {
+                    left: var("a"),
+                    right: int(2),
+                })],
             }],
             else_block: None,
             finally_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4278,33 +4575,33 @@ finally:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::TryExcept {
-            try_block: ast![Statement::Expression(Expr::BinaryOperation {
-                left: Box::new(Expr::Integer(4)),
+        let expected_ast = stmt(StatementKind::TryExcept {
+            try_block: ast![stmt(StatementKind::Expression(Expr::BinaryOperation {
+                left: Box::new(int(4)),
                 op: BinOp::Div,
-                right: Box::new(Expr::Integer(0)),
-            })],
+                right: Box::new(int(0)),
+            }))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
-                block: ast![Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(2),
-                }],
+                block: ast![stmt(StatementKind::Assignment {
+                    left: var("a"),
+                    right: int(2),
+                })],
             }],
-            else_block: Some(ast![Statement::Assignment {
-                left: Expr::Variable("a".into()),
-                right: Expr::Integer(4),
-            }]),
-            finally_block: Some(ast![Statement::Assignment {
-                left: Expr::Variable("a".into()),
-                right: Expr::Integer(3),
-            }]),
-        };
+            else_block: Some(ast![stmt(StatementKind::Assignment {
+                left: var("a"),
+                right: int(4),
+            })]),
+            finally_block: Some(ast![stmt(StatementKind::Assignment {
+                left: var("a"),
+                right: int(3),
+            })]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4316,20 +4613,20 @@ a = 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::TryExcept {
-            try_block: ast![Statement::Pass],
+        let expected_ast = stmt(StatementKind::TryExcept {
+            try_block: ast![stmt(StatementKind::Pass)],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
-                block: ast![Statement::Return(vec![])],
+                block: ast![stmt(StatementKind::Return(vec![]))],
             }],
             else_block: None,
             finally_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4340,14 +4637,14 @@ a = 0b0010
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
-            right: Expr::Integer(2),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: int(2),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4358,14 +4655,14 @@ a = 0o0010
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
-            right: Expr::Integer(8),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: int(8),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4376,14 +4673,14 @@ a = 0x0010
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
-            right: Expr::Integer(16),
-        };
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
+            right: int(16),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4395,21 +4692,21 @@ def test_args(*args):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_args".into(),
             args: ParsedArgDefinitions {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: None,
             },
-            body: ast![Statement::Pass],
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4418,21 +4715,21 @@ def test_args(*args, **kwargs):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_args".into(),
             args: ParsedArgDefinitions {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: Some("kwargs".into()),
             },
-            body: ast![Statement::Pass],
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4449,10 +4746,10 @@ def test_kwargs(**kwargs):
                     args_var: None,
                     kwargs_var: Some("kwargs".into()),
                 };
-                assert!(matches!(ast, Statement::FunctionDef {
-                    args,
-                    ..
-                } if expected_args == args))
+                let StatementKind::FunctionDef { args, .. } = ast.kind else {
+                    panic!("Expected function def")
+                };
+                assert_eq!(expected_args, args)
             }
         }
 
@@ -4462,7 +4759,7 @@ def test_default(file=None):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_default".into(),
             args: ParsedArgDefinitions {
                 args: vec![ParsedArgDefinition {
@@ -4472,14 +4769,14 @@ def test_default(file=None):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: ast![Statement::Pass],
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4487,22 +4784,22 @@ test_kwargs(a=1, b=2)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
-                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
+                    KwargsOperation::Pair("a".into(), int(1)),
+                    KwargsOperation::Pair("b".into(), int(2)),
                 ],
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4510,22 +4807,22 @@ test_kwargs(**{'a':1, 'b':2})
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
-                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
+                    KwargsOperation::Pair("a".into(), int(1)),
+                    KwargsOperation::Pair("b".into(), int(2)),
                 ],
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4533,23 +4830,23 @@ test_kwargs(**{'a':1, 'b':2}, **{'c': 3})
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), Expr::Integer(1)),
-                    KwargsOperation::Pair("b".into(), Expr::Integer(2)),
-                    KwargsOperation::Pair("c".into(), Expr::Integer(3)),
+                    KwargsOperation::Pair("a".into(), int(1)),
+                    KwargsOperation::Pair("b".into(), int(2)),
+                    KwargsOperation::Pair("c".into(), int(3)),
                 ],
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4557,22 +4854,22 @@ test_kwargs(**first, **second)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Unpacking(Expr::Variable("first".to_string())),
-                    KwargsOperation::Unpacking(Expr::Variable("second".to_string())),
+                    KwargsOperation::Unpacking(var("first")),
+                    KwargsOperation::Unpacking(var("second")),
                 ],
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4580,21 +4877,19 @@ test_kwargs(**kwargs)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: vec![KwargsOperation::Unpacking(Expr::Variable(
-                    "kwargs".to_string(),
-                ))],
+                kwargs: vec![KwargsOperation::Unpacking(var("kwargs"))],
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4602,19 +4897,19 @@ test_kwargs(*args)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
                 kwargs: vec![],
-                args_var: Some(Box::new(Expr::Variable("args".into()))),
+                args_var: Some(Box::new(var("args"))),
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4622,21 +4917,19 @@ test_kwargs(*args, **kwargs)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "test_kwargs".into(),
             args: ParsedArguments {
                 args: vec![],
-                kwargs: vec![KwargsOperation::Unpacking(Expr::Variable(
-                    "kwargs".to_string(),
-                ))],
-                args_var: Some(Box::new(Expr::Variable("args".into()))),
+                kwargs: vec![KwargsOperation::Unpacking(var("kwargs"))],
+                args_var: Some(Box::new(var("args"))),
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4645,7 +4938,7 @@ deprecated("collections.abc.ByteString",
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "deprecated".into(),
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("collections.abc.ByteString".into())],
@@ -4653,11 +4946,11 @@ deprecated("collections.abc.ByteString",
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4670,21 +4963,17 @@ def get_val():
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "get_val".into(),
-            args: ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            },
-            body: ast![Statement::Return(vec![Expr::Integer(2)])],
-            decorators: vec![Expr::Variable("test_decorator".into())],
+            args: ParsedArgDefinitions::default(),
+            body: ast![stmt(StatementKind::Return(vec![int(2)]))],
+            decorators: vec![var("test_decorator")],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4692,7 +4981,7 @@ test_decorator(get_val_undecorated)()
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "<anonymous_from_callee>".into(),
             args: ParsedArguments {
                 args: vec![],
@@ -4702,17 +4991,17 @@ test_decorator(get_val_undecorated)()
             callee: Some(Box::new(Expr::FunctionCall {
                 name: "test_decorator".into(),
                 args: ParsedArguments {
-                    args: vec![Expr::Variable("get_val_undecorated".into())],
+                    args: vec![var("get_val_undecorated")],
                     kwargs: vec![],
                     args_var: None,
                 },
                 callee: None,
             })),
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4723,14 +5012,14 @@ raise Exception
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments::default(),
-        }));
+        })));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4738,18 +5027,18 @@ raise Exception("message")
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("message".into())],
                 kwargs: vec![],
                 args_var: None,
             },
-        }));
+        })));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4757,11 +5046,11 @@ raise
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Raise(None);
+        let expected_ast = stmt(StatementKind::Raise(None));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4769,18 +5058,18 @@ raise Exception("message") from None
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: ParsedArguments {
                 args: vec![Expr::StringLiteral("message".into())],
                 kwargs: vec![],
                 args_var: None,
             },
-        }));
+        })));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4792,7 +5081,7 @@ with open('test.txt') as f:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ContextManager {
+        let expected_ast = stmt(StatementKind::ContextManager {
             expr: Expr::FunctionCall {
                 name: "open".into(),
                 args: ParsedArguments {
@@ -4803,12 +5092,12 @@ with open('test.txt') as f:
                 callee: None,
             },
             variable: Some("f".into()),
-            block: ast![Statement::Pass],
-        };
+            block: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4817,7 +5106,7 @@ with open('test.txt'):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::ContextManager {
+        let expected_ast = stmt(StatementKind::ContextManager {
             expr: Expr::FunctionCall {
                 name: "open".into(),
                 args: ParsedArguments {
@@ -4828,12 +5117,12 @@ with open('test.txt'):
                 callee: None,
             },
             variable: None,
-            block: ast![Statement::Pass],
-        };
+            block: ast![stmt(StatementKind::Pass)],
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4844,17 +5133,17 @@ a = list[int]
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::TypeNode(TypeNode::Generic {
                 base_type: "list".into(),
                 parameters: vec![TypeNode::Basic("int".into())],
             }),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4862,17 +5151,17 @@ u = int | str
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("u".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("u"),
             right: Expr::TypeNode(TypeNode::Union(vec![
                 TypeNode::Basic("int".into()),
                 TypeNode::Basic("str".into()),
             ])),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4883,11 +5172,11 @@ del a
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Delete(vec![Expr::Variable("a".into())]);
+        let expected_ast = stmt(StatementKind::Delete(vec![var("a")]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4895,15 +5184,11 @@ del a, b, c
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Delete(vec![
-            Expr::Variable("a".into()),
-            Expr::Variable("b".into()),
-            Expr::Variable("c".into()),
-        ]);
+        let expected_ast = stmt(StatementKind::Delete(vec![var("a"), var("b"), var("c")]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4914,14 +5199,14 @@ a = b'hello'
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::ByteStringLiteral("hello".into()),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -4932,15 +5217,15 @@ a += 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Add,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4948,15 +5233,15 @@ a -= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Subtract,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4964,15 +5249,15 @@ a *= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Multiply,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4980,15 +5265,15 @@ a /= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Divide,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -4996,15 +5281,15 @@ a &= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseAnd,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5012,15 +5297,15 @@ a |= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseOr,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5028,15 +5313,15 @@ a ^= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseXor,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5044,15 +5329,15 @@ a //= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::IntegerDiv,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5060,15 +5345,15 @@ a <<= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::LeftShift,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5076,15 +5361,15 @@ a >>= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::RightShift,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5092,15 +5377,15 @@ a %= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Mod,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5108,15 +5393,15 @@ a @= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::MatMul,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5124,22 +5409,22 @@ a **= 1
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::CompoundAssignment {
+        let expected_ast = stmt(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Expo,
-            target: Box::new(Expr::Variable("a".into())),
-            value: Box::new(Expr::Integer(1)),
-        };
+            target: Box::new(var("a")),
+            value: Box::new(int(1)),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "~a";
         let context = init(input);
         let expected_ast = Expr::UnaryOperation {
             op: UnaryOp::BitwiseNot,
-            right: Box::new(Expr::Variable("a".into())),
+            right: Box::new(var("a")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5150,9 +5435,9 @@ a **= 1
         let input = "a % b";
         let context = init(input);
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::Mod,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5163,9 +5448,9 @@ a **= 1
         let input = "a @ b";
         let context = init(input);
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::MatMul,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5182,7 +5467,7 @@ a **= 1
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("name".into())),
+                expr: Box::new(var("name")),
                 format: FormatOption::Str,
             }),
             FStringPart::String(".".into()),
@@ -5198,11 +5483,11 @@ a **= 1
 
         let expected_ast = Expr::FString(vec![
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("first".into())),
+                expr: Box::new(var("first")),
                 format: FormatOption::Str,
             }),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("last".into())),
+                expr: Box::new(var("last")),
                 format: FormatOption::Str,
             }),
         ]);
@@ -5228,12 +5513,12 @@ a **= 1
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("name".into())),
+                expr: Box::new(var("name")),
                 format: FormatOption::Str,
             }),
             FStringPart::String(" goodbye ".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("other".into())),
+                expr: Box::new(var("other")),
                 format: FormatOption::Str,
             }),
         ]);
@@ -5250,9 +5535,9 @@ a **= 1
             FStringPart::String("Age: ".into()),
             FStringPart::Expr(ExprFormat {
                 expr: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("num".into())),
+                    left: Box::new(var("num")),
                     op: BinOp::Add,
-                    right: Box::new(Expr::Integer(1)),
+                    right: Box::new(int(1)),
                 }),
                 format: FormatOption::Str,
             }),
@@ -5269,7 +5554,7 @@ a **= 1
         let expected_ast = Expr::FString(vec![
             FStringPart::String("environ({".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("formatted_items".to_string())),
+                expr: Box::new(var("formatted_items")),
                 format: FormatOption::Str,
             }),
             FStringPart::String("})".into()),
@@ -5286,12 +5571,12 @@ a **= 1
         let expected_ast = Expr::FString(vec![
             FStringPart::String("Hello ".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("name".into())),
+                expr: Box::new(var("name")),
                 format: FormatOption::Repr,
             }),
             FStringPart::String(" goodbye ".into()),
             FStringPart::Expr(ExprFormat {
-                expr: Box::new(Expr::Variable("other".into())),
+                expr: Box::new(var("other")),
                 format: FormatOption::Str,
             }),
         ]);
@@ -5308,9 +5593,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::BitwiseAnd,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5322,9 +5607,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::BitwiseOr,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5336,9 +5621,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::BitwiseXor,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5350,9 +5635,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::LeftShift,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5364,9 +5649,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::RightShift,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5378,9 +5663,9 @@ a **= 1
         let context = init(input);
 
         let expected_ast = Expr::BinaryOperation {
-            left: Box::new(Expr::Variable("a".into())),
+            left: Box::new(var("a")),
             op: BinOp::Expo,
-            right: Box::new(Expr::Variable("b".into())),
+            right: Box::new(var("b")),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5394,19 +5679,19 @@ a **= 1
         let expected_ast = Expr::BinaryOperation {
             left: Box::new(Expr::BinaryOperation {
                 left: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(2)),
+                    left: Box::new(int(2)),
                     op: BinOp::Mul,
-                    right: Box::new(Expr::Integer(3)),
+                    right: Box::new(int(3)),
                 }),
                 op: BinOp::LeftShift,
                 right: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(2)),
+                    left: Box::new(int(2)),
                     op: BinOp::Add,
-                    right: Box::new(Expr::Integer(4)),
+                    right: Box::new(int(4)),
                 }),
             }),
             op: BinOp::BitwiseAnd,
-            right: Box::new(Expr::Integer(205)),
+            right: Box::new(int(205)),
         };
 
         match context.parse_oneshot::<Expr>() {
@@ -5422,16 +5707,16 @@ for i in a:
     break
 "#;
         let context = init(input);
-        let expected_ast = Statement::ForInLoop {
+        let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
-            iterable: Expr::Variable("a".into()),
-            body: ast![Statement::Break],
+            iterable: var("a"),
+            body: ast![stmt(StatementKind::Break)],
             else_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5439,16 +5724,16 @@ for i in a:
     continue
 "#;
         let context = init(input);
-        let expected_ast = Statement::ForInLoop {
+        let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
-            iterable: Expr::Variable("a".into()),
-            body: ast![Statement::Continue],
+            iterable: var("a"),
+            body: ast![stmt(StatementKind::Continue)],
             else_block: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5458,16 +5743,16 @@ else:
     pass
 "#;
         let context = init(input);
-        let expected_ast = Statement::ForInLoop {
+        let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
-            iterable: Expr::Variable("a".into()),
-            body: ast![Statement::Break],
-            else_block: Some(ast![Statement::Pass]),
-        };
+            iterable: var("a"),
+            body: ast![stmt(StatementKind::Break)],
+            else_block: Some(ast![stmt(StatementKind::Pass)]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5482,28 +5767,26 @@ def add(x: str, y: str) -> str:
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
             Ok(ast) => {
-                let expected_args = vec![
-                    ParsedArgDefinition {
-                        arg: "x".into(),
-                        default: None,
-                    },
-                    ParsedArgDefinition {
-                        arg: "y".into(),
-                        default: None,
-                    },
-                ];
-
-                assert!(matches!(
-                    ast,
-                    Statement::FunctionDef {
-                        args: ParsedArgDefinitions {
-                            args,
-                            args_var: None,
-                            kwargs_var: None,
+                let expected_args = ParsedArgDefinitions {
+                    args: vec![
+                        ParsedArgDefinition {
+                            arg: "x".into(),
+                            default: None,
                         },
-                        ..
-                    } if args == expected_args
-                ))
+                        ParsedArgDefinition {
+                            arg: "y".into(),
+                            default: None,
+                        },
+                    ],
+                    args_var: None,
+                    kwargs_var: None,
+                };
+
+                let StatementKind::FunctionDef { args, .. } = ast.kind else {
+                    panic!("Expected function def!")
+                };
+
+                assert_eq!(args, expected_args)
             }
         }
     }
@@ -5513,11 +5796,11 @@ def add(x: str, y: str) -> str:
         let input = "a[1:1:1]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
-                start: Some(Box::new(Expr::Integer(1))),
-                stop: Some(Box::new(Expr::Integer(1))),
-                step: Some(Box::new(Expr::Integer(1))),
+                start: Some(Box::new(int(1))),
+                stop: Some(Box::new(int(1))),
+                step: Some(Box::new(int(1))),
             },
         };
 
@@ -5529,10 +5812,10 @@ def add(x: str, y: str) -> str:
         let input = "a[2:5]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
-                start: Some(Box::new(Expr::Integer(2))),
-                stop: Some(Box::new(Expr::Integer(5))),
+                start: Some(Box::new(int(2))),
+                stop: Some(Box::new(int(5))),
                 step: None,
             },
         };
@@ -5545,10 +5828,10 @@ def add(x: str, y: str) -> str:
         let input = "a[:5]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
                 start: None,
-                stop: Some(Box::new(Expr::Integer(5))),
+                stop: Some(Box::new(int(5))),
                 step: None,
             },
         };
@@ -5561,9 +5844,9 @@ def add(x: str, y: str) -> str:
         let input = "a[3:]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
-                start: Some(Box::new(Expr::Integer(3))),
+                start: Some(Box::new(int(3))),
                 stop: None,
                 step: None,
             },
@@ -5577,11 +5860,11 @@ def add(x: str, y: str) -> str:
         let input = "a[::2]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
                 start: None,
                 stop: None,
-                step: Some(Box::new(Expr::Integer(2))),
+                step: Some(Box::new(int(2))),
             },
         };
 
@@ -5593,7 +5876,7 @@ def add(x: str, y: str) -> str:
         let input = "a[:]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("a".into())),
+            object: Box::new(var("a")),
             params: ParsedSliceParams {
                 start: None,
                 stop: None,
@@ -5609,17 +5892,17 @@ def add(x: str, y: str) -> str:
         let input = "new_bases[i+shift:shift+1]";
         let context = init(input);
         let expected_ast = Expr::SliceOperation {
-            object: Box::new(Expr::Variable("new_bases".into())),
+            object: Box::new(var("new_bases")),
             params: ParsedSliceParams {
                 start: Some(Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("i".into())),
+                    left: Box::new(var("i")),
                     op: BinOp::Add,
-                    right: Box::new(Expr::Variable("shift".into())),
+                    right: Box::new(var("shift")),
                 })),
                 stop: Some(Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("shift".into())),
+                    left: Box::new(var("shift")),
                     op: BinOp::Add,
-                    right: Box::new(Expr::Integer(1)),
+                    right: Box::new(int(1)),
                 })),
                 step: None,
             },
@@ -5643,55 +5926,47 @@ def outer():
 ";
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "outer".into(),
-            args: ParsedArgDefinitions {
-                args: vec![],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: ParsedArgDefinitions::default(),
             body: ast![
-                Statement::Assignment {
-                    left: Expr::Variable("a".into()),
-                    right: Expr::Integer(1),
-                },
-                Statement::Assignment {
-                    left: Expr::Variable("b".into()),
-                    right: Expr::Integer(2),
-                },
-                Statement::FunctionDef {
+                stmt(StatementKind::Assignment {
+                    left: var("a"),
+                    right: int(1),
+                }),
+                stmt(StatementKind::Assignment {
+                    left: var("b"),
+                    right: int(2),
+                }),
+                stmt(StatementKind::FunctionDef {
                     name: "inner".into(),
-                    args: ParsedArgDefinitions {
-                        args: vec![],
-                        args_var: None,
-                        kwargs_var: None,
-                    },
+                    args: ParsedArgDefinitions::default(),
                     body: ast![
-                        Statement::Assignment {
-                            left: Expr::Variable("b".into()),
-                            right: Expr::Integer(3),
-                        },
-                        Statement::Expression(Expr::FunctionCall {
+                        stmt(StatementKind::Assignment {
+                            left: var("b"),
+                            right: int(3),
+                        }),
+                        stmt(StatementKind::Expression(Expr::FunctionCall {
                             name: "print".into(),
                             args: ParsedArguments {
-                                args: vec![Expr::Variable("a".into())],
+                                args: vec![var("a")],
                                 kwargs: vec![],
                                 args_var: None,
                             },
                             callee: None,
-                        }),
+                        })),
                     ],
                     decorators: vec![],
                     is_async: false,
-                },
+                }),
             ],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5702,11 +5977,11 @@ nonlocal var
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Nonlocal(vec!["var".into()]);
+        let expected_ast = stmt(StatementKind::Nonlocal(vec!["var".into()]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -5714,11 +5989,11 @@ nonlocal var, var2
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Nonlocal(vec!["var".into(), "var2".into()]);
+        let expected_ast = stmt(StatementKind::Nonlocal(vec!["var".into(), "var2".into()]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -5726,11 +6001,11 @@ global var
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Global(vec!["var".into()]);
+        let expected_ast = stmt(StatementKind::Global(vec!["var".into()]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = "
@@ -5738,11 +6013,11 @@ global var, var2
 ";
         let context = init(input);
 
-        let expected_ast = Statement::Global(vec!["var".into(), "var2".into()]);
+        let expected_ast = stmt(StatementKind::Global(vec!["var".into(), "var2".into()]));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5753,18 +6028,18 @@ a = 4 if True else 5
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::TernaryOp {
                 condition: Box::new(Expr::Boolean(true)),
-                if_value: Box::new(Expr::Integer(4)),
-                else_value: Box::new(Expr::Integer(5)),
+                if_value: Box::new(int(4)),
+                else_value: Box::new(int(5)),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5772,30 +6047,30 @@ a = 4 + x if b == 6 else 5 << 2
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::TernaryOp {
                 condition: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("b".into())),
+                    left: Box::new(var("b")),
                     op: BinOp::Equals,
-                    right: Box::new(Expr::Integer(6)),
+                    right: Box::new(int(6)),
                 }),
                 if_value: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(4)),
+                    left: Box::new(int(4)),
                     op: BinOp::Add,
-                    right: Box::new(Expr::Variable("x".into())),
+                    right: Box::new(var("x")),
                 }),
                 else_value: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Integer(5)),
+                    left: Box::new(int(5)),
                     op: BinOp::LeftShift,
-                    right: Box::new(Expr::Integer(2)),
+                    right: Box::new(int(2)),
                 }),
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5806,11 +6081,11 @@ Ellipsis
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Ellipsis);
+        let expected_ast = stmt(StatementKind::Expression(Expr::Ellipsis));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5821,25 +6096,25 @@ a = (i * 2 for i in b)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Assignment {
-            left: Expr::Variable("a".into()),
+        let expected_ast = stmt(StatementKind::Assignment {
+            left: var("a"),
             right: Expr::GeneratorComprehension {
                 body: Box::new(Expr::BinaryOperation {
-                    left: Box::new(Expr::Variable("i".to_string())),
+                    left: Box::new(var("i")),
                     op: BinOp::Mul,
-                    right: Box::new(Expr::Integer(2)),
+                    right: Box::new(int(2)),
                 }),
                 clauses: vec![ForClause {
                     indices: vec!["i".into()],
-                    iterable: Expr::Variable("b".into()),
+                    iterable: var("b"),
                     condition: None,
                 }],
             },
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5847,18 +6122,18 @@ foo(i * 2 for i in b)
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "foo".to_string(),
             args: ParsedArguments {
                 args: vec![Expr::GeneratorComprehension {
                     body: Box::new(Expr::BinaryOperation {
-                        left: Box::new(Expr::Variable("i".to_string())),
+                        left: Box::new(var("i")),
                         op: BinOp::Mul,
-                        right: Box::new(Expr::Integer(2)),
+                        right: Box::new(int(2)),
                     }),
                     clauses: vec![ForClause {
                         indices: vec!["i".into()],
-                        iterable: Expr::Variable("b".into()),
+                        iterable: var("b"),
                         condition: None,
                     }],
                 }],
@@ -5866,11 +6141,11 @@ foo(i * 2 for i in b)
                 args_var: None,
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5882,7 +6157,7 @@ def foo(data=None):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::FunctionDef {
+        let expected_ast = stmt(StatementKind::FunctionDef {
             name: "foo".into(),
             args: ParsedArgDefinitions {
                 args: vec![ParsedArgDefinition {
@@ -5892,14 +6167,14 @@ def foo(data=None):
                 args_var: None,
                 kwargs_var: None,
             },
-            body: ast![Statement::Pass],
+            body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5910,14 +6185,16 @@ def foo(data=None):
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::Tuple(vec![Expr::UnaryOperation {
-            op: UnaryOp::Unpack,
-            right: Box::new(Expr::Variable("l".into())),
-        }]));
+        let expected_ast = stmt(StatementKind::Expression(Expr::Tuple(vec![
+            Expr::UnaryOperation {
+                op: UnaryOp::Unpack,
+                right: Box::new(var("l")),
+            },
+        ])));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5925,26 +6202,26 @@ foo(a, *b[1:])
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::Expression(Expr::FunctionCall {
+        let expected_ast = stmt(StatementKind::Expression(Expr::FunctionCall {
             name: "foo".into(),
             args: ParsedArguments {
-                args: vec![Expr::Variable("a".into())],
+                args: vec![var("a")],
                 kwargs: vec![],
                 args_var: Some(Box::new(Expr::SliceOperation {
-                    object: Box::new(Expr::Variable("b".into())),
+                    object: Box::new(var("b")),
                     params: ParsedSliceParams {
-                        start: Some(Box::new(Expr::Integer(1))),
+                        start: Some(Box::new(int(1))),
                         stop: None,
                         step: None,
                     },
                 })),
             },
             callee: None,
-        });
+        }));
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5953,24 +6230,21 @@ if True:
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::IfElse {
+        let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: Expr::Boolean(true),
-                block: ast![Statement::UnpackingAssignment {
-                    left: vec![Expr::Variable("a".into()), Expr::Variable("b".into())],
-                    right: Expr::Tuple(vec![
-                        Expr::Variable("b".into()),
-                        Expr::Variable("a".into()),
-                    ]),
-                }],
+                block: ast![stmt(StatementKind::UnpackingAssignment {
+                    left: vec![var("a"), var("b")],
+                    right: Expr::Tuple(vec![var("b"), var("a"),]),
+                })],
             },
             elif_parts: vec![],
             else_part: None,
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
 
         let input = r#"
@@ -5978,14 +6252,14 @@ a, = b,
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::UnpackingAssignment {
-            left: vec![Expr::Variable("a".into())],
-            right: Expr::Tuple(vec![Expr::Variable("b".into())]),
-        };
+        let expected_ast = stmt(StatementKind::UnpackingAssignment {
+            left: vec![var("a")],
+            right: Expr::Tuple(vec![var("b")]),
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 
@@ -5996,14 +6270,14 @@ a = b = True
 "#;
         let context = init(input);
 
-        let expected_ast = Statement::MultipleAssignment {
-            left: vec![Expr::Variable("a".into()), Expr::Variable("b".into())],
+        let expected_ast = stmt(StatementKind::MultipleAssignment {
+            left: vec![var("a"), var("b")],
             right: Expr::Boolean(true),
-        };
+        });
 
         match context.parse_oneshot::<Statement>() {
             Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_eq!(ast, expected_ast),
+            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
         }
     }
 }

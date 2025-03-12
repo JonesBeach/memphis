@@ -1,6 +1,5 @@
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -40,9 +39,9 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
 
         // This is a workaround for Generic type behavior found in _collections_abc.py.
         // _weakrefset.py also uses this.
@@ -55,12 +54,7 @@ impl Callable for NewBuiltin {
             return Ok(ExprResult::None);
         }
 
-        let function = args
-            .get_arg(1)
-            .as_callable()
-            .ok_or(InterpreterError::ExpectedFunction(
-                interpreter.state.call_stack(),
-            ))?;
+        let function = args.get_arg(1).expect_callable(interpreter)?;
         Ok(ExprResult::Classmethod(Classmethod::new(function)))
     }
 
@@ -75,7 +69,7 @@ impl NonDataDescriptor for Classmethod {
         _interpreter: &Interpreter,
         _instance: Option<ExprResult>,
         owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::Method(Container::new(Method::new(
             ExprResult::Class(owner),
             self.0.clone(),

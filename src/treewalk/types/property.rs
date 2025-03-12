@@ -1,6 +1,8 @@
 use crate::{
-    core::Container, domain::Dunder, resolved_args, treewalk::Interpreter,
-    types::errors::InterpreterError,
+    core::Container,
+    domain::Dunder,
+    resolved_args,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
 };
 
 use super::{
@@ -41,17 +43,10 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, 2, interpreter.state.call_stack())?;
-
-        let function = args
-            .get_arg(1)
-            .as_callable()
-            .ok_or(InterpreterError::ExpectedFunction(
-                interpreter.state.call_stack(),
-            ))?;
-
+        utils::validate_args(&args, |len| len == 2, interpreter)?;
+        let function = args.get_arg(1).expect_callable(interpreter)?;
         Ok(ExprResult::Property(Property::new(function)))
     }
 
@@ -66,7 +61,7 @@ impl NonDataDescriptor for Property {
         interpreter: &Interpreter,
         instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let Some(instance) = instance else {
             panic!("No instance for descriptor!");
         };

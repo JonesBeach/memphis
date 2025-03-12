@@ -1,3 +1,4 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
     treewalk::types::{
@@ -6,9 +7,9 @@ use crate::{
         utils::ResolvedArguments,
         Coroutine, ExprResult,
     },
-    types::errors::InterpreterError,
 };
 
+use super::interpreter::{TreewalkDisruption, TreewalkSignal};
 use super::Interpreter;
 
 /// An event loop which runs `Coroutine` objects using the `CoroutineExecutor` utility.
@@ -56,7 +57,7 @@ impl Executor {
         &self,
         interpreter: &Interpreter,
         coroutine: Container<Coroutine>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         self.set_current_coroutine(coroutine.clone());
 
         coroutine.run_until_pause(interpreter)?;
@@ -76,7 +77,7 @@ impl Executor {
         &self,
         interpreter: &Interpreter,
         coroutine: Container<Coroutine>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         let executor = Container::new(self);
         executor
             .borrow()
@@ -117,15 +118,15 @@ impl Executor {
     }
 
     /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the event loop.
-    pub fn spawn(&self, coroutine: Container<Coroutine>) -> Result<ExprResult, InterpreterError> {
+    pub fn spawn(&self, coroutine: Container<Coroutine>) -> TreewalkResult<ExprResult> {
         coroutine.context().start();
         self.spawned.borrow_mut().push(coroutine.clone());
         Ok(ExprResult::Coroutine(coroutine))
     }
 
-    pub fn sleep(&self, duration: f64) -> Result<ExprResult, InterpreterError> {
+    pub fn sleep(&self, duration: f64) -> TreewalkResult<ExprResult> {
         *self.sleep_indicator.borrow_mut() = Some(duration);
-        Err(InterpreterError::EncounteredSleep)
+        Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep))
     }
 
     pub fn set_wait_on(&self, first: Container<Coroutine>, second: Container<Coroutine>) {
@@ -144,18 +145,13 @@ impl Callable for AsyncioRunBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
-        let coroutine =
-            args.get_arg(0)
-                .as_coroutine()
-                .ok_or(InterpreterError::ExpectedCoroutine(
-                    interpreter.state.call_stack(),
-                ))?;
-
+        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
         let executor = interpreter.state.get_executor();
         let result = executor.borrow().run(interpreter, coroutine);
+
         drop(executor);
         result
     }
@@ -170,16 +166,9 @@ impl Callable for AsyncioSleepBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
-
-        let duration = args
-            .get_arg(0)
-            .as_fp()
-            .ok_or(InterpreterError::ExpectedFloatingPoint(
-                interpreter.state.call_stack(),
-            ))?;
-
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
+        let duration = args.get_arg(0).expect_fp(interpreter)?;
         interpreter.state.get_executor().borrow().sleep(duration)
     }
 
@@ -193,16 +182,10 @@ impl Callable for AsyncioCreateTaskBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
-        let coroutine =
-            args.get_arg(0)
-                .as_coroutine()
-                .ok_or(InterpreterError::ExpectedCoroutine(
-                    interpreter.state.call_stack(),
-                ))?;
-
+        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
         interpreter.state.get_executor().borrow().spawn(coroutine)
     }
 

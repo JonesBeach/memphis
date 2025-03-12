@@ -1,16 +1,15 @@
+use crate::domain::ExecutionErrorKind;
+use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
-    domain::DebugCallStack,
     parser::types::{BinOp, LogicalOp, UnaryOp},
-    treewalk::types::{ExprResult, List, Set},
-    types::errors::InterpreterError,
+    treewalk::{
+        types::{ExprResult, List, Set},
+        Interpreter,
+    },
 };
 
-pub fn evaluate_logical_op(
-    left: bool,
-    op: &LogicalOp,
-    right: bool,
-) -> Result<ExprResult, InterpreterError> {
+pub fn evaluate_logical_op(left: bool, op: &LogicalOp, right: bool) -> TreewalkResult<ExprResult> {
     match op {
         LogicalOp::And => Ok(ExprResult::Boolean(left && right)),
         LogicalOp::Or => Ok(ExprResult::Boolean(left || right)),
@@ -21,38 +20,35 @@ pub fn evaluate_integer_operation(
     left: i64,
     op: &BinOp,
     right: i64,
-    call_stack: DebugCallStack,
-) -> Result<ExprResult, InterpreterError> {
+    interpreter: &Interpreter,
+) -> TreewalkResult<ExprResult> {
     match op {
         BinOp::Add => Ok(ExprResult::Integer(left + right)),
         BinOp::Sub => Ok(ExprResult::Integer(left - right)),
         BinOp::Mul => Ok(ExprResult::Integer(left * right)),
         BinOp::Div => {
             if right == 0 {
-                Err(InterpreterError::DivisionByZero(
-                    "division by zero".into(),
-                    call_stack,
-                ))
+                Err(interpreter.error(ExecutionErrorKind::DivisionByZero(
+                    "integer division or modulo by zero".into(),
+                )))
             } else {
                 Ok(ExprResult::Integer(left / right))
             }
         }
         BinOp::IntegerDiv => {
             if right == 0 {
-                Err(InterpreterError::DivisionByZero(
+                Err(interpreter.error(ExecutionErrorKind::DivisionByZero(
                     "integer division or modulo by zero".into(),
-                    call_stack,
-                ))
+                )))
             } else {
                 Ok(ExprResult::Integer(left / right))
             }
         }
         BinOp::Mod => {
             if right == 0 {
-                Err(InterpreterError::DivisionByZero(
+                Err(interpreter.error(ExecutionErrorKind::DivisionByZero(
                     "integer division or modulo by zero".into(),
-                    call_stack,
-                ))
+                )))
             } else {
                 Ok(ExprResult::Integer(left % right))
             }
@@ -76,14 +72,11 @@ pub fn evaluate_integer_operation(
             }
         }
         BinOp::RightShift => Ok(ExprResult::Integer(left >> right)),
-        BinOp::In => Err(InterpreterError::ExpectedIterable(call_stack)),
-        BinOp::NotIn => Err(InterpreterError::ExpectedIterable(call_stack)),
         BinOp::Expo => {
-            let right: u32 = right
-                .try_into()
-                .map_err(|_| InterpreterError::RuntimeError)?;
+            let right: u32 = right.try_into().map_err(|_| interpreter.runtime_error())?;
             Ok(ExprResult::Integer(left.pow(right)))
         }
+        BinOp::In | BinOp::NotIn => Err(interpreter.type_error("Expected an iterable")),
         _ => unreachable!(),
     }
 }
@@ -92,18 +85,17 @@ pub fn evaluate_floating_point_operation(
     left: f64,
     op: &BinOp,
     right: f64,
-    call_stack: DebugCallStack,
-) -> Result<ExprResult, InterpreterError> {
+    interpreter: &Interpreter,
+) -> TreewalkResult<ExprResult> {
     match op {
         BinOp::Add => Ok(ExprResult::FloatingPoint(left + right)),
         BinOp::Sub => Ok(ExprResult::FloatingPoint(left - right)),
         BinOp::Mul => Ok(ExprResult::FloatingPoint(left * right)),
         BinOp::Div => {
             if right == 0.0 {
-                Err(InterpreterError::DivisionByZero(
+                Err(interpreter.error(ExecutionErrorKind::DivisionByZero(
                     "float division by zero".into(),
-                    call_stack,
-                ))
+                )))
             } else {
                 Ok(ExprResult::FloatingPoint(left / right))
             }
@@ -122,7 +114,7 @@ pub fn evaluate_object_comparison(
     left: ExprResult,
     op: &BinOp,
     right: ExprResult,
-) -> Result<ExprResult, InterpreterError> {
+) -> TreewalkResult<ExprResult> {
     match op {
         BinOp::Equals => Ok(ExprResult::Boolean(left == right)),
         BinOp::NotEquals => Ok(ExprResult::Boolean(left != right)),
@@ -135,35 +127,32 @@ pub fn evaluate_object_comparison(
 pub fn evaluate_unary_operation(
     op: &UnaryOp,
     right: ExprResult,
-    call_stack: DebugCallStack,
-) -> Result<ExprResult, InterpreterError> {
+    interpreter: &Interpreter,
+) -> TreewalkResult<ExprResult> {
     match op {
         UnaryOp::Minus => Ok(right.negated()),
         // this acts as a no-op. can be overridden with __pos__ for custom classes
         UnaryOp::Plus => Ok(right),
         UnaryOp::Not => Ok(right.inverted()),
         UnaryOp::BitwiseNot => {
-            let i = right.as_integer().ok_or(InterpreterError::TypeError(
-                Some(format!(
+            let i = right.as_integer().ok_or_else(|| {
+                interpreter.type_error(format!(
                     "bad operand type for unary ~: '{}'",
                     right.get_type()
-                )),
-                call_stack,
-            ))?;
-
+                ))
+            })?;
             Ok(ExprResult::Integer(!i))
         }
         UnaryOp::Unpack => {
             let list = right
                 .as_list()
                 // Attempted to unpack a non-iterable
-                .ok_or(InterpreterError::TypeError(
-                    Some(format!(
+                .ok_or_else(|| {
+                    interpreter.type_error(format!(
                         "Value after * must be an iterable, not {}",
                         right.get_type()
-                    )),
-                    call_stack,
-                ))?;
+                    ))
+                })?;
             Ok(ExprResult::List(list))
         }
         UnaryOp::DictUnpack => {
@@ -176,7 +165,7 @@ pub fn evaluate_set_operation(
     left: Container<Set>,
     op: &BinOp,
     right: Container<Set>,
-) -> Result<ExprResult, InterpreterError> {
+) -> TreewalkResult<ExprResult> {
     let l = left.borrow().clone();
     let r = right.borrow().clone();
     match op {
@@ -191,7 +180,7 @@ pub fn evaluate_list_operation(
     left: Container<List>,
     op: &BinOp,
     right: Container<List>,
-) -> Result<ExprResult, InterpreterError> {
+) -> TreewalkResult<ExprResult> {
     let l = left.borrow().clone();
     let r = right.borrow().clone();
     match op {

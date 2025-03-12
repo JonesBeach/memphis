@@ -5,10 +5,9 @@ use crate::{
     treewalk::types::{
         utils::ResolvedArguments, Dict, DictItems, ExprResult, Function, Str, Tuple,
     },
-    types::errors::InterpreterError,
 };
 
-use super::Interpreter;
+use super::{interpreter::TreewalkResult, types::domain::builtins::utils, Interpreter};
 
 /// This represents a symbol table for a given scope.
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -26,26 +25,24 @@ impl Scope {
     pub fn new(
         interpreter: &Interpreter,
         function: &Container<Function>,
-        arguments: &ResolvedArguments,
-    ) -> Result<Container<Self>, InterpreterError> {
+        args: &ResolvedArguments,
+    ) -> TreewalkResult<Container<Self>> {
         let mut scope = Self::default();
 
-        let function_args = &function.borrow().args;
+        let expected_args = &function.borrow().args;
 
         // Function expects fewer positional args than it was invoked with and there is not an
         // `args_var` in which to store the rest.
-        if function_args.args.len() < arguments.bound_len() && function_args.args_var.is_none() {
-            return Err(InterpreterError::WrongNumberOfArguments(
-                function_args.args.len(),
-                arguments.bound_len(),
-                interpreter.state.call_stack(),
-            ));
-        }
+        utils::validate_args(
+            args,
+            |_| !(expected_args.args.len() < args.bound_len() && expected_args.args_var.is_none()),
+            interpreter,
+        )?;
 
-        let bound_args = arguments.bound_args();
+        let bound_args = args.bound_args();
         let mut missing_args = vec![];
 
-        for (index, arg_definition) in function_args.args.iter().enumerate() {
+        for (index, arg_definition) in expected_args.args.iter().enumerate() {
             // Check if the argument is provided, otherwise use default
             let value = if index < bound_args.len() {
                 bound_args[index].clone()
@@ -78,31 +75,25 @@ impl Scope {
                 .map(|a| format!("'{}'", a))
                 .collect::<Vec<_>>()
                 .join(" and ");
-            let message = format!(
+            return Err(interpreter.type_error(format!(
                 "{}() missing {} required positional {}: {}",
                 function.borrow().name,
                 num_missing,
                 noun,
                 arg_names
-            );
-            return Err(InterpreterError::TypeError(
-                Some(message),
-                interpreter.state.call_stack(),
-            ));
+            )));
         }
 
-        if let Some(ref args_var) = function_args.args_var {
-            let extra = arguments.len() - function_args.args.len();
+        if let Some(ref args_var) = expected_args.args_var {
+            let extra = args.len() - expected_args.args.len();
             let left_over = bound_args.iter().rev().take(extra).rev().cloned().collect();
             let args_value = ExprResult::Tuple(Tuple::new(left_over));
             scope.insert(args_var.as_str(), args_value);
         }
 
-        if let Some(ref kwargs_var) = function_args.kwargs_var {
-            let kwargs_value = ExprResult::Dict(Container::new(Dict::new(
-                interpreter,
-                arguments.get_kwargs(),
-            )));
+        if let Some(ref kwargs_var) = expected_args.kwargs_var {
+            let kwargs_value =
+                ExprResult::Dict(Container::new(Dict::new(interpreter, args.get_kwargs())));
             scope.insert(kwargs_var.as_str(), kwargs_value);
         }
 

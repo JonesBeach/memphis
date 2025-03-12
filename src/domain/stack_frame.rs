@@ -63,9 +63,9 @@ impl DebugStackFrame {
         self.line_number
     }
 
-    /// Updates the line number for this stack frame.
-    pub fn set_line_number(&mut self, line: usize) {
-        self.line_number = line;
+    /// Returns the current line number in the file.
+    pub fn update_line_number(&mut self, line_number: usize) {
+        self.line_number = line_number;
     }
 }
 

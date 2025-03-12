@@ -1,4 +1,4 @@
-use crate::{core::Container, domain::Dunder, types::errors::InterpreterError};
+use crate::{core::Container, domain::Dunder, treewalk::interpreter::TreewalkResult};
 
 use super::{
     domain::{
@@ -31,7 +31,7 @@ impl NonDataDescriptor for TracebackAttribute {
         _interpreter: &crate::treewalk::Interpreter,
         _instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::Traceback(Traceback))
     }
 
@@ -63,7 +63,7 @@ impl NonDataDescriptor for FrameAttribute {
         _interpreter: &crate::treewalk::Interpreter,
         _instance: Option<ExprResult>,
         _owner: Container<Class>,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::Frame)
     }
 

@@ -1,11 +1,10 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::{hash_map::Keys, HashMap},
     fmt::{Debug, Display, Error, Formatter},
 };
 
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
 use super::{
     dict_items::ContextualDictItemsIterator,
@@ -93,7 +92,7 @@ impl IndexRead for Container<Dict> {
         &self,
         interpreter: &Interpreter,
         index: ExprResult,
-    ) -> Result<Option<ExprResult>, InterpreterError> {
+    ) -> TreewalkResult<Option<ExprResult>> {
         if self.borrow().has(interpreter.clone(), &index) {
             Ok(Some(self.borrow().get(interpreter.clone(), index, None)))
         } else {
@@ -108,17 +107,13 @@ impl IndexWrite for Container<Dict> {
         interpreter: &Interpreter,
         index: ExprResult,
         value: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    ) -> TreewalkResult<()> {
         let index = Contextual::new(index, interpreter.clone());
         self.borrow_mut().items.insert(index, value);
         Ok(())
     }
 
-    fn delitem(
-        &mut self,
-        interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> Result<(), InterpreterError> {
+    fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
         let index = Contextual::new(index, interpreter.clone());
         self.borrow_mut().items.remove(&index);
         Ok(())
@@ -174,21 +169,13 @@ impl Callable for DictItemsBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
 
-        let dict = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
-
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
         let dict_items = DictItems::try_from(dict.clone().borrow().clone())
-            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
+
         Ok(ExprResult::DictItems(dict_items))
     }
 
@@ -202,19 +189,9 @@ impl Callable for DictKeysBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
-
-        let dict = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
-
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
         Ok(ExprResult::DictKeys(dict.clone().borrow().clone().into()))
     }
 
@@ -228,21 +205,13 @@ impl Callable for DictValuesBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 0, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 0, interpreter)?;
 
-        let dict = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
         let dict_values = DictValues::try_from(dict.clone().borrow().clone())
-            .map_err(|_| InterpreterError::ExpectedDict(interpreter.state.call_stack()))?;
+            .map_err(|_| interpreter.type_error("Expected a dict"))?;
         Ok(ExprResult::DictValues(dict_values))
     }
 
@@ -256,7 +225,7 @@ impl Callable for FromKeysBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 
@@ -270,7 +239,7 @@ impl Callable for NewBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         Ok(ExprResult::Dict(Container::new(Dict::default())))
     }
 
@@ -284,25 +253,12 @@ impl Callable for InitBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        utils::validate_args(&args, 1, interpreter.state.call_stack())?;
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| len == 1, interpreter)?;
 
-        let output = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
+        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
-        let input = args
-            .get_arg(0)
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
+        let input = args.get_arg(0).expect_dict(interpreter)?;
 
         *output.borrow_mut() = input.borrow().clone();
 
@@ -319,20 +275,10 @@ impl Callable for GetBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        if ![1, 2].contains(&args.len()) {
-            utils::validate_args(&args, 1, interpreter.state.call_stack())?;
-        }
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-        let dict = args
-            .get_self()
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?
-            .as_dict(interpreter)
-            .ok_or(InterpreterError::ExpectedDict(
-                interpreter.state.call_stack(),
-            ))?;
+        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

@@ -1,6 +1,6 @@
 #[cfg(feature = "llvm_backend")]
 use crate::llvm_backend::compile_ast_to_llvm;
-use crate::{core::InterpreterEntrypoint, Engine};
+use crate::{core::memphis_utils, Engine};
 
 use super::MemphisContext;
 
@@ -14,11 +14,7 @@ impl Memphis {
 
                 match context.run() {
                     Ok(_) => {}
-                    Err(err) => {
-                        let interpreter = context.ensure_treewalk();
-                        // TODO this really shouldn't be attached to the interpreter.
-                        interpreter.handle_runtime_error(err)
-                    }
+                    Err(err) => memphis_utils::exit(err),
                 }
             }
             Engine::BytecodeVm => {
@@ -26,10 +22,7 @@ impl Memphis {
 
                 match context.run_vm() {
                     Ok(_) => {}
-                    Err(err) => {
-                        let interpreter = context.ensure_vm();
-                        interpreter.handle_runtime_error(err)
-                    }
+                    Err(err) => memphis_utils::exit(err),
                 }
             }
             #[cfg(feature = "llvm_backend")]

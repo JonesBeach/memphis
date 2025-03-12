@@ -1,7 +1,7 @@
-use crate::{
-    core::Container, domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError,
-};
+use crate::treewalk::interpreter::TreewalkResult;
+use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
 
+use super::domain::builtins::utils;
 use super::{
     domain::{
         traits::{Callable, MethodProvider, Typed},
@@ -44,29 +44,24 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
-        match args.len() {
-            1 => Ok(ExprResult::ByteArray(Container::new(ByteArray::new(
-                "".into(),
-            )))),
+    ) -> TreewalkResult<ExprResult> {
+        utils::validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+
+        let byte_array = match args.len() {
+            1 => Container::new(ByteArray::new("".into())),
             2 => match args.get_arg(1) {
-                ExprResult::String(_) => Err(InterpreterError::TypeError(
-                    Some("string argument without an encoding".into()),
-                    interpreter.state.call_stack(),
-                )),
-                ExprResult::Bytes(s) => {
-                    Ok(ExprResult::ByteArray(Container::new(ByteArray::new(s))))
+                ExprResult::String(_) => {
+                    return Err(interpreter.type_error("string argument without an encoding"));
                 }
+                ExprResult::Bytes(s) => Container::new(ByteArray::new(s)),
                 _ => todo!(),
             },
             // TODO support an optional encoding
             3 => todo!(),
-            _ => Err(InterpreterError::WrongNumberOfArguments(
-                args.len(),
-                1,
-                interpreter.state.call_stack(),
-            )),
-        }
+            _ => unreachable!(),
+        };
+
+        Ok(ExprResult::ByteArray(byte_array))
     }
 
     fn name(&self) -> String {

@@ -1,4 +1,7 @@
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{
+    domain::Dunder,
+    treewalk::{interpreter::TreewalkResult, Interpreter},
+};
 
 use super::{
     domain::{
@@ -32,7 +35,7 @@ impl Callable for NewBuiltin {
         &self,
         _interpreter: &Interpreter,
         _args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
         unimplemented!()
     }
 

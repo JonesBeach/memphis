@@ -1,6 +1,7 @@
+use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{domain::Dunder, treewalk::Interpreter, types::errors::InterpreterError};
+use crate::{domain::Dunder, treewalk::Interpreter};
 
 use super::{
     domain::{
@@ -84,47 +85,30 @@ impl Callable for NewBuiltin {
         &self,
         interpreter: &Interpreter,
         args: ResolvedArguments,
-    ) -> Result<ExprResult, InterpreterError> {
+    ) -> TreewalkResult<ExprResult> {
+        validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
             2 => match args.get_arg(1).as_fp() {
                 Some(re) => Complex::new(re, DEFAULT_IM),
                 None => {
-                    let input = &args
-                        .get_arg(1)
-                        .as_string()
-                        .ok_or(InterpreterError::TypeError(
-                            Some(format!(
-                                "complex() first argument must be a string or a number, not '{}'",
-                                args.get_arg(1).get_type()
-                            )),
-                            interpreter.state.call_stack(),
-                        ))?;
-                    Complex::from_str(input).ok_or(InterpreterError::TypeError(
-                        None,
-                        interpreter.state.call_stack(),
-                    ))?
+                    let input = &args.get_arg(1).as_string().ok_or_else(|| {
+                        interpreter.type_error(format!(
+                            "complex() first argument must be a string or a number, not '{}'",
+                            args.get_arg(1).get_type()
+                        ))
+                    })?;
+                    Complex::from_str(input)
+                        .ok_or_else(|| interpreter.type_error("Expected a complex number"))?
                 }
             },
             3 => {
-                let re = args
-                    .get_arg(1)
-                    .as_fp()
-                    .ok_or(InterpreterError::ExpectedFloatingPoint(
-                        interpreter.state.call_stack(),
-                    ))?;
-                let im = args
-                    .get_arg(2)
-                    .as_fp()
-                    .ok_or(InterpreterError::ExpectedFloatingPoint(
-                        interpreter.state.call_stack(),
-                    ))?;
+                let re = args.get_arg(1).expect_fp(interpreter)?;
+                let im = args.get_arg(2).expect_fp(interpreter)?;
                 Complex::new(re, im)
             }
-            _ => {
-                validate_args(&args, 2, interpreter.state.call_stack())?;
-                unreachable!()
-            }
+            _ => unreachable!(),
         };
 
         Ok(ExprResult::Complex(complex))

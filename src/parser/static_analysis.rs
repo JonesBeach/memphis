@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    parser::types::{Ast, Expr, Statement, Variable},
+    parser::types::{Ast, Expr, Statement, StatementKind, Variable},
 };
 
 pub trait Visitor {
@@ -24,7 +24,7 @@ impl Visitor for YieldDetector {
     fn visit_ast(&mut self, _program: &Ast) {}
 
     fn visit_statement(&mut self, statement: &Statement) {
-        if matches!(statement, Statement::Expression(Expr::Yield(_))) {
+        if matches!(statement.kind, StatementKind::Expression(Expr::Yield(_))) {
             self.found_yield = true;
         }
     }
@@ -60,21 +60,21 @@ impl FunctionAnalysisVisitor {
             .collect()
     }
 
-    fn check_for_local_vars(&mut self, statement: &Statement) {
+    fn check_for_local_vars(&mut self, statement: &StatementKind) {
         match statement {
-            Statement::UnpackingAssignment { left, .. } => {
+            StatementKind::UnpackingAssignment { left, .. } => {
                 for var in left.iter() {
                     if let Some(name) = var.as_variable() {
                         self.local_vars.insert(name);
                     }
                 }
             }
-            Statement::Assignment { left, .. } => {
+            StatementKind::Assignment { left, .. } => {
                 if let Some(name) = left.as_variable() {
                     self.local_vars.insert(name);
                 }
             }
-            Statement::CompoundAssignment { target, .. } => {
+            StatementKind::CompoundAssignment { target, .. } => {
                 if let Some(name) = target.as_variable() {
                     self.local_vars.insert(name);
                 }
@@ -107,16 +107,16 @@ impl FunctionAnalysisVisitor {
     // }
     // There are more cases where variables might be accessed we should add here, such as
     // variable reads, attribute accesses on objects.
-    fn check_for_accessed_vars(&mut self, statement: &Statement) {
+    fn check_for_accessed_vars(&mut self, statement: &StatementKind) {
         match statement {
-            Statement::Expression(Expr::FunctionCall { args, .. }) => {
+            StatementKind::Expression(Expr::FunctionCall { args, .. }) => {
                 for arg in args.args.iter() {
                     if let Some(name) = arg.as_variable() {
                         self.accessed_vars.push(name);
                     }
                 }
             }
-            Statement::Global(names) | Statement::Nonlocal(names) => {
+            StatementKind::Global(names) | StatementKind::Nonlocal(names) => {
                 for name in names {
                     self.accessed_vars.push(name.clone());
                 }
@@ -132,7 +132,7 @@ impl Visitor for FunctionAnalysisVisitor {
     fn visit_statement(&mut self, statement: &Statement) {
         log(LogLevel::Trace, || format!("Visiting {:?}", statement));
 
-        self.check_for_local_vars(statement);
-        self.check_for_accessed_vars(statement);
+        self.check_for_local_vars(&statement.kind);
+        self.check_for_accessed_vars(&statement.kind);
     }
 }
