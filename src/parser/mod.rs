@@ -4427,7 +4427,7 @@ async def main():
                     },
                 }),
                 stmt(StatementKind::Return(vec![Expr::Await {
-                    right: Box::new(var("task_1")),
+                    right: Box::new(var("task_1"))
                 }])),
             ],
             decorators: vec![],
@@ -4478,13 +4478,13 @@ finally:
                 alias: None,
                 block: ast![stmt(StatementKind::Assignment {
                     left: var("a"),
-                    right: int(2),
+                    right: int(2)
                 })],
             }],
             else_block: None,
             finally_block: Some(ast![stmt(StatementKind::Assignment {
                 left: var("a"),
-                right: int(3),
+                right: int(3)
             })]),
         });
 
@@ -4514,13 +4514,13 @@ finally:
                 alias: Some("e".into()),
                 block: ast![stmt(StatementKind::Assignment {
                     left: var("a"),
-                    right: int(2),
+                    right: int(2)
                 })],
             }],
             else_block: None,
             finally_block: Some(ast![stmt(StatementKind::Assignment {
                 left: var("a"),
-                right: int(3),
+                right: int(3)
             })]),
         });
 
@@ -4551,7 +4551,7 @@ except (ZeroDivisionError, IOError) as e:
                 alias: Some("e".into()),
                 block: ast![stmt(StatementKind::Assignment {
                     left: var("a"),
-                    right: int(2),
+                    right: int(2)
                 })],
             }],
             else_block: None,
@@ -4586,16 +4586,16 @@ finally:
                 alias: Some("e".into()),
                 block: ast![stmt(StatementKind::Assignment {
                     left: var("a"),
-                    right: int(2),
+                    right: int(2)
                 })],
             }],
             else_block: Some(ast![stmt(StatementKind::Assignment {
                 left: var("a"),
-                right: int(4),
+                right: int(4)
             })]),
             finally_block: Some(ast![stmt(StatementKind::Assignment {
                 left: var("a"),
-                right: int(3),
+                right: int(3)
             })]),
         });
 
@@ -5932,11 +5932,11 @@ def outer():
             body: ast![
                 stmt(StatementKind::Assignment {
                     left: var("a"),
-                    right: int(1),
+                    right: int(1)
                 }),
                 stmt(StatementKind::Assignment {
                     left: var("b"),
-                    right: int(2),
+                    right: int(2)
                 }),
                 stmt(StatementKind::FunctionDef {
                     name: "inner".into(),
@@ -5944,7 +5944,7 @@ def outer():
                     body: ast![
                         stmt(StatementKind::Assignment {
                             left: var("b"),
-                            right: int(3),
+                            right: int(3)
                         }),
                         stmt(StatementKind::Expression(Expr::FunctionCall {
                             name: "print".into(),

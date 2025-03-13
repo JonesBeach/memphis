@@ -2731,8 +2731,8 @@ l = {1} <= {2}
                     ])))))
                 );
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::Set(Container::new(Set::default())))
+                    read_and_expect(interpreter, "h"),
+                    ExprResult::Set(Container::new(Set::default()))
                 );
                 assert!(matches!(
                     interpreter.state.read("i"),
@@ -2750,8 +2750,8 @@ l = {1} <= {2}
                 );
                 assert_eq!(read_and_expect(interpreter, "k"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("l"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "l"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -2957,8 +2957,8 @@ print(b)
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -2981,8 +2981,8 @@ print(b)
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -3005,8 +3005,8 @@ print(b)
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -3234,8 +3234,8 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
                     ]))))
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::List(Container::new(List::default())))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::List(Container::new(List::default()))
                 );
                 assert_eq!(
                     interpreter.state.read("d"),
@@ -3298,12 +3298,12 @@ g = a != [8,10,9]
             Ok(interpreter) => {
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "d"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
                 assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Boolean(true));
@@ -4044,15 +4044,12 @@ w = { key for key, value in a.items() }
                 );
                 assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(4));
                 assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::new()
-                    ))))
+                    read_and_expect(interpreter, "g"),
+                    ExprResult::Dict(Container::new(Dict::new(&interpreter, HashMap::new())))
                 );
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::DictItems(DictItems::default()))
+                    read_and_expect(interpreter, "h"),
+                    ExprResult::DictItems(DictItems::default())
                 );
                 assert!(matches!(
                     interpreter.state.read("q"),
@@ -4063,8 +4060,8 @@ w = { key for key, value in a.items() }
                     interpreter.state.get_type_class(Type::DictItemIterator)
                 );
                 assert_eq!(
-                    interpreter.state.read("i"),
-                    Some(ExprResult::DictKeys(DictKeys::new(vec![])))
+                    read_and_expect(interpreter, "i"),
+                    ExprResult::DictKeys(DictKeys::new(vec![]))
                 );
                 assert_eq!(
                     interpreter.state.read("j"),
@@ -4082,8 +4079,8 @@ w = { key for key, value in a.items() }
                     interpreter.state.get_type_class(Type::DictKeyIterator)
                 );
                 assert_eq!(
-                    interpreter.state.read("m"),
-                    Some(ExprResult::DictValues(DictValues::new(vec![])))
+                    read_and_expect(interpreter, "m"),
+                    ExprResult::DictValues(DictValues::new(vec![]))
                 );
                 assert_eq!(
                     interpreter.state.read("n"),
@@ -4695,8 +4692,8 @@ b = test_args(1, 2)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Tuple::default()))
+                    read_and_expect(interpreter, "b"),
+                    ExprResult::Tuple(Tuple::default())
                 );
             }
         }
@@ -5325,8 +5322,8 @@ a = b'hello'
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Bytes("hello".into()))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Bytes("hello".into())
                 );
             }
         }
@@ -5373,10 +5370,8 @@ a = bytearray()
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ByteArray(Container::new(ByteArray::new(
-                        "".into()
-                    ))))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::ByteArray(Container::new(ByteArray::new("".into())))
                 );
             }
         }
@@ -5390,10 +5385,8 @@ a = bytearray(b'hello')
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ByteArray(Container::new(ByteArray::new(
-                        "hello".into()
-                    ))))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::ByteArray(Container::new(ByteArray::new("hello".into())))
                 );
             }
         }
@@ -5452,8 +5445,8 @@ a = bytes()
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Bytes("".into()))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Bytes("".into())
                 );
             }
         }
@@ -5467,8 +5460,8 @@ a = bytes(b'hello')
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Bytes("hello".into()))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Bytes("hello".into())
                 );
             }
         }
@@ -5775,8 +5768,8 @@ e = [ i for i in reversed([1,2,3]) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(0x0010))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Integer(0x0010)
                 );
             }
         }
@@ -5788,8 +5781,8 @@ e = [ i for i in reversed([1,2,3]) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(0o1011))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Integer(0o1011)
                 );
             }
         }
@@ -5801,8 +5794,8 @@ e = [ i for i in reversed([1,2,3]) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(0b1001))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Integer(0b1001)
                 );
             }
         }
@@ -5824,8 +5817,8 @@ e = [ i for i in reversed([1,2,3]) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(0b0100))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Integer(0b0100)
                 );
             }
         }
@@ -7179,8 +7172,8 @@ r = [2,4,6][:]
                     ]))))
                 );
                 assert_eq!(
-                    interpreter.state.read("i"),
-                    Some(ExprResult::List(Container::new(List::default())))
+                    read_and_expect(interpreter, "i"),
+                    ExprResult::List(Container::new(List::default()))
                 );
                 assert!(matches!(
                     interpreter.state.read("j"),
@@ -7343,8 +7336,8 @@ e = frozenset().__contains__
                     ]))))
                 );
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::FrozenSet(FrozenSet::default()))
+                    read_and_expect(interpreter, "b"),
+                    ExprResult::FrozenSet(FrozenSet::default())
                 );
                 assert_eq!(
                     interpreter.state.read("c").unwrap().as_class().unwrap(),
@@ -7485,36 +7478,36 @@ l = isinstance([], (int, Foo))
             Ok(interpreter) => {
                 assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "b"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "d"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "f"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "h"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "j"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "k"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("l"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "l"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -7563,27 +7556,27 @@ j = issubclass(type, type)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "b"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
                 assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "e"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "f"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "h"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
                 assert_eq!(read_and_expect(interpreter, "j"), ExprResult::Boolean(true));
@@ -7640,27 +7633,27 @@ i = bool(5)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "d"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "f"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "h"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
             }
@@ -7812,8 +7805,8 @@ b = f != g
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
             }
@@ -7836,8 +7829,8 @@ b = f != g
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
             }
@@ -7866,16 +7859,16 @@ d = c(g)
             Ok(interpreter) => {
                 assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Boolean(true));
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "b"),
+                    ExprResult::Boolean(false)
                 );
                 let Some(ExprResult::Method(method)) = interpreter.state.read("c") else {
                     panic!("Expected a method!");
                 };
                 assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "d"),
+                    ExprResult::Boolean(false)
                 );
             }
         }
@@ -7992,32 +7985,32 @@ g = complex(4.1, 5.1)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Complex(Complex::new(4.0, 5.0)))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Complex(Complex::new(4.0, 5.0))
                 );
                 assert_eq!(
                     interpreter.state.read("b").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Complex)
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Complex(Complex::new(0.0, 0.0)))
+                    read_and_expect(interpreter, "c"),
+                    ExprResult::Complex(Complex::new(0.0, 0.0))
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Complex(Complex::new(1.0, 0.0)))
+                    read_and_expect(interpreter, "d"),
+                    ExprResult::Complex(Complex::new(1.0, 0.0))
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Complex(Complex::new(2.0, 3.0)))
+                    read_and_expect(interpreter, "e"),
+                    ExprResult::Complex(Complex::new(2.0, 3.0))
                 );
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Complex(Complex::new(2.1, 3.1)))
+                    read_and_expect(interpreter, "f"),
+                    ExprResult::Complex(Complex::new(2.1, 3.1))
                 );
                 assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::Complex(Complex::new(4.1, 5.1)))
+                    read_and_expect(interpreter, "g"),
+                    ExprResult::Complex(Complex::new(4.1, 5.1))
                 );
             }
         }
@@ -8041,8 +8034,8 @@ c = callable(MyClass)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Boolean(false))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::Boolean(false)
                 );
                 assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
                 assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));

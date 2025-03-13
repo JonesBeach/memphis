@@ -568,15 +568,9 @@ where
     T: PartialEq<Q>,
     Q: ?Sized,
 {
-    vec.iter().enumerate().find_map(
-        |(index, value)| {
-            if value == query {
-                Some(index)
-            } else {
-                None
-            }
-        },
-    )
+    vec.iter()
+        .enumerate()
+        .find_map(|(index, value)| if value == query { Some(index) } else { None })
 }
 
 #[cfg(test)]

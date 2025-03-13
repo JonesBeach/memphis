@@ -2409,10 +2409,7 @@ This exports:
             lexer.tokens,
             vec![
                 Token::Newline,
-                Token::RawStringLiteral(
-                    "OS routines for NT or Posix depending on what system we're on.\n\nThis exports:\n"
-                        .into()
-                ),
+                Token::RawStringLiteral("OS routines for NT or Posix depending on what system we're on.\n\nThis exports:\n".into()),
                 Token::Eof,
             ]
         );
