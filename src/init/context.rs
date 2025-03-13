@@ -3,7 +3,6 @@ use std::{fmt::Display, path::Path, process};
 use crate::{
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
     core::{Container, InterpreterEntrypoint},
-    domain::ToDebugStackFrame,
     lexer::Lexer,
     parser::{types::ParseNode, Parser},
     treewalk::{
@@ -153,7 +152,7 @@ impl MemphisContext {
 
     fn init_interpreter(&self) -> Interpreter {
         let module_source = self.state.current_module_source();
-        self.state.push_stack_frame(module_source.to_stack_frame());
+        self.state.push_stack_frame(&*module_source);
         self.state
             .push_module(Container::new(Module::new(*module_source)));
         Interpreter::new(self.state.clone())

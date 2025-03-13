@@ -6,7 +6,7 @@ use super::types::cpython::import_from_cpython;
 use super::{evaluators, Scope, State};
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
-    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
+    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind},
     parser::{
         types::{
             Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
@@ -181,8 +181,7 @@ impl Interpreter {
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
         self.state.save_line_number();
-        self.state
-            .push_stack_frame(function.borrow().clone().to_stack_frame());
+        self.state.push_stack_frame(&*function.borrow());
         self.state.push_function(function.clone());
 
         // We do not propagate errors here because we still must restore the scopes and things

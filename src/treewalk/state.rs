@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame},
+    domain::{DebugCallStack, DebugStackFrame, ToDebugStackFrame},
     parser::types::ImportPath,
     treewalk::{
         interpreter::TreewalkResult,
@@ -142,10 +142,10 @@ impl Container<State> {
         self.borrow_mut().scope_manager.pop_local()
     }
 
-    pub fn push_stack_frame(&self, stack_frame: DebugStackFrame) {
+    pub fn push_stack_frame<T: ToDebugStackFrame>(&self, context: &T) {
         self.borrow_mut()
             .debug_call_stack
-            .push_stack_frame(stack_frame);
+            .push_stack_frame(context.to_stack_frame());
     }
 
     pub fn pop_stack_frame(&self) -> Option<DebugStackFrame> {

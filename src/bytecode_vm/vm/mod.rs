@@ -11,7 +11,7 @@ use crate::{
         Opcode,
     },
     core::{log, log_impure, Container, LogLevel},
-    domain::{Dunder, ExecutionError, ExecutionErrorKind, ToDebugStackFrame},
+    domain::{Dunder, ExecutionError, ExecutionErrorKind},
     treewalk::State,
 };
 
@@ -227,7 +227,7 @@ impl VirtualMachine {
         // This is a bit counterintuitive: when we enter a new frame, we will begin tracking its
         // latest opcode/statements in `run_loop`. To keep track of where we came from, we push the
         // previous frame onto the stack.
-        self.state.push_stack_frame(current_frame.to_stack_frame());
+        self.state.push_stack_frame(current_frame);
         self.call_stack.push(frame);
     }
 
@@ -287,7 +287,7 @@ impl VirtualMachine {
                 let code_name = &frame.function.code_object.name();
                 format!("{}: {:?}", code_name, opcode)
             });
-            self.state.push_stack_frame(frame.to_stack_frame());
+            self.state.push_stack_frame(frame);
 
             match opcode {
                 Opcode::Iadd => {
