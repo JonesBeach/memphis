@@ -1568,10 +1568,7 @@ d = type(str.maketrans)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::String(Str::new("foo".to_string())))
-                );
+                assert_eq!(read_and_expect(interpreter, "a"), str("foo"));
                 assert_eq!(
                     interpreter.state.read("b").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::BuiltinMethod)
@@ -1693,8 +1690,8 @@ for i in iter("abcde"):
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::StringIterator(_))
+                    read_and_expect(interpreter, "a"),
+                    ExprResult::StringIterator(_)
                 ));
                 assert_eq!(
                     interpreter.state.read("b").unwrap().as_class().unwrap(),
@@ -1800,72 +1797,72 @@ y = _f.__type_params__
                     &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
                 );
                 assert!(matches!(
-                    interpreter.state.read("e").unwrap(),
+                    read_and_expect(interpreter, "e"),
                     ExprResult::Generator(_)
                 ));
                 assert_eq!(
-                    interpreter.state.read("f").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "f").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Generator)
                 );
                 assert!(matches!(
-                    interpreter.state.read("h").unwrap(),
+                    read_and_expect(interpreter, "h"),
                     ExprResult::Coroutine(_)
                 ));
                 // I commented this out when we removed Clone from Class.
                 //assert!(matches!(
-                //    interpreter.state.read("i").unwrap().as_class().unwrap().borrow(),
+                //    read_and_expect(interpreter, "i").as_class().unwrap().borrow(),
                 //    Class { name, .. } if name == "coroutine"
                 //));
                 // TODO add support for async generators, which will change the next two assertions
                 assert!(matches!(
-                    interpreter.state.read("k").unwrap(),
+                    read_and_expect(interpreter, "k"),
                     ExprResult::Coroutine(_)
                 ));
                 //assert!(matches!(
-                //    interpreter.state.read("l").unwrap().as_class().unwrap().borrow().clone(),
+                //    read_and_expect(interpreter, "l").as_class().unwrap().borrow().clone(),
                 //    Class { name, .. } if name == "coroutine"
                 //));
                 assert!(matches!(
-                    interpreter.state.read("m").unwrap(),
+                    read_and_expect(interpreter, "m"),
                     ExprResult::Code(_)
                 ));
                 assert_eq!(
-                    interpreter.state.read("n").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "n").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Code)
                 );
                 assert_eq!(
-                    interpreter.state.read("o").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "o").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::GetSetDescriptor)
                 );
                 assert_eq!(
-                    interpreter.state.read("p").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "p").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Dict)
                 );
                 assert_eq!(
-                    interpreter.state.read("q").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "q").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::MemberDescriptor)
                 );
                 assert_eq!(
-                    interpreter.state.read("r").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "r").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::None)
                 );
                 assert_eq!(
-                    interpreter.state.read("s").unwrap().as_class().unwrap(),
+                    read_and_expect(interpreter, "s").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::MemberDescriptor)
                 );
-                assert_eq!(interpreter.state.read("t").unwrap(), str("__main__"));
+                assert_eq!(read_and_expect(interpreter, "t"), str("__main__"));
                 assert_eq!(
-                    interpreter.state.read("u").unwrap(),
+                    read_and_expect(interpreter, "u"),
                     ExprResult::String(Str::new("".into()))
                 );
-                assert_eq!(interpreter.state.read("v").unwrap(), str("_f"));
-                assert_eq!(interpreter.state.read("w").unwrap(), str("_f"));
+                assert_eq!(read_and_expect(interpreter, "v"), str("_f"));
+                assert_eq!(read_and_expect(interpreter, "w"), str("_f"));
                 assert_eq!(
-                    interpreter.state.read("x").unwrap(),
+                    read_and_expect(interpreter, "x"),
                     ExprResult::Dict(Container::new(Dict::default()))
                 );
                 assert_eq!(
-                    interpreter.state.read("y").unwrap(),
+                    read_and_expect(interpreter, "y"),
                     ExprResult::Tuple(Tuple::default())
                 );
             }
@@ -1907,10 +1904,7 @@ elif y > -20:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::String(Str::new("Greater than 0".to_string())))
-                );
+                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than 0"));
             }
         }
 
@@ -1929,10 +1923,7 @@ elif y > -20:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::String(Str::new("Greater than -10".to_string())))
-                );
+                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than -10"));
             }
         }
 
@@ -1951,10 +1942,7 @@ elif y > -20:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::String(Str::new("Greater than -20".to_string())))
-                );
+                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than -20"));
             }
         }
 
@@ -1973,10 +1961,7 @@ elif y > -20:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::String(Str::new("Empty".to_string())))
-                );
+                assert_eq!(read_and_expect(interpreter, "z"), str("Empty"));
             }
         }
 
@@ -8159,21 +8144,21 @@ except Exception as e:
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                match interpreter.state.read("b") {
-                    Some(ExprResult::Integer(a)) => {
+                match read_and_expect(interpreter, "b") {
+                    ExprResult::Integer(a) => {
                         assert!(a != 0);
                     }
                     _ => panic!("Unexpected type!"),
                 }
-                match interpreter.state.read("c") {
-                    Some(ExprResult::Integer(a)) => {
+                match read_and_expect(interpreter, "c") {
+                    ExprResult::Integer(a) => {
                         assert!(a != 0);
                     }
                     _ => panic!("Unexpected type!"),
                 }
                 assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Boolean(true));
-                match interpreter.state.read("the_exp") {
-                    Some(ExprResult::Exception(e)) => {
+                match read_and_expect(interpreter, "the_exp") {
+                    ExprResult::Exception(e) => {
                         test_utils::assert_type_error(
                             &*e,
                             "__hash__ method should return an integer",
