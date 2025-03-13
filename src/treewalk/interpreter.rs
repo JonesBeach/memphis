@@ -1471,6 +1471,10 @@ mod tests {
         interpreter.state.read(name).expect("Failed to read var")
     }
 
+    fn str(input: &str) -> ExprResult {
+        ExprResult::String(Str::new(input.to_string()))
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
@@ -1849,22 +1853,13 @@ y = _f.__type_params__
                     interpreter.state.read("s").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::MemberDescriptor)
                 );
-                assert_eq!(
-                    interpreter.state.read("t").unwrap(),
-                    ExprResult::String(Str::new("__main__".into()))
-                );
+                assert_eq!(interpreter.state.read("t").unwrap(), str("__main__"));
                 assert_eq!(
                     interpreter.state.read("u").unwrap(),
                     ExprResult::String(Str::new("".into()))
                 );
-                assert_eq!(
-                    interpreter.state.read("v").unwrap(),
-                    ExprResult::String(Str::new("_f".into()))
-                );
-                assert_eq!(
-                    interpreter.state.read("w").unwrap(),
-                    ExprResult::String(Str::new("_f".into()))
-                );
+                assert_eq!(interpreter.state.read("v").unwrap(), str("_f"));
+                assert_eq!(interpreter.state.read("w").unwrap(), str("_f"));
                 assert_eq!(
                     interpreter.state.read("x").unwrap(),
                     ExprResult::Dict(Container::new(Dict::default()))
@@ -2768,7 +2763,7 @@ l = {1} <= {2}
                 assert_eq!(
                     interpreter.state.read("new_set"),
                     Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::String(Str::new("five".into()))
+                        str("five")
                     ])))))
                 );
                 assert_eq!(read_and_expect(interpreter, "k"), ExprResult::Boolean(true));
@@ -4092,8 +4087,8 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("j"),
                     Some(ExprResult::DictKeys(DictKeys::new(vec![
-                        ExprResult::String(Str::new("b".into())),
-                        ExprResult::String(Str::new("c".into())),
+                        str("b"),
+                        str("c"),
                     ])))
                 );
                 assert!(matches!(
@@ -4138,15 +4133,15 @@ w = { key for key, value in a.items() }
                 assert_eq!(
                     interpreter.state.read("v"),
                     Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::String(Str::new("b".into())),
-                        ExprResult::String(Str::new("c".into())),
+                        str("b"),
+                        str("c"),
                     ]))))
                 );
                 assert_eq!(
                     interpreter.state.read("w"),
                     Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::String(Str::new("b".into())),
-                        ExprResult::String(Str::new("c".into())),
+                        str("b"),
+                        str("c"),
                     ])))))
                 );
             }
@@ -5144,10 +5139,7 @@ m = sys.modules['os.path']
                     interpreter.state.read("l").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Module)
                 );
-                assert_eq!(
-                    interpreter.state.read("m"),
-                    Some(ExprResult::String(Str::new("os_path".into())))
-                );
+                assert_eq!(interpreter.state.read("m"), Some(str("os_path")));
             }
         }
     }
@@ -5744,10 +5736,7 @@ a = f"Hello {name}"
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::String(Str::new("Hello John".into())))
-                );
+                assert_eq!(interpreter.state.read("a"), Some(str("Hello John")));
             }
         }
     }
@@ -6466,14 +6455,8 @@ c = singleton1 is singleton2
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::String(Str::new("First".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::String(Str::new("First".into())))
-                );
+                assert_eq!(interpreter.state.read("a"), Some(str("First")));
+                assert_eq!(interpreter.state.read("b"), Some(str("First")));
                 assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
             }
         }
@@ -6502,14 +6485,8 @@ c = singleton1 is singleton2
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::String(Str::new("Second".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::String(Str::new("Second".into())))
-                );
+                assert_eq!(interpreter.state.read("a"), Some(str("Second")));
+                assert_eq!(interpreter.state.read("b"), Some(str("Second")));
                 assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
             }
         }
@@ -7239,21 +7216,12 @@ r = [2,4,6][:]
                     interpreter.state.read("m").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Slice)
                 );
-                assert_eq!(
-                    interpreter.state.read("n"),
-                    Some(ExprResult::String(Str::new("h".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("o"),
-                    Some(ExprResult::String(Str::new("h".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("p"),
-                    Some(ExprResult::String(Str::new("he".into())))
-                );
+                assert_eq!(interpreter.state.read("n"), Some(str("h")));
+                assert_eq!(interpreter.state.read("o"), Some(str("h")));
+                assert_eq!(interpreter.state.read("p"), Some(str("he")));
                 //assert_eq!(
                 //    interpreter.state.read("q"),
-                //    Some(ExprResult::String(Str::new("he".into())))
+                //    Some(str("he"))
                 //);
                 assert_eq!(
                     interpreter.state.read("r"),
@@ -8005,18 +7973,9 @@ f = obj.my_attr
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::String(Str::new("default value".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::String(Str::new("new value".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::String(Str::new("default value".into())))
-                );
+                assert_eq!(interpreter.state.read("a"), Some(str("default value")));
+                assert_eq!(interpreter.state.read("b"), Some(str("new value")));
+                assert_eq!(interpreter.state.read("c"), Some(str("default value")));
                 assert_eq!(
                     interpreter
                         .state
@@ -8027,14 +7986,8 @@ f = obj.my_attr
                         .name(),
                     "Descriptor"
                 );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::String(Str::new("custom value".into())))
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::String(Str::new("default value".into())))
-                );
+                assert_eq!(interpreter.state.read("e"), Some(str("custom value")));
+                assert_eq!(interpreter.state.read("f"), Some(str("default value")));
             }
         }
     }
