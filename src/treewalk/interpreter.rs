@@ -640,11 +640,8 @@ impl Interpreter {
     }
 
     fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<ExprResult> {
-        let mut result = ExprResult::None;
-        for statement in ast.iter() {
-            result = self.evaluate_statement(statement)?;
-        }
-        Ok(result)
+        ast.iter()
+            .try_fold(ExprResult::None, |_, stmt| self.evaluate_statement(stmt))
     }
 
     fn evaluate_function_call(
