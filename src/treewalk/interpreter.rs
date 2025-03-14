@@ -1475,6 +1475,10 @@ mod tests {
         read_optional(interpreter, name).expect("Failed to read var")
     }
 
+    fn read_type(interpreter: &Interpreter, name: &str) -> Type {
+        read(interpreter, name).get_type()
+    }
+
     fn str(input: &str) -> ExprResult {
         ExprResult::String(Str::new(input.to_string()))
     }
@@ -1580,18 +1584,9 @@ d = type(str.maketrans)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "a"), str("foo"));
-                assert_eq!(
-                    read(interpreter, "b").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
-                assert_eq!(
-                    read(interpreter, "c").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
-                assert_eq!(
-                    read(interpreter, "d").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
+                assert_type_class(interpreter, "b", Type::BuiltinMethod);
+                assert_type_class(interpreter, "c", Type::Method);
+                assert_type_class(interpreter, "d", Type::BuiltinMethod);
             }
         }
     }
@@ -7097,10 +7092,7 @@ e = frozenset().__contains__
                         ExprResult::Integer(2),
                     ])))
                 );
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().get_type(),
-                    Type::Method
-                );
+                assert_eq!(read_type(interpreter, "e"), Type::Method);
             }
         }
 
@@ -7442,18 +7434,9 @@ c = asyncio.create_task
             Ok(interpreter) => {
                 // these should probably just return Function, not BuiltinFunction
                 // testing here to confirm they do not get bound to their module
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
+                assert_eq!(read_type(interpreter, "a"), Type::BuiltinFunction);
+                assert_eq!(read_type(interpreter, "b"), Type::BuiltinFunction);
+                assert_eq!(read_type(interpreter, "c"), Type::BuiltinFunction);
             }
         }
     }
