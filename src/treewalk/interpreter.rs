@@ -5156,11 +5156,11 @@ del a[1]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(0),
                         ExprResult::Integer(2)
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -5211,9 +5211,9 @@ del a, c
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), None);
+                assert_eq!(read_optional(interpreter, "a"), None);
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
-                assert_eq!(interpreter.state.read("c"), None);
+                assert_eq!(read_optional(interpreter, "c"), None);
             }
         }
     }
@@ -5241,8 +5241,8 @@ a = iter(b'hello')
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::BytesIterator(_))
+                    read(interpreter, "a"),
+                    ExprResult::BytesIterator(_)
                 ))
             }
         }
@@ -5316,8 +5316,8 @@ a = iter(bytearray())
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ByteArrayIterator(_))
+                    read(interpreter, "a"),
+                    ExprResult::ByteArrayIterator(_)
                 ))
             }
         }
@@ -5385,8 +5385,8 @@ a = iter(bytes())
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::BytesIterator(_))
+                    read(interpreter, "a"),
+                    ExprResult::BytesIterator(_)
                 ))
             }
         }
@@ -5577,8 +5577,8 @@ a = iter([1,2,3])
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ListIterator(_))
+                    read(interpreter, "a"),
+                    ExprResult::ListIterator(_)
                 ));
             }
         }
