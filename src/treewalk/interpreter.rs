@@ -5609,7 +5609,7 @@ a = f"Hello {name}"
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("Hello John")));
+                assert_eq!(read(interpreter, "a"), str("Hello John"));
             }
         }
     }
@@ -5630,12 +5630,12 @@ e = [ i for i in reversed([1,2,3]) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ReversedIterator(_))
+                    read(interpreter, "a"),
+                    ExprResult::ReversedIterator(_)
                 ));
                 assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::ReversedIterator(_))
+                    read(interpreter, "b"),
+                    ExprResult::ReversedIterator(_)
                 ));
                 assert_eq!(
                     interpreter.state.read("c").unwrap().as_class().unwrap(),
@@ -5646,12 +5646,12 @@ e = [ i for i in reversed([1,2,3]) ]
                     interpreter.state.get_type_class(Type::ReversedIterator)
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "e"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(3),
                         ExprResult::Integer(2),
                         ExprResult::Integer(1),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -5881,21 +5881,15 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Zip(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Zip(_))
-                ));
+                assert!(matches!(read(interpreter, "a"), ExprResult::Zip(_)));
+                assert!(matches!(read(interpreter, "b"), ExprResult::Zip(_)));
                 assert_eq!(
                     interpreter.state.read("c").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Zip)
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "d"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5908,11 +5902,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "e"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5925,11 +5919,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "f"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
@@ -5946,11 +5940,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(3),
                         ])),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "g"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
@@ -5966,11 +5960,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(2),
                             ExprResult::Integer(2),
                         ])),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "h"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5983,7 +5977,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -6021,8 +6015,8 @@ e = type(object().__dict__)
                     interpreter.state.get_type_class(Type::Type)
                 );
                 assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::MappingProxy(_))
+                    read(interpreter, "b"),
+                    ExprResult::MappingProxy(_)
                 ));
                 assert_eq!(
                     interpreter.state.read("c").unwrap().as_class().unwrap(),
@@ -6059,30 +6053,15 @@ class MyClass:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a").unwrap(),
-                    ExprResult::Class(_)
-                ));
+                assert!(matches!(read(interpreter, "a"), ExprResult::Class(_)));
                 assert_eq!(
                     interpreter.state.read("b").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Type)
                 );
-                assert!(matches!(
-                    interpreter.state.read("c").unwrap(),
-                    ExprResult::Class(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d").unwrap(),
-                    ExprResult::TypeNode(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("e").unwrap(),
-                    ExprResult::TypeNode(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("f").unwrap(),
-                    ExprResult::Class(_)
-                ));
+                assert!(matches!(read(interpreter, "c"), ExprResult::Class(_)));
+                assert!(matches!(read(interpreter, "d"), ExprResult::TypeNode(_)));
+                assert!(matches!(read(interpreter, "e"), ExprResult::TypeNode(_)));
+                assert!(matches!(read(interpreter, "f"), ExprResult::Class(_)));
             }
         }
     }
@@ -6146,8 +6125,8 @@ b = Foo.make()
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                let foo = match interpreter.state.read("Foo") {
-                    Some(ExprResult::Class(o)) => o,
+                let foo = match read(interpreter, "Foo") {
+                    ExprResult::Class(o) => o,
                     _ => panic!("Expected an object."),
                 };
                 assert!(matches!(
@@ -6316,8 +6295,8 @@ c = singleton1 is singleton2
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("First")));
-                assert_eq!(interpreter.state.read("b"), Some(str("First")));
+                assert_eq!(read(interpreter, "a"), str("First"));
+                assert_eq!(read(interpreter, "b"), str("First"));
                 assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
             }
         }
@@ -6346,8 +6325,8 @@ c = singleton1 is singleton2
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("Second")));
-                assert_eq!(interpreter.state.read("b"), Some(str("Second")));
+                assert_eq!(read(interpreter, "a"), str("Second"));
+                assert_eq!(read(interpreter, "b"), str("Second"));
                 assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
             }
         }
@@ -6634,14 +6613,8 @@ c = object().__str__
                     interpreter.state.read("a").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Object)
                 );
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Object(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Method(_))
-                ));
+                assert!(matches!(read(interpreter, "b"), ExprResult::Object(_)));
+                assert!(matches!(read(interpreter, "c"), ExprResult::Method(_)));
             }
         }
     }
@@ -6701,30 +6674,12 @@ g = type(a)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Method(_))
-                ));
-                //assert!(matches!(
-                //    interpreter.state.read("b"),
-                //    Some(ExprResult::Function(_))
-                //));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Method(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Method(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Function(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Function(_))
-                ));
+                assert!(matches!(read(interpreter, "a"), ExprResult::Method(_)));
+                //assert!(matches!(read(interpreter, "b"), ExprResult::Function(_)));
+                assert!(matches!(read(interpreter, "c"), ExprResult::Method(_)));
+                assert!(matches!(read(interpreter, "d"), ExprResult::Method(_)));
+                assert!(matches!(read(interpreter, "e"), ExprResult::Function(_)));
+                assert!(matches!(read(interpreter, "f"), ExprResult::Function(_)));
                 assert_eq!(
                     interpreter.state.read("g").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Method)
@@ -6836,11 +6791,11 @@ b, c = foo()
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(2),
                         ExprResult::Integer(3)
-                    ])))
+                    ]))
                 );
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(3));
@@ -6911,11 +6866,11 @@ a = (*l,)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2)
-                    ])))
+                    ]))
                 );
             }
         }
@@ -7004,93 +6959,80 @@ r = [2,4,6][:]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "b"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "c"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(8),
                         ExprResult::Integer(9),
                         ExprResult::Integer(10),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "d"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(1),
                         ExprResult::Integer(3),
                         ExprResult::Integer(5),
                         ExprResult::Integer(7),
                         ExprResult::Integer(9),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "e"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(10),
                         ExprResult::Integer(8),
                         ExprResult::Integer(6),
                         ExprResult::Integer(4),
                         ExprResult::Integer(2),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "f"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(3),
                         ExprResult::Integer(4),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(10),
-                    ]))))
+                    read(interpreter, "g"),
+                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(10),])))
                 );
                 assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                    ]))))
+                    read(interpreter, "h"),
+                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(1),])))
                 );
                 assert_eq!(
                     read(interpreter, "i"),
                     ExprResult::List(Container::new(List::default()))
                 );
-                assert!(matches!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::Slice(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("k"),
-                    Some(ExprResult::Slice(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("l"),
-                    Some(ExprResult::Slice(_))
-                ));
+                assert!(matches!(read(interpreter, "j"), ExprResult::Slice(_)));
+                assert!(matches!(read(interpreter, "k"), ExprResult::Slice(_)));
+                assert!(matches!(read(interpreter, "l"), ExprResult::Slice(_)));
                 assert_eq!(
                     interpreter.state.read("m").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Slice)
                 );
-                assert_eq!(interpreter.state.read("n"), Some(str("h")));
-                assert_eq!(interpreter.state.read("o"), Some(str("h")));
-                assert_eq!(interpreter.state.read("p"), Some(str("he")));
+                assert_eq!(read(interpreter, "n"), str("h"));
+                assert_eq!(read(interpreter, "o"), str("h"));
+                assert_eq!(read(interpreter, "p"), str("he"));
                 //assert_eq!(
-                //    interpreter.state.read("q"),
-                //    Some(str("he"))
+                //    read(interpreter, "q"),
+                //    str("he")
                 //);
                 assert_eq!(
-                    interpreter.state.read("r"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "r"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -7132,10 +7074,7 @@ def foo(cls, /):
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("foo"),
-                    Some(ExprResult::Function(_))
-                ));
+                assert!(matches!(read(interpreter, "foo"), ExprResult::Function(_)));
             }
         }
     }
@@ -7177,22 +7116,19 @@ f = list(d)
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Generator(_))
-                ));
+                assert!(matches!(read(interpreter, "d"), ExprResult::Generator(_)));
                 assert_eq!(
                     interpreter.state.read("e").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Generator)
                 );
                 assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "f"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(6),
                         ExprResult::Integer(10),
                         ExprResult::Integer(12),
                         ExprResult::Integer(20),
-                    ]))))
+                    ])))
                 );
             }
         }
