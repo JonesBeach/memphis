@@ -1490,6 +1490,14 @@ mod tests {
         );
     }
 
+    macro_rules! list {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::List(Container::new(List::new(vec![
+                $($expr),*
+            ])))
+        };
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
@@ -2468,32 +2476,23 @@ t.extend([3,4])
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::FloatingPoint(2.1)
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::FloatingPoint(2.1)]
                 );
                 assert_eq!(
                     read(interpreter, "c"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "e"),
