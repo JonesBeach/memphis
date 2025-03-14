@@ -1498,6 +1498,14 @@ mod tests {
         };
     }
 
+    macro_rules! tuple {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::Tuple(Tuple::new(vec![
+                $($expr),*
+            ]))
+        };
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
@@ -1833,7 +1841,7 @@ y = _f.__type_params__
                     read(interpreter, "x"),
                     ExprResult::Dict(Container::new(Dict::default()))
                 );
-                assert_eq!(read(interpreter, "y"), ExprResult::Tuple(Tuple::default()));
+                assert_eq!(read(interpreter, "y"), tuple![]);
             }
         }
 
@@ -2690,62 +2698,41 @@ j = 9, 10
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::Tuple(Tuple::new(vec![
+                    tuple![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
-                    ]))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::FloatingPoint(2.1)
-                    ]))
+                    tuple![ExprResult::Integer(1), ExprResult::FloatingPoint(2.1)]
                 );
                 assert_eq!(
                     read(interpreter, "c"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ]))
+                    tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "d"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ]))
+                    tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ]))
+                    tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(1)
-                    ]))
+                    tuple![ExprResult::Integer(0), ExprResult::Integer(1)]
                 );
                 assert!(matches!(
                     read(interpreter, "g"),
                     ExprResult::TupleIterator(_)
                 ));
                 assert_type_class(interpreter, "h", Type::TupleIterator);
-                assert_eq!(
-                    read(interpreter, "i"),
-                    ExprResult::Tuple(Tuple::new(vec![ExprResult::Integer(4),]))
-                );
+                assert_eq!(read(interpreter, "i"), tuple![ExprResult::Integer(4),]);
                 assert_eq!(
                     read(interpreter, "j"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(9),
-                        ExprResult::Integer(10),
-                    ]))
+                    tuple![ExprResult::Integer(9), ExprResult::Integer(10),]
                 );
             }
         }
@@ -3050,10 +3037,7 @@ t = type(slice)
                 );
                 assert_eq!(
                     read(interpreter, "m"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(8),
-                        ExprResult::Integer(9),
-                    ]))
+                    tuple![ExprResult::Integer(8), ExprResult::Integer(9),]
                 );
                 assert_eq!(
                     read(interpreter, "p"),
@@ -4321,10 +4305,7 @@ b = test_kwargs(**first, **second)
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(44),
-                        ExprResult::Integer(55),
-                    ]))
+                    tuple![ExprResult::Integer(44), ExprResult::Integer(55),]
                 );
             }
         }
@@ -4439,7 +4420,7 @@ b = test_args(1, 2)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(read(interpreter, "b"), ExprResult::Tuple(Tuple::default()));
+                assert_eq!(read(interpreter, "b"), tuple![]);
             }
         }
 
@@ -5665,93 +5646,54 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                 assert_eq!(
                     read(interpreter, "d"),
                     list![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
+                        tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
+                        tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
+                        tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
                     ]
                 );
                 assert_eq!(
                     read(interpreter, "e"),
                     list![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
+                        tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
+                        tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
+                        tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
                     ]
                 );
                 assert_eq!(
                     read(interpreter, "f"),
                     list![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(0),
-                            ExprResult::Integer(0),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(1),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(2),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(3),
-                        ])),
+                        tuple![ExprResult::Integer(0), ExprResult::Integer(0),],
+                        tuple![ExprResult::Integer(1), ExprResult::Integer(1),],
+                        tuple![ExprResult::Integer(2), ExprResult::Integer(2),],
+                        tuple![ExprResult::Integer(3), ExprResult::Integer(3),]
                     ]
                 );
                 assert_eq!(
                     read(interpreter, "g"),
                     list![
-                        ExprResult::Tuple(Tuple::new(vec![
+                        tuple![
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
+                        ],
+                        tuple![
                             ExprResult::Integer(1),
                             ExprResult::Integer(1),
                             ExprResult::Integer(1),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
+                        ],
+                        tuple![
                             ExprResult::Integer(2),
                             ExprResult::Integer(2),
                             ExprResult::Integer(2),
-                        ])),
+                        ]
                     ]
                 );
                 assert_eq!(
                     read(interpreter, "h"),
                     list![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
+                        tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
+                        tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
+                        tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
                     ]
                 );
             }
@@ -6543,10 +6485,7 @@ b, c = foo()
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3)
-                    ]))
+                    tuple![ExprResult::Integer(2), ExprResult::Integer(3)]
                 );
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(3));
@@ -6618,10 +6557,7 @@ a = (*l,)
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ]))
+                    tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
             }
         }
