@@ -1671,10 +1671,7 @@ a = type(print)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    read(interpreter, "a").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinFunction)
-                );
+                assert_type_class(interpreter, "a", Type::BuiltinFunction);
             }
         }
     }
@@ -1699,10 +1696,7 @@ for i in iter("abcde"):
                     read(interpreter, "a"),
                     ExprResult::StringIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "b").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::StringIterator)
-                );
+                assert_type_class(interpreter, "b", Type::StringIterator);
             }
         }
     }
@@ -1803,14 +1797,11 @@ y = _f.__type_params__
                     &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
                 );
                 assert!(matches!(read(interpreter, "e"), ExprResult::Generator(_)));
-                assert_eq!(
-                    read(interpreter, "f").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Generator)
-                );
+                assert_type_class(interpreter, "f", Type::Generator);
                 assert!(matches!(read(interpreter, "h"), ExprResult::Coroutine(_)));
                 // I commented this out when we removed Clone from Class.
                 //assert!(matches!(
-                //    read_and_expect(interpreter, "i").as_class().unwrap().borrow(),
+                //    read(interpreter, "i").as_class().unwrap().borrow(),
                 //    Class { name, .. } if name == "coroutine"
                 //));
                 // TODO add support for async generators, which will change the next two assertions
@@ -1820,30 +1811,12 @@ y = _f.__type_params__
                 //    Class { name, .. } if name == "coroutine"
                 //));
                 assert!(matches!(read(interpreter, "m"), ExprResult::Code(_)));
-                assert_eq!(
-                    read(interpreter, "n").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Code)
-                );
-                assert_eq!(
-                    read(interpreter, "o").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::GetSetDescriptor)
-                );
-                assert_eq!(
-                    read(interpreter, "p").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Dict)
-                );
-                assert_eq!(
-                    read(interpreter, "q").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MemberDescriptor)
-                );
-                assert_eq!(
-                    read(interpreter, "r").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::None)
-                );
-                assert_eq!(
-                    read(interpreter, "s").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MemberDescriptor)
-                );
+                assert_type_class(interpreter, "n", Type::Code);
+                assert_type_class(interpreter, "o", Type::GetSetDescriptor);
+                assert_type_class(interpreter, "p", Type::Dict);
+                assert_type_class(interpreter, "q", Type::MemberDescriptor);
+                assert_type_class(interpreter, "r", Type::None);
+                assert_type_class(interpreter, "s", Type::MemberDescriptor);
                 assert_eq!(read(interpreter, "t"), str("__main__"));
                 assert_eq!(
                     read(interpreter, "u"),
@@ -2563,18 +2536,12 @@ t.extend([3,4])
                     read(interpreter, "j"),
                     ExprResult::ListIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "k").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ListIterator)
-                );
+                assert_type_class(interpreter, "k", Type::ListIterator);
                 assert_eq!(read(interpreter, "l"), ExprResult::Integer(1));
                 assert_eq!(read(interpreter, "m"), ExprResult::Integer(5));
                 assert_eq!(read(interpreter, "n"), ExprResult::Integer(0));
                 assert!(matches!(read(interpreter, "o"), ExprResult::Method(_)));
-                assert_eq!(
-                    read(interpreter, "p").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
+                assert_type_class(interpreter, "p", Type::Method);
                 assert_eq!(
                     read(interpreter, "q"),
                     ExprResult::List(Container::new(List::new(vec![
@@ -2696,10 +2663,7 @@ l = {1} <= {2}
                     ExprResult::Set(Container::new(Set::default()))
                 );
                 assert!(matches!(read(interpreter, "i"), ExprResult::SetIterator(_)));
-                assert_eq!(
-                    read(interpreter, "j").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::SetIterator)
-                );
+                assert_type_class(interpreter, "j", Type::SetIterator);
                 assert_eq!(
                     read(interpreter, "new_set"),
                     ExprResult::Set(Container::new(Set::new(HashSet::from([str("five")]))))
@@ -2787,10 +2751,7 @@ j = 9, 10
                     read(interpreter, "g"),
                     ExprResult::TupleIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "h").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::TupleIterator)
-                );
+                assert_type_class(interpreter, "h", Type::TupleIterator);
                 assert_eq!(
                     read(interpreter, "i"),
                     ExprResult::Tuple(Tuple::new(vec![ExprResult::Integer(4),]))
@@ -3013,14 +2974,8 @@ for i in r:
                     read(interpreter, "a"),
                     ExprResult::RangeIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "b").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::RangeIterator)
-                );
-                assert_eq!(
-                    read(interpreter, "c").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Range)
-                );
+                assert_type_class(interpreter, "b", Type::RangeIterator);
+                assert_type_class(interpreter, "c", Type::Range);
                 assert_eq!(read(interpreter, "d"), ExprResult::Integer(3));
                 assert_eq!(read(interpreter, "e"), ExprResult::Integer(6));
             }
@@ -3135,22 +3090,10 @@ t = type(slice)
                         ])
                     )))
                 );
-                assert_eq!(
-                    read(interpreter, "q").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::None)
-                );
-                assert_eq!(
-                    read(interpreter, "r").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Ellipsis)
-                );
-                assert_eq!(
-                    read(interpreter, "s").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::NotImplemented)
-                );
-                assert_eq!(
-                    read(interpreter, "t").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
+                assert_type_class(interpreter, "q", Type::None);
+                assert_type_class(interpreter, "r", Type::Ellipsis);
+                assert_type_class(interpreter, "s", Type::NotImplemented);
+                assert_type_class(interpreter, "t", Type::Type);
             }
         }
     }
@@ -3666,18 +3609,9 @@ f = type(c)
                 assert!(matches!(read(interpreter, "a"), ExprResult::Super(_)));
                 assert!(matches!(read(interpreter, "b"), ExprResult::Super(_)));
                 assert!(matches!(read(interpreter, "c"), ExprResult::Super(_)));
-                assert_eq!(
-                    read(interpreter, "d").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
-                assert_eq!(
-                    read(interpreter, "e").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
-                assert_eq!(
-                    read(interpreter, "f").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
+                assert_type_class(interpreter, "d", Type::Super);
+                assert_type_class(interpreter, "e", Type::Super);
+                assert_type_class(interpreter, "f", Type::Super);
             }
         }
 
@@ -3981,10 +3915,7 @@ w = { key for key, value in a.items() }
                     read(interpreter, "q"),
                     ExprResult::DictItemsIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "r").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictItemIterator)
-                );
+                assert_type_class(interpreter, "r", Type::DictItemIterator);
                 assert_eq!(
                     read(interpreter, "i"),
                     ExprResult::DictKeys(DictKeys::new(vec![]))
@@ -3997,10 +3928,7 @@ w = { key for key, value in a.items() }
                     read(interpreter, "k"),
                     ExprResult::DictKeysIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "l").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictKeyIterator)
-                );
+                assert_type_class(interpreter, "l", Type::DictKeyIterator);
                 assert_eq!(
                     read(interpreter, "m"),
                     ExprResult::DictValues(DictValues::new(vec![]))
@@ -4016,22 +3944,10 @@ w = { key for key, value in a.items() }
                     read(interpreter, "o"),
                     ExprResult::DictValuesIterator(_)
                 ));
-                assert_eq!(
-                    read(interpreter, "p").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictValueIterator)
-                );
-                assert_eq!(
-                    read(interpreter, "s").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictKeys)
-                );
-                assert_eq!(
-                    read(interpreter, "t").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictValues)
-                );
-                assert_eq!(
-                    read(interpreter, "u").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictItems)
-                );
+                assert_type_class(interpreter, "p", Type::DictValueIterator);
+                assert_type_class(interpreter, "s", Type::DictKeys);
+                assert_type_class(interpreter, "t", Type::DictValues);
+                assert_type_class(interpreter, "u", Type::DictItems);
                 assert_eq!(
                     read(interpreter, "v"),
                     ExprResult::List(Container::new(List::new(vec![str("b"), str("c"),])))
@@ -4650,10 +4566,7 @@ b = _cell_factory()[0].cell_contents
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    read(interpreter, "a").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Cell)
-                );
+                assert_type_class(interpreter, "a", Type::Cell);
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
             }
         }
@@ -4675,10 +4588,7 @@ c = len(_cell_factory())
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    read(interpreter, "a").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Cell)
-                );
+                assert_type_class(interpreter, "a", Type::Cell);
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(1));
             }
