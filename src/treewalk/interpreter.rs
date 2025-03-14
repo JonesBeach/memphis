@@ -3811,21 +3811,20 @@ a = Foo.__mro__
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                let mro = interpreter.state.read("a").map(|a| {
-                    a.as_tuple()
-                        .expect("Expected a tuple")
-                        .into_iter()
-                        .map(|i| i.as_class().unwrap().borrow().name().to_string())
-                        .collect::<Vec<String>>()
-                });
+                let mro = read(interpreter, "a")
+                    .as_tuple()
+                    .expect("Expected a tuple")
+                    .into_iter()
+                    .map(|i| i.as_class().unwrap().borrow().name().to_string())
+                    .collect::<Vec<String>>();
                 assert_eq!(
                     mro,
-                    Some(vec![
-                        "Foo".into(),
+                    vec![
+                        "Foo".to_string(),
                         "Bar".into(),
                         "Baz".into(),
                         "object".into()
-                    ])
+                    ]
                 );
             }
         }
@@ -5004,34 +5003,13 @@ m = sys.modules['os.path']
                     read(interpreter, "e"),
                     ExprResult::CPythonClass(_)
                 ));
-                assert_eq!(
-                    interpreter.state.read("f").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("g").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("h").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("i").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Tuple)
-                );
-                assert_eq!(
-                    interpreter.state.read("j").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("k").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("l").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
+                assert_type_class(interpreter, "f", Type::Module);
+                assert_type_class(interpreter, "g", Type::Module);
+                assert_type_class(interpreter, "h", Type::Module);
+                assert_type_class(interpreter, "i", Type::Tuple);
+                assert_type_class(interpreter, "j", Type::Module);
+                assert_type_class(interpreter, "k", Type::Module);
+                assert_type_class(interpreter, "l", Type::Module);
                 assert_eq!(read(interpreter, "m"), str("os_path"));
             }
         }
@@ -5261,12 +5239,7 @@ a = type(iter(b'hello'))
 
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BytesIterator)
-                )
-            }
+            Ok(interpreter) => assert_type_class(interpreter, "a", Type::BytesIterator),
         }
     }
 
@@ -5336,12 +5309,7 @@ a = type(iter(bytearray()))
 
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ByteArrayIterator)
-                )
-            }
+            Ok(interpreter) => assert_type_class(interpreter, "a", Type::ByteArrayIterator),
         }
     }
 
@@ -5405,12 +5373,7 @@ a = type(iter(bytes()))
 
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BytesIterator)
-                )
-            }
+            Ok(interpreter) => assert_type_class(interpreter, "a", Type::BytesIterator),
         }
     }
 
@@ -5644,14 +5607,8 @@ e = [ i for i in reversed([1,2,3]) ]
                     read(interpreter, "b"),
                     ExprResult::ReversedIterator(_)
                 ));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ReversedIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ReversedIterator)
-                );
+                assert_type_class(interpreter, "c", Type::ReversedIterator);
+                assert_type_class(interpreter, "d", Type::ReversedIterator);
                 assert_eq!(
                     read(interpreter, "e"),
                     ExprResult::List(Container::new(List::new(vec![
@@ -5890,10 +5847,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
             Ok(interpreter) => {
                 assert!(matches!(read(interpreter, "a"), ExprResult::Zip(_)));
                 assert!(matches!(read(interpreter, "b"), ExprResult::Zip(_)));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Zip)
-                );
+                assert_type_class(interpreter, "c", Type::Zip);
                 assert_eq!(
                     read(interpreter, "d"),
                     ExprResult::List(Container::new(List::new(vec![
@@ -6017,26 +5971,14 @@ e = type(object().__dict__)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
+                assert_type_class(interpreter, "a", Type::Type);
                 assert!(matches!(
                     read(interpreter, "b"),
                     ExprResult::MappingProxy(_)
                 ));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MappingProxy)
-                );
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Dict)
-                );
+                assert_type_class(interpreter, "c", Type::MappingProxy);
+                assert_type_class(interpreter, "d", Type::BuiltinMethod);
+                assert_type_class(interpreter, "e", Type::Dict);
             }
         }
     }
@@ -6061,10 +6003,7 @@ class MyClass:
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert!(matches!(read(interpreter, "a"), ExprResult::Class(_)));
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
+                assert_type_class(interpreter, "b", Type::Type);
                 assert!(matches!(read(interpreter, "c"), ExprResult::Class(_)));
                 assert!(matches!(read(interpreter, "d"), ExprResult::TypeNode(_)));
                 assert!(matches!(read(interpreter, "e"), ExprResult::TypeNode(_)));
@@ -6387,8 +6326,8 @@ except Exception as e:
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
-                match interpreter.state.read("d") {
-                    Some(ExprResult::Exception(e)) => {
+                match read(interpreter, "d") {
+                    ExprResult::Exception(e) => {
                         test_utils::assert_attribute_error(&*e, "ConcreteImplementation", "run");
                     }
                     _ => panic!("Expected an exception!"),
@@ -6616,10 +6555,7 @@ c = object().__str__
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Object)
-                );
+                assert_type_class(interpreter, "a", Type::Object);
                 assert!(matches!(read(interpreter, "b"), ExprResult::Object(_)));
                 assert!(matches!(read(interpreter, "c"), ExprResult::Method(_)));
             }
@@ -6639,10 +6575,7 @@ d = int('6')
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Int)
-                );
+                assert_type_class(interpreter, "a", Type::Int);
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(0));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
                 assert_eq!(read(interpreter, "d"), ExprResult::Integer(6));
@@ -6687,10 +6620,7 @@ g = type(a)
                 assert!(matches!(read(interpreter, "d"), ExprResult::Method(_)));
                 assert!(matches!(read(interpreter, "e"), ExprResult::Function(_)));
                 assert!(matches!(read(interpreter, "f"), ExprResult::Function(_)));
-                assert_eq!(
-                    interpreter.state.read("g").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
+                assert_type_class(interpreter, "g", Type::Method);
             }
         }
 
@@ -7022,17 +6952,11 @@ r = [2,4,6][:]
                 assert!(matches!(read(interpreter, "j"), ExprResult::Slice(_)));
                 assert!(matches!(read(interpreter, "k"), ExprResult::Slice(_)));
                 assert!(matches!(read(interpreter, "l"), ExprResult::Slice(_)));
-                assert_eq!(
-                    interpreter.state.read("m").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Slice)
-                );
+                assert_type_class(interpreter, "m", Type::Slice);
                 assert_eq!(read(interpreter, "n"), str("h"));
                 assert_eq!(read(interpreter, "o"), str("h"));
                 assert_eq!(read(interpreter, "p"), str("he"));
-                //assert_eq!(
-                //    read(interpreter, "q"),
-                //    str("he")
-                //);
+                //assert_eq!(read(interpreter, "q"), str("he"));
                 assert_eq!(
                     read(interpreter, "r"),
                     ExprResult::List(Container::new(List::new(vec![
@@ -7124,10 +7048,7 @@ f = list(d)
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
                 assert!(matches!(read(interpreter, "d"), ExprResult::Generator(_)));
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Generator)
-                );
+                assert_type_class(interpreter, "e", Type::Generator);
                 assert_eq!(
                     read(interpreter, "f"),
                     ExprResult::List(Container::new(List::new(vec![
