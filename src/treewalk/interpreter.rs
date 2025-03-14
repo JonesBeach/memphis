@@ -3164,31 +3164,29 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "b"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     read(interpreter, "c"),
                     ExprResult::List(Container::new(List::default()))
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(6),
-                    ]))))
+                    read(interpreter, "d"),
+                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(6),])))
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "e"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -3206,12 +3204,12 @@ b = { i * 2 for i in a }
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
+                    read(interpreter, "b"),
+                    ExprResult::Set(Container::new(Set::new(HashSet::from([
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ])))))
+                    ]))))
                 );
             }
         }
@@ -3325,12 +3323,12 @@ z = [ i for i in countdown(5) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "z"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(5),
                         ExprResult::Integer(4),
                         ExprResult::Integer(3)
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -3391,11 +3389,11 @@ a = list(countdown())
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -3426,19 +3424,19 @@ c = [ i for i in countdown(7) ]
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "b"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(3),
                         ExprResult::Integer(2),
                         ExprResult::Integer(1)
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("c"),
@@ -3521,8 +3519,8 @@ class abstractclassmethod(classmethod):
                 // This used to throw an error based on classmethod not yet being a class. This is
                 // found in abc.py in the Python standard lib.
                 assert!(matches!(
-                    interpreter.state.read("abstractclassmethod"),
-                    Some(ExprResult::Class(_))
+                    read(interpreter, "abstractclassmethod"),
+                    ExprResult::Class(_)
                 ));
                 assert_eq!(
                     interpreter
@@ -3659,28 +3657,19 @@ f = type(c)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Super(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Super(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Super(_))
-                ));
+                assert!(matches!(read(interpreter, "a"), ExprResult::Super(_)));
+                assert!(matches!(read(interpreter, "b"), ExprResult::Super(_)));
+                assert!(matches!(read(interpreter, "c"), ExprResult::Super(_)));
                 assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
+                    read(interpreter, "d").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Super)
                 );
                 assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
+                    read(interpreter, "e").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Super)
                 );
                 assert_eq!(
-                    interpreter.state.read("f").unwrap().as_class().unwrap(),
+                    read(interpreter, "f").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Super)
                 );
             }
@@ -3842,8 +3831,8 @@ a = { "b": 4, 'c': 5 }
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "a"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -3855,7 +3844,7 @@ a = { "b": 4, 'c': 5 }
                                 ExprResult::Integer(5)
                             ),
                         ])
-                    ))))
+                    )))
                 );
             }
         }
@@ -3895,8 +3884,8 @@ w = { key for key, value in a.items() }
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "a"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -3908,11 +3897,11 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(5)
                             ),
                         ])
-                    ))))
+                    )))
                 );
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::DictItems(DictItems::new(
+                    read(interpreter, "b"),
+                    ExprResult::DictItems(DictItems::new(
                         interpreter.clone(),
                         vec![
                             (
@@ -3924,11 +3913,11 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(5)
                             ),
                         ]
-                    )))
+                    ))
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "c"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -3940,11 +3929,11 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(10)
                             ),
                         ])
-                    ))))
+                    )))
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "d"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -3956,11 +3945,11 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(5)
                             ),
                         ])
-                    ))))
+                    )))
                 );
                 assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "e"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -3972,7 +3961,7 @@ w = { key for key, value in a.items() }
                                 ExprResult::Integer(5)
                             ),
                         ])
-                    ))))
+                    )))
                 );
                 assert_eq!(read(interpreter, "f"), ExprResult::Integer(4));
                 assert_eq!(
@@ -3984,11 +3973,11 @@ w = { key for key, value in a.items() }
                     ExprResult::DictItems(DictItems::default())
                 );
                 assert!(matches!(
-                    interpreter.state.read("q"),
-                    Some(ExprResult::DictItemsIterator(_))
+                    read(interpreter, "q"),
+                    ExprResult::DictItemsIterator(_)
                 ));
                 assert_eq!(
-                    interpreter.state.read("r").unwrap().as_class().unwrap(),
+                    read(interpreter, "r").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictItemIterator)
                 );
                 assert_eq!(
@@ -3996,18 +3985,15 @@ w = { key for key, value in a.items() }
                     ExprResult::DictKeys(DictKeys::new(vec![]))
                 );
                 assert_eq!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::DictKeys(DictKeys::new(vec![
-                        str("b"),
-                        str("c"),
-                    ])))
+                    read(interpreter, "j"),
+                    ExprResult::DictKeys(DictKeys::new(vec![str("b"), str("c"),]))
                 );
                 assert!(matches!(
-                    interpreter.state.read("k"),
-                    Some(ExprResult::DictKeysIterator(_))
+                    read(interpreter, "k"),
+                    ExprResult::DictKeysIterator(_)
                 ));
                 assert_eq!(
-                    interpreter.state.read("l").unwrap().as_class().unwrap(),
+                    read(interpreter, "l").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictKeyIterator)
                 );
                 assert_eq!(
@@ -4015,45 +4001,42 @@ w = { key for key, value in a.items() }
                     ExprResult::DictValues(DictValues::new(vec![]))
                 );
                 assert_eq!(
-                    interpreter.state.read("n"),
-                    Some(ExprResult::DictValues(DictValues::new(vec![
+                    read(interpreter, "n"),
+                    ExprResult::DictValues(DictValues::new(vec![
                         ExprResult::Integer(4),
                         ExprResult::Integer(5),
-                    ])))
+                    ]))
                 );
                 assert!(matches!(
-                    interpreter.state.read("o"),
-                    Some(ExprResult::DictValuesIterator(_))
+                    read(interpreter, "o"),
+                    ExprResult::DictValuesIterator(_)
                 ));
                 assert_eq!(
-                    interpreter.state.read("p").unwrap().as_class().unwrap(),
+                    read(interpreter, "p").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictValueIterator)
                 );
                 assert_eq!(
-                    interpreter.state.read("s").unwrap().as_class().unwrap(),
+                    read(interpreter, "s").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictKeys)
                 );
                 assert_eq!(
-                    interpreter.state.read("t").unwrap().as_class().unwrap(),
+                    read(interpreter, "t").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictValues)
                 );
                 assert_eq!(
-                    interpreter.state.read("u").unwrap().as_class().unwrap(),
+                    read(interpreter, "u").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::DictItems)
                 );
                 assert_eq!(
-                    interpreter.state.read("v"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "v"),
+                    ExprResult::List(Container::new(List::new(vec![str("b"), str("c"),])))
+                );
+                assert_eq!(
+                    read(interpreter, "w"),
+                    ExprResult::Set(Container::new(Set::new(HashSet::from([
                         str("b"),
                         str("c"),
                     ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("w"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        str("b"),
-                        str("c"),
-                    ])))))
                 );
             }
         }
@@ -4085,8 +4068,8 @@ b = { **a }
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "b"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
                             (
@@ -4098,7 +4081,7 @@ b = { **a }
                                 ExprResult::Integer(5)
                             ),
                         ])
-                    ))))
+                    )))
                 );
             }
         }
@@ -4114,24 +4097,24 @@ c = { **inner, 'key': 'outer' }
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "b"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([(
                             ExprResult::String(Str::new("key".to_string())),
                             ExprResult::String(Str::new("inner".to_string()))
                         ),])
-                    ))))
+                    )))
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
+                    read(interpreter, "c"),
+                    ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([(
                             ExprResult::String(Str::new("key".to_string())),
                             ExprResult::String(Str::new("outer".to_string()))
                         ),])
-                    ))))
+                    )))
                 );
             }
         }
@@ -4307,8 +4290,8 @@ except Exception as e:
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
-                match interpreter.state.read("e") {
-                    Some(ExprResult::Exception(e)) => {
+                match read(interpreter, "e") {
+                    ExprResult::Exception(e) => {
                         test_utils::assert_name_error(&*e, "b");
                     }
                     _ => panic!("Expected an exception!"),
@@ -4444,7 +4427,7 @@ def test_kwargs(**kwargs):
                     kwargs_var: Some("kwargs".into()),
                 };
                 assert!(matches!(
-                    interpreter.state.read("test_kwargs").unwrap().as_function().unwrap().borrow().clone(),
+                    read(interpreter, "test_kwargs").as_function().unwrap().borrow().clone(),
                     Function {
                         name,
                         args,
@@ -4504,11 +4487,11 @@ b = test_kwargs(**first, **second)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
+                    read(interpreter, "b"),
+                    ExprResult::Tuple(Tuple::new(vec![
                         ExprResult::Integer(44),
                         ExprResult::Integer(55),
-                    ])))
+                    ]))
                 );
             }
         }
