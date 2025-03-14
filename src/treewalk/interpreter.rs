@@ -2496,38 +2496,26 @@ t.extend([3,4])
                 );
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(1)
-                    ])))
+                    list![ExprResult::Integer(0), ExprResult::Integer(1)]
                 );
                 assert_eq!(
                     read(interpreter, "g"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2)]
                 );
                 assert_eq!(
                     read(interpreter, "h"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(1),
                         ExprResult::Integer(2)
-                    ])))
+                    ]
                 );
-                assert_eq!(
-                    read(interpreter, "i"),
-                    ExprResult::List(Container::new(List::new(vec![])))
-                );
+                assert_eq!(read(interpreter, "i"), list![]);
                 assert!(matches!(
                     read(interpreter, "j"),
                     ExprResult::ListIterator(_)
@@ -2540,29 +2528,29 @@ t.extend([3,4])
                 assert_type_class(interpreter, "p", Type::Method);
                 assert_eq!(
                     read(interpreter, "q"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
-                    ])))
+                    ]
                 );
                 assert!(matches!(read(interpreter, "s"), ExprResult::Method(_)));
                 assert_eq!(
                     read(interpreter, "r"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(3),
                         ExprResult::Integer(4),
                         ExprResult::Integer(5),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "t"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
                         ExprResult::Integer(4)
-                    ])))
+                    ]
                 );
             }
         }
@@ -2792,11 +2780,11 @@ f = (1,2,3)[1]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(10),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
-                    ])))
+                    ]
                 );
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
                 assert_eq!(read(interpreter, "c"), ExprResult::Integer(2));
@@ -3043,18 +3031,15 @@ t = type(slice)
                 );
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(3),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "g"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(5),
-                    ])))
+                    list![ExprResult::Integer(4), ExprResult::Integer(5),]
                 );
                 assert_eq!(
                     read(interpreter, "j"),
@@ -3104,28 +3089,22 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ])))
+                    ]
                 );
-                assert_eq!(
-                    read(interpreter, "c"),
-                    ExprResult::List(Container::new(List::default()))
-                );
-                assert_eq!(
-                    read(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(6),])))
-                );
+                assert_eq!(read(interpreter, "c"), list![]);
+                assert_eq!(read(interpreter, "d"), list![ExprResult::Integer(6),]);
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
-                    ])))
+                    ]
                 );
             }
         }
@@ -3263,11 +3242,11 @@ z = [ i for i in countdown(5) ]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "z"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(5),
                         ExprResult::Integer(4),
                         ExprResult::Integer(3)
-                    ])))
+                    ]
                 );
             }
         }
@@ -3329,10 +3308,7 @@ a = list(countdown())
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                    ])))
+                    list![ExprResult::Integer(2), ExprResult::Integer(4),]
                 );
             }
         }
@@ -3364,26 +3340,23 @@ c = [ i for i in countdown(7) ]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(6),
-                    ])))
+                    list![ExprResult::Integer(4), ExprResult::Integer(6),]
                 );
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(3),
                         ExprResult::Integer(2),
                         ExprResult::Integer(1)
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "c"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(7),
                         ExprResult::Integer(8),
                         ExprResult::Integer(9)
-                    ])))
+                    ]
                 );
             }
         }
@@ -3902,10 +3875,7 @@ w = { key for key, value in a.items() }
                 assert_type_class(interpreter, "s", Type::DictKeys);
                 assert_type_class(interpreter, "t", Type::DictValues);
                 assert_type_class(interpreter, "u", Type::DictItems);
-                assert_eq!(
-                    read(interpreter, "v"),
-                    ExprResult::List(Container::new(List::new(vec![str("b"), str("c"),])))
-                );
+                assert_eq!(read(interpreter, "v"), list![str("b"), str("c"),]);
                 assert_eq!(
                     read(interpreter, "w"),
                     ExprResult::Set(Container::new(Set::new(HashSet::from([
@@ -4989,10 +4959,7 @@ del a[1]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(2)
-                    ])))
+                    list![ExprResult::Integer(0), ExprResult::Integer(2)]
                 );
             }
         }
@@ -5458,11 +5425,11 @@ e = [ i for i in reversed([1,2,3]) ]
                 assert_type_class(interpreter, "d", Type::ReversedIterator);
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(3),
                         ExprResult::Integer(2),
                         ExprResult::Integer(1),
-                    ])))
+                    ]
                 );
             }
         }
@@ -5697,7 +5664,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                 assert_type_class(interpreter, "c", Type::Zip);
                 assert_eq!(
                     read(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5710,11 +5677,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5727,11 +5694,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
@@ -5748,11 +5715,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(3),
                         ])),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "g"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(0),
                             ExprResult::Integer(0),
@@ -5768,11 +5735,11 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(2),
                             ExprResult::Integer(2),
                         ])),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "h"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Tuple(Tuple::new(vec![
                             ExprResult::Integer(1),
                             ExprResult::Integer(4),
@@ -5785,7 +5752,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                             ExprResult::Integer(3),
                             ExprResult::Integer(6),
                         ])),
-                    ])))
+                    ]
                 );
             }
         }
@@ -6744,58 +6711,43 @@ r = [2,4,6][:]
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "b"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2),]
                 );
                 assert_eq!(
                     read(interpreter, "c"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(8),
                         ExprResult::Integer(9),
                         ExprResult::Integer(10),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(1),
                         ExprResult::Integer(3),
                         ExprResult::Integer(5),
                         ExprResult::Integer(7),
                         ExprResult::Integer(9),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(10),
                         ExprResult::Integer(8),
                         ExprResult::Integer(6),
                         ExprResult::Integer(4),
                         ExprResult::Integer(2),
-                    ])))
+                    ]
                 );
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(4),
-                    ])))
+                    list![ExprResult::Integer(3), ExprResult::Integer(4),]
                 );
-                assert_eq!(
-                    read(interpreter, "g"),
-                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(10),])))
-                );
-                assert_eq!(
-                    read(interpreter, "h"),
-                    ExprResult::List(Container::new(List::new(vec![ExprResult::Integer(1),])))
-                );
-                assert_eq!(
-                    read(interpreter, "i"),
-                    ExprResult::List(Container::new(List::default()))
-                );
+                assert_eq!(read(interpreter, "g"), list![ExprResult::Integer(10),]);
+                assert_eq!(read(interpreter, "h"), list![ExprResult::Integer(1),]);
+                assert_eq!(read(interpreter, "i"), list![]);
                 assert!(matches!(read(interpreter, "j"), ExprResult::Slice(_)));
                 assert!(matches!(read(interpreter, "k"), ExprResult::Slice(_)));
                 assert!(matches!(read(interpreter, "l"), ExprResult::Slice(_)));
@@ -6806,11 +6758,11 @@ r = [2,4,6][:]
                 //assert_eq!(read(interpreter, "q"), str("he"));
                 assert_eq!(
                     read(interpreter, "r"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(2),
                         ExprResult::Integer(4),
                         ExprResult::Integer(6),
-                    ])))
+                    ]
                 );
             }
         }
@@ -6898,12 +6850,12 @@ f = list(d)
                 assert_type_class(interpreter, "e", Type::Generator);
                 assert_eq!(
                     read(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
+                    list![
                         ExprResult::Integer(6),
                         ExprResult::Integer(10),
                         ExprResult::Integer(12),
                         ExprResult::Integer(20),
-                    ])))
+                    ]
                 );
             }
         }
@@ -6939,10 +6891,7 @@ e = frozenset().__contains__
                 assert_type_class(interpreter, "c", Type::FrozenSet);
                 assert_eq!(
                     read(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))
+                    list![ExprResult::Integer(1), ExprResult::Integer(2),]
                 );
                 assert_eq!(read_type(interpreter, "e"), Type::Method);
             }
@@ -7564,10 +7513,7 @@ a = dir(my)
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![str("a"), str("b"),])))
-                );
+                assert_eq!(read(interpreter, "a"), list![str("a"), str("b"),]);
             }
         }
     }
