@@ -1479,6 +1479,13 @@ mod tests {
         ExprResult::String(Str::new(input.to_string()))
     }
 
+    fn assert_type_class(interpreter: &Interpreter, name: &str, type_: Type) {
+        assert_eq!(
+            read(interpreter, name).as_class().unwrap(),
+            interpreter.state.get_type_class(type_)
+        );
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
@@ -7161,10 +7168,7 @@ e = frozenset().__contains__
                     read(interpreter, "b"),
                     ExprResult::FrozenSet(FrozenSet::default())
                 );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::FrozenSet)
-                );
+                assert_type_class(interpreter, "c", Type::FrozenSet);
                 assert_eq!(
                     read(interpreter, "d"),
                     ExprResult::List(Container::new(List::new(vec![
@@ -7496,14 +7500,8 @@ except TypeError as exc:
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Traceback)
-                );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Frame)
-                );
+                assert_type_class(interpreter, "a", Type::Traceback);
+                assert_type_class(interpreter, "b", Type::Frame);
             }
         }
     }
@@ -7744,10 +7742,7 @@ g = complex(4.1, 5.1)
                     read(interpreter, "a"),
                     ExprResult::Complex(Complex::new(4.0, 5.0))
                 );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Complex)
-                );
+                assert_type_class(interpreter, "b", Type::Complex);
                 assert_eq!(
                     read(interpreter, "c"),
                     ExprResult::Complex(Complex::new(0.0, 0.0))
