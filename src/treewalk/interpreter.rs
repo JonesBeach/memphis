@@ -1818,10 +1818,7 @@ y = _f.__type_params__
                 assert_type_class(interpreter, "r", Type::None);
                 assert_type_class(interpreter, "s", Type::MemberDescriptor);
                 assert_eq!(read(interpreter, "t"), str("__main__"));
-                assert_eq!(
-                    read(interpreter, "u"),
-                    ExprResult::String(Str::new("".into()))
-                );
+                assert_eq!(read(interpreter, "u"), str(""));
                 assert_eq!(read(interpreter, "v"), str("_f"));
                 assert_eq!(read(interpreter, "w"), str("_f"));
                 assert_eq!(
@@ -3079,14 +3076,8 @@ t = type(slice)
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(3)
-                            ),
-                            (
-                                ExprResult::String(Str::new("d".to_string())),
-                                ExprResult::Integer(4)
-                            ),
+                            (str("c"), ExprResult::Integer(3)),
+                            (str("d"), ExprResult::Integer(4)),
                         ])
                     )))
                 );
@@ -3774,14 +3765,8 @@ a = { "b": 4, 'c': 5 }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ])
                     )))
                 );
@@ -3827,14 +3812,8 @@ w = { key for key, value in a.items() }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ])
                     )))
                 );
@@ -3843,14 +3822,8 @@ w = { key for key, value in a.items() }
                     ExprResult::DictItems(DictItems::new(
                         interpreter.clone(),
                         vec![
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ]
                     ))
                 );
@@ -3859,14 +3832,8 @@ w = { key for key, value in a.items() }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(8)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(10)
-                            ),
+                            (str("b"), ExprResult::Integer(8)),
+                            (str("c"), ExprResult::Integer(10)),
                         ])
                     )))
                 );
@@ -3875,14 +3842,8 @@ w = { key for key, value in a.items() }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ])
                     )))
                 );
@@ -3891,14 +3852,8 @@ w = { key for key, value in a.items() }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ])
                     )))
                 );
@@ -3993,14 +3948,8 @@ b = { **a }
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
                         HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
+                            (str("b"), ExprResult::Integer(4)),
+                            (str("c"), ExprResult::Integer(5)),
                         ])
                     )))
                 );
@@ -4021,20 +3970,14 @@ c = { **inner, 'key': 'outer' }
                     read(interpreter, "b"),
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
-                        HashMap::from([(
-                            ExprResult::String(Str::new("key".to_string())),
-                            ExprResult::String(Str::new("inner".to_string()))
-                        ),])
+                        HashMap::from([(str("key"), str("inner")),])
                     )))
                 );
                 assert_eq!(
                     read(interpreter, "c"),
                     ExprResult::Dict(Container::new(Dict::new(
                         &interpreter,
-                        HashMap::from([(
-                            ExprResult::String(Str::new("key".to_string())),
-                            ExprResult::String(Str::new("outer".to_string()))
-                        ),])
+                        HashMap::from([(str("key"), str("outer")),])
                     )))
                 );
             }
@@ -7624,10 +7567,7 @@ a = dir(my)
             Ok(interpreter) => {
                 assert_eq!(
                     read(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::String(Str::new("a".to_string())),
-                        ExprResult::String(Str::new("b".to_string())),
-                    ])))
+                    ExprResult::List(Container::new(List::new(vec![str("a"), str("b"),])))
                 );
             }
         }
