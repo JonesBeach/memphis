@@ -1467,8 +1467,12 @@ mod tests {
         Statement::new(1, kind)
     }
 
+    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<ExprResult> {
+        interpreter.state.read(name)
+    }
+
     fn read(interpreter: &Interpreter, name: &str) -> ExprResult {
-        interpreter.state.read(name).expect("Failed to read var")
+        read_optional(interpreter, name).expect("Failed to read var")
     }
 
     fn str(input: &str) -> ExprResult {
@@ -3439,12 +3443,12 @@ c = [ i for i in countdown(7) ]
                     ])))
                 );
                 assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "c"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(7),
                         ExprResult::Integer(8),
                         ExprResult::Integer(9)
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -4646,7 +4650,7 @@ b = _cell_factory()[0].cell_contents
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
+                    read(interpreter, "a").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Cell)
                 );
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
@@ -4671,7 +4675,7 @@ c = len(_cell_factory())
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
+                    read(interpreter, "a").as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Cell)
                 );
                 assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
@@ -4954,53 +4958,44 @@ m = sys.modules['os.path']
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
+                assert!(matches!(read(interpreter, "a"), ExprResult::Integer(_)));
                 assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(_))
+                    read(interpreter, "b"),
+                    ExprResult::FloatingPoint(_)
                 ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::FloatingPoint(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::String(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::String(_))
-                ));
-                match interpreter.state.read("a") {
-                    Some(ExprResult::Integer(a)) => {
+                assert!(matches!(read(interpreter, "c"), ExprResult::String(_)));
+                assert!(matches!(read(interpreter, "d"), ExprResult::String(_)));
+                match read(interpreter, "a") {
+                    ExprResult::Integer(a) => {
                         assert!(a > 0);
                     }
                     _ => panic!("Unexpected type!"),
                 }
-                match interpreter.state.read("b") {
-                    Some(ExprResult::FloatingPoint(b)) => {
+                match read(interpreter, "b") {
+                    ExprResult::FloatingPoint(b) => {
                         assert!(b > 1701281981.0);
                     }
                     _ => panic!("Unexpected type!"),
                 }
-                match interpreter.state.read("c") {
-                    Some(ExprResult::String(c)) => {
+                match read(interpreter, "c") {
+                    ExprResult::String(c) => {
                         assert!(c.len() > 10);
                     }
                     _ => panic!("Unexpected type!"),
                 }
-                match interpreter.state.read("d") {
-                    Some(ExprResult::String(d)) => {
+                match read(interpreter, "d") {
+                    ExprResult::String(d) => {
                         assert!(d.len() > 10);
                     }
                     _ => panic!("Unexpected type!"),
                 }
                 assert!(matches!(
-                    interpreter.state.read("ref"),
-                    Some(ExprResult::CPythonObject(_))
+                    read(interpreter, "ref"),
+                    ExprResult::CPythonObject(_)
                 ));
                 assert!(matches!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::CPythonClass(_))
+                    read(interpreter, "e"),
+                    ExprResult::CPythonClass(_)
                 ));
                 assert_eq!(
                     interpreter.state.read("f").unwrap().as_class().unwrap(),
@@ -5030,7 +5025,7 @@ m = sys.modules['os.path']
                     interpreter.state.read("l").unwrap().as_class().unwrap(),
                     interpreter.state.get_type_class(Type::Module)
                 );
-                assert_eq!(interpreter.state.read("m"), Some(str("os_path")));
+                assert_eq!(read(interpreter, "m"), str("os_path"));
             }
         }
     }
@@ -5133,7 +5128,7 @@ del a
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), None);
+                assert_eq!(read_optional(interpreter, "a"), None);
             }
         }
 
@@ -7220,11 +7215,11 @@ e = frozenset().__contains__
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::FrozenSet(FrozenSet::new(HashSet::from([
+                    read(interpreter, "a"),
+                    ExprResult::FrozenSet(FrozenSet::new(HashSet::from([
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     read(interpreter, "b"),
@@ -7235,11 +7230,11 @@ e = frozenset().__contains__
                     interpreter.state.get_type_class(Type::FrozenSet)
                 );
                 assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "d"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::Integer(1),
                         ExprResult::Integer(2),
-                    ]))))
+                    ])))
                 );
                 assert_eq!(
                     interpreter.state.read("e").unwrap().get_type(),
@@ -7511,10 +7506,7 @@ a = memoryview
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Class(_))
-                ));
+                assert!(matches!(read(interpreter, "a"), ExprResult::Class(_)));
             }
         }
     }
@@ -7693,7 +7685,7 @@ d = c(g)
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "a"), ExprResult::Boolean(true));
                 assert_eq!(read(interpreter, "b"), ExprResult::Boolean(false));
-                let Some(ExprResult::Method(method)) = interpreter.state.read("c") else {
+                let ExprResult::Method(method) = read(interpreter, "c") else {
                     panic!("Expected a method!");
                 };
                 assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
@@ -7776,9 +7768,9 @@ f = obj.my_attr
         match context.run_and_return_interpreter() {
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("default value")));
-                assert_eq!(interpreter.state.read("b"), Some(str("new value")));
-                assert_eq!(interpreter.state.read("c"), Some(str("default value")));
+                assert_eq!(read(interpreter, "a"), str("default value"));
+                assert_eq!(read(interpreter, "b"), str("new value"));
+                assert_eq!(read(interpreter, "c"), str("default value"));
                 assert_eq!(
                     interpreter
                         .state
@@ -7789,8 +7781,8 @@ f = obj.my_attr
                         .name(),
                     "Descriptor"
                 );
-                assert_eq!(interpreter.state.read("e"), Some(str("custom value")));
-                assert_eq!(interpreter.state.read("f"), Some(str("default value")));
+                assert_eq!(read(interpreter, "e"), str("custom value"));
+                assert_eq!(read(interpreter, "f"), str("default value"));
             }
         }
     }
@@ -7886,11 +7878,11 @@ a = dir(my)
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
+                    read(interpreter, "a"),
+                    ExprResult::List(Container::new(List::new(vec![
                         ExprResult::String(Str::new("a".to_string())),
                         ExprResult::String(Str::new("b".to_string())),
-                    ]))))
+                    ])))
                 );
             }
         }
@@ -7924,7 +7916,7 @@ del my['one']
             Err(e) => panic!("Interpreter error: {:?}", e),
             Ok(interpreter) => {
                 assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
-                let my = interpreter.state.read("my").unwrap().as_object().unwrap();
+                let my = read(interpreter, "my").as_object().unwrap();
                 let inner = my.get_member(&interpreter, "inner").unwrap().unwrap();
                 assert_eq!(inner, ExprResult::Dict(Container::new(Dict::default())));
             }
