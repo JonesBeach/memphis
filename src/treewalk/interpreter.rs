@@ -1509,6 +1509,12 @@ mod tests {
         };
     }
 
+    macro_rules! bool {
+        ($val:expr) => {
+            ExprResult::Boolean($val)
+        };
+    }
+
     macro_rules! list {
         ($($expr:expr),* $(,)?) => {
             ExprResult::List(Container::new(List::new(vec![
@@ -1611,68 +1617,68 @@ d = type(str.maketrans)
     #[test]
     fn boolean_operators() {
         let input = "True and False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "True or False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "not (True or False)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "True and not False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "not False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "not True";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
     #[test]
     fn comparison_operators() {
         let input = "2 == 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "2 == 2";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "2 != 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "2 != 2";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "2 > 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "2 < 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "1 <= 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "1 >= 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "4 in range(5)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "4 in range(3)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "4 not in range(5)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "4 not in range(3)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
 
         let input = "4 is None";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate_and_expect(input), bool!(false));
 
         let input = "4 is not None";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate_and_expect(input), bool!(true));
     }
 
     #[test]
@@ -2163,8 +2169,8 @@ f = d != 5.9
         assert_eq!(read(interpreter, "b"), ExprResult::FloatingPoint(3.1425));
         assert_eq!(read(interpreter, "c"), ExprResult::FloatingPoint(6.1));
         assert_eq!(read(interpreter, "d"), ExprResult::FloatingPoint(5.9));
-        assert_eq!(read(interpreter, "e"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "f"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
 
         let input = r#"
 def add(x, y):
@@ -2436,8 +2442,8 @@ l = {1} <= {2}
             read(interpreter, "new_set"),
             ExprResult::Set(Container::new(Set::new(HashSet::from([str("five")]))))
         );
-        assert_eq!(read(interpreter, "k"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "l"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "k"), bool!(true));
+        assert_eq!(read(interpreter, "l"), bool!(false));
 
         let input = "set({1,2,3}, {1,2})";
         let mut context = init(input);
@@ -2553,7 +2559,7 @@ print(b)
 
         assert_eq!(read(interpreter, "b"), int!(20));
         assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 a = {2,4,6,8}
@@ -2570,7 +2576,7 @@ print(b)
 
         assert_eq!(read(interpreter, "b"), int!(20));
         assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 a = (2,4,6,8)
@@ -2587,7 +2593,7 @@ print(b)
 
         assert_eq!(read(interpreter, "b"), int!(20));
         assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 b = 0
@@ -2779,12 +2785,12 @@ g = a != [8,10,9]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "e"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "f"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "g"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(true));
+        assert_eq!(read(interpreter, "g"), bool!(true));
     }
 
     #[test]
@@ -5038,7 +5044,7 @@ c = singleton1 is singleton2
 
         assert_eq!(read(interpreter, "a"), str("First"));
         assert_eq!(read(interpreter, "b"), str("First"));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "c"), bool!(true));
 
         let input = r#"
 class SingletonB:
@@ -5064,7 +5070,7 @@ c = singleton1 is singleton2
 
         assert_eq!(read(interpreter, "a"), str("Second"));
         assert_eq!(read(interpreter, "b"), str("Second"));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "c"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -5788,18 +5794,18 @@ l = isinstance([], (int, Foo))
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "e"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "f"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "g"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "h"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "i"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "j"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "k"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "l"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(false));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
+        assert_eq!(read(interpreter, "j"), bool!(false));
+        assert_eq!(read(interpreter, "k"), bool!(true));
+        assert_eq!(read(interpreter, "l"), bool!(false));
 
         let input = r#"
 isinstance([], (int, 5))
@@ -5838,16 +5844,16 @@ j = issubclass(type, type)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "e"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "f"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "g"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "h"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "i"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "j"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(false));
+        assert_eq!(read(interpreter, "c"), bool!(true));
+        assert_eq!(read(interpreter, "d"), bool!(true));
+        assert_eq!(read(interpreter, "e"), bool!(false));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
+        assert_eq!(read(interpreter, "j"), bool!(true));
 
         let input = r#"
 issubclass([], type)
@@ -5888,15 +5894,15 @@ i = bool(5)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "e"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "f"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "g"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "h"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "i"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
     }
 
     #[test]
@@ -5985,8 +5991,8 @@ a = b = True
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(true));
     }
 
     #[test]
@@ -6003,8 +6009,8 @@ b = f != g
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -6020,8 +6026,8 @@ b = f != g
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -6042,13 +6048,13 @@ d = c(g)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(false));
         let ExprResult::Method(method) = read(interpreter, "c") else {
             panic!("Expected a method!");
         };
         assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
     }
 
     #[test]
@@ -6193,9 +6199,9 @@ c = callable(MyClass)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Boolean(false));
-        assert_eq!(read(interpreter, "b"), ExprResult::Boolean(true));
-        assert_eq!(read(interpreter, "c"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(true));
     }
 
     #[test]
@@ -6285,7 +6291,7 @@ except Exception as e:
             }
             _ => panic!("Unexpected type!"),
         }
-        assert_eq!(read(interpreter, "d"), ExprResult::Boolean(true));
+        assert_eq!(read(interpreter, "d"), bool!(true));
         match read(interpreter, "the_exp") {
             ExprResult::Exception(e) => {
                 test_utils::assert_type_error(&*e, "__hash__ method should return an integer");
