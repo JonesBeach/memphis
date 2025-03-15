@@ -1509,6 +1509,12 @@ mod tests {
         };
     }
 
+    macro_rules! float {
+        ($val:expr) => {
+            ExprResult::FloatingPoint($val)
+        };
+    }
+
     macro_rules! bool {
         ($val:expr) => {
             ExprResult::Boolean($val)
@@ -2173,10 +2179,10 @@ f = d != 5.9
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::FloatingPoint(3.14));
-        assert_eq!(read(interpreter, "b"), ExprResult::FloatingPoint(3.1425));
-        assert_eq!(read(interpreter, "c"), ExprResult::FloatingPoint(6.1));
-        assert_eq!(read(interpreter, "d"), ExprResult::FloatingPoint(5.9));
+        assert_eq!(read(interpreter, "a"), float!(3.14));
+        assert_eq!(read(interpreter, "b"), float!(3.1425));
+        assert_eq!(read(interpreter, "c"), float!(6.1));
+        assert_eq!(read(interpreter, "d"), float!(5.9));
         assert_eq!(read(interpreter, "e"), bool!(true));
         assert_eq!(read(interpreter, "f"), bool!(false));
 
@@ -2189,7 +2195,7 @@ z = add(2.1, 3)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::FloatingPoint(5.1));
+        assert_eq!(read(interpreter, "z"), float!(5.1));
     }
 
     #[test]
@@ -2209,16 +2215,16 @@ j = +(-3)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::FloatingPoint(-3.14));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(-3));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(-1));
-        assert_eq!(read(interpreter, "d"), ExprResult::FloatingPoint(-2e-3));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(-1));
-        assert_eq!(read(interpreter, "f"), ExprResult::Integer(-1));
-        assert_eq!(read(interpreter, "g"), ExprResult::Integer(-3));
-        assert_eq!(read(interpreter, "h"), ExprResult::Integer(-5));
+        assert_eq!(read(interpreter, "a"), float!(-3.14));
+        assert_eq!(read(interpreter, "b"), int!(-3));
+        assert_eq!(read(interpreter, "c"), int!(-1));
+        assert_eq!(read(interpreter, "d"), float!(-2e-3));
+        assert_eq!(read(interpreter, "e"), int!(-1));
+        assert_eq!(read(interpreter, "f"), int!(-1));
+        assert_eq!(read(interpreter, "g"), int!(-3));
+        assert_eq!(read(interpreter, "h"), int!(-5));
         assert_eq!(read(interpreter, "i"), int!(3));
-        assert_eq!(read(interpreter, "j"), ExprResult::Integer(-3));
+        assert_eq!(read(interpreter, "j"), int!(-3));
     }
 
     #[test]
@@ -4554,19 +4560,19 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(0x0010));
+        assert_eq!(read(interpreter, "a"), int!(0x0010));
 
         let input = "a = 0o1010 | 0o0011";
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(0o1011));
+        assert_eq!(read(interpreter, "a"), int!(0o1011));
 
         let input = "a = 0b1010 ^ 0b0011";
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(0b1001));
+        assert_eq!(read(interpreter, "a"), int!(0b1001));
 
         let input = "a = 23 % 5";
         let mut context = init(input);
@@ -4578,7 +4584,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(0b0100));
+        assert_eq!(read(interpreter, "a"), int!(0b0100));
 
         let input = "a = 2 * 3 << 2 + 4 & 205";
         let mut context = init(input);
@@ -4590,7 +4596,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(-11));
+        assert_eq!(read(interpreter, "a"), int!(-11));
 
         let input = "a = ~5.5";
         let mut context = init(input);
