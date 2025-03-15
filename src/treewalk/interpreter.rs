@@ -1454,12 +1454,20 @@ mod tests {
         MemphisContext::from_text(text)
     }
 
-    fn evaluate(text: &str) -> Result<ExprResult, MemphisError> {
+    fn eval(text: &str) -> Result<ExprResult, MemphisError> {
         init(text).evaluate_oneshot()
     }
 
-    fn evaluate_and_expect(text: &str) -> ExprResult {
-        evaluate(text).expect("Failed to evaluate test string!")
+    fn evaluate(text: &str) -> ExprResult {
+        eval(text).expect("Failed to evaluate test string!")
+    }
+
+    fn eval_expect_error(text: &str) -> ExecutionError {
+        match eval(text) {
+            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => return e,
+            Err(_) => panic!("Expected an execution error!"),
+        };
     }
 
     /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
@@ -1468,7 +1476,7 @@ mod tests {
         context.ensure_treewalk()
     }
 
-    fn expect_error<'a>(context: &'a mut MemphisContext) -> ExecutionError {
+    fn run_expect_error<'a>(context: &'a mut MemphisContext) -> ExecutionError {
         match context.run_treewalk() {
             Ok(_) => panic!("Expected an error!"),
             Err(MemphisError::Execution(e)) => return e,
@@ -1549,7 +1557,7 @@ mod tests {
     fn undefined_variable() {
         let input = "x + 1";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_name_error(&e, "x");
     }
@@ -1558,7 +1566,7 @@ mod tests {
     fn division_by_zero() {
         let input = "1 / 0";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(
             &e,
@@ -1569,29 +1577,23 @@ mod tests {
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        assert_eq!(evaluate_and_expect(input), int!(11));
+        assert_eq!(evaluate(input), int!(11));
     }
 
     #[test]
     fn integer_division() {
         let input = "2 // 3";
-        assert_eq!(evaluate_and_expect(input), int!(0));
+        assert_eq!(evaluate(input), int!(0));
 
         let input = "5 // 3";
-        assert_eq!(evaluate_and_expect(input), int!(1));
+        assert_eq!(evaluate(input), int!(1));
 
         let input = "5 // 0";
-        match evaluate(input) {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::DivisionByZero(
-                        "integer division or modulo by zero".to_string(),
-                    ),
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        let e = eval_expect_error(input);
+        test_utils::assert_error_kind(
+            &e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string()),
+        );
     }
 
     #[test]
@@ -1631,68 +1633,68 @@ d = type(str.maketrans)
     #[test]
     fn boolean_operators() {
         let input = "True and False";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "True or False";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not (True or False)";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "True and not False";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not False";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not True";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
     #[test]
     fn comparison_operators() {
         let input = "2 == 1";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "2 == 2";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 != 1";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 != 2";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "2 > 1";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 < 1";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "1 <= 1";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "1 >= 1";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 in range(5)";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 in range(3)";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 not in range(5)";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 not in range(3)";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 is None";
-        assert_eq!(evaluate_and_expect(input), bool!(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 is not None";
-        assert_eq!(evaluate_and_expect(input), bool!(true));
+        assert_eq!(evaluate(input), bool!(true));
     }
 
     #[test]
@@ -2137,7 +2139,7 @@ foo.bar()
         assert_eq!(read(interpreter, "z"), int!(6));
 
         let mut context = init_path("src/fixtures/imports/selective_import_c.py");
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_name_error(&e, "something_third");
 
@@ -2230,7 +2232,7 @@ j = +(-3)
     #[test]
     fn call_stack() {
         let mut context = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         let call_stack = context.ensure_treewalk().state.debug_call_stack();
         test_utils::assert_name_error(&e, "unknown");
@@ -2257,7 +2259,7 @@ j = +(-3)
         assert_eq!(call_stack.get(2).line_number(), 5);
 
         let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         let call_stack = context.ensure_treewalk().state.debug_call_stack();
         test_utils::assert_name_error(&e, "unknown");
@@ -2298,7 +2300,7 @@ b = 10
 c = foo()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         let call_stack = context.ensure_treewalk().state.debug_call_stack();
         test_utils::assert_name_error(&e, "foo");
@@ -2382,7 +2384,7 @@ t.extend([3,4])
 
         let input = "list([1,2,3], [1,2])";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 3 args");
     }
@@ -2430,7 +2432,7 @@ l = {1} <= {2}
 
         let input = "set({1,2,3}, {1,2})";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 3 args");
     }
@@ -2472,7 +2474,7 @@ j = 9, 10
 
         let input = "tuple([1,2,3], [1,2])";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 3 args");
     }
@@ -2503,7 +2505,7 @@ d = (1,2,3)
 d[0] = 10
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "'tuple' object does not support item assignment");
 
@@ -2512,7 +2514,7 @@ d = (1,2,3)
 del d[0]
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "'tuple' object does not support item deletion");
 
@@ -2520,7 +2522,7 @@ del d[0]
 4[1]
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "'int' object is not subscriptable");
     }
@@ -2797,7 +2799,7 @@ c = next(a)
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::StopIteration);
     }
@@ -3012,7 +3014,7 @@ d = ChildTwo().three()
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "ChildTwo", "x");
 
@@ -3414,7 +3416,7 @@ assert True
 assert False
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::AssertionError);
     }
@@ -3607,7 +3609,7 @@ except ValueError:
     a = 2
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(
             &e,
@@ -3621,7 +3623,7 @@ except ZeroDivisionError:
     raise
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(
             &e,
@@ -3737,7 +3739,7 @@ def test_args(one, two):
 b = test_args(0)
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(
             &e,
@@ -3751,7 +3753,7 @@ def test_args(one, two, three):
 b = test_args(0)
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(
             &e,
@@ -3765,7 +3767,7 @@ def test_args(one, two):
 b = test_args(1, 2, 3)
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 3 args");
 
@@ -4011,7 +4013,7 @@ a = f.calculate(2)
 raise TypeError
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error_optional_message(&e, None);
 
@@ -4019,7 +4021,7 @@ raise TypeError
 raise TypeError('type is no good')
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "type is no good");
     }
@@ -4157,7 +4159,7 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
 
@@ -4177,7 +4179,7 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
     }
@@ -4199,7 +4201,7 @@ del a['b']
 c = a['b']
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_key_error(&e, "b");
 
@@ -4222,7 +4224,7 @@ del f.x
 a = f.x
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "Foo", "x");
 
@@ -4235,7 +4237,7 @@ f = Foo()
 del f.bar
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "Foo", "bar");
 
@@ -4311,7 +4313,7 @@ a = bytearray(b'hello')
 a = bytearray('hello')
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "string argument without an encoding");
 
@@ -4357,7 +4359,7 @@ a = bytes(b'hello')
 a = bytes('hello')
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "string argument without an encoding");
 
@@ -4600,7 +4602,7 @@ e = [ i for i in reversed([1,2,3]) ]
 
         let input = "a = ~5.5";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "bad operand type for unary ~: 'float'");
 
@@ -4765,7 +4767,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 f = [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
     }
@@ -4929,7 +4931,7 @@ class Foo:
 b = Foo.make()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "Foo", "val");
 
@@ -4945,7 +4947,7 @@ class Foo:
 b = Foo().make()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "Foo", "val");
     }
@@ -4977,7 +4979,7 @@ class Foo:
 c = Foo().make()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 0 args");
     }
@@ -5238,7 +5240,7 @@ def foo():
 foo()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
 
@@ -5248,7 +5250,7 @@ def foo():
 foo()
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
 
@@ -5256,7 +5258,7 @@ foo()
 nonlocal a
 "#;
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
     }
@@ -5370,7 +5372,7 @@ b = Child.one()
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "one() missing 1 required positional argument: 'self'");
 
@@ -5425,7 +5427,7 @@ b, c = [1, 2, 3]
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_value_error(&e, "too many values to unpack (expected 2)");
 
@@ -5434,7 +5436,7 @@ a, b, c = [2, 3]
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_value_error(&e, "not enough values to unpack (expected 3, got 2)");
 
@@ -5473,7 +5475,7 @@ a = (*5)
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Value after * must be an iterable, not int");
 
@@ -5666,7 +5668,7 @@ e = frozenset().__contains__
 
         let input = "frozenset([1,2,3], [1,2])";
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "Found 3 args");
     }
@@ -5695,7 +5697,7 @@ b = foo()
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(
             &e,
@@ -5730,7 +5732,7 @@ b = getattr(f, 'val_two')
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_attribute_error(&e, "Foo", "val_two");
     }
@@ -5779,7 +5781,7 @@ isinstance([], (int, 5))
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(
             &e,
@@ -5827,7 +5829,7 @@ issubclass([], type)
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(&e, "issubclass() arg 1 must be a class");
 
@@ -5836,7 +5838,7 @@ issubclass(object, [])
 "#;
 
         let mut context = init(input);
-        let e = expect_error(&mut context);
+        let e = run_expect_error(&mut context);
 
         test_utils::assert_type_error(
             &e,
