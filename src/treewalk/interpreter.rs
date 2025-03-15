@@ -1531,6 +1531,14 @@ mod tests {
         };
     }
 
+    macro_rules! set {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::Set(Container::new(Set::new(HashSet::from([
+                $($expr),*
+            ]))))
+        };
+    }
+
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
@@ -2397,51 +2405,20 @@ l = {1} <= {2}
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                int!(1),
-                int!(2),
-                int!(3),
-            ]))))
-        );
+        assert_eq!(read(interpreter, "a"), set![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::FloatingPoint(2.1),
-                int!(1),
-            ]))))
+            set![ExprResult::FloatingPoint(2.1), int!(1),]
         );
-        assert_eq!(
-            read(interpreter, "c"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
-        );
-        assert_eq!(
-            read(interpreter, "d"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
-        );
-        assert_eq!(
-            read(interpreter, "e"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
-        );
-        assert_eq!(
-            read(interpreter, "f"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
-        );
-        assert_eq!(
-            read(interpreter, "g"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(0), int!(1),]))))
-        );
-        assert_eq!(
-            read(interpreter, "h"),
-            ExprResult::Set(Container::new(Set::default()))
-        );
+        assert_eq!(read(interpreter, "c"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "d"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "e"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "f"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "g"), set![int!(0), int!(1),]);
+        assert_eq!(read(interpreter, "h"), set![]);
         assert!(matches!(read(interpreter, "i"), ExprResult::SetIterator(_)));
         assert_type_class(interpreter, "j", Type::SetIterator);
-        assert_eq!(
-            read(interpreter, "new_set"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([str("five")]))))
-        );
+        assert_eq!(read(interpreter, "new_set"), set![str("five")]);
         assert_eq!(read(interpreter, "k"), bool!(true));
         assert_eq!(read(interpreter, "l"), bool!(false));
 
@@ -2712,10 +2689,7 @@ t = type(slice)
         );
         assert_eq!(read(interpreter, "f"), list![int!(1), int!(2), int!(3),]);
         assert_eq!(read(interpreter, "g"), list![int!(4), int!(5),]);
-        assert_eq!(
-            read(interpreter, "j"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(6), int!(7),]))))
-        );
+        assert_eq!(read(interpreter, "j"), set![int!(6), int!(7),]);
         assert_eq!(read(interpreter, "m"), tuple![int!(8), int!(9),]);
         assert_eq!(
             read(interpreter, "p"),
@@ -2760,14 +2734,7 @@ b = { i * 2 for i in a }
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                int!(2),
-                int!(4),
-                int!(6),
-            ]))))
-        );
+        assert_eq!(read(interpreter, "b"), set![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -3375,13 +3342,7 @@ w = { key for key, value in a.items() }
         assert_type_class(interpreter, "t", Type::DictValues);
         assert_type_class(interpreter, "u", Type::DictItems);
         assert_eq!(read(interpreter, "v"), list![str("b"), str("c"),]);
-        assert_eq!(
-            read(interpreter, "w"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                str("b"),
-                str("c"),
-            ]))))
-        );
+        assert_eq!(read(interpreter, "w"), set![str("b"), str("c"),]);
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
