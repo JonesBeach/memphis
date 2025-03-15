@@ -1503,6 +1503,12 @@ mod tests {
         );
     }
 
+    macro_rules! int {
+        ($val:expr) => {
+            ExprResult::Integer($val)
+        };
+    }
+
     macro_rules! list {
         ($($expr:expr),* $(,)?) => {
             ExprResult::List(Container::new(List::new(vec![
@@ -1543,16 +1549,16 @@ mod tests {
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(11));
+        assert_eq!(evaluate_and_expect(input), int!(11));
     }
 
     #[test]
     fn integer_division() {
         let input = "2 // 3";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(0));
+        assert_eq!(evaluate_and_expect(input), int!(0));
 
         let input = "5 // 3";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(1));
+        assert_eq!(evaluate_and_expect(input), int!(1));
 
         let input = "5 // 0";
         match evaluate(input) {
@@ -1578,8 +1584,8 @@ c = None
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(14));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(19));
+        assert_eq!(read(interpreter, "a"), int!(14));
+        assert_eq!(read(interpreter, "b"), int!(19));
         assert_eq!(read(interpreter, "c"), ExprResult::None);
     }
 
@@ -1765,7 +1771,7 @@ y = _f.__type_params__
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
         let b = interpreter
             .state
             .read("b")
@@ -1779,7 +1785,7 @@ y = _f.__type_params__
             body,
             &Ast::new(vec![stmt(StatementKind::Expression(Expr::Integer(4)))])
         );
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "c"), int!(4));
         let d = interpreter
             .state
             .read("d")
@@ -1836,7 +1842,7 @@ a = foo()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(4));
     }
 
     #[test]
@@ -1928,7 +1934,7 @@ else:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "z"), int!(1));
     }
 
     #[test]
@@ -1942,7 +1948,7 @@ while z < 10:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "z"), int!(10));
     }
 
     #[test]
@@ -1983,14 +1989,8 @@ foo = Foo(3)
             ExprResult::Object(o) => o,
             _ => panic!("Expected an object."),
         };
-        assert_eq!(
-            foo.get_member(&interpreter, "y").unwrap(),
-            Some(ExprResult::Integer(3))
-        );
-        assert_eq!(
-            foo.get_member(&interpreter, "x").unwrap(),
-            Some(ExprResult::Integer(0))
-        );
+        assert_eq!(foo.get_member(&interpreter, "y").unwrap(), Some(int!(3)));
+        assert_eq!(foo.get_member(&interpreter, "x").unwrap(), Some(int!(0)));
 
         let input = r#"
 class Foo:
@@ -2017,14 +2017,8 @@ foo = Foo(3)
             ExprResult::Object(o) => o,
             _ => panic!("Expected an object."),
         };
-        assert_eq!(
-            foo.get_member(&interpreter, "y").unwrap(),
-            Some(ExprResult::Integer(3))
-        );
-        assert_eq!(
-            foo.get_member(&interpreter, "x").unwrap(),
-            Some(ExprResult::Integer(0))
-        );
+        assert_eq!(foo.get_member(&interpreter, "y").unwrap(), Some(int!(3)));
+        assert_eq!(foo.get_member(&interpreter, "x").unwrap(), Some(int!(0)));
     }
 
     #[test]
@@ -2049,7 +2043,7 @@ x = foo.bar()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "x"), int!(3));
 
         // Try the same test but with no constructor
         let input = r#"
@@ -2075,14 +2069,8 @@ foo.bar()
         };
 
         // These should be set even when it's not a constructor
-        assert_eq!(
-            foo.get_member(&interpreter, "y").unwrap(),
-            Some(ExprResult::Integer(3))
-        );
-        assert_eq!(
-            foo.get_member(&interpreter, "x").unwrap(),
-            Some(ExprResult::Integer(0))
-        );
+        assert_eq!(foo.get_member(&interpreter, "y").unwrap(), Some(int!(3)));
+        assert_eq!(foo.get_member(&interpreter, "x").unwrap(), Some(int!(0)));
     }
 
     #[test]
@@ -2090,8 +2078,8 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/regular_import.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "y"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "x"), int!(5));
+        assert_eq!(read(interpreter, "y"), int!(6));
         // This previously returned [`Type::Method`], which was an issue with binding
         // classes (as callables) to their module.
         assert_eq!(read(interpreter, "z").get_type(), Type::Type);
@@ -2099,7 +2087,7 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/regular_import_b.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "y"), ExprResult::Integer(7));
+        assert_eq!(read(interpreter, "y"), int!(7));
     }
 
     #[test]
@@ -2107,12 +2095,12 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/relative/main_b.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "x"), int!(2));
 
         let mut context = init_path("src/fixtures/imports/relative/main_c.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "x"), int!(2));
     }
 
     #[test]
@@ -2120,13 +2108,13 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/selective_import_a.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "x"), int!(5));
 
         let mut context = init_path("src/fixtures/imports/selective_import_b.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "y"), ExprResult::Integer(6));
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "y"), int!(6));
+        assert_eq!(read(interpreter, "z"), int!(6));
 
         let mut context = init_path("src/fixtures/imports/selective_import_c.py");
         let e = expect_error(&mut context);
@@ -2136,18 +2124,18 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/selective_import_d.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "z"), int!(8));
 
         let mut context = init_path("src/fixtures/imports/selective_import_e.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "x"), int!(8));
 
         let mut context = init_path("src/fixtures/imports/selective_import_f.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "y"), ExprResult::Integer(6));
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "y"), int!(6));
+        assert_eq!(read(interpreter, "z"), int!(6));
     }
 
     #[test]
@@ -2155,7 +2143,7 @@ foo.bar()
         let mut context = init_path("src/fixtures/imports/relative/main_a.py");
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "x"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "x"), int!(2));
     }
 
     #[test]
@@ -2215,7 +2203,7 @@ j = +(-3)
         assert_eq!(read(interpreter, "f"), ExprResult::Integer(-1));
         assert_eq!(read(interpreter, "g"), ExprResult::Integer(-3));
         assert_eq!(read(interpreter, "h"), ExprResult::Integer(-5));
-        assert_eq!(read(interpreter, "i"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "i"), int!(3));
         assert_eq!(read(interpreter, "j"), ExprResult::Integer(-3));
     }
 
@@ -2339,46 +2327,19 @@ t.extend([3,4])
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-            ]
-        );
+        assert_eq!(read(interpreter, "a"), list![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            list![ExprResult::Integer(1), ExprResult::FloatingPoint(2.1)]
+            list![int!(1), ExprResult::FloatingPoint(2.1)]
         );
-        assert_eq!(
-            read(interpreter, "c"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "d"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "e"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "f"),
-            list![ExprResult::Integer(0), ExprResult::Integer(1)]
-        );
-        assert_eq!(
-            read(interpreter, "g"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
+        assert_eq!(read(interpreter, "c"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "e"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "f"), list![int!(0), int!(1)]);
+        assert_eq!(read(interpreter, "g"), list![int!(1), int!(2)]);
         assert_eq!(
             read(interpreter, "h"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(1),
-                ExprResult::Integer(2)
-            ]
+            list![int!(1), int!(2), int!(1), int!(2)]
         );
         assert_eq!(read(interpreter, "i"), list![]);
         assert!(matches!(
@@ -2386,36 +2347,17 @@ t.extend([3,4])
             ExprResult::ListIterator(_)
         ));
         assert_type_class(interpreter, "k", Type::ListIterator);
-        assert_eq!(read(interpreter, "l"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "m"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "n"), ExprResult::Integer(0));
+        assert_eq!(read(interpreter, "l"), int!(1));
+        assert_eq!(read(interpreter, "m"), int!(5));
+        assert_eq!(read(interpreter, "n"), int!(0));
         assert!(matches!(read(interpreter, "o"), ExprResult::Method(_)));
         assert_type_class(interpreter, "p", Type::Method);
-        assert_eq!(
-            read(interpreter, "q"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-            ]
-        );
+        assert_eq!(read(interpreter, "q"), list![int!(1), int!(2), int!(3),]);
         assert!(matches!(read(interpreter, "s"), ExprResult::Method(_)));
-        assert_eq!(
-            read(interpreter, "r"),
-            list![
-                ExprResult::Integer(3),
-                ExprResult::Integer(4),
-                ExprResult::Integer(5),
-            ]
-        );
+        assert_eq!(read(interpreter, "r"), list![int!(3), int!(4), int!(5),]);
         assert_eq!(
             read(interpreter, "t"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-                ExprResult::Integer(4)
-            ]
+            list![int!(1), int!(2), int!(3), int!(4)]
         );
 
         let input = "list([1,2,3], [1,2])";
@@ -2452,52 +2394,37 @@ l = {1} <= {2}
         assert_eq!(
             read(interpreter, "a"),
             ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
+                int!(1),
+                int!(2),
+                int!(3),
             ]))))
         );
         assert_eq!(
             read(interpreter, "b"),
             ExprResult::Set(Container::new(Set::new(HashSet::from([
                 ExprResult::FloatingPoint(2.1),
-                ExprResult::Integer(1),
+                int!(1),
             ]))))
         );
         assert_eq!(
             read(interpreter, "c"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
         );
         assert_eq!(
             read(interpreter, "d"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
         );
         assert_eq!(
             read(interpreter, "e"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
         );
         assert_eq!(
             read(interpreter, "f"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(1), int!(2),]))))
         );
         assert_eq!(
             read(interpreter, "g"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(0),
-                ExprResult::Integer(1),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(0), int!(1),]))))
         );
         assert_eq!(
             read(interpreter, "h"),
@@ -2537,44 +2464,22 @@ j = 9, 10
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            tuple![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-            ]
-        );
+        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            tuple![ExprResult::Integer(1), ExprResult::FloatingPoint(2.1)]
+            tuple![int!(1), ExprResult::FloatingPoint(2.1)]
         );
-        assert_eq!(
-            read(interpreter, "c"),
-            tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "d"),
-            tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "e"),
-            tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
-        assert_eq!(
-            read(interpreter, "f"),
-            tuple![ExprResult::Integer(0), ExprResult::Integer(1)]
-        );
+        assert_eq!(read(interpreter, "c"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "d"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "e"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "f"), tuple![int!(0), int!(1)]);
         assert!(matches!(
             read(interpreter, "g"),
             ExprResult::TupleIterator(_)
         ));
         assert_type_class(interpreter, "h", Type::TupleIterator);
-        assert_eq!(read(interpreter, "i"), tuple![ExprResult::Integer(4),]);
-        assert_eq!(
-            read(interpreter, "j"),
-            tuple![ExprResult::Integer(9), ExprResult::Integer(10),]
-        );
+        assert_eq!(read(interpreter, "i"), tuple![int!(4),]);
+        assert_eq!(read(interpreter, "j"), tuple![int!(9), int!(10),]);
 
         let input = "tuple([1,2,3], [1,2])";
         let mut context = init(input);
@@ -2598,18 +2503,11 @@ f = (1,2,3)[1]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            list![
-                ExprResult::Integer(10),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-            ]
-        );
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "f"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), list![int!(10), int!(2), int!(3),]);
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "e"), int!(1));
+        assert_eq!(read(interpreter, "f"), int!(2));
 
         let input = r#"
 d = (1,2,3)
@@ -2653,8 +2551,8 @@ print(b)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(20));
-        assert_eq!(read(interpreter, "i"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
         assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
 
         let input = r#"
@@ -2670,8 +2568,8 @@ print(b)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(20));
-        assert_eq!(read(interpreter, "i"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
         assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
 
         let input = r#"
@@ -2687,8 +2585,8 @@ print(b)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(20));
-        assert_eq!(read(interpreter, "i"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
         assert_eq!(read(interpreter, "c"), ExprResult::Boolean(false));
 
         let input = r#"
@@ -2700,7 +2598,7 @@ print(b)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "b"), int!(10));
 
         let input = r#"
 a = {"a": 1,"b": 2}
@@ -2712,7 +2610,7 @@ print(b)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "b"), int!(3));
     }
 
     #[test]
@@ -2741,8 +2639,8 @@ for i in r:
         ));
         assert_type_class(interpreter, "b", Type::RangeIterator);
         assert_type_class(interpreter, "c", Type::Range);
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(3));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "d"), int!(3));
+        assert_eq!(read(interpreter, "e"), int!(6));
     }
 
     #[test]
@@ -2806,37 +2704,18 @@ t = type(slice)
                 .name(),
             "Foo"
         );
-        assert_eq!(
-            read(interpreter, "f"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(3),
-            ]
-        );
-        assert_eq!(
-            read(interpreter, "g"),
-            list![ExprResult::Integer(4), ExprResult::Integer(5),]
-        );
+        assert_eq!(read(interpreter, "f"), list![int!(1), int!(2), int!(3),]);
+        assert_eq!(read(interpreter, "g"), list![int!(4), int!(5),]);
         assert_eq!(
             read(interpreter, "j"),
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(6),
-                ExprResult::Integer(7),
-            ]))))
+            ExprResult::Set(Container::new(Set::new(HashSet::from([int!(6), int!(7),]))))
         );
-        assert_eq!(
-            read(interpreter, "m"),
-            tuple![ExprResult::Integer(8), ExprResult::Integer(9),]
-        );
+        assert_eq!(read(interpreter, "m"), tuple![int!(8), int!(9),]);
         assert_eq!(
             read(interpreter, "p"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("c"), ExprResult::Integer(3)),
-                    (str("d"), ExprResult::Integer(4)),
-                ])
+                HashMap::from([(str("c"), int!(3)), (str("d"), int!(4)),])
             )))
         );
         assert_type_class(interpreter, "q", Type::None);
@@ -2857,24 +2736,12 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            list![
-                ExprResult::Integer(2),
-                ExprResult::Integer(4),
-                ExprResult::Integer(6),
-            ]
-        );
+        assert_eq!(read(interpreter, "b"), list![int!(2), int!(4), int!(6),]);
         assert_eq!(read(interpreter, "c"), list![]);
-        assert_eq!(read(interpreter, "d"), list![ExprResult::Integer(6),]);
+        assert_eq!(read(interpreter, "d"), list![int!(6),]);
         assert_eq!(
             read(interpreter, "e"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-                ExprResult::Integer(2),
-                ExprResult::Integer(4),
-            ]
+            list![int!(1), int!(2), int!(2), int!(4),]
         );
     }
 
@@ -2890,9 +2757,9 @@ b = { i * 2 for i in a }
         assert_eq!(
             read(interpreter, "b"),
             ExprResult::Set(Container::new(Set::new(HashSet::from([
-                ExprResult::Integer(2),
-                ExprResult::Integer(4),
-                ExprResult::Integer(6),
+                int!(2),
+                int!(4),
+                int!(6),
             ]))))
         );
     }
@@ -2937,9 +2804,9 @@ d = next(a)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(4));
+        assert_eq!(read(interpreter, "d"), int!(3));
 
         let input = r#"
 def countdown(n):
@@ -2972,7 +2839,7 @@ for i in countdown(5):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(12));
+        assert_eq!(read(interpreter, "z"), int!(12));
 
         let input = r#"
 def countdown(n):
@@ -2986,14 +2853,7 @@ z = [ i for i in countdown(5) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "z"),
-            list![
-                ExprResult::Integer(5),
-                ExprResult::Integer(4),
-                ExprResult::Integer(3)
-            ]
-        );
+        assert_eq!(read(interpreter, "z"), list![int!(5), int!(4), int!(3)]);
     }
 
     #[test]
@@ -3012,7 +2872,7 @@ for i in countdown(5):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(15));
+        assert_eq!(read(interpreter, "z"), int!(15));
 
         let input = r#"
 def countdown(n):
@@ -3027,7 +2887,7 @@ for i in countdown(5):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "z"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "z"), int!(10));
 
         let input = r#"
 def countdown():
@@ -3040,10 +2900,7 @@ a = list(countdown())
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            list![ExprResult::Integer(2), ExprResult::Integer(4),]
-        );
+        assert_eq!(read(interpreter, "a"), list![int!(2), int!(4),]);
 
         let input = r#"
 def countdown(n):
@@ -3068,26 +2925,9 @@ c = [ i for i in countdown(7) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            list![ExprResult::Integer(4), ExprResult::Integer(6),]
-        );
-        assert_eq!(
-            read(interpreter, "b"),
-            list![
-                ExprResult::Integer(3),
-                ExprResult::Integer(2),
-                ExprResult::Integer(1)
-            ]
-        );
-        assert_eq!(
-            read(interpreter, "c"),
-            list![
-                ExprResult::Integer(7),
-                ExprResult::Integer(8),
-                ExprResult::Integer(9)
-            ]
-        );
+        assert_eq!(read(interpreter, "a"), list![int!(4), int!(6),]);
+        assert_eq!(read(interpreter, "b"), list![int!(3), int!(2), int!(1)]);
+        assert_eq!(read(interpreter, "c"), list![int!(7), int!(8), int!(9)]);
     }
 
     #[test]
@@ -3111,8 +2951,8 @@ b = f.x
 
         assert!(interpreter.state.is_class("Foo"));
         assert!(interpreter.state.is_class("Parent"));
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(12));
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(12));
 
         let input = r#"
 class Parent:
@@ -3135,8 +2975,8 @@ b = f.bar()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(11));
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(11));
 
         let input = r#"
 class abstractclassmethod(classmethod):
@@ -3224,8 +3064,8 @@ e = child_three.one()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(3));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "d"), int!(3));
+        assert_eq!(read(interpreter, "e"), int!(1));
 
         // Test that an attribute defined in a parent's constructor is stored in the child.
         let input = r#"
@@ -3244,7 +3084,7 @@ c = child.three()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "c"), int!(3));
 
         // Check that calls to `super()` return a `Type::Super`.
         let input = r#"
@@ -3295,7 +3135,7 @@ a = child.one()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         // Check that calls to `super()` works in an instance method including references to `self`.
         let input = r#"
@@ -3324,8 +3164,8 @@ b = child.two()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         // Check that calls to `super()` works in a class method.
         let input = r#"
@@ -3346,7 +3186,7 @@ b = child.two()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "b"), int!(2));
 
         // Check that calls to `super()` works in a class method included references to `cls`.
         let input = r#"
@@ -3369,7 +3209,7 @@ b = child.two()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(12));
+        assert_eq!(read(interpreter, "b"), int!(12));
     }
 
     #[test]
@@ -3414,10 +3254,7 @@ a = { "b": 4, 'c': 5 }
             read(interpreter, "a"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ])
+                HashMap::from([(str("b"), int!(4)), (str("c"), int!(5)),])
             )))
         );
 
@@ -3457,53 +3294,38 @@ w = { key for key, value in a.items() }
             read(interpreter, "a"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ])
+                HashMap::from([(str("b"), int!(4)), (str("c"), int!(5)),])
             )))
         );
         assert_eq!(
             read(interpreter, "b"),
             ExprResult::DictItems(DictItems::new(
                 interpreter.clone(),
-                vec![
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ]
+                vec![(str("b"), int!(4)), (str("c"), int!(5)),]
             ))
         );
         assert_eq!(
             read(interpreter, "c"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(8)),
-                    (str("c"), ExprResult::Integer(10)),
-                ])
+                HashMap::from([(str("b"), int!(8)), (str("c"), int!(10)),])
             )))
         );
         assert_eq!(
             read(interpreter, "d"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ])
+                HashMap::from([(str("b"), int!(4)), (str("c"), int!(5)),])
             )))
         );
         assert_eq!(
             read(interpreter, "e"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ])
+                HashMap::from([(str("b"), int!(4)), (str("c"), int!(5)),])
             )))
         );
-        assert_eq!(read(interpreter, "f"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "f"), int!(4));
         assert_eq!(
             read(interpreter, "g"),
             ExprResult::Dict(Container::new(Dict::new(&interpreter, HashMap::new())))
@@ -3536,10 +3358,7 @@ w = { key for key, value in a.items() }
         );
         assert_eq!(
             read(interpreter, "n"),
-            ExprResult::DictValues(DictValues::new(vec![
-                ExprResult::Integer(4),
-                ExprResult::Integer(5),
-            ]))
+            ExprResult::DictValues(DictValues::new(vec![int!(4), int!(5),]))
         );
         assert!(matches!(
             read(interpreter, "o"),
@@ -3567,9 +3386,9 @@ d = a.get("d", 99)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "b"), int!(4));
         assert_eq!(read(interpreter, "c"), ExprResult::None);
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(99));
+        assert_eq!(read(interpreter, "d"), int!(99));
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
@@ -3582,10 +3401,7 @@ b = { **a }
             read(interpreter, "b"),
             ExprResult::Dict(Container::new(Dict::new(
                 &interpreter,
-                HashMap::from([
-                    (str("b"), ExprResult::Integer(4)),
-                    (str("c"), ExprResult::Integer(5)),
-                ])
+                HashMap::from([(str("b"), int!(4)), (str("c"), int!(5)),])
             )))
         );
 
@@ -3643,7 +3459,7 @@ finally:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -3654,7 +3470,7 @@ except:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -3665,7 +3481,7 @@ except:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 try:
@@ -3678,7 +3494,7 @@ finally:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         // TODO should this move to the parser?
         //
@@ -3704,7 +3520,7 @@ except Exception:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -3718,7 +3534,7 @@ except Exception:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -3732,7 +3548,7 @@ except:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -3746,7 +3562,7 @@ except Exception as e:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
         match read(interpreter, "e") {
             ExprResult::Exception(e) => {
                 test_utils::assert_name_error(&*e, "b");
@@ -3764,7 +3580,7 @@ except (ZeroDivisionError, Exception):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -3776,7 +3592,7 @@ except (Exception, ZeroDivisionError):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -3791,7 +3607,7 @@ else:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 try:
@@ -3808,7 +3624,7 @@ finally:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
 
         // Uncaught exception
         let input = r#"
@@ -3875,8 +3691,8 @@ b = test_kwargs(a=5, b=2)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -3889,8 +3705,8 @@ b = test_kwargs(**c)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(4));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -3903,10 +3719,7 @@ b = test_kwargs(**first, **second)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            tuple![ExprResult::Integer(44), ExprResult::Integer(55),]
-        );
+        assert_eq!(read(interpreter, "b"), tuple![int!(44), int!(55),]);
 
         let input = r#"
 def test_args(*args):
@@ -3918,7 +3731,7 @@ b = test_args(*c)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def test_args(*args):
@@ -3930,7 +3743,7 @@ b = test_args(0, 1, *c)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def test_args(one, two, *args):
@@ -3942,7 +3755,7 @@ b = test_args(0, 1, *c)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "b"), int!(3));
 
         let input = r#"
 def test_args(one, two):
@@ -4005,7 +3818,7 @@ a = foo.a
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
     }
 
     #[test]
@@ -4024,7 +3837,7 @@ b = _cell_factory()[0].cell_contents
         let interpreter = run(&mut context);
 
         assert_type_class(interpreter, "a", Type::Cell);
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4042,8 +3855,8 @@ c = len(_cell_factory())
         let interpreter = run(&mut context);
 
         assert_type_class(interpreter, "a", Type::Cell);
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4061,9 +3874,9 @@ c = len(_cell_factory())
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(2));
 
         let input = r#"
 def _cell_factory():
@@ -4080,7 +3893,7 @@ c = len(_cell_factory())
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "c"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4125,9 +3938,9 @@ c = twice_decorated()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(4));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(4));
+        assert_eq!(read(interpreter, "c"), int!(8));
 
         let input = r#"
 def multiply(factor):
@@ -4151,8 +3964,8 @@ b = get_larger_val()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_eq!(read(interpreter, "b"), int!(8));
 
         let input = r#"
 def normalize(func):
@@ -4174,7 +3987,7 @@ a = f.calculate(2)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(14));
+        assert_eq!(read(interpreter, "a"), int!(14));
 
         let input = r#"
 def normalize(base=3):
@@ -4198,7 +4011,7 @@ a = f.calculate(2)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(42));
+        assert_eq!(read(interpreter, "a"), int!(42));
     }
 
     #[test]
@@ -4216,7 +4029,7 @@ a = f.calculate(2)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(18));
+        assert_eq!(read(interpreter, "a"), int!(18));
     }
 
     #[test]
@@ -4353,7 +4166,7 @@ a = cm.a
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 class MyContextManager:
@@ -4424,10 +4237,7 @@ del a[1]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            list![ExprResult::Integer(0), ExprResult::Integer(2)]
-        );
+        assert_eq!(read(interpreter, "a"), list![int!(0), int!(2)]);
 
         let input = r#"
 class Foo:
@@ -4466,7 +4276,7 @@ del a, c
         let interpreter = run(&mut context);
 
         assert_eq!(read_optional(interpreter, "a"), None);
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
         assert_eq!(read_optional(interpreter, "c"), None);
     }
 
@@ -4607,7 +4417,7 @@ a += 1
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 5
@@ -4616,7 +4426,7 @@ a -= 1
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 a = 5
@@ -4625,7 +4435,7 @@ a *= 2
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "a"), int!(10));
 
         let input = r#"
 a = 5
@@ -4634,7 +4444,7 @@ a /= 2
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 0b0101
@@ -4643,7 +4453,7 @@ a &= 0b0100
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 a = 0b0101
@@ -4652,7 +4462,7 @@ a |= 0b1000
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(13));
+        assert_eq!(read(interpreter, "a"), int!(13));
 
         let input = r#"
 a = 0b0101
@@ -4661,7 +4471,7 @@ a ^= 0b0100
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         let input = r#"
 a = 5
@@ -4670,7 +4480,7 @@ a //= 2
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 0b0101
@@ -4679,7 +4489,7 @@ a <<= 1
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "a"), int!(10));
 
         let input = r#"
 a = 0b0101
@@ -4688,7 +4498,7 @@ a >>= 1
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(2));
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 11
@@ -4697,7 +4507,7 @@ a %= 2
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         let input = r#"
 a = 2
@@ -4706,7 +4516,7 @@ a **= 3
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "a"), int!(8));
     }
 
     #[test]
@@ -4730,7 +4540,7 @@ for i in iter([1,2,3]):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "b"), int!(6));
     }
 
     #[test]
@@ -4768,14 +4578,7 @@ e = [ i for i in reversed([1,2,3]) ]
         ));
         assert_type_class(interpreter, "c", Type::ReversedIterator);
         assert_type_class(interpreter, "d", Type::ReversedIterator);
-        assert_eq!(
-            read(interpreter, "e"),
-            list![
-                ExprResult::Integer(3),
-                ExprResult::Integer(2),
-                ExprResult::Integer(1),
-            ]
-        );
+        assert_eq!(read(interpreter, "e"), list![int!(3), int!(2), int!(1),]);
     }
 
     #[test]
@@ -4802,7 +4605,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = "a = 0b0010 << 1";
         let mut context = init(input);
@@ -4814,7 +4617,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(128));
+        assert_eq!(read(interpreter, "a"), int!(128));
 
         let input = "a = ~0b1010";
         let mut context = init(input);
@@ -4836,7 +4639,7 @@ e = [ i for i in reversed([1,2,3]) ]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(512));
+        assert_eq!(read(interpreter, "a"), int!(512));
     }
 
     #[test]
@@ -4851,7 +4654,7 @@ for i in [1,2,3,4,5,6]:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -4863,7 +4666,7 @@ for i in [1,2,3,4,5,6]:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(17));
+        assert_eq!(read(interpreter, "a"), int!(17));
 
         let input = r#"
 a = 0
@@ -4878,7 +4681,7 @@ while i < 6:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -4893,7 +4696,7 @@ while i < 6:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(17));
+        assert_eq!(read(interpreter, "a"), int!(17));
 
         let input = r#"
 a = 0
@@ -4907,7 +4710,7 @@ else:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -4919,7 +4722,7 @@ else:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1024));
+        assert_eq!(read(interpreter, "a"), int!(1024));
     }
 
     #[test]
@@ -4946,54 +4749,42 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
         assert_eq!(
             read(interpreter, "d"),
             list![
-                tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
-                tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
-                tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
             ]
         );
         assert_eq!(
             read(interpreter, "e"),
             list![
-                tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
-                tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
-                tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
             ]
         );
         assert_eq!(
             read(interpreter, "f"),
             list![
-                tuple![ExprResult::Integer(0), ExprResult::Integer(0),],
-                tuple![ExprResult::Integer(1), ExprResult::Integer(1),],
-                tuple![ExprResult::Integer(2), ExprResult::Integer(2),],
-                tuple![ExprResult::Integer(3), ExprResult::Integer(3),]
+                tuple![int!(0), int!(0),],
+                tuple![int!(1), int!(1),],
+                tuple![int!(2), int!(2),],
+                tuple![int!(3), int!(3),]
             ]
         );
         assert_eq!(
             read(interpreter, "g"),
             list![
-                tuple![
-                    ExprResult::Integer(0),
-                    ExprResult::Integer(0),
-                    ExprResult::Integer(0),
-                ],
-                tuple![
-                    ExprResult::Integer(1),
-                    ExprResult::Integer(1),
-                    ExprResult::Integer(1),
-                ],
-                tuple![
-                    ExprResult::Integer(2),
-                    ExprResult::Integer(2),
-                    ExprResult::Integer(2),
-                ]
+                tuple![int!(0), int!(0), int!(0),],
+                tuple![int!(1), int!(1), int!(1),],
+                tuple![int!(2), int!(2), int!(2),]
             ]
         );
         assert_eq!(
             read(interpreter, "h"),
             list![
-                tuple![ExprResult::Integer(1), ExprResult::Integer(4),],
-                tuple![ExprResult::Integer(2), ExprResult::Integer(5),],
-                tuple![ExprResult::Integer(3), ExprResult::Integer(6),]
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
             ]
         );
 
@@ -5067,8 +4858,8 @@ c = Foo.a
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(6));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "b"), int!(6));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         let input = r#"
 class Foo:
@@ -5084,9 +4875,9 @@ d = Foo.a
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(6));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "b"), int!(6));
+        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_eq!(read(interpreter, "d"), int!(6));
     }
 
     #[test]
@@ -5112,7 +4903,7 @@ b = Foo.make()
             ExprResult::Method(_)
         ));
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         let input = r#"
 class Foo:
@@ -5126,8 +4917,8 @@ c = Foo().make()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         let input = r#"
 class Foo:
@@ -5148,10 +4939,10 @@ e = Foo().make()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(10));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(10));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(9));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(10));
+        assert_eq!(read(interpreter, "b"), int!(10));
+        assert_eq!(read(interpreter, "c"), int!(10));
+        assert_eq!(read(interpreter, "d"), int!(9));
+        assert_eq!(read(interpreter, "e"), int!(10));
 
         let input = r#"
 class Foo:
@@ -5200,8 +4991,8 @@ c = Foo().make()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         // Before we explicitly supported static methods, this case used to work. Let's test it to
         // ensure we keep getting an error now.
@@ -5316,8 +5107,8 @@ except Exception as e:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
         match read(interpreter, "d") {
             ExprResult::Exception(e) => {
                 test_utils::assert_attribute_error(&*e, "ConcreteImplementation", "run");
@@ -5345,7 +5136,7 @@ a = ConcreteImplementation.run()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
 
         let input = r#"
 class ABCMeta(type):
@@ -5366,7 +5157,7 @@ a = Coroutine.register()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(33));
+        assert_eq!(read(interpreter, "a"), int!(33));
 
         // The test used to fail when we mistakenly were binding a metalcass call to __new__.
         let input = r#"
@@ -5392,7 +5183,7 @@ a = Coroutine.register()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(33));
+        assert_eq!(read(interpreter, "a"), int!(33));
     }
 
     #[test]
@@ -5416,8 +5207,8 @@ b = global_var_two
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(10));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(9));
+        assert_eq!(read(interpreter, "a"), int!(10));
+        assert_eq!(read(interpreter, "b"), int!(9));
 
         let input = r#"
 def nonlocal_shadow():
@@ -5441,8 +5232,8 @@ b = nonlocal_modified()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(4));
 
         let input = r#"
 def outer():
@@ -5464,7 +5255,7 @@ a = outer()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(20));
+        assert_eq!(read(interpreter, "a"), int!(20));
 
         let input = r#"
 def foo():
@@ -5524,9 +5315,9 @@ d = int('6')
         let interpreter = run(&mut context);
 
         assert_type_class(interpreter, "a", Type::Int);
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(0));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "b"), int!(0));
+        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_eq!(read(interpreter, "d"), int!(6));
     }
 
     #[test]
@@ -5591,11 +5382,11 @@ f = Child.three()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(3));
-        assert_eq!(read(interpreter, "f"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "d"), int!(2));
+        assert_eq!(read(interpreter, "e"), int!(3));
+        assert_eq!(read(interpreter, "f"), int!(3));
 
         let input = r#"
 class Child:
@@ -5634,9 +5425,9 @@ d = Child.two()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(11));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(22));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(22));
+        assert_eq!(read(interpreter, "a"), int!(11));
+        assert_eq!(read(interpreter, "c"), int!(22));
+        assert_eq!(read(interpreter, "d"), int!(22));
     }
 
     #[test]
@@ -5652,12 +5443,9 @@ b, c = foo()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            tuple![ExprResult::Integer(2), ExprResult::Integer(3)]
-        );
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "a"), tuple![int!(2), int!(3)]);
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(3));
 
         let input = r#"
 b, c = [1, 2, 3]
@@ -5687,15 +5475,15 @@ h, i, j = range(1, 4)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "d"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "e"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "f"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "g"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "h"), ExprResult::Integer(1));
-        assert_eq!(read(interpreter, "i"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "j"), ExprResult::Integer(3));
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "d"), int!(1));
+        assert_eq!(read(interpreter, "e"), int!(2));
+        assert_eq!(read(interpreter, "f"), int!(1));
+        assert_eq!(read(interpreter, "g"), int!(2));
+        assert_eq!(read(interpreter, "h"), int!(1));
+        assert_eq!(read(interpreter, "i"), int!(2));
+        assert_eq!(read(interpreter, "j"), int!(3));
 
         let input = r#"
 l = [1,2]
@@ -5705,10 +5493,7 @@ a = (*l,)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            tuple![ExprResult::Integer(1), ExprResult::Integer(2)]
-        );
+        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2)]);
 
         let input = r#"
 a = (*5)
@@ -5749,8 +5534,8 @@ b = 7 if False else 8
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(8));
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(8));
     }
 
     #[test]
@@ -5783,44 +5568,19 @@ r = [2,4,6][:]
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2),]
-        );
-        assert_eq!(
-            read(interpreter, "c"),
-            list![
-                ExprResult::Integer(8),
-                ExprResult::Integer(9),
-                ExprResult::Integer(10),
-            ]
-        );
+        assert_eq!(read(interpreter, "b"), list![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "c"), list![int!(8), int!(9), int!(10),]);
         assert_eq!(
             read(interpreter, "d"),
-            list![
-                ExprResult::Integer(1),
-                ExprResult::Integer(3),
-                ExprResult::Integer(5),
-                ExprResult::Integer(7),
-                ExprResult::Integer(9),
-            ]
+            list![int!(1), int!(3), int!(5), int!(7), int!(9),]
         );
         assert_eq!(
             read(interpreter, "e"),
-            list![
-                ExprResult::Integer(10),
-                ExprResult::Integer(8),
-                ExprResult::Integer(6),
-                ExprResult::Integer(4),
-                ExprResult::Integer(2),
-            ]
+            list![int!(10), int!(8), int!(6), int!(4), int!(2),]
         );
-        assert_eq!(
-            read(interpreter, "f"),
-            list![ExprResult::Integer(3), ExprResult::Integer(4),]
-        );
-        assert_eq!(read(interpreter, "g"), list![ExprResult::Integer(10),]);
-        assert_eq!(read(interpreter, "h"), list![ExprResult::Integer(1),]);
+        assert_eq!(read(interpreter, "f"), list![int!(3), int!(4),]);
+        assert_eq!(read(interpreter, "g"), list![int!(10),]);
+        assert_eq!(read(interpreter, "h"), list![int!(1),]);
         assert_eq!(read(interpreter, "i"), list![]);
         assert!(matches!(read(interpreter, "j"), ExprResult::Slice(_)));
         assert!(matches!(read(interpreter, "k"), ExprResult::Slice(_)));
@@ -5830,14 +5590,7 @@ r = [2,4,6][:]
         assert_eq!(read(interpreter, "o"), str("h"));
         assert_eq!(read(interpreter, "p"), str("he"));
         //assert_eq!(read(interpreter, "q"), str("he"));
-        assert_eq!(
-            read(interpreter, "r"),
-            list![
-                ExprResult::Integer(2),
-                ExprResult::Integer(4),
-                ExprResult::Integer(6),
-            ]
-        );
+        assert_eq!(read(interpreter, "r"), list![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -5857,7 +5610,7 @@ a = Foo().run
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(6));
+        assert_eq!(read(interpreter, "a"), int!(6));
     }
 
     #[test]
@@ -5884,7 +5637,7 @@ c = b['a']
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "c"), int!(4));
     }
 
     #[test]
@@ -5902,18 +5655,13 @@ f = list(d)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(2));
-        assert_eq!(read(interpreter, "c"), ExprResult::Integer(4));
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(4));
         assert!(matches!(read(interpreter, "d"), ExprResult::Generator(_)));
         assert_type_class(interpreter, "e", Type::Generator);
         assert_eq!(
             read(interpreter, "f"),
-            list![
-                ExprResult::Integer(6),
-                ExprResult::Integer(10),
-                ExprResult::Integer(12),
-                ExprResult::Integer(20),
-            ]
+            list![int!(6), int!(10), int!(12), int!(20),]
         );
     }
 
@@ -5933,20 +5681,14 @@ e = frozenset().__contains__
 
         assert_eq!(
             read(interpreter, "a"),
-            ExprResult::FrozenSet(FrozenSet::new(HashSet::from([
-                ExprResult::Integer(1),
-                ExprResult::Integer(2),
-            ])))
+            ExprResult::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
         );
         assert_eq!(
             read(interpreter, "b"),
             ExprResult::FrozenSet(FrozenSet::default())
         );
         assert_type_class(interpreter, "c", Type::FrozenSet);
-        assert_eq!(
-            read(interpreter, "d"),
-            list![ExprResult::Integer(1), ExprResult::Integer(2),]
-        );
+        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2),]);
         assert_eq!(read_type(interpreter, "e"), Type::Method);
 
         let input = "frozenset([1,2,3], [1,2])";
@@ -5969,8 +5711,8 @@ b = foo()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(88));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(99));
+        assert_eq!(read(interpreter, "a"), int!(88));
+        assert_eq!(read(interpreter, "b"), int!(99));
 
         let input = r#"
 def foo(data_one, data_two=None):
@@ -6003,8 +5745,8 @@ b = getattr(f, 'val_two', 33)
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(44));
-        assert_eq!(read(interpreter, "b"), ExprResult::Integer(33));
+        assert_eq!(read(interpreter, "a"), int!(44));
+        assert_eq!(read(interpreter, "b"), int!(33));
 
         let input = r#"
 class Foo:
@@ -6196,7 +5938,7 @@ for number in countdown_from(3, 2):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "sum"), ExprResult::Integer(9));
+        assert_eq!(read(interpreter, "sum"), int!(9));
     }
 
     #[test]
@@ -6329,7 +6071,7 @@ a = obj.attribute
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(44));
+        assert_eq!(read(interpreter, "a"), int!(44));
 
         let input = r#"
 class Descriptor:
@@ -6499,7 +6241,7 @@ del my['one']
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(1));
+        assert_eq!(read(interpreter, "a"), int!(1));
         let my = read(interpreter, "my").as_object().unwrap();
         let inner = my.get_member(&interpreter, "inner").unwrap().unwrap();
         assert_eq!(inner, ExprResult::Dict(Container::new(Dict::default())));
@@ -6530,7 +6272,7 @@ except Exception as e:
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Integer(5));
+        assert_eq!(read(interpreter, "a"), int!(5));
         match read(interpreter, "b") {
             ExprResult::Integer(a) => {
                 assert!(a != 0);
