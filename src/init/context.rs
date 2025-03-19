@@ -90,15 +90,14 @@ impl MemphisContext {
         }
     }
 
-    /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
-    pub fn run_and_return_interpreter(&mut self) -> Result<&Interpreter, MemphisError> {
-        let _ = self.run_treewalk_inner()?;
-        Ok(self.ensure_treewalk())
-    }
-
     /// Run the treewalk interpreter to completion.
-    pub fn run(&mut self) -> Result<ExprResult, MemphisError> {
-        self.run_treewalk_inner()
+    pub fn run_treewalk(&mut self) -> Result<ExprResult, MemphisError> {
+        let mut parser = self.init_parser();
+        let mut interpreter = self.init_interpreter();
+        let result = interpreter.run(&mut parser);
+
+        self.interpreter = Some(interpreter);
+        result
     }
 
     pub fn compile(&mut self) -> Result<CompiledProgram, MemphisError> {
@@ -139,7 +138,7 @@ impl MemphisContext {
     }
 
     pub fn init_parser(&self) -> Parser {
-        Parser::new(self.ensure_lexer().tokens(), self.state.clone())
+        Parser::new(self.ensure_lexer().tokens())
     }
 
     fn init_lexer(&mut self, text: &str) {
@@ -160,15 +159,6 @@ impl MemphisContext {
 
     fn init_vm_interpreter(&self) -> VmInterpreter {
         VmInterpreter::new(self.state.clone())
-    }
-
-    fn run_treewalk_inner(&mut self) -> Result<ExprResult, MemphisError> {
-        let mut parser = self.init_parser();
-        let mut interpreter = self.init_interpreter();
-        let result = interpreter.run(&mut parser);
-
-        self.interpreter = Some(interpreter);
-        result
     }
 
     fn run_vm_inner(&mut self) -> Result<Value, MemphisError> {

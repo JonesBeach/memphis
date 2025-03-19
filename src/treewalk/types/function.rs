@@ -42,17 +42,17 @@ pub struct Code;
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub name: String,
+    name: String,
     pub args: ParsedArgDefinitions,
     pub body: Ast,
     pub module: Container<Module>,
     pub class_context: Option<Container<Class>>,
-    pub line_number: usize,
-    pub decorators: Vec<Expr>,
-    pub is_async: bool,
+    line_number: usize,
+    decorators: Vec<Expr>,
+    is_async: bool,
     pub captured_env: Container<EnvironmentFrame>,
-    pub scope: Scope,
-    pub closure: Closure,
+    scope: Scope,
+    closure: Closure,
 }
 
 impl Typed for Function {

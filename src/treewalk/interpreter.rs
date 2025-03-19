@@ -1198,7 +1198,7 @@ impl Interpreter {
             {
                 if let Some(alias) = &except_clause.alias {
                     self.state
-                        .write(alias, ExprResult::Exception(Box::new(error.clone())));
+                        .write(alias, ExprResult::Exception(error.clone()));
                 }
 
                 match self.evaluate_ast(&except_clause.block) {
@@ -1444,7 +1444,6 @@ mod tests {
         treewalk::types::{
             domain::Type, ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet,
         },
-        types::errors::ParserError,
     };
 
     fn init_path(path: &str) -> MemphisContext {
@@ -1455,83 +1454,201 @@ mod tests {
         MemphisContext::from_text(text)
     }
 
-    fn evaluate(text: &str) -> Result<ExprResult, MemphisError> {
+    fn eval(text: &str) -> Result<ExprResult, MemphisError> {
         init(text).evaluate_oneshot()
     }
 
-    fn evaluate_and_expect(text: &str) -> ExprResult {
-        evaluate(text).expect("Failed to evaluate test string!")
+    fn evaluate(text: &str) -> ExprResult {
+        eval(text).expect("Failed to evaluate test string!")
+    }
+
+    fn eval_expect_error(text: &str) -> ExecutionError {
+        match eval(text) {
+            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => return e,
+            Err(_) => panic!("Expected an execution error!"),
+        };
+    }
+
+    /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
+    fn run<'a>(context: &'a mut MemphisContext) -> &'a Interpreter {
+        let _ = context.run_treewalk().expect("Treewalk evaluation failed!");
+        context.ensure_treewalk()
+    }
+
+    fn run_expect_error<'a>(context: &'a mut MemphisContext) -> ExecutionError {
+        match context.run_treewalk() {
+            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => return e,
+            Err(_) => panic!("Expected an execution error!"),
+        };
     }
 
     fn stmt(kind: StatementKind) -> Statement {
         Statement::new(1, kind)
     }
 
-    fn read_and_expect(interpreter: &Interpreter, name: &str) -> ExprResult {
-        interpreter.state.read(name).expect("Failed to read var")
+    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<ExprResult> {
+        interpreter.state.read(name)
     }
 
-    fn str(input: &str) -> ExprResult {
-        ExprResult::String(Str::new(input.to_string()))
+    fn read(interpreter: &Interpreter, name: &str) -> ExprResult {
+        read_optional(interpreter, name).expect("Failed to read var")
+    }
+
+    fn read_type(interpreter: &Interpreter, name: &str) -> Type {
+        read(interpreter, name).get_type()
+    }
+
+    fn assert_type_class(interpreter: &Interpreter, name: &str, type_: Type) {
+        assert_eq!(
+            read(interpreter, name).as_class().unwrap(),
+            interpreter.state.get_type_class(type_)
+        );
+    }
+
+    macro_rules! assert_type_is {
+        ($interp:expr, $input:expr, $pattern:ident) => {
+            assert!(matches!(read($interp, $input), ExprResult::$pattern(_)));
+        };
+    }
+
+    macro_rules! assert_member_eq {
+        ($interp:expr, $input:expr, $field:expr, $expected:expr) => {
+            assert_eq!(extract_member!($interp, $input, $field), $expected);
+        };
+    }
+
+    macro_rules! extract {
+        ($interp:expr, $input:expr, $variant:ident) => {{
+            match read($interp, $input) {
+                ExprResult::$variant(v) => v,
+                _ => panic!("Expected {}: {}", stringify!($variant), $input),
+            }
+        }};
+    }
+
+    macro_rules! extract_member {
+        ($interp:expr, $input:expr, $field:expr) => {
+            extract!($interp, $input, Object)
+                .get_member($interp, $field)
+                .expect(&format!("Failed to get field: {}", $field))
+                .expect(&format!("Failed to get field: {}", $field))
+        };
+        ($interp:expr, $input:expr, $field:expr, $pattern:ident) => {
+            extract!($interp, $input, $pattern)
+                .get_member($interp, $field)
+                .expect(&format!("Failed to get field: {}", $field))
+                .expect(&format!("Failed to get field: {}", $field))
+        };
+    }
+
+    macro_rules! str {
+        ($input:expr) => {
+            ExprResult::String(Str::new($input.to_string()))
+        };
+    }
+
+    macro_rules! int {
+        ($val:expr) => {
+            ExprResult::Integer($val)
+        };
+    }
+
+    macro_rules! float {
+        ($val:expr) => {
+            ExprResult::FloatingPoint($val)
+        };
+    }
+
+    macro_rules! complex {
+        ($real:expr, $imag:expr) => {
+            ExprResult::Complex(Complex::new($real, $imag))
+        };
+    }
+
+    macro_rules! bool {
+        ($val:expr) => {
+            ExprResult::Boolean($val)
+        };
+    }
+
+    macro_rules! list {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::List(Container::new(List::new(vec![
+                $($expr),*
+            ])))
+        };
+    }
+
+    macro_rules! tuple {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::Tuple(Tuple::new(vec![
+                $($expr),*
+            ]))
+        };
+    }
+
+    macro_rules! set {
+        ($($expr:expr),* $(,)?) => {
+            ExprResult::Set(Container::new(Set::new(HashSet::from([
+                $($expr),*
+            ]))))
+        };
+    }
+
+    macro_rules! dict {
+        ($interp:expr, { $($key:expr => $value:expr),* $(,)? }) => {
+            ExprResult::Dict(Container::new(Dict::new(
+                $interp,
+                vec![
+                    $(($key, $value)),*
+                ].into_iter().collect()
+            )))
+        };
     }
 
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_name_error(&e, "x");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_name_error(&e, "x");
     }
 
     #[test]
     fn division_by_zero() {
         let input = "1 / 0";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::DivisionByZero(
-                        "integer division or modulo by zero".to_string(),
-                    ),
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(
+            &e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string()),
+        );
     }
 
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(11));
+        assert_eq!(evaluate(input), int!(11));
     }
 
     #[test]
     fn integer_division() {
         let input = "2 // 3";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(0));
+        assert_eq!(evaluate(input), int!(0));
 
         let input = "5 // 3";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Integer(1));
+        assert_eq!(evaluate(input), int!(1));
 
         let input = "5 // 0";
-        match evaluate(input) {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::DivisionByZero(
-                        "integer division or modulo by zero".to_string(),
-                    ),
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        let e = eval_expect_error(input);
+        test_utils::assert_error_kind(
+            &e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string()),
+        );
     }
 
     #[test]
@@ -1542,15 +1659,11 @@ b = a + 5
 c = None
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(14));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(19));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::None);
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(14));
+        assert_eq!(read(interpreter, "b"), int!(19));
+        assert_eq!(read(interpreter, "c"), ExprResult::None);
     }
 
     #[test]
@@ -1564,92 +1677,79 @@ c = type(a.join)
 d = type(str.maketrans)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), str("foo"));
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), str!("foo"));
+        assert_type_class(interpreter, "b", Type::BuiltinMethod);
+        assert_type_class(interpreter, "c", Type::Method);
+        assert_type_class(interpreter, "d", Type::BuiltinMethod);
     }
 
     #[test]
     fn boolean_operators() {
         let input = "True and False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "True or False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not (True or False)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "True and not False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not False";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "not True";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
     #[test]
     fn comparison_operators() {
         let input = "2 == 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "2 == 2";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 != 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 != 2";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "2 > 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "2 < 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "1 <= 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "1 >= 1";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 in range(5)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 in range(3)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 not in range(5)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 not in range(3)";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
 
         let input = "4 is None";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(false));
+        assert_eq!(evaluate(input), bool!(false));
 
         let input = "4 is not None";
-        assert_eq!(evaluate_and_expect(input), ExprResult::Boolean(true));
+        assert_eq!(evaluate(input), bool!(true));
     }
 
     #[test]
@@ -1661,16 +1761,9 @@ print(3)
 a = type(print)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinFunction)
-                );
-            }
-        }
+        assert_type_class(interpreter, "a", Type::BuiltinFunction);
     }
 
     #[test]
@@ -1685,20 +1778,10 @@ for i in iter("abcde"):
     print(i)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::StringIterator(_)
-                ));
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::StringIterator)
-                );
-            }
-        }
+        assert_type_is!(interpreter, "a", StringIterator);
+        assert_type_class(interpreter, "b", Type::StringIterator);
     }
 
     #[test]
@@ -1710,19 +1793,9 @@ def foo(a, b):
 foo(2, 3)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                let expected_name = "foo".to_string();
-                assert!(matches!(
-                    interpreter.state.read("foo").unwrap().as_function().unwrap().borrow().clone(),
-                    Function {
-                        name,
-                        ..
-                    } if name == expected_name));
-            }
-        }
+        assert_type_is!(interpreter, "foo", Function);
 
         let input = r#"
 def add(x, y):
@@ -1764,109 +1837,63 @@ x = _f.__annotations__
 y = _f.__type_params__
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                let b = interpreter
-                    .state
-                    .read("b")
-                    .unwrap()
-                    .as_function()
-                    .unwrap()
-                    .borrow()
-                    .clone();
-                let Function { ref body, .. } = b;
-                assert_eq!(
-                    body,
-                    &Ast::new(vec![stmt(StatementKind::Expression(Expr::Integer(4)))])
-                );
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(4));
-                let d = interpreter
-                    .state
-                    .read("d")
-                    .unwrap()
-                    .as_function()
-                    .unwrap()
-                    .borrow()
-                    .clone();
-                let Function { ref body, .. } = d;
-                assert_eq!(
-                    body,
-                    &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
-                );
-                assert!(matches!(
-                    read_and_expect(interpreter, "e"),
-                    ExprResult::Generator(_)
-                ));
-                assert_eq!(
-                    read_and_expect(interpreter, "f").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Generator)
-                );
-                assert!(matches!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::Coroutine(_)
-                ));
-                // I commented this out when we removed Clone from Class.
-                //assert!(matches!(
-                //    read_and_expect(interpreter, "i").as_class().unwrap().borrow(),
-                //    Class { name, .. } if name == "coroutine"
-                //));
-                // TODO add support for async generators, which will change the next two assertions
-                assert!(matches!(
-                    read_and_expect(interpreter, "k"),
-                    ExprResult::Coroutine(_)
-                ));
-                //assert!(matches!(
-                //    read_and_expect(interpreter, "l").as_class().unwrap().borrow().clone(),
-                //    Class { name, .. } if name == "coroutine"
-                //));
-                assert!(matches!(
-                    read_and_expect(interpreter, "m"),
-                    ExprResult::Code(_)
-                ));
-                assert_eq!(
-                    read_and_expect(interpreter, "n").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Code)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "o").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::GetSetDescriptor)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "p").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Dict)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "q").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MemberDescriptor)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "r").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::None)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "s").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MemberDescriptor)
-                );
-                assert_eq!(read_and_expect(interpreter, "t"), str("__main__"));
-                assert_eq!(
-                    read_and_expect(interpreter, "u"),
-                    ExprResult::String(Str::new("".into()))
-                );
-                assert_eq!(read_and_expect(interpreter, "v"), str("_f"));
-                assert_eq!(read_and_expect(interpreter, "w"), str("_f"));
-                assert_eq!(
-                    read_and_expect(interpreter, "x"),
-                    ExprResult::Dict(Container::new(Dict::default()))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "y"),
-                    ExprResult::Tuple(Tuple::default())
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        let b = interpreter
+            .state
+            .read("b")
+            .unwrap()
+            .as_function()
+            .unwrap()
+            .borrow()
+            .clone();
+        let Function { ref body, .. } = b;
+        assert_eq!(
+            body,
+            &Ast::new(vec![stmt(StatementKind::Expression(Expr::Integer(4)))])
+        );
+        assert_eq!(read(interpreter, "c"), int!(4));
+        let d = interpreter
+            .state
+            .read("d")
+            .unwrap()
+            .as_function()
+            .unwrap()
+            .borrow()
+            .clone();
+        let Function { ref body, .. } = d;
+        assert_eq!(
+            body,
+            &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
+        );
+        assert_type_is!(interpreter, "e", Generator);
+        assert_type_class(interpreter, "f", Type::Generator);
+        assert_type_is!(interpreter, "h", Coroutine);
+        // I commented this out when we removed Clone from Class.
+        //assert!(matches!(
+        //    read(interpreter, "i").as_class().unwrap().borrow(),
+        //    Class { name, .. } if name == "coroutine"
+        //));
+        // TODO add support for async generators, which will change the next two assertions
+        assert_type_is!(interpreter, "k", Coroutine);
+        //assert!(matches!(
+        //    read_and_expect(interpreter, "l").as_class().unwrap().borrow().clone(),
+        //    Class { name, .. } if name == "coroutine"
+        //));
+        assert_type_is!(interpreter, "m", Code);
+        assert_type_class(interpreter, "n", Type::Code);
+        assert_type_class(interpreter, "o", Type::GetSetDescriptor);
+        assert_type_class(interpreter, "p", Type::Dict);
+        assert_type_class(interpreter, "q", Type::MemberDescriptor);
+        assert_type_class(interpreter, "r", Type::None);
+        assert_type_class(interpreter, "s", Type::MemberDescriptor);
+        assert_eq!(read(interpreter, "t"), str!("__main__"));
+        assert_eq!(read(interpreter, "u"), str!(""));
+        assert_eq!(read(interpreter, "v"), str!("_f"));
+        assert_eq!(read(interpreter, "w"), str!("_f"));
+        assert_eq!(read(interpreter, "x"), dict!(interpreter, {}));
+        assert_eq!(read(interpreter, "y"), tuple![]);
 
         // Test early return
         let input = r#"
@@ -1878,13 +1905,9 @@ a = foo()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
     }
 
     #[test]
@@ -1900,13 +1923,9 @@ elif y > -20:
     z = "Greater than -20"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than 0"));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), str!("Greater than 0"));
 
         let input = r#"
 z = "Empty"
@@ -1919,13 +1938,9 @@ elif y > -20:
     z = "Greater than -20"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than -10"));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), str!("Greater than -10"));
 
         let input = r#"
 z = "Empty"
@@ -1938,13 +1953,9 @@ elif y > -20:
     z = "Greater than -20"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), str("Greater than -20"));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), str!("Greater than -20"));
 
         let input = r#"
 z = "Empty"
@@ -1957,13 +1968,9 @@ elif y > -20:
     z = "Greater than -20"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), str("Empty"));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), str!("Empty"));
 
         let input = r#"
 z = "Empty"
@@ -1978,13 +1985,9 @@ else:
     z = "Else"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), str("Else"));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), str!("Else"));
 
         let input = r#"
 z = 0
@@ -1994,13 +1997,9 @@ else:
     z = 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(1));
     }
 
     #[test]
@@ -2012,13 +2011,9 @@ while z < 10:
     print("done")
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(10));
     }
 
     #[test]
@@ -2033,13 +2028,9 @@ class Foo:
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(interpreter.state.is_class("Foo"));
-            }
-        }
+        assert!(interpreter.state.is_class("Foo"));
     }
 
     #[test]
@@ -2054,27 +2045,13 @@ foo = Foo(3)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(interpreter.state.is_class("Foo"));
-                assert!(!interpreter.state.is_class("foo"));
+        assert!(interpreter.state.is_class("Foo"));
+        assert!(!interpreter.state.is_class("foo"));
 
-                let foo = match read_and_expect(interpreter, "foo") {
-                    ExprResult::Object(o) => o,
-                    _ => panic!("Expected an object."),
-                };
-                assert_eq!(
-                    foo.get_member(&interpreter, "y").unwrap(),
-                    Some(ExprResult::Integer(3))
-                );
-                assert_eq!(
-                    foo.get_member(&interpreter, "x").unwrap(),
-                    Some(ExprResult::Integer(0))
-                );
-            }
-        }
+        assert_member_eq!(interpreter, "foo", "y", int!(3));
+        assert_member_eq!(interpreter, "foo", "x", int!(0));
 
         let input = r#"
 class Foo:
@@ -2090,29 +2067,15 @@ foo = Foo(3)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(interpreter.state.is_class("Foo"));
-                assert!(!interpreter.state.is_class("foo"));
+        assert!(interpreter.state.is_class("Foo"));
+        assert!(!interpreter.state.is_class("foo"));
 
-                // This should be an object with foo.y == 3 and foo.x == 0 even
-                // when the last line of the constructor did not touch self.
-                let foo = match read_and_expect(interpreter, "foo") {
-                    ExprResult::Object(o) => o,
-                    _ => panic!("Expected an object."),
-                };
-                assert_eq!(
-                    foo.get_member(&interpreter, "y").unwrap(),
-                    Some(ExprResult::Integer(3))
-                );
-                assert_eq!(
-                    foo.get_member(&interpreter, "x").unwrap(),
-                    Some(ExprResult::Integer(0))
-                );
-            }
-        }
+        // This should be an object with foo.y == 3 and foo.x == 0 even
+        // when the last line of the constructor did not touch self.
+        assert_member_eq!(interpreter, "foo", "y", int!(3));
+        assert_member_eq!(interpreter, "foo", "x", int!(0));
     }
 
     #[test]
@@ -2135,13 +2098,9 @@ x = foo.bar()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(3));
 
         // Try the same test but with no constructor
         let input = r#"
@@ -2156,146 +2115,87 @@ foo.bar()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(interpreter.state.is_class("Foo"));
-                assert!(!interpreter.state.is_class("foo"));
+        assert!(interpreter.state.is_class("Foo"));
+        assert!(!interpreter.state.is_class("foo"));
 
-                let foo = match read_and_expect(interpreter, "foo") {
-                    ExprResult::Object(o) => o,
-                    _ => panic!("Expected an object."),
-                };
-
-                // These should be set even when it's not a constructor
-                assert_eq!(
-                    foo.get_member(&interpreter, "y").unwrap(),
-                    Some(ExprResult::Integer(3))
-                );
-                assert_eq!(
-                    foo.get_member(&interpreter, "x").unwrap(),
-                    Some(ExprResult::Integer(0))
-                );
-            }
-        }
+        // These should be set even when it's not a constructor
+        assert_member_eq!(interpreter, "foo", "y", int!(3));
+        assert_member_eq!(interpreter, "foo", "x", int!(0));
     }
 
     #[test]
     fn regular_import() {
         let mut context = init_path("src/fixtures/imports/regular_import.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "y"), ExprResult::Integer(6));
-                // This previously returned [`Type::Method`], which was an issue with binding
-                // classes (as callables) to their module.
-                assert_eq!(read_and_expect(interpreter, "z").get_type(), Type::Type);
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(5));
+        assert_eq!(read(interpreter, "y"), int!(6));
+        // This previously returned [`Type::Method`], which was an issue with binding
+        // classes (as callables) to their module.
+        assert_eq!(read(interpreter, "z").get_type(), Type::Type);
 
         let mut context = init_path("src/fixtures/imports/regular_import_b.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "y"), ExprResult::Integer(7));
-            }
-        }
+        assert_eq!(read(interpreter, "y"), int!(7));
     }
 
     #[test]
     fn regular_import_relative() {
         let mut context = init_path("src/fixtures/imports/relative/main_b.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(2));
 
         let mut context = init_path("src/fixtures/imports/relative/main_c.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(2));
     }
 
     #[test]
     fn selective_import() {
         let mut context = init_path("src/fixtures/imports/selective_import_a.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(5));
 
         let mut context = init_path("src/fixtures/imports/selective_import_b.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "y"), ExprResult::Integer(6));
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "y"), int!(6));
+        assert_eq!(read(interpreter, "z"), int!(6));
 
         let mut context = init_path("src/fixtures/imports/selective_import_c.py");
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_name_error(&e, "something_third");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_name_error(&e, "something_third");
 
         let mut context = init_path("src/fixtures/imports/selective_import_d.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(8));
 
         let mut context = init_path("src/fixtures/imports/selective_import_e.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(8));
 
         let mut context = init_path("src/fixtures/imports/selective_import_f.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "y"), ExprResult::Integer(6));
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "y"), int!(6));
+        assert_eq!(read(interpreter, "z"), int!(6));
     }
 
     #[test]
     fn selective_import_relative() {
         let mut context = init_path("src/fixtures/imports/relative/main_a.py");
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "x"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "x"), int!(2));
     }
 
     #[test]
@@ -2309,33 +2209,14 @@ e = d == 5.9
 f = d != 5.9
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::FloatingPoint(3.14)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::FloatingPoint(3.1425)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::FloatingPoint(6.1)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::FloatingPoint(5.9)
-                );
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), float!(3.14));
+        assert_eq!(read(interpreter, "b"), float!(3.1425));
+        assert_eq!(read(interpreter, "c"), float!(6.1));
+        assert_eq!(read(interpreter, "d"), float!(5.9));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
 
         let input = r#"
 def add(x, y):
@@ -2344,16 +2225,9 @@ def add(x, y):
 z = add(2.1, 3)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "z"),
-                    ExprResult::FloatingPoint(5.1)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "z"), float!(5.1));
     }
 
     #[test]
@@ -2371,95 +2245,77 @@ i = +3
 j = +(-3)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::FloatingPoint(-3.14)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(-3));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(-1));
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::FloatingPoint(-2e-3)
-                );
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(-1));
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(-1));
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Integer(-3));
-                assert_eq!(read_and_expect(interpreter, "h"), ExprResult::Integer(-5));
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(3));
-                assert_eq!(read_and_expect(interpreter, "j"), ExprResult::Integer(-3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), float!(-3.14));
+        assert_eq!(read(interpreter, "b"), int!(-3));
+        assert_eq!(read(interpreter, "c"), int!(-1));
+        assert_eq!(read(interpreter, "d"), float!(-2e-3));
+        assert_eq!(read(interpreter, "e"), int!(-1));
+        assert_eq!(read(interpreter, "f"), int!(-1));
+        assert_eq!(read(interpreter, "g"), int!(-3));
+        assert_eq!(read(interpreter, "h"), int!(-5));
+        assert_eq!(read(interpreter, "i"), int!(3));
+        assert_eq!(read(interpreter, "j"), int!(-3));
     }
 
     #[test]
     fn call_stack() {
         let mut context = init_path("src/fixtures/call_stack/call_stack.py");
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                let call_stack = context.ensure_treewalk().state.debug_call_stack();
-                test_utils::assert_name_error(&e, "unknown");
+        let call_stack = context.ensure_treewalk().state.debug_call_stack();
+        test_utils::assert_name_error(&e, "unknown");
 
-                assert_eq!(call_stack.len(), 3);
-                assert!(call_stack
-                    .get(0)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack.py"));
-                assert!(call_stack
-                    .get(1)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/other.py"));
-                assert!(call_stack
-                    .get(2)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/other.py"));
+        assert_eq!(call_stack.len(), 3);
+        assert!(call_stack
+            .get(0)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack.py"));
+        assert!(call_stack
+            .get(1)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/other.py"));
+        assert!(call_stack
+            .get(2)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/other.py"));
 
-                assert_eq!(call_stack.get(0).name(), "<module>");
-                assert_eq!(call_stack.get(1).name(), "middle_call");
-                assert_eq!(call_stack.get(2).name(), "last_call");
-                assert_eq!(call_stack.get(0).line_number(), 2);
-                assert_eq!(call_stack.get(1).line_number(), 2);
-                assert_eq!(call_stack.get(2).line_number(), 5);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert_eq!(call_stack.get(1).name(), "middle_call");
+        assert_eq!(call_stack.get(2).name(), "last_call");
+        assert_eq!(call_stack.get(0).line_number(), 2);
+        assert_eq!(call_stack.get(1).line_number(), 2);
+        assert_eq!(call_stack.get(2).line_number(), 5);
 
         let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                let call_stack = context.ensure_treewalk().state.debug_call_stack();
-                test_utils::assert_name_error(&e, "unknown");
+        let call_stack = context.ensure_treewalk().state.debug_call_stack();
+        test_utils::assert_name_error(&e, "unknown");
 
-                assert_eq!(call_stack.len(), 3);
-                assert_eq!(call_stack.get(0).name(), "<module>");
-                assert_eq!(call_stack.get(1).name(), "middle_call");
-                assert_eq!(call_stack.get(2).name(), "last_call");
-                assert_eq!(call_stack.get(0).line_number(), 7);
-                assert_eq!(call_stack.get(1).line_number(), 2);
-                assert_eq!(call_stack.get(2).line_number(), 5);
-                assert!(call_stack
-                    .get(0)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(0).file_path_str().starts_with("/"));
-                assert!(call_stack
-                    .get(1)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(1).file_path_str().starts_with("/"));
-                assert!(call_stack
-                    .get(2)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(2).file_path_str().starts_with("/"));
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        assert_eq!(call_stack.len(), 3);
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert_eq!(call_stack.get(1).name(), "middle_call");
+        assert_eq!(call_stack.get(2).name(), "last_call");
+        assert_eq!(call_stack.get(0).line_number(), 7);
+        assert_eq!(call_stack.get(1).line_number(), 2);
+        assert_eq!(call_stack.get(2).line_number(), 5);
+        assert!(call_stack
+            .get(0)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(0).file_path_str().starts_with("/"));
+        assert!(call_stack
+            .get(1)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(1).file_path_str().starts_with("/"));
+        assert!(call_stack
+            .get(2)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(2).file_path_str().starts_with("/"));
 
         let input = r#"
 """
@@ -2474,19 +2330,15 @@ b = 10
 c = foo()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                let call_stack = context.ensure_treewalk().state.debug_call_stack();
-                test_utils::assert_name_error(&e, "foo");
+        let call_stack = context.ensure_treewalk().state.debug_call_stack();
+        test_utils::assert_name_error(&e, "foo");
 
-                assert_eq!(call_stack.len(), 1);
-                assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(0).name(), "<module>");
-                assert_eq!(call_stack.get(0).line_number(), 11);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        assert_eq!(call_stack.len(), 1);
+        assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert_eq!(call_stack.get(0).line_number(), 11);
     }
 
     #[test]
@@ -2525,133 +2377,43 @@ t = [1,2]
 t.extend([3,4])
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::FloatingPoint(2.1)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "e"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(1)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "g"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "i"),
-                    ExprResult::List(Container::new(List::new(vec![])))
-                );
-                assert!(matches!(
-                    read_and_expect(interpreter, "j"),
-                    ExprResult::ListIterator(_)
-                ));
-                assert_eq!(
-                    read_and_expect(interpreter, "k").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ListIterator)
-                );
-                assert_eq!(read_and_expect(interpreter, "l"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "m"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "n"), ExprResult::Integer(0));
-                assert!(matches!(
-                    read_and_expect(interpreter, "o"),
-                    ExprResult::Method(_)
-                ));
-                assert_eq!(
-                    read_and_expect(interpreter, "p").as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "q"),
-                    ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ])))
-                );
-                assert!(matches!(
-                    read_and_expect(interpreter, "s"),
-                    ExprResult::Method(_)
-                ));
-                assert_eq!(
-                    interpreter.state.read("r"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(5),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("t"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(4)
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![int!(1), int!(2), int!(3),]);
+        assert_eq!(
+            read(interpreter, "b"),
+            list![int!(1), ExprResult::FloatingPoint(2.1)]
+        );
+        assert_eq!(read(interpreter, "c"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "e"), list![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "f"), list![int!(0), int!(1)]);
+        assert_eq!(read(interpreter, "g"), list![int!(1), int!(2)]);
+        assert_eq!(
+            read(interpreter, "h"),
+            list![int!(1), int!(2), int!(1), int!(2)]
+        );
+        assert_eq!(read(interpreter, "i"), list![]);
+        assert_type_is!(interpreter, "j", ListIterator);
+        assert_type_class(interpreter, "k", Type::ListIterator);
+        assert_eq!(read(interpreter, "l"), int!(1));
+        assert_eq!(read(interpreter, "m"), int!(5));
+        assert_eq!(read(interpreter, "n"), int!(0));
+        assert_type_is!(interpreter, "o", Method);
+        assert_type_class(interpreter, "p", Type::Method);
+        assert_eq!(read(interpreter, "q"), list![int!(1), int!(2), int!(3),]);
+        assert_type_is!(interpreter, "s", Method);
+        assert_eq!(read(interpreter, "r"), list![int!(3), int!(4), int!(5),]);
+        assert_eq!(
+            read(interpreter, "t"),
+            list![int!(1), int!(2), int!(3), int!(4)]
+        );
 
         let input = "list([1,2,3], [1,2])";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 3 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 3 args");
     }
 
     #[test]
@@ -2676,95 +2438,30 @@ k = {1} <= {1,2}
 l = {1} <= {2}
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::FloatingPoint(2.1),
-                        ExprResult::Integer(1),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(1),
-                    ])))))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::Set(Container::new(Set::default()))
-                );
-                assert!(matches!(
-                    interpreter.state.read("i"),
-                    Some(ExprResult::SetIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("j").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::SetIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("new_set"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        str("five")
-                    ])))))
-                );
-                assert_eq!(read_and_expect(interpreter, "k"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "l"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), set![int!(1), int!(2), int!(3),]);
+        assert_eq!(
+            read(interpreter, "b"),
+            set![ExprResult::FloatingPoint(2.1), int!(1),]
+        );
+        assert_eq!(read(interpreter, "c"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "d"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "e"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "f"), set![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "g"), set![int!(0), int!(1),]);
+        assert_eq!(read(interpreter, "h"), set![]);
+        assert_type_is!(interpreter, "i", SetIterator);
+        assert_type_class(interpreter, "j", Type::SetIterator);
+        assert_eq!(read(interpreter, "new_set"), set![str!("five")]);
+        assert_eq!(read(interpreter, "k"), bool!(true));
+        assert_eq!(read(interpreter, "l"), bool!(false));
 
         let input = "set({1,2,3}, {1,2})";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 3 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 3 args");
     }
 
     #[test]
@@ -2783,84 +2480,27 @@ i = (4,)
 j = 9, 10
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::FloatingPoint(2.1)
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(1)
-                    ])))
-                );
-                assert!(matches!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::TupleIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("h").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::TupleIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("i"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![ExprResult::Integer(4),])))
-                );
-                assert_eq!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(9),
-                        ExprResult::Integer(10),
-                    ])))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2), int!(3),]);
+        assert_eq!(
+            read(interpreter, "b"),
+            tuple![int!(1), ExprResult::FloatingPoint(2.1)]
+        );
+        assert_eq!(read(interpreter, "c"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "d"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "e"), tuple![int!(1), int!(2)]);
+        assert_eq!(read(interpreter, "f"), tuple![int!(0), int!(1)]);
+        assert_type_is!(interpreter, "g", TupleIterator);
+        assert_type_class(interpreter, "h", Type::TupleIterator);
+        assert_eq!(read(interpreter, "i"), tuple![int!(4),]);
+        assert_eq!(read(interpreter, "j"), tuple![int!(9), int!(10),]);
 
         let input = "tuple([1,2,3], [1,2])";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 3 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 3 args");
     }
 
     #[test]
@@ -2876,65 +2516,39 @@ e = d[0]
 f = (1,2,3)[1]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(10),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ]))))
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![int!(10), int!(2), int!(3),]);
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "e"), int!(1));
+        assert_eq!(read(interpreter, "f"), int!(2));
 
         let input = r#"
 d = (1,2,3)
 d[0] = 10
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "'tuple' object does not support item assignment",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "'tuple' object does not support item assignment");
 
         let input = r#"
 d = (1,2,3)
 del d[0]
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "'tuple' object does not support item deletion");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "'tuple' object does not support item deletion");
 
         let input = r#"
 4[1]
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "'int' object is not subscriptable");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "'int' object is not subscriptable");
     }
 
     #[test]
@@ -2950,18 +2564,11 @@ for i in a:
 print(b)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 a = {2,4,6,8}
@@ -2974,18 +2581,11 @@ for i in a:
 print(b)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 a = (2,4,6,8)
@@ -2998,18 +2598,11 @@ for i in a:
 print(b)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(20));
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(8));
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(20));
+        assert_eq!(read(interpreter, "i"), int!(8));
+        assert_eq!(read(interpreter, "c"), bool!(false));
 
         let input = r#"
 b = 0
@@ -3018,13 +2611,9 @@ for i in range(5):
 print(b)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(10));
 
         let input = r#"
 a = {"a": 1,"b": 2}
@@ -3034,13 +2623,9 @@ for k, v in a.items():
 print(b)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(3));
     }
 
     #[test]
@@ -3061,26 +2646,13 @@ for i in r:
     e += i
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::RangeIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::RangeIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Range)
-                );
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(3));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(6));
-            }
-        }
+        assert_type_is!(interpreter, "a", RangeIterator);
+        assert_type_class(interpreter, "b", Type::RangeIterator);
+        assert_type_class(interpreter, "c", Type::Range);
+        assert_eq!(read(interpreter, "d"), int!(3));
+        assert_eq!(read(interpreter, "e"), int!(6));
     }
 
     #[test]
@@ -3118,97 +2690,44 @@ s = type(NotImplemented)
 t = type(slice)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter
-                        .state
-                        .read("b")
-                        .unwrap()
-                        .as_class()
-                        .unwrap()
-                        .borrow()
-                        .name(),
-                    "Foo"
-                );
-                assert_eq!(
-                    interpreter
-                        .state
-                        .read("c")
-                        .unwrap()
-                        .as_object()
-                        .unwrap()
-                        .borrow()
-                        .class
-                        .borrow()
-                        .name(),
-                    "Foo"
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(5),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(6),
-                        ExprResult::Integer(7),
-                    ])))))
-                );
-                assert_eq!(
-                    interpreter.state.read("m"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(8),
-                        ExprResult::Integer(9),
-                    ])))
-                );
-                assert_eq!(
-                    interpreter.state.read("p"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(3)
-                            ),
-                            (
-                                ExprResult::String(Str::new("d".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                        ])
-                    ))))
-                );
-                assert_eq!(
-                    interpreter.state.read("q").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::None)
-                );
-                assert_eq!(
-                    interpreter.state.read("r").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Ellipsis)
-                );
-                assert_eq!(
-                    interpreter.state.read("s").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::NotImplemented)
-                );
-                assert_eq!(
-                    interpreter.state.read("t").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
-            }
-        }
+        assert_eq!(
+            interpreter
+                .state
+                .read("b")
+                .unwrap()
+                .as_class()
+                .unwrap()
+                .borrow()
+                .name(),
+            "Foo"
+        );
+        assert_eq!(
+            interpreter
+                .state
+                .read("c")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .borrow()
+                .class
+                .borrow()
+                .name(),
+            "Foo"
+        );
+        assert_eq!(read(interpreter, "f"), list![int!(1), int!(2), int!(3),]);
+        assert_eq!(read(interpreter, "g"), list![int!(4), int!(5),]);
+        assert_eq!(read(interpreter, "j"), set![int!(6), int!(7),]);
+        assert_eq!(read(interpreter, "m"), tuple![int!(8), int!(9),]);
+        assert_eq!(
+            read(interpreter, "p"),
+            dict!(interpreter, { str!("c") => int!(3), str!("d") => int!(4) })
+        );
+        assert_type_class(interpreter, "q", Type::None);
+        assert_type_class(interpreter, "r", Type::Ellipsis);
+        assert_type_class(interpreter, "s", Type::NotImplemented);
+        assert_type_class(interpreter, "t", Type::Type);
     }
 
     #[test]
@@ -3221,39 +2740,15 @@ d = [ j * 2 for j in a if j > 2 ]
 e = [x * y for x in range(1,3) for y in range(1,3)]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(6),
-                    ]))))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::List(Container::new(List::default()))
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(6),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), list![int!(2), int!(4), int!(6),]);
+        assert_eq!(read(interpreter, "c"), list![]);
+        assert_eq!(read(interpreter, "d"), list![int!(6),]);
+        assert_eq!(
+            read(interpreter, "e"),
+            list![int!(1), int!(2), int!(2), int!(4),]
+        );
     }
 
     #[test]
@@ -3263,20 +2758,9 @@ a = [1,2,3]
 b = { i * 2 for i in a }
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(6),
-                    ])))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), set![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -3292,24 +2776,14 @@ g = a != [8,10,9]
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(true));
+        assert_eq!(read(interpreter, "g"), bool!(true));
     }
 
     #[test]
@@ -3327,15 +2801,11 @@ d = next(a)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(4));
+        assert_eq!(read(interpreter, "d"), int!(3));
 
         let input = r#"
 def countdown(n):
@@ -3347,13 +2817,9 @@ c = next(a)
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::StopIteration);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::StopIteration);
     }
 
     #[test]
@@ -3370,13 +2836,9 @@ for i in countdown(5):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(12));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(12));
 
         let input = r#"
 def countdown(n):
@@ -3388,20 +2850,9 @@ z = [ i for i in countdown(5) ]
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("z"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(5),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(3)
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "z"), list![int!(5), int!(4), int!(3)]);
     }
 
     #[test]
@@ -3418,13 +2869,9 @@ for i in countdown(5):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(15));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(15));
 
         let input = r#"
 def countdown(n):
@@ -3437,13 +2884,9 @@ for i in countdown(5):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "z"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "z"), int!(10));
 
         let input = r#"
 def countdown():
@@ -3454,19 +2897,9 @@ a = list(countdown())
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![int!(2), int!(4),]);
 
         let input = r#"
 def countdown(n):
@@ -3489,35 +2922,11 @@ c = [ i for i in countdown(7) ]
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(6),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(1)
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(7),
-                        ExprResult::Integer(8),
-                        ExprResult::Integer(9)
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![int!(4), int!(6),]);
+        assert_eq!(read(interpreter, "b"), list![int!(3), int!(2), int!(1)]);
+        assert_eq!(read(interpreter, "c"), list![int!(7), int!(8), int!(9)]);
     }
 
     #[test]
@@ -3537,16 +2946,12 @@ b = f.x
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(interpreter.state.is_class("Foo"));
-                assert!(interpreter.state.is_class("Parent"));
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(12));
-            }
-        }
+        assert!(interpreter.state.is_class("Foo"));
+        assert!(interpreter.state.is_class("Parent"));
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(12));
 
         let input = r#"
 class Parent:
@@ -3567,14 +2972,10 @@ b = f.bar()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(11));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(11));
 
         let input = r#"
 class abstractclassmethod(classmethod):
@@ -3582,32 +2983,25 @@ class abstractclassmethod(classmethod):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                // This used to throw an error based on classmethod not yet being a class. This is
-                // found in abc.py in the Python standard lib.
-                assert!(matches!(
-                    interpreter.state.read("abstractclassmethod"),
-                    Some(ExprResult::Class(_))
-                ));
-                assert_eq!(
-                    interpreter
-                        .state
-                        .read("abstractclassmethod")
-                        .unwrap()
-                        .as_class()
-                        .unwrap()
-                        .super_mro()
-                        .first()
-                        .unwrap()
-                        .borrow()
-                        .name(),
-                    "classmethod"
-                );
-            }
-        }
+        // This used to throw an error based on classmethod not yet being a class. This is
+        // found in abc.py in the Python standard lib.
+        assert_type_is!(interpreter, "abstractclassmethod", Class);
+        assert_eq!(
+            interpreter
+                .state
+                .read("abstractclassmethod")
+                .unwrap()
+                .as_class()
+                .unwrap()
+                .super_mro()
+                .first()
+                .unwrap()
+                .borrow()
+                .name(),
+            "classmethod"
+        );
     }
 
     #[test]
@@ -3635,13 +3029,9 @@ d = ChildTwo().three()
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "ChildTwo", "x");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "ChildTwo", "x");
 
         // Test that multiple levels of a hierarchy can be traversed.
         let input = r#"
@@ -3668,14 +3058,10 @@ e = child_three.one()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(3));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "d"), int!(3));
+        assert_eq!(read(interpreter, "e"), int!(1));
 
         // Test that an attribute defined in a parent's constructor is stored in the child.
         let input = r#"
@@ -3692,13 +3078,9 @@ c = child.three()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "c"), int!(3));
 
         // Check that calls to `super()` return a `Type::Super`.
         let input = r#"
@@ -3723,36 +3105,14 @@ f = type(c)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Super(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Super(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Super(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
-                assert_eq!(
-                    interpreter.state.read("f").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Super)
-                );
-            }
-        }
+        assert_type_is!(interpreter, "a", Super);
+        assert_type_is!(interpreter, "b", Super);
+        assert_type_is!(interpreter, "c", Super);
+        assert_type_class(interpreter, "d", Type::Super);
+        assert_type_class(interpreter, "e", Type::Super);
+        assert_type_class(interpreter, "f", Type::Super);
 
         // Check that calls to `super()` works in an instance method.
         let input = r#"
@@ -3769,13 +3129,9 @@ a = child.one()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         // Check that calls to `super()` works in an instance method including references to `self`.
         let input = r#"
@@ -3802,14 +3158,10 @@ b = child.two()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         // Check that calls to `super()` works in a class method.
         let input = r#"
@@ -3828,13 +3180,9 @@ b = child.two()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(2));
 
         // Check that calls to `super()` works in a class method included references to `cls`.
         let input = r#"
@@ -3855,13 +3203,9 @@ b = child.two()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(12));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(12));
     }
 
     #[test]
@@ -3875,28 +3219,23 @@ a = Foo.__mro__
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                let mro = interpreter.state.read("a").map(|a| {
-                    a.as_tuple()
-                        .expect("Expected a tuple")
-                        .into_iter()
-                        .map(|i| i.as_class().unwrap().borrow().name().to_string())
-                        .collect::<Vec<String>>()
-                });
-                assert_eq!(
-                    mro,
-                    Some(vec![
-                        "Foo".into(),
-                        "Bar".into(),
-                        "Baz".into(),
-                        "object".into()
-                    ])
-                );
-            }
-        }
+        let mro = read(interpreter, "a")
+            .as_tuple()
+            .expect("Expected a tuple")
+            .into_iter()
+            .map(|i| i.as_class().unwrap().borrow().name().to_string())
+            .collect::<Vec<String>>();
+        assert_eq!(
+            mro,
+            vec![
+                "Foo".to_string(),
+                "Bar".into(),
+                "Baz".into(),
+                "object".into()
+            ]
+        );
     }
 
     #[test]
@@ -3905,28 +3244,12 @@ a = Foo.__mro__
 a = { "b": 4, 'c': 5 }
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ])
-                    ))))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "a"),
+            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        );
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
@@ -3958,173 +3281,64 @@ v = [ val for val in a ]
 w = { key for key, value in a.items() }
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ])
-                    ))))
-                );
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::DictItems(DictItems::new(
-                        interpreter.clone(),
-                        vec![
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ]
-                    )))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(8)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(10)
-                            ),
-                        ])
-                    ))))
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ])
-                    ))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ])
-                    ))))
-                );
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(4));
-                assert_eq!(
-                    read_and_expect(interpreter, "g"),
-                    ExprResult::Dict(Container::new(Dict::new(&interpreter, HashMap::new())))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::DictItems(DictItems::default())
-                );
-                assert!(matches!(
-                    interpreter.state.read("q"),
-                    Some(ExprResult::DictItemsIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("r").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictItemIterator)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "i"),
-                    ExprResult::DictKeys(DictKeys::new(vec![]))
-                );
-                assert_eq!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::DictKeys(DictKeys::new(vec![
-                        str("b"),
-                        str("c"),
-                    ])))
-                );
-                assert!(matches!(
-                    interpreter.state.read("k"),
-                    Some(ExprResult::DictKeysIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("l").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictKeyIterator)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "m"),
-                    ExprResult::DictValues(DictValues::new(vec![]))
-                );
-                assert_eq!(
-                    interpreter.state.read("n"),
-                    Some(ExprResult::DictValues(DictValues::new(vec![
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(5),
-                    ])))
-                );
-                assert!(matches!(
-                    interpreter.state.read("o"),
-                    Some(ExprResult::DictValuesIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("p").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictValueIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("s").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictKeys)
-                );
-                assert_eq!(
-                    interpreter.state.read("t").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictValues)
-                );
-                assert_eq!(
-                    interpreter.state.read("u").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::DictItems)
-                );
-                assert_eq!(
-                    interpreter.state.read("v"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        str("b"),
-                        str("c"),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("w"),
-                    Some(ExprResult::Set(Container::new(Set::new(HashSet::from([
-                        str("b"),
-                        str("c"),
-                    ])))))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "a"),
+            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        );
+        assert_eq!(
+            read(interpreter, "b"),
+            ExprResult::DictItems(DictItems::new(
+                interpreter.clone(),
+                vec![(str!("b"), int!(4)), (str!("c"), int!(5)),]
+            ))
+        );
+        assert_eq!(
+            read(interpreter, "c"),
+            dict!(interpreter, { str!("b") => int!(8), str!("c") => int!(10) })
+        );
+        assert_eq!(
+            read(interpreter, "d"),
+            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        );
+        assert_eq!(
+            read(interpreter, "e"),
+            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        );
+        assert_eq!(read(interpreter, "f"), int!(4));
+        assert_eq!(read(interpreter, "g"), dict!(interpreter, {}));
+        assert_eq!(
+            read(interpreter, "h"),
+            ExprResult::DictItems(DictItems::default())
+        );
+        assert_type_is!(interpreter, "q", DictItemsIterator);
+        assert_type_class(interpreter, "r", Type::DictItemIterator);
+        assert_eq!(
+            read(interpreter, "i"),
+            ExprResult::DictKeys(DictKeys::new(vec![]))
+        );
+        assert_eq!(
+            read(interpreter, "j"),
+            ExprResult::DictKeys(DictKeys::new(vec![str!("b"), str!("c"),]))
+        );
+        assert_type_is!(interpreter, "k", DictKeysIterator);
+        assert_type_class(interpreter, "l", Type::DictKeyIterator);
+        assert_eq!(
+            read(interpreter, "m"),
+            ExprResult::DictValues(DictValues::new(vec![]))
+        );
+        assert_eq!(
+            read(interpreter, "n"),
+            ExprResult::DictValues(DictValues::new(vec![int!(4), int!(5),]))
+        );
+        assert_type_is!(interpreter, "o", DictValuesIterator);
+        assert_type_class(interpreter, "p", Type::DictValueIterator);
+        assert_type_class(interpreter, "s", Type::DictKeys);
+        assert_type_class(interpreter, "t", Type::DictValues);
+        assert_type_class(interpreter, "u", Type::DictItems);
+        assert_eq!(read(interpreter, "v"), list![str!("b"), str!("c"),]);
+        assert_eq!(read(interpreter, "w"), set![str!("b"), str!("c"),]);
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
@@ -4133,43 +3347,23 @@ c = a.get("d")
 d = a.get("d", 99)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::None);
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(99));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(4));
+        assert_eq!(read(interpreter, "c"), ExprResult::None);
+        assert_eq!(read(interpreter, "d"), int!(99));
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
 b = { **a }
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([
-                            (
-                                ExprResult::String(Str::new("b".to_string())),
-                                ExprResult::Integer(4)
-                            ),
-                            (
-                                ExprResult::String(Str::new("c".to_string())),
-                                ExprResult::Integer(5)
-                            ),
-                        ])
-                    ))))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "b"),
+            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        );
 
         let input = r#"
 inner = { 'key': 'inner' }
@@ -4177,32 +3371,16 @@ b = { 'key': 'outer', **inner }
 c = { **inner, 'key': 'outer' }
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([(
-                            ExprResult::String(Str::new("key".to_string())),
-                            ExprResult::String(Str::new("inner".to_string()))
-                        ),])
-                    ))))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Dict(Container::new(Dict::new(
-                        &interpreter,
-                        HashMap::from([(
-                            ExprResult::String(Str::new("key".to_string())),
-                            ExprResult::String(Str::new("outer".to_string()))
-                        ),])
-                    ))))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "b"),
+            dict!(interpreter, { str!("key") => str!("inner") })
+        );
+        assert_eq!(
+            read(interpreter, "c"),
+            dict!(interpreter, { str!("key") => str!("outer") })
+        );
     }
 
     #[test]
@@ -4211,23 +3389,15 @@ c = { **inner, 'key': 'outer' }
 assert True
 "#;
         let mut context = init(input);
-
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {}
-        }
+        let _ = run(&mut context);
 
         let input = r#"
 assert False
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::AssertionError);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::AssertionError);
     }
 
     #[test]
@@ -4241,13 +3411,9 @@ finally:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -4256,13 +3422,9 @@ except:
     a = 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -4271,13 +3433,9 @@ except:
     a = 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 try:
@@ -4288,24 +3446,22 @@ finally:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
-        let input = r#"
-try:
-    a = 4 / 1
-"#;
-        let mut context = init(input);
-
-        match context.run_and_return_interpreter() {
-            Err(e) => assert!(matches!(e, MemphisError::Parser(ParserError::SyntaxError))),
-            Ok(_) => panic!("Expected an error!"),
-        }
+        // TODO should this move to the parser?
+        //
+        //         let input = r#"
+        // try:
+        //     a = 4 / 1
+        // "#;
+        //         let mut context = init(input);
+        //
+        //         match context.run_and_return_interpreter() {
+        //             Err(e) => assert!(matches!(e, MemphisError::Parser(ParserError::SyntaxError))),
+        //             Ok(_) => panic!("Expected an error!"),
+        //         }
 
         let input = r#"
 try:
@@ -4316,13 +3472,9 @@ except Exception:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -4334,13 +3486,9 @@ except Exception:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -4352,13 +3500,9 @@ except:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 try:
@@ -4370,19 +3514,11 @@ except Exception as e:
     a = 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-                match interpreter.state.read("e") {
-                    Some(ExprResult::Exception(e)) => {
-                        test_utils::assert_name_error(&*e, "b");
-                    }
-                    _ => panic!("Expected an exception!"),
-                }
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
+        let e = extract!(interpreter, "e", Exception);
+        test_utils::assert_name_error(&e, "b");
 
         let input = r#"
 try:
@@ -4392,13 +3528,9 @@ except (ZeroDivisionError, Exception):
     a = 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -4408,13 +3540,9 @@ except (Exception, ZeroDivisionError):
     a = 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 try:
@@ -4427,13 +3555,9 @@ else:
     a = 4
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 try:
@@ -4448,13 +3572,9 @@ finally:
     a = 5
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
 
         // Uncaught exception
         let input = r#"
@@ -4464,16 +3584,12 @@ except ValueError:
     a = 2
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(
+            &e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
+        );
 
         let input = r#"
 try:
@@ -4482,16 +3598,12 @@ except ZeroDivisionError:
     raise
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(
+            &e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
+        );
     }
 
     #[test]
@@ -4501,26 +3613,15 @@ def test_kwargs(**kwargs):
     print(kwargs['a'])
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                let expected_name = "test_kwargs".to_string();
-                let expected_args = ParsedArgDefinitions {
-                    args: vec![],
-                    args_var: None,
-                    kwargs_var: Some("kwargs".into()),
-                };
-                assert!(matches!(
-                    interpreter.state.read("test_kwargs").unwrap().as_function().unwrap().borrow().clone(),
-                    Function {
-                        name,
-                        args,
-                        ..
-                    } if name == expected_name && args == expected_args
-                ));
-            }
-        }
+        let expected_args = ParsedArgDefinitions {
+            args: vec![],
+            args_var: None,
+            kwargs_var: Some("kwargs".into()),
+        };
+        let f = extract!(interpreter, "test_kwargs", Function);
+        assert_eq!(f.borrow().args, expected_args);
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -4531,14 +3632,10 @@ a = test_kwargs(a=5, b=2)
 b = test_kwargs(a=5, b=2)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -4549,14 +3646,10 @@ c = {'a': 4, 'b': 3}
 b = test_kwargs(**c)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(4));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -4567,19 +3660,9 @@ second = {'b': 55 }
 b = test_kwargs(**first, **second)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(44),
-                        ExprResult::Integer(55),
-                    ])))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), tuple![int!(44), int!(55),]);
 
         let input = r#"
 def test_args(*args):
@@ -4589,13 +3672,9 @@ c = [0, 1]
 b = test_args(*c)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def test_args(*args):
@@ -4605,13 +3684,9 @@ c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def test_args(one, two, *args):
@@ -4621,13 +3696,9 @@ c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(3));
 
         let input = r#"
 def test_args(one, two):
@@ -4636,16 +3707,12 @@ def test_args(one, two):
 b = test_args(0)
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "test_args() missing 1 required positional argument: 'two'",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(
+            &e,
+            "test_args() missing 1 required positional argument: 'two'",
+        );
 
         let input = r#"
 def test_args(one, two, three):
@@ -4654,16 +3721,12 @@ def test_args(one, two, three):
 b = test_args(0)
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "test_args() missing 2 required positional arguments: 'two' and 'three'",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(
+            &e,
+            "test_args() missing 2 required positional arguments: 'two' and 'three'",
+        );
 
         let input = r#"
 def test_args(one, two):
@@ -4672,13 +3735,9 @@ def test_args(one, two):
 b = test_args(1, 2, 3)
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 3 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 3 args");
 
         let input = r#"
 def test_args(one, two, *args):
@@ -4687,16 +3746,9 @@ def test_args(one, two, *args):
 b = test_args(1, 2)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::Tuple(Tuple::default())
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), tuple![]);
 
         let input = r#"
 class Foo:
@@ -4707,13 +3759,9 @@ foo = Foo(a=5)
 a = foo.a
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
     }
 
     #[test]
@@ -4729,17 +3777,10 @@ a = type(_cell_factory()[0])
 b = _cell_factory()[0].cell_contents
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Cell)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Cell);
+        assert_eq!(read(interpreter, "b"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4754,18 +3795,11 @@ b = _cell_factory()[0].cell_contents
 c = len(_cell_factory())
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Cell)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(1));
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Cell);
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4781,15 +3815,11 @@ b = _cell_factory()[1].cell_contents
 c = len(_cell_factory())
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(2));
 
         let input = r#"
 def _cell_factory():
@@ -4804,13 +3834,9 @@ def _cell_factory():
 c = len(_cell_factory())
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "c"), int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -4823,13 +3849,9 @@ def _cell_factory():
 c = _cell_factory()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::None);
-            }
-        }
+        assert_eq!(read(interpreter, "c"), ExprResult::None);
     }
 
     #[test]
@@ -4857,15 +3879,11 @@ b = get_val_decorated()
 c = twice_decorated()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(4));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_eq!(read(interpreter, "b"), int!(4));
+        assert_eq!(read(interpreter, "c"), int!(8));
 
         let input = r#"
 def multiply(factor):
@@ -4887,14 +3905,10 @@ a = get_val()
 b = get_larger_val()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_eq!(read(interpreter, "b"), int!(8));
 
         let input = r#"
 def normalize(func):
@@ -4914,13 +3928,9 @@ f = Foo(7)
 a = f.calculate(2)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(14));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(14));
 
         let input = r#"
 def normalize(base=3):
@@ -4942,13 +3952,9 @@ f = Foo(7)
 a = f.calculate(2)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(42));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(42));
     }
 
     #[test]
@@ -4964,13 +3970,9 @@ f = Foo()
 a = f.calculate(2)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(18));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(18));
     }
 
     #[test]
@@ -4979,25 +3981,17 @@ a = f.calculate(2)
 raise TypeError
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error_optional_message(&e, None);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error_optional_message(&e, None);
 
         let input = r#"
 raise TypeError('type is no good')
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "type is no good");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "type is no good");
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -5038,89 +4032,30 @@ sys.modules['os.path'] = "os_path"
 m = sys.modules['os.path']
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Integer(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::FloatingPoint(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::String(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::String(_))
-                ));
-                match interpreter.state.read("a") {
-                    Some(ExprResult::Integer(a)) => {
-                        assert!(a > 0);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                match interpreter.state.read("b") {
-                    Some(ExprResult::FloatingPoint(b)) => {
-                        assert!(b > 1701281981.0);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                match interpreter.state.read("c") {
-                    Some(ExprResult::String(c)) => {
-                        assert!(c.len() > 10);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                match interpreter.state.read("d") {
-                    Some(ExprResult::String(d)) => {
-                        assert!(d.len() > 10);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                assert!(matches!(
-                    interpreter.state.read("ref"),
-                    Some(ExprResult::CPythonObject(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::CPythonClass(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("f").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("g").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("h").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("i").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Tuple)
-                );
-                assert_eq!(
-                    interpreter.state.read("j").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("k").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(
-                    interpreter.state.read("l").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Module)
-                );
-                assert_eq!(interpreter.state.read("m"), Some(str("os_path")));
-            }
-        }
+        assert_type_is!(interpreter, "a", Integer);
+        assert_type_is!(interpreter, "b", FloatingPoint);
+        assert_type_is!(interpreter, "c", String);
+        assert_type_is!(interpreter, "d", String);
+        let a = extract!(interpreter, "a", Integer);
+        assert!(a > 0);
+        let b = extract!(interpreter, "b", FloatingPoint);
+        assert!(b > 1701281981.0);
+        let c = extract!(interpreter, "c", String);
+        assert!(c.len() > 10);
+        let d = extract!(interpreter, "d", String);
+        assert!(d.len() > 10);
+        assert_type_is!(interpreter, "ref", CPythonObject);
+        assert_type_is!(interpreter, "e", CPythonClass);
+        assert_type_class(interpreter, "f", Type::Module);
+        assert_type_class(interpreter, "g", Type::Module);
+        assert_type_class(interpreter, "h", Type::Module);
+        assert_type_class(interpreter, "i", Type::Tuple);
+        assert_type_class(interpreter, "j", Type::Module);
+        assert_type_class(interpreter, "k", Type::Module);
+        assert_type_class(interpreter, "l", Type::Module);
+        assert_eq!(read(interpreter, "m"), str!("os_path"));
     }
 
     #[test]
@@ -5147,13 +4082,9 @@ with MyContextManager() as cm:
 a = cm.a
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = r#"
 class MyContextManager:
@@ -5171,16 +4102,9 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::MissingContextManagerProtocol,
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
 
         let input = r#"
 class MyContextManager:
@@ -5198,16 +4122,9 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(
-                    &e,
-                    ExecutionErrorKind::MissingContextManagerProtocol,
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
     }
 
     #[test]
@@ -5217,13 +4134,9 @@ a = 4
 del a
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), None);
-            }
-        }
+        assert_eq!(read_optional(interpreter, "a"), None);
 
         let input = r#"
 a = {'b': 1, 'c': 2}
@@ -5231,32 +4144,18 @@ del a['b']
 c = a['b']
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_key_error(&e, "b");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_key_error(&e, "b");
 
         let input = r#"
 a = [0,1,2]
 del a[1]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(0),
-                        ExprResult::Integer(2)
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![int!(0), int!(2)]);
 
         let input = r#"
 class Foo:
@@ -5268,13 +4167,9 @@ del f.x
 a = f.x
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "Foo", "x");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "Foo", "x");
 
         let input = r#"
 class Foo:
@@ -5285,13 +4180,9 @@ f = Foo()
 del f.bar
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "Foo", "bar");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "Foo", "bar");
 
         let input = r#"
 a = 4
@@ -5300,15 +4191,11 @@ c = 6
 del a, c
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), None);
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-                assert_eq!(interpreter.state.read("c"), None);
-            }
-        }
+        assert_eq!(read_optional(interpreter, "a"), None);
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read_optional(interpreter, "c"), None);
     }
 
     #[test]
@@ -5317,46 +4204,25 @@ del a, c
 a = b'hello'
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Bytes("hello".into())
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("hello".into()));
 
         let input = r#"
 a = iter(b'hello')
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::BytesIterator(_))
-                ))
-            }
-        }
+        assert_type_is!(interpreter, "a", BytesIterator);
 
         let input = r#"
 a = type(iter(b'hello'))
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BytesIterator)
-                )
-            }
-        }
+        assert_type_class(interpreter, "a", Type::BytesIterator);
     }
 
     #[test]
@@ -5365,73 +4231,47 @@ a = type(iter(b'hello'))
 a = bytearray()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::ByteArray(Container::new(ByteArray::new("".into())))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "a"),
+            ExprResult::ByteArray(Container::new(ByteArray::new("".into())))
+        );
 
         let input = r#"
 a = bytearray(b'hello')
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::ByteArray(Container::new(ByteArray::new("hello".into())))
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "a"),
+            ExprResult::ByteArray(Container::new(ByteArray::new("hello".into())))
+        );
 
         let input = r#"
 a = bytearray('hello')
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "string argument without an encoding");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytearray())
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ByteArrayIterator(_))
-                ))
-            }
-        }
+        assert_type_is!(interpreter, "a", ByteArrayIterator);
 
         let input = r#"
 a = type(iter(bytearray()))
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ByteArrayIterator)
-                )
-            }
-        }
+        assert_type_class(interpreter, "a", Type::ByteArrayIterator);
     }
 
     #[test]
@@ -5440,73 +4280,41 @@ a = type(iter(bytearray()))
 a = bytes()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Bytes("".into())
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("".into()));
 
         let input = r#"
 a = bytes(b'hello')
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Bytes("hello".into())
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("hello".into()));
 
         let input = r#"
 a = bytes('hello')
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "string argument without an encoding");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytes())
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::BytesIterator(_))
-                ))
-            }
-        }
+        assert_type_is!(interpreter, "a", BytesIterator);
 
         let input = r#"
 a = type(iter(bytes()))
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BytesIterator)
-                )
-            }
-        }
+        assert_type_class(interpreter, "a", Type::BytesIterator);
     }
 
     #[test]
@@ -5516,156 +4324,108 @@ a = 5
 a += 1
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 5
 a -= 1
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 a = 5
 a *= 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(10));
 
         let input = r#"
 a = 5
 a /= 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 0b0101
 a &= 0b0100
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(4));
 
         let input = r#"
 a = 0b0101
 a |= 0b1000
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(13));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(13));
 
         let input = r#"
 a = 0b0101
 a ^= 0b0100
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         let input = r#"
 a = 5
 a //= 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 0b0101
 a <<= 1
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(10));
 
         let input = r#"
 a = 0b0101
 a >>= 1
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(2));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(2));
 
         let input = r#"
 a = 11
 a %= 2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
 
         let input = r#"
 a = 2
 a **= 3
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(8));
     }
 
     #[test]
@@ -5674,16 +4434,9 @@ a **= 3
 a = iter([1,2,3])
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ListIterator(_))
-                ));
-            }
-        }
+        assert_type_is!(interpreter, "a", ListIterator);
 
         let input = r#"
 b = 0
@@ -5691,13 +4444,9 @@ for i in iter([1,2,3]):
     b += i
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(6));
     }
 
     #[test]
@@ -5707,13 +4456,9 @@ name = "John"
 a = f"Hello {name}"
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("Hello John")));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), str!("Hello John"));
     }
 
     #[test]
@@ -5727,131 +4472,64 @@ d = type(iter(reversed([])))
 e = [ i for i in reversed([1,2,3]) ]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::ReversedIterator(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::ReversedIterator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ReversedIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::ReversedIterator)
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(1),
-                    ]))))
-                );
-            }
-        }
+        assert_type_is!(interpreter, "a", ReversedIterator);
+        assert_type_is!(interpreter, "b", ReversedIterator);
+        assert_type_class(interpreter, "c", Type::ReversedIterator);
+        assert_type_class(interpreter, "d", Type::ReversedIterator);
+        assert_eq!(read(interpreter, "e"), list![int!(3), int!(2), int!(1),]);
     }
 
     #[test]
     fn binary_operators() {
         let input = "a = 0x1010 & 0x0011";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Integer(0x0010)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(0x0010));
 
         let input = "a = 0o1010 | 0o0011";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Integer(0o1011)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(0o1011));
 
         let input = "a = 0b1010 ^ 0b0011";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Integer(0b1001)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(0b1001));
 
         let input = "a = 23 % 5";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(3));
 
         let input = "a = 0b0010 << 1";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Integer(0b0100)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(0b0100));
 
         let input = "a = 2 * 3 << 2 + 4 & 205";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(128));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(128));
 
         let input = "a = ~0b1010";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(-11));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(-11));
 
         let input = "a = ~5.5";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "bad operand type for unary ~: 'float'");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "bad operand type for unary ~: 'float'");
 
         // This tests the right-associativity of exponentiation.
         // right-associativity gives 2 ** (3 ** 2) == 512
@@ -5859,13 +4537,9 @@ e = [ i for i in reversed([1,2,3]) ]
         // left-associativity which gives (2 ** 3) ** 2 == 64
         let input = "a = 2 ** 3 ** 2";
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(512));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(512));
     }
 
     #[test]
@@ -5878,13 +4552,9 @@ for i in [1,2,3,4,5,6]:
     a += i
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -5894,13 +4564,9 @@ for i in [1,2,3,4,5,6]:
     a += i
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(17));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(17));
 
         let input = r#"
 a = 0
@@ -5913,13 +4579,9 @@ while i < 6:
     a += b[i-1]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -5932,13 +4594,9 @@ while i < 6:
     a += b[i-1]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(17));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(17));
 
         let input = r#"
 a = 0
@@ -5950,13 +4608,9 @@ else:
     a = 1024
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
 
         let input = r#"
 a = 0
@@ -5966,13 +4620,9 @@ else:
     a = 1024
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1024));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1024));
     }
 
     #[test]
@@ -5991,128 +4641,60 @@ g = [ i for i in zip(range(5), range(4), range(3)) ]
 h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Zip(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Zip(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Zip)
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(0),
-                            ExprResult::Integer(0),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(1),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(2),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(3),
-                        ])),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(0),
-                            ExprResult::Integer(0),
-                            ExprResult::Integer(0),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(1),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(2),
-                        ])),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(1),
-                            ExprResult::Integer(4),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(2),
-                            ExprResult::Integer(5),
-                        ])),
-                        ExprResult::Tuple(Tuple::new(vec![
-                            ExprResult::Integer(3),
-                            ExprResult::Integer(6),
-                        ])),
-                    ]))))
-                );
-            }
-        }
+        assert_type_is!(interpreter, "a", Zip);
+        assert_type_is!(interpreter, "b", Zip);
+        assert_type_class(interpreter, "c", Type::Zip);
+        assert_eq!(
+            read(interpreter, "d"),
+            list![
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
+            ]
+        );
+        assert_eq!(
+            read(interpreter, "e"),
+            list![
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
+            ]
+        );
+        assert_eq!(
+            read(interpreter, "f"),
+            list![
+                tuple![int!(0), int!(0),],
+                tuple![int!(1), int!(1),],
+                tuple![int!(2), int!(2),],
+                tuple![int!(3), int!(3),]
+            ]
+        );
+        assert_eq!(
+            read(interpreter, "g"),
+            list![
+                tuple![int!(0), int!(0), int!(0),],
+                tuple![int!(1), int!(1), int!(1),],
+                tuple![int!(2), int!(2), int!(2),]
+            ]
+        );
+        assert_eq!(
+            read(interpreter, "h"),
+            list![
+                tuple![int!(1), int!(4),],
+                tuple![int!(2), int!(5),],
+                tuple![int!(3), int!(6),]
+            ]
+        );
 
         let input = r#"
 f = [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
-            }
-            _ => panic!("Expected an exeception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
     }
 
     #[test]
@@ -6126,32 +4708,13 @@ d = type(dict.__dict__['fromkeys'])
 e = type(object().__dict__)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::MappingProxy(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::MappingProxy)
-                );
-                assert_eq!(
-                    interpreter.state.read("d").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::BuiltinMethod)
-                );
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Dict)
-                );
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Type);
+        assert_type_is!(interpreter, "b", MappingProxy);
+        assert_type_class(interpreter, "c", Type::MappingProxy);
+        assert_type_class(interpreter, "d", Type::BuiltinMethod);
+        assert_type_class(interpreter, "e", Type::Dict);
     }
 
     #[test]
@@ -6169,36 +4732,14 @@ class MyClass:
     __class_getitem__ = classmethod(a)
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a").unwrap(),
-                    ExprResult::Class(_)
-                ));
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Type)
-                );
-                assert!(matches!(
-                    interpreter.state.read("c").unwrap(),
-                    ExprResult::Class(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d").unwrap(),
-                    ExprResult::TypeNode(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("e").unwrap(),
-                    ExprResult::TypeNode(_)
-                ));
-                assert!(matches!(
-                    interpreter.state.read("f").unwrap(),
-                    ExprResult::Class(_)
-                ));
-            }
-        }
+        assert_type_is!(interpreter, "a", Class);
+        assert_type_class(interpreter, "b", Type::Type);
+        assert_type_is!(interpreter, "c", Class);
+        assert_type_is!(interpreter, "d", TypeNode);
+        assert_type_is!(interpreter, "e", TypeNode);
+        assert_type_is!(interpreter, "f", Class);
     }
 
     #[test]
@@ -6212,14 +4753,10 @@ Foo.a = 5
 c = Foo.a
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(6));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(6));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         let input = r#"
 class Foo:
@@ -6233,15 +4770,11 @@ c = Foo().a
 d = Foo.a
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(6));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(6));
+        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_eq!(read(interpreter, "d"), int!(6));
     }
 
     #[test]
@@ -6256,22 +4789,12 @@ class Foo:
 b = Foo.make()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                let foo = match interpreter.state.read("Foo") {
-                    Some(ExprResult::Class(o)) => o,
-                    _ => panic!("Expected an object."),
-                };
-                assert!(matches!(
-                    foo.get_member(&interpreter, "make").unwrap().unwrap(),
-                    ExprResult::Method(_)
-                ));
+        let method = extract_member!(interpreter, "Foo", "make", Class);
+        assert!(matches!(method, ExprResult::Method(_)));
 
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(5));
 
         let input = r#"
 class Foo:
@@ -6283,14 +4806,10 @@ b = Foo.make()
 c = Foo().make()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         let input = r#"
 class Foo:
@@ -6309,16 +4828,12 @@ d = Foo().val
 e = Foo().make()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(10));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(10));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(9));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(10));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(10));
+        assert_eq!(read(interpreter, "c"), int!(10));
+        assert_eq!(read(interpreter, "d"), int!(9));
+        assert_eq!(read(interpreter, "e"), int!(10));
 
         let input = r#"
 class Foo:
@@ -6332,13 +4847,9 @@ class Foo:
 b = Foo.make()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "Foo", "val");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "Foo", "val");
 
         let input = r#"
 class Foo:
@@ -6352,13 +4863,9 @@ class Foo:
 b = Foo().make()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "Foo", "val");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "Foo", "val");
     }
 
     #[test]
@@ -6373,14 +4880,10 @@ b = Foo.make()
 c = Foo().make()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_eq!(read(interpreter, "c"), int!(5));
 
         // Before we explicitly supported static methods, this case used to work. Let's test it to
         // ensure we keep getting an error now.
@@ -6392,13 +4895,9 @@ class Foo:
 c = Foo().make()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 0 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 0 args");
     }
 
     #[test]
@@ -6426,15 +4925,11 @@ b = singleton2.data
 c = singleton1 is singleton2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("First")));
-                assert_eq!(interpreter.state.read("b"), Some(str("First")));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), str!("First"));
+        assert_eq!(read(interpreter, "b"), str!("First"));
+        assert_eq!(read(interpreter, "c"), bool!(true));
 
         let input = r#"
 class SingletonB:
@@ -6456,15 +4951,11 @@ b = singleton2.data
 c = singleton1 is singleton2
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("Second")));
-                assert_eq!(interpreter.state.read("b"), Some(str("Second")));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), str!("Second"));
+        assert_eq!(read(interpreter, "b"), str!("Second"));
+        assert_eq!(read(interpreter, "c"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -6474,13 +4965,9 @@ class Foo:
 a = Foo()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::None);
-            }
-        }
+        assert_eq!(read(interpreter, "a"), ExprResult::None);
     }
 
     #[test]
@@ -6509,20 +4996,12 @@ except Exception as e:
     d = e
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(5));
-                match interpreter.state.read("d") {
-                    Some(ExprResult::Exception(e)) => {
-                        test_utils::assert_attribute_error(&*e, "ConcreteImplementation", "run");
-                    }
-                    _ => panic!("Expected an exception!"),
-                }
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(5));
+        let e = extract!(interpreter, "d", Exception);
+        test_utils::assert_attribute_error(&e, "ConcreteImplementation", "run");
 
         let input = r#"
 class InterfaceMeta(type):
@@ -6542,13 +5021,9 @@ class ConcreteImplementation(BaseInterface):
 a = ConcreteImplementation.run()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
 
         let input = r#"
 class ABCMeta(type):
@@ -6567,13 +5042,9 @@ class Coroutine(metaclass=ABCMeta):
 a = Coroutine.register()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(33));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(33));
 
         // The test used to fail when we mistakenly were binding a metalcass call to __new__.
         let input = r#"
@@ -6597,13 +5068,9 @@ class Coroutine(metaclass=ChildMeta):
 a = Coroutine.register()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(33));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(33));
     }
 
     #[test]
@@ -6625,14 +5092,10 @@ a = global_var_one
 b = global_var_two
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(10));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(9));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(10));
+        assert_eq!(read(interpreter, "b"), int!(9));
 
         let input = r#"
 def nonlocal_shadow():
@@ -6654,14 +5117,10 @@ a = nonlocal_shadow()
 b = nonlocal_modified()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(4));
 
         let input = r#"
 def outer():
@@ -6681,13 +5140,9 @@ def outer():
 a = outer()
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(20));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(20));
 
         let input = r#"
 def foo():
@@ -6697,13 +5152,9 @@ def foo():
 foo()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
 
         let input = r#"
 def foo():
@@ -6711,25 +5162,17 @@ def foo():
 foo()
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
 
         let input = r#"
 nonlocal a
 "#;
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
     }
 
     #[test]
@@ -6740,24 +5183,11 @@ b = object()
 c = object().__str__
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Object)
-                );
-                assert!(matches!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::Object(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Method(_))
-                ));
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Object);
+        assert_type_is!(interpreter, "b", Object);
+        assert_type_is!(interpreter, "c", Method);
     }
 
     #[test]
@@ -6769,19 +5199,12 @@ c = int(5)
 d = int('6')
 "#;
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Int)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(0));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(6));
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Int);
+        assert_eq!(read(interpreter, "b"), int!(0));
+        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_eq!(read(interpreter, "d"), int!(6));
     }
 
     #[test]
@@ -6811,40 +5234,15 @@ g = type(a)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Method(_))
-                ));
-                //assert!(matches!(
-                //    interpreter.state.read("b"),
-                //    Some(ExprResult::Function(_))
-                //));
-                assert!(matches!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::Method(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Method(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::Function(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::Function(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("g").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Method)
-                );
-            }
-        }
+        assert_type_is!(interpreter, "a", Method);
+        //assert_type_is!(interpreter, "b", Function);
+        assert_type_is!(interpreter, "c", Method);
+        assert_type_is!(interpreter, "d", Method);
+        assert_type_is!(interpreter, "e", Function);
+        assert_type_is!(interpreter, "f", Function);
+        assert_type_class(interpreter, "g", Type::Method);
 
         let input = r#"
 class Child:
@@ -6869,17 +5267,13 @@ f = Child.three()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(3));
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "d"), int!(2));
+        assert_eq!(read(interpreter, "e"), int!(3));
+        assert_eq!(read(interpreter, "f"), int!(3));
 
         let input = r#"
 class Child:
@@ -6890,16 +5284,9 @@ b = Child.one()
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "one() missing 1 required positional argument: 'self'",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "one() missing 1 required positional argument: 'self'");
 
         let input = r#"
 class Child:
@@ -6923,15 +5310,11 @@ d = Child.two()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(11));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(22));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(22));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(11));
+        assert_eq!(read(interpreter, "c"), int!(22));
+        assert_eq!(read(interpreter, "d"), int!(22));
     }
 
     #[test]
@@ -6945,50 +5328,29 @@ b, c = foo()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(3)
-                    ])))
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), tuple![int!(2), int!(3)]);
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(3));
 
         let input = r#"
 b, c = [1, 2, 3]
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_value_error(&e, "too many values to unpack (expected 2)");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_value_error(&e, "too many values to unpack (expected 2)");
 
         let input = r#"
 a, b, c = [2, 3]
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_value_error(
-                    &e,
-                    "not enough values to unpack (expected 3, got 2)",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_value_error(&e, "not enough values to unpack (expected 3, got 2)");
 
         let input = r#"
 b, c = (1, 2)
@@ -6998,21 +5360,17 @@ h, i, j = range(1, 4)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "f"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "h"), ExprResult::Integer(1));
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "j"), ExprResult::Integer(3));
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_eq!(read(interpreter, "d"), int!(1));
+        assert_eq!(read(interpreter, "e"), int!(2));
+        assert_eq!(read(interpreter, "f"), int!(1));
+        assert_eq!(read(interpreter, "g"), int!(2));
+        assert_eq!(read(interpreter, "h"), int!(1));
+        assert_eq!(read(interpreter, "i"), int!(2));
+        assert_eq!(read(interpreter, "j"), int!(3));
 
         let input = r#"
 l = [1,2]
@@ -7020,32 +5378,18 @@ a = (*l,)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Tuple(Tuple::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2)
-                    ])))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2)]);
 
         let input = r#"
 a = (*5)
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Value after * must be an iterable, not int");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Value after * must be an iterable, not int");
 
         // TODO not sure where to detect this, probably in semantic analysis
         //         let input = r#"
@@ -7075,14 +5419,10 @@ b = 7 if False else 8
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(8));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_eq!(read(interpreter, "b"), int!(8));
     }
 
     #[test]
@@ -7113,101 +5453,31 @@ r = [2,4,6][:]
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("b"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("c"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(8),
-                        ExprResult::Integer(9),
-                        ExprResult::Integer(10),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(5),
-                        ExprResult::Integer(7),
-                        ExprResult::Integer(9),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(10),
-                        ExprResult::Integer(8),
-                        ExprResult::Integer(6),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(2),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(3),
-                        ExprResult::Integer(4),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("g"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(10),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("h"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                    ]))))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "i"),
-                    ExprResult::List(Container::new(List::default()))
-                );
-                assert!(matches!(
-                    interpreter.state.read("j"),
-                    Some(ExprResult::Slice(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("k"),
-                    Some(ExprResult::Slice(_))
-                ));
-                assert!(matches!(
-                    interpreter.state.read("l"),
-                    Some(ExprResult::Slice(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("m").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Slice)
-                );
-                assert_eq!(interpreter.state.read("n"), Some(str("h")));
-                assert_eq!(interpreter.state.read("o"), Some(str("h")));
-                assert_eq!(interpreter.state.read("p"), Some(str("he")));
-                //assert_eq!(
-                //    interpreter.state.read("q"),
-                //    Some(str("he"))
-                //);
-                assert_eq!(
-                    interpreter.state.read("r"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(2),
-                        ExprResult::Integer(4),
-                        ExprResult::Integer(6),
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), list![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "c"), list![int!(8), int!(9), int!(10),]);
+        assert_eq!(
+            read(interpreter, "d"),
+            list![int!(1), int!(3), int!(5), int!(7), int!(9),]
+        );
+        assert_eq!(
+            read(interpreter, "e"),
+            list![int!(10), int!(8), int!(6), int!(4), int!(2),]
+        );
+        assert_eq!(read(interpreter, "f"), list![int!(3), int!(4),]);
+        assert_eq!(read(interpreter, "g"), list![int!(10),]);
+        assert_eq!(read(interpreter, "h"), list![int!(1),]);
+        assert_eq!(read(interpreter, "i"), list![]);
+        assert_type_is!(interpreter, "j", Slice);
+        assert_type_is!(interpreter, "k", Slice);
+        assert_type_is!(interpreter, "l", Slice);
+        assert_type_class(interpreter, "m", Type::Slice);
+        assert_eq!(read(interpreter, "n"), str!("h"));
+        assert_eq!(read(interpreter, "o"), str!("h"));
+        assert_eq!(read(interpreter, "p"), str!("he"));
+        //assert_eq!(read(interpreter, "q"), str!("he"));
+        assert_eq!(read(interpreter, "r"), list![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -7225,13 +5495,9 @@ a = Foo().run
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(6));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(6));
     }
 
     #[test]
@@ -7242,16 +5508,9 @@ def foo(cls, /):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("foo"),
-                    Some(ExprResult::Function(_))
-                ));
-            }
-        }
+        assert_type_is!(interpreter, "foo", Function);
     }
 
     #[test]
@@ -7263,13 +5522,9 @@ c = b['a']
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(4));
-            }
-        }
+        assert_eq!(read(interpreter, "c"), int!(4));
     }
 
     #[test]
@@ -7285,31 +5540,16 @@ f = list(d)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(2));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Integer(4));
-                assert!(matches!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::Generator(_))
-                ));
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Generator)
-                );
-                assert_eq!(
-                    interpreter.state.read("f"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(6),
-                        ExprResult::Integer(10),
-                        ExprResult::Integer(12),
-                        ExprResult::Integer(20),
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_eq!(read(interpreter, "c"), int!(4));
+        assert_type_is!(interpreter, "d", Generator);
+        assert_type_class(interpreter, "e", Type::Generator);
+        assert_eq!(
+            read(interpreter, "f"),
+            list![int!(6), int!(10), int!(12), int!(20),]
+        );
     }
 
     #[test]
@@ -7324,48 +5564,25 @@ e = frozenset().__contains__
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::FrozenSet(FrozenSet::new(HashSet::from([
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ]))))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::FrozenSet(FrozenSet::default())
-                );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::FrozenSet)
-                );
-                assert_eq!(
-                    interpreter.state.read("d"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::Integer(1),
-                        ExprResult::Integer(2),
-                    ]))))
-                );
-                assert_eq!(
-                    interpreter.state.read("e").unwrap().get_type(),
-                    Type::Method
-                );
-            }
-        }
+        assert_eq!(
+            read(interpreter, "a"),
+            ExprResult::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
+        );
+        assert_eq!(
+            read(interpreter, "b"),
+            ExprResult::FrozenSet(FrozenSet::default())
+        );
+        assert_type_class(interpreter, "c", Type::FrozenSet);
+        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2),]);
+        assert_eq!(read_type(interpreter, "e"), Type::Method);
 
         let input = "frozenset([1,2,3], [1,2])";
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "Found 3 args");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "Found 3 args");
     }
 
     #[test]
@@ -7379,14 +5596,10 @@ b = foo()
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(88));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(99));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(88));
+        assert_eq!(read(interpreter, "b"), int!(99));
 
         let input = r#"
 def foo(data_one, data_two=None):
@@ -7396,16 +5609,12 @@ b = foo()
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "foo() missing 1 required positional argument: 'data_one'",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(
+            &e,
+            "foo() missing 1 required positional argument: 'data_one'",
+        );
     }
 
     #[test]
@@ -7421,14 +5630,10 @@ b = getattr(f, 'val_two', 33)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(44));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Integer(33));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(44));
+        assert_eq!(read(interpreter, "b"), int!(33));
 
         let input = r#"
 class Foo:
@@ -7439,13 +5644,9 @@ b = getattr(f, 'val_two')
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_attribute_error(&e, "Foo", "val_two");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_attribute_error(&e, "Foo", "val_two");
     }
 
     #[test]
@@ -7472,61 +5673,32 @@ l = isinstance([], (int, Foo))
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "j"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "k"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "l"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(false));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
+        assert_eq!(read(interpreter, "j"), bool!(false));
+        assert_eq!(read(interpreter, "k"), bool!(true));
+        assert_eq!(read(interpreter, "l"), bool!(false));
 
         let input = r#"
 isinstance([], (int, 5))
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "isinstance() arg 2 must be a type, a tuple of types, or a union",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(
+            &e,
+            "isinstance() arg 2 must be a type, a tuple of types, or a union",
+        );
     }
 
     #[test]
@@ -7551,66 +5723,39 @@ j = issubclass(type, type)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "e"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "j"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(false));
+        assert_eq!(read(interpreter, "c"), bool!(true));
+        assert_eq!(read(interpreter, "d"), bool!(true));
+        assert_eq!(read(interpreter, "e"), bool!(false));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
+        assert_eq!(read(interpreter, "j"), bool!(true));
 
         let input = r#"
 issubclass([], type)
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(&e, "issubclass() arg 1 must be a class");
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(&e, "issubclass() arg 1 must be a class");
 
         let input = r#"
 issubclass(object, [])
 "#;
 
         let mut context = init(input);
+        let e = run_expect_error(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(MemphisError::Execution(e)) => {
-                test_utils::assert_type_error(
-                    &e,
-                    "issubclass() arg 2 must be a type, a tuple of types, or a union",
-                );
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        test_utils::assert_type_error(
+            &e,
+            "issubclass() arg 2 must be a type, a tuple of types, or a union",
+        );
     }
 
     #[test]
@@ -7628,36 +5773,17 @@ i = bool(5)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "e"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "g"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "h"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "i"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_eq!(read(interpreter, "e"), bool!(true));
+        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_eq!(read(interpreter, "h"), bool!(false));
+        assert_eq!(read(interpreter, "i"), bool!(true));
     }
 
     #[test]
@@ -7667,16 +5793,9 @@ a = memoryview
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert!(matches!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::Class(_))
-                ));
-            }
-        }
+        assert_type_is!(interpreter, "a", Class);
     }
 
     #[test]
@@ -7704,13 +5823,9 @@ for number in countdown_from(3, 2):
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "sum"), ExprResult::Integer(9));
-            }
-        }
+        assert_eq!(read(interpreter, "sum"), int!(9));
     }
 
     #[test]
@@ -7724,20 +5839,10 @@ except TypeError as exc:
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Traceback)
-                );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Frame)
-                );
-            }
-        }
+        assert_type_class(interpreter, "a", Type::Traceback);
+        assert_type_class(interpreter, "b", Type::Frame);
     }
 
     #[test]
@@ -7749,26 +5854,13 @@ c = asyncio.create_task
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                // these should probably just return Function, not BuiltinFunction
-                // testing here to confirm they do not get bound to their module
-                assert_eq!(
-                    interpreter.state.read("a").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
-                assert_eq!(
-                    interpreter.state.read("c").unwrap().get_type(),
-                    Type::BuiltinFunction
-                );
-            }
-        }
+        // these should probably just return Function, not BuiltinFunction
+        // testing here to confirm they do not get bound to their module
+        assert_eq!(read_type(interpreter, "a"), Type::BuiltinFunction);
+        assert_eq!(read_type(interpreter, "b"), Type::BuiltinFunction);
+        assert_eq!(read_type(interpreter, "c"), Type::BuiltinFunction);
     }
 
     #[test]
@@ -7778,14 +5870,10 @@ a = b = True
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(true));
     }
 
     #[test]
@@ -7800,17 +5888,10 @@ b = f != g
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -7824,17 +5905,10 @@ b = f != g
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
 
         let input = r#"
 class Foo:
@@ -7853,25 +5927,15 @@ d = c(g)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Boolean(true));
-                assert_eq!(
-                    read_and_expect(interpreter, "b"),
-                    ExprResult::Boolean(false)
-                );
-                let Some(ExprResult::Method(method)) = interpreter.state.read("c") else {
-                    panic!("Expected a method!");
-                };
-                assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::Boolean(false)
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(true));
+        assert_eq!(read(interpreter, "b"), bool!(false));
+        let ExprResult::Method(method) = read(interpreter, "c") else {
+            panic!("Expected a method!");
+        };
+        assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
+        assert_eq!(read(interpreter, "d"), bool!(false));
     }
 
     #[test]
@@ -7892,13 +5956,9 @@ a = obj.attribute
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(44));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(44));
 
         let input = r#"
 class Descriptor:
@@ -7944,27 +6004,20 @@ f = obj.my_attr
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(interpreter.state.read("a"), Some(str("default value")));
-                assert_eq!(interpreter.state.read("b"), Some(str("new value")));
-                assert_eq!(interpreter.state.read("c"), Some(str("default value")));
-                assert_eq!(
-                    interpreter
-                        .state
-                        .read("d")
-                        .unwrap()
-                        .get_class(&interpreter)
-                        .borrow()
-                        .name(),
-                    "Descriptor"
-                );
-                assert_eq!(interpreter.state.read("e"), Some(str("custom value")));
-                assert_eq!(interpreter.state.read("f"), Some(str("default value")));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), str!("default value"));
+        assert_eq!(read(interpreter, "b"), str!("new value"));
+        assert_eq!(read(interpreter, "c"), str!("default value"));
+        assert_eq!(
+            read(interpreter, "d")
+                .get_class(interpreter)
+                .borrow()
+                .name(),
+            "Descriptor"
+        );
+        assert_eq!(read(interpreter, "e"), str!("custom value"));
+        assert_eq!(read(interpreter, "f"), str!("default value"));
     }
 
     #[test]
@@ -7980,40 +6033,15 @@ g = complex(4.1, 5.1)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Complex(Complex::new(4.0, 5.0))
-                );
-                assert_eq!(
-                    interpreter.state.read("b").unwrap().as_class().unwrap(),
-                    interpreter.state.get_type_class(Type::Complex)
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "c"),
-                    ExprResult::Complex(Complex::new(0.0, 0.0))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "d"),
-                    ExprResult::Complex(Complex::new(1.0, 0.0))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "e"),
-                    ExprResult::Complex(Complex::new(2.0, 3.0))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "f"),
-                    ExprResult::Complex(Complex::new(2.1, 3.1))
-                );
-                assert_eq!(
-                    read_and_expect(interpreter, "g"),
-                    ExprResult::Complex(Complex::new(4.1, 5.1))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), complex!(4.0, 5.0));
+        assert_type_class(interpreter, "b", Type::Complex);
+        assert_eq!(read(interpreter, "c"), complex!(0.0, 0.0));
+        assert_eq!(read(interpreter, "d"), complex!(1.0, 0.0));
+        assert_eq!(read(interpreter, "e"), complex!(2.0, 3.0));
+        assert_eq!(read(interpreter, "f"), complex!(2.1, 3.1));
+        assert_eq!(read(interpreter, "g"), complex!(4.1, 5.1));
     }
 
     #[test]
@@ -8029,18 +6057,11 @@ c = callable(MyClass)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    read_and_expect(interpreter, "a"),
-                    ExprResult::Boolean(false)
-                );
-                assert_eq!(read_and_expect(interpreter, "b"), ExprResult::Boolean(true));
-                assert_eq!(read_and_expect(interpreter, "c"), ExprResult::Boolean(true));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), bool!(false));
+        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_eq!(read(interpreter, "c"), bool!(true));
     }
 
     #[test]
@@ -8056,19 +6077,9 @@ a = dir(my)
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(
-                    interpreter.state.read("a"),
-                    Some(ExprResult::List(Container::new(List::new(vec![
-                        ExprResult::String(Str::new("a".to_string())),
-                        ExprResult::String(Str::new("b".to_string())),
-                    ]))))
-                );
-            }
-        }
+        assert_eq!(read(interpreter, "a"), list![str!("a"), str!("b"),]);
     }
 
     #[test]
@@ -8094,16 +6105,10 @@ del my['one']
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(1));
-                let my = interpreter.state.read("my").unwrap().as_object().unwrap();
-                let inner = my.get_member(&interpreter, "inner").unwrap().unwrap();
-                assert_eq!(inner, ExprResult::Dict(Container::new(Dict::default())));
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_member_eq!(interpreter, "my", "inner", dict!(interpreter, {}));
     }
 
     #[test]
@@ -8129,34 +6134,19 @@ except Exception as e:
 "#;
 
         let mut context = init(input);
+        let interpreter = run(&mut context);
 
-        match context.run_and_return_interpreter() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(interpreter) => {
-                assert_eq!(read_and_expect(interpreter, "a"), ExprResult::Integer(5));
-                match read_and_expect(interpreter, "b") {
-                    ExprResult::Integer(a) => {
-                        assert!(a != 0);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                match read_and_expect(interpreter, "c") {
-                    ExprResult::Integer(a) => {
-                        assert!(a != 0);
-                    }
-                    _ => panic!("Unexpected type!"),
-                }
-                assert_eq!(read_and_expect(interpreter, "d"), ExprResult::Boolean(true));
-                match read_and_expect(interpreter, "the_exp") {
-                    ExprResult::Exception(e) => {
-                        test_utils::assert_type_error(
-                            &*e,
-                            "__hash__ method should return an integer",
-                        );
-                    }
-                    _ => panic!("Expected an exception!"),
-                }
-            }
-        }
+        assert_eq!(read(interpreter, "a"), int!(5));
+
+        let b = extract!(interpreter, "c", Integer);
+        assert!(b != 0);
+
+        let c = extract!(interpreter, "c", Integer);
+        assert!(c != 0);
+
+        assert_eq!(read(interpreter, "d"), bool!(true));
+
+        let e = extract!(interpreter, "the_exp", Exception);
+        test_utils::assert_type_error(&e, "__hash__ method should return an integer");
     }
 }

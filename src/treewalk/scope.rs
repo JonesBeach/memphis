@@ -77,7 +77,7 @@ impl Scope {
                 .join(" and ");
             return Err(interpreter.type_error(format!(
                 "{}() missing {} required positional {}: {}",
-                function.borrow().name,
+                function.borrow().name(),
                 num_missing,
                 noun,
                 arg_names

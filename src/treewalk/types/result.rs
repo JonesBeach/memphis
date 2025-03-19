@@ -71,7 +71,7 @@ pub enum ExprResult {
     MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
-    Exception(Box<ExecutionError>),
+    Exception(ExecutionError),
     Traceback(Traceback),
     Frame,
     ListIterator(ListIterator),

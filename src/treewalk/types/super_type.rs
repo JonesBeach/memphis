@@ -83,7 +83,7 @@ impl Callable for NewBuiltin {
                 // function belongs to. This should only occur for `Dunder::New`. To my knowledge,
                 // that is the only statically-bound function that permits calls to `super()`.
                 let function = interpreter.state.current_function().unwrap();
-                assert_eq!(function.borrow().name, String::from(Dunder::New));
+                assert_eq!(function.borrow().name(), String::from(Dunder::New));
 
                 let class = function.borrow().clone().class_context.unwrap();
                 Ok(ExprResult::Super(Container::new(Super::new(
