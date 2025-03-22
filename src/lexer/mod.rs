@@ -27,21 +27,23 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(input: String) -> Self {
-        let mut lexer = Self {
+    pub fn new() -> Self {
+        Self {
             tokens: Vec::new(),
             error: None,
             multiline_string: None,
             multiline_context: 0,
             in_f_string_expr: false,
-        };
-        let _ = lexer.tokenize(&input);
-
-        lexer
+        }
     }
 
     pub fn tokens(&self) -> &[Token] {
         &self.tokens
+    }
+
+    #[cfg(test)]
+    pub fn finalize(&mut self) {
+        self.tokens.push(Token::Eof);
     }
 
     /// Since we tokenize one line at a time, we must consider whether we are inside a multiline
@@ -64,9 +66,7 @@ impl Lexer {
         self.multiline_context == 0 && self.multiline_string.is_none()
     }
 
-    fn tokenize(&mut self, input: &str) -> Result<(), LexerError> {
-        self.tokens.clear();
-
+    pub fn tokenize(&mut self, input: &str) -> Result<(), LexerError> {
         // Each element here indicates the number of spaces at the beginning of the column for this
         // indentation block. Python does not enforce a particular number of spaces, only that for
         // a given indentation, you are consistent with the number of spaces.
@@ -114,7 +114,6 @@ impl Lexer {
             self.tokens.push(Token::Dedent);
         }
 
-        self.tokens.push(Token::Eof);
         Ok(())
     }
 
@@ -571,8 +570,47 @@ mod tests {
 
     impl Lexer {
         fn from_str(input: &str) -> Self {
-            Self::new(input.to_owned())
+            let mut l = Self::new();
+            let _ = l.tokenize(input);
+            l
         }
+    }
+
+    #[test]
+    fn incremental_tokenizing() {
+        let first_input = r#"
+def add(x, y):
+"#;
+        let second_input = r#"
+    return x + y
+"#;
+        let mut lexer = Lexer::new();
+        let _ = lexer.tokenize(first_input);
+        let _ = lexer.tokenize(second_input);
+        lexer.finalize();
+
+        assert_eq!(
+            lexer.tokens,
+            vec![
+                Token::Newline,
+                Token::Def,
+                Token::Identifier("add".to_string()),
+                Token::LParen,
+                Token::Identifier("x".to_string()),
+                Token::Comma,
+                Token::Identifier("y".to_string()),
+                Token::RParen,
+                Token::Colon,
+                Token::Newline,
+                Token::Indent,
+                Token::Return,
+                Token::Identifier("x".to_string()),
+                Token::Plus,
+                Token::Identifier("y".to_string()),
+                Token::Dedent,
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -602,7 +640,6 @@ def add(x, y):
                 Token::Plus,
                 Token::Identifier("y".to_string()),
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -627,7 +664,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::GreaterThan,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -639,7 +675,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::LessThan,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -651,7 +686,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::Equal,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -663,7 +697,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::NotEqual,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -675,7 +708,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::GreaterThanOrEqual,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -687,7 +719,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::LessThanOrEqual,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
     }
@@ -702,7 +733,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::And,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -714,7 +744,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::Or,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -726,7 +755,6 @@ def add(x, y):
                 Token::Identifier("a".to_string()),
                 Token::In,
                 Token::Identifier("b".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -734,19 +762,14 @@ def add(x, y):
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Identifier("a".to_string()),
-                Token::Is,
-                Token::None,
-                Token::Eof,
-            ]
+            vec![Token::Identifier("a".to_string()), Token::Is, Token::None,]
         );
 
         let input = "not b";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![Token::Not, Token::Identifier("b".to_string()), Token::Eof,]
+            vec![Token::Not, Token::Identifier("b".to_string()),]
         );
 
         let input = "not (b or c)";
@@ -760,7 +783,6 @@ def add(x, y):
                 Token::Or,
                 Token::Identifier("c".to_string()),
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -775,7 +797,6 @@ def add(x, y):
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::BooleanLiteral(true),
-                Token::Eof,
             ]
         );
 
@@ -787,7 +808,6 @@ def add(x, y):
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::BooleanLiteral(false),
-                Token::Eof,
             ]
         );
 
@@ -799,13 +819,12 @@ def add(x, y):
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::None,
-                Token::Eof,
             ]
         );
 
         let input = "return None";
         let lexer = Lexer::from_str(input);
-        assert_eq!(lexer.tokens, vec![Token::Return, Token::None, Token::Eof,]);
+        assert_eq!(lexer.tokens, vec![Token::Return, Token::None,]);
     }
 
     #[test]
@@ -859,7 +878,6 @@ else:
                 Token::StringLiteral("Less".to_string()),
                 Token::RParen,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -885,7 +903,6 @@ while True:
                 Token::StringLiteral("busy loop".to_string()),
                 Token::RParen,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -940,7 +957,6 @@ class Foo:
                 Token::Identifier("x".to_string()),
                 Token::Dedent,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -957,7 +973,6 @@ class Foo:
                 Token::Identifier("Foo".to_string()),
                 Token::LParen,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -980,7 +995,6 @@ class Foo:
                 Token::Identifier("bar".to_string()),
                 Token::LParen,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -991,11 +1005,7 @@ class Foo:
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Import,
-                Token::Identifier("other".to_string()),
-                Token::Eof,
-            ]
+            vec![Token::Import, Token::Identifier("other".to_string()),]
         );
     }
 
@@ -1010,7 +1020,6 @@ class Foo:
                 Token::Identifier("other".to_string()),
                 Token::Import,
                 Token::Identifier("something".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -1025,7 +1034,6 @@ class Foo:
                 Token::Identifier("something".to_string()),
                 Token::As,
                 Token::Identifier("something_else".to_string()),
-                Token::Eof,
             ]
         );
 
@@ -1038,7 +1046,6 @@ class Foo:
                 Token::Identifier("other".to_string()),
                 Token::Import,
                 Token::Asterisk,
-                Token::Eof,
             ]
         );
 
@@ -1053,7 +1060,6 @@ class Foo:
                 Token::Identifier("something".to_string()),
                 Token::Comma,
                 Token::Identifier("something_else".to_string()),
-                Token::Eof,
             ]
         );
     }
@@ -1083,7 +1089,6 @@ foo.bar()
                 Token::Identifier("bar".to_string()),
                 Token::LParen,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -1098,7 +1103,6 @@ foo.bar()
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(3.14),
-                Token::Eof,
             ]
         );
 
@@ -1110,7 +1114,6 @@ foo.bar()
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2.5e-3),
-                Token::Eof,
             ]
         );
 
@@ -1122,7 +1125,6 @@ foo.bar()
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2.5e-3),
-                Token::Eof,
             ]
         );
 
@@ -1134,7 +1136,6 @@ foo.bar()
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2e-3),
-                Token::Eof,
             ]
         );
 
@@ -1146,7 +1147,6 @@ foo.bar()
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2e3),
-                Token::Eof,
             ]
         );
     }
@@ -1157,33 +1157,25 @@ foo.bar()
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![Token::Minus, Token::FloatingPoint(3.14), Token::Eof,]
+            vec![Token::Minus, Token::FloatingPoint(3.14),]
         );
 
         let input = "-3";
         let lexer = Lexer::from_str(input);
-        assert_eq!(
-            lexer.tokens,
-            vec![Token::Minus, Token::Integer(3), Token::Eof,]
-        );
+        assert_eq!(lexer.tokens, vec![Token::Minus, Token::Integer(3),]);
 
         let input = "2 - 3";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Integer(2),
-                Token::Minus,
-                Token::Integer(3),
-                Token::Eof,
-            ]
+            vec![Token::Integer(2), Token::Minus, Token::Integer(3),]
         );
 
         let input = "-2e-3";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![Token::Minus, Token::FloatingPoint(2e-3), Token::Eof,]
+            vec![Token::Minus, Token::FloatingPoint(2e-3),]
         );
 
         let input = "3-i";
@@ -1194,7 +1186,6 @@ foo.bar()
                 Token::Integer(3),
                 Token::Minus,
                 Token::Identifier("i".into()),
-                Token::Eof,
             ]
         );
 
@@ -1207,7 +1198,6 @@ foo.bar()
                 Token::Plus,
                 Token::Minus,
                 Token::Integer(3),
-                Token::Eof,
             ]
         );
 
@@ -1220,7 +1210,6 @@ foo.bar()
                 Token::LParen,
                 Token::Integer(3),
                 Token::RParen,
-                Token::Eof,
             ]
         );
 
@@ -1235,7 +1224,6 @@ foo.bar()
                 Token::Plus,
                 Token::Integer(3),
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -1254,7 +1242,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
 
@@ -1270,7 +1257,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
 
@@ -1288,7 +1274,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
 
@@ -1307,7 +1292,6 @@ foo.bar()
                 Token::Integer(3),
                 Token::RBracket,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -1326,7 +1310,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
-                Token::Eof,
             ]
         );
 
@@ -1342,7 +1325,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
-                Token::Eof,
             ]
         );
 
@@ -1360,7 +1342,6 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
-                Token::Eof,
             ]
         );
 
@@ -1379,7 +1360,6 @@ foo.bar()
                 Token::Integer(3),
                 Token::RBrace,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -1395,7 +1375,6 @@ foo.bar()
                 Token::LBracket,
                 Token::Integer(0),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
 
@@ -1412,7 +1391,6 @@ foo.bar()
                 Token::LBracket,
                 Token::Integer(1),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
     }
@@ -1440,7 +1418,6 @@ for i in a:
                 Token::Identifier("a".to_string()),
                 Token::RParen,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1466,7 +1443,6 @@ b = [ i * 2 for i in a ]
                 Token::In,
                 Token::Identifier("a".to_string()),
                 Token::RBracket,
-                Token::Eof,
             ]
         );
     }
@@ -1496,7 +1472,6 @@ print((1,2))
                 Token::Integer(2),
                 Token::RParen,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
@@ -1539,7 +1514,6 @@ def countdown(n):
                 Token::Integer(1),
                 Token::Dedent,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1579,7 +1553,6 @@ class Foo(Parent):
                 Token::Integer(0),
                 Token::Dedent,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1605,7 +1578,6 @@ a = { "b": 4, 'c': 5 }
                 Token::Colon,
                 Token::Integer(5),
                 Token::RBrace,
-                Token::Eof,
             ]
         );
     }
@@ -1644,7 +1616,6 @@ async def main():
                 Token::Await,
                 Token::Identifier("task_1".to_string()),
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1667,7 +1638,6 @@ a = 1
                 Token::Identifier("a".to_string()),
                 Token::Assign,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
@@ -1687,25 +1657,17 @@ a = 1
                 Token::Identifier("a".to_string()),
                 Token::Assign,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn assert() {
-        let input = r#"
-assert True
-"#;
+        let input = "assert True";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Assert,
-                Token::BooleanLiteral(true),
-                Token::Eof,
-            ]
+            vec![Token::Assert, Token::BooleanLiteral(true),]
         );
     }
 
@@ -1750,7 +1712,6 @@ finally:
                 Token::Assign,
                 Token::Integer(3),
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1771,43 +1732,34 @@ b
                 Token::HexLiteral("0x0010".into()),
                 Token::Newline,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn octal_literal() {
-        let input = r#"
-a = 0o0010
-"#;
+        let input = "a = 0o0010";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::OctalLiteral("0o0010".into()),
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn binary_literal() {
-        let input = r#"
-a = 0b0010
-"#;
+        let input = "a = 0b0010";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::BinaryLiteral("0b0010".into()),
-                Token::Eof,
             ]
         );
     }
@@ -1837,7 +1789,6 @@ def add(*args, **kwargs):
                 Token::Indent,
                 Token::Pass,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -1867,25 +1818,17 @@ def get_val():
                 Token::Return,
                 Token::Integer(2),
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn raise() {
-        let input = r#"
-raise Exception
-"#;
+        let input = "raise Exception";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Raise,
-                Token::Identifier("Exception".into()),
-                Token::Eof,
-            ]
+            vec![Token::Raise, Token::Identifier("Exception".into()),]
         );
     }
 
@@ -1916,273 +1859,199 @@ with open('test.txt') as f:
                 Token::LParen,
                 Token::RParen,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn ellipsis() {
-        let input = r#"
-type(...)
-"#;
+        let input = "type(...)";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("type".into()),
                 Token::LParen,
                 Token::Ellipsis,
                 Token::RParen,
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-type(Ellipsis)
-"#;
+        let input = "type(Ellipsis)";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("type".into()),
                 Token::LParen,
                 Token::Ellipsis,
                 Token::RParen,
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn delete() {
-        let input = r#"
-del a
-"#;
+        let input = r#"del a"#;
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Del,
-                Token::Identifier("a".into()),
-                Token::Eof,
-            ]
+            vec![Token::Del, Token::Identifier("a".into()),]
         );
     }
 
     #[test]
     fn byte_string() {
-        let input = r#"
-b'hello'
-"#;
+        let input = r#"b'hello'"#;
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::ByteStringLiteral("hello".into()),
-                Token::Eof,
-            ]
+            vec![Token::ByteStringLiteral("hello".into()),]
         );
     }
 
     #[test]
     fn compound_assignment() {
-        let input = r#"
-a += 1
-"#;
+        let input = "a += 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::PlusEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a -= 1
-"#;
+        let input = "a -= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::MinusEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a *= 1
-"#;
+        let input = "a *= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::AsteriskEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a /= 1
-"#;
+        let input = "a /= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::SlashEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a &= 1
-"#;
+        let input = "a &= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::BitwiseAndEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a ^= 1
-"#;
+        let input = "a ^= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::BitwiseXorEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a |= 1
-"#;
+        let input = "a |= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::BitwiseOrEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a //= 1
-"#;
+        let input = "a //= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::DoubleSlashEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a <<= 1
-"#;
+        let input = "a <<= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::LeftShiftEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a %= 1
-"#;
+        let input = "a %= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::ModEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a @= 1
-"#;
+        let input = "a @= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::MatMulEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a **= 1
-"#;
+        let input = "a **= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::ExpoEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-a >>= 1
-"#;
+        let input = "a >>= 1";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::RightShiftEquals,
                 Token::Integer(1),
-                Token::Eof,
             ]
         );
     }
@@ -2203,7 +2072,6 @@ f"Hello {name}"
                 Token::Identifier("name".into()),
                 Token::RBrace,
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2221,7 +2089,6 @@ f'Hello {name}'
                 Token::Identifier("name".into()),
                 Token::RBrace,
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2236,7 +2103,6 @@ f"Hello"
                 Token::FStringStart,
                 Token::StringLiteral("Hello".into()),
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2259,7 +2125,6 @@ f"Hello {name} goodbye {other}."
                 Token::RBrace,
                 Token::StringLiteral(".".into()),
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2279,7 +2144,6 @@ f"{first}{last}"
                 Token::Identifier("last".into()),
                 Token::RBrace,
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2298,7 +2162,6 @@ f"environ({{{formatted_items}}})"
                 Token::RBrace,
                 Token::StringLiteral("})".into()),
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2317,7 +2180,6 @@ f"environ({{{formatted_items}after}})"
                 Token::RBrace,
                 Token::StringLiteral("after})".into()),
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
 
@@ -2362,18 +2224,14 @@ f"environ({{{formatted_items}after}})"
                 Token::Pass,
                 Token::Dedent,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
 
-        let input = r#"
-f"{first}{last!r}"
-"#;
+        let input = r#"f"{first}{last!r}""#;
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::LBrace,
                 Token::Identifier("first".into()),
@@ -2384,7 +2242,6 @@ f"{first}{last!r}"
                 Token::Identifier("r".into()),
                 Token::RBrace,
                 Token::FStringEnd,
-                Token::Eof,
             ]
         );
     }
@@ -2393,10 +2250,7 @@ f"{first}{last!r}"
     fn raw_strings() {
         let input = r#"r"hello""#;
         let lexer = Lexer::from_str(input);
-        assert_eq!(
-            lexer.tokens,
-            vec![Token::RawStringLiteral("hello".into()), Token::Eof,]
-        );
+        assert_eq!(lexer.tokens, vec![Token::RawStringLiteral("hello".into()),]);
 
         let input = r#"
 r"""OS routines for NT or Posix depending on what system we're on.
@@ -2410,8 +2264,7 @@ This exports:
             vec![
                 Token::Newline,
                 Token::RawStringLiteral("OS routines for NT or Posix depending on what system we're on.\n\nThis exports:\n".into()),
-                Token::Eof,
-            ]
+                            ]
         );
     }
 
@@ -2425,7 +2278,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::DoubleSlash,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2437,7 +2289,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::BitwiseAnd,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2449,7 +2300,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::BitwiseOr,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2461,7 +2311,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::BitwiseXor,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2473,7 +2322,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::Modulo,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2481,7 +2329,7 @@ This exports:
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![Token::BitwiseNot, Token::Identifier("a".into()), Token::Eof,]
+            vec![Token::BitwiseNot, Token::Identifier("a".into()),]
         );
 
         let input = "a << b";
@@ -2492,7 +2340,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::LeftShift,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
 
@@ -2504,7 +2351,6 @@ This exports:
                 Token::Identifier("a".into()),
                 Token::RightShift,
                 Token::Identifier("b".into()),
-                Token::Eof,
             ]
         );
     }
@@ -2529,7 +2375,6 @@ for i in a:
                 Token::Indent,
                 Token::Continue,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
 
@@ -2551,26 +2396,17 @@ for i in a:
                 Token::Indent,
                 Token::Break,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn lambda() {
-        let input = r#"
-lambda: 4
-"#;
+        let input = "lambda: 4";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Lambda,
-                Token::Colon,
-                Token::Integer(4),
-                Token::Eof,
-            ]
+            vec![Token::Lambda, Token::Colon, Token::Integer(4),]
         );
     }
 
@@ -2603,51 +2439,31 @@ def add(a: str, b: str) -> int:
                 Token::Indent,
                 Token::Pass,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
 
     #[test]
     fn scope_modifiers() {
-        let input = r#"
-nonlocal var
-"#;
+        let input = "nonlocal var";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Nonlocal,
-                Token::Identifier("var".into()),
-                Token::Eof,
-            ]
+            vec![Token::Nonlocal, Token::Identifier("var".into()),]
         );
 
-        let input = r#"
-global var
-"#;
+        let input = "global var";
         let lexer = Lexer::from_str(input);
         assert_eq!(
             lexer.tokens,
-            vec![
-                Token::Newline,
-                Token::Global,
-                Token::Identifier("var".into()),
-                Token::Eof,
-            ]
+            vec![Token::Global, Token::Identifier("var".into()),]
         );
     }
 
     #[test]
     fn not_implemented() {
-        let input = r#"
-NotImplemented
-"#;
+        let input = "NotImplemented";
         let lexer = Lexer::from_str(input);
-        assert_eq!(
-            lexer.tokens,
-            vec![Token::Newline, Token::NotImplemented, Token::Eof,]
-        );
+        assert_eq!(lexer.tokens, vec![Token::NotImplemented,]);
     }
 }

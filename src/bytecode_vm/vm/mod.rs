@@ -26,7 +26,7 @@ use self::{
 type VmResult<T> = Result<T, ExecutionError>;
 
 pub struct VirtualMachine {
-    pub state: Container<State>,
+    state: Container<State>,
 
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,

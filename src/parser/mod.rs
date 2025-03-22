@@ -2,6 +2,9 @@ use std::collections::HashSet;
 
 pub mod static_analysis;
 pub mod types;
+#[cfg(test)]
+#[macro_use]
+pub mod test_utils;
 
 use types::Statement;
 
@@ -1852,115 +1855,12 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::test_utils::*;
     use super::{types::KwargsOperation, *};
     use crate::init::MemphisContext;
 
     fn init(text: &str) -> MemphisContext {
         MemphisContext::from_text(text)
-    }
-
-    fn stmt(kind: StatementKind) -> Statement {
-        Statement::new(1, kind)
-    }
-
-    macro_rules! var {
-        ($name:expr) => {
-            Expr::Variable($name.to_string())
-        };
-    }
-
-    macro_rules! str {
-        ($name:expr) => {
-            Expr::StringLiteral($name.to_string())
-        };
-    }
-
-    macro_rules! int {
-        ($val:expr) => {
-            Expr::Integer($val)
-        };
-    }
-
-    macro_rules! list {
-        ($($expr:expr),* $(,)?) => {
-            Expr::List(vec![
-                $($expr),*
-            ])
-        };
-    }
-
-    macro_rules! tuple {
-        ($($expr:expr),* $(,)?) => {
-            Expr::Tuple(vec![
-                $($expr),*
-            ])
-        };
-    }
-
-    macro_rules! set {
-        ($($expr:expr),* $(,)?) => {
-            Expr::Set(HashSet::from([
-                $($expr),*
-            ]))
-        };
-    }
-
-    macro_rules! stmt_assign {
-        ($left:expr, $right:expr) => {
-            stmt(StatementKind::Assignment {
-                left: $left,
-                right: $right,
-            })
-        };
-    }
-
-    macro_rules! bin_op {
-        ($left:expr, $op:ident, $right:expr) => {
-            Expr::BinaryOperation {
-                left: Box::new($left),
-                op: BinOp::$op,
-                right: Box::new($right),
-            }
-        };
-    }
-
-    macro_rules! logic_op {
-        ($left:expr, $op:ident, $right:expr) => {
-            Expr::LogicalOperation {
-                left: Box::new($left),
-                op: LogicalOp::$op,
-                right: Box::new($right),
-            }
-        };
-    }
-
-    macro_rules! unary_op {
-        ($op:ident, $right:expr) => {
-            Expr::UnaryOperation {
-                op: UnaryOp::$op,
-                right: Box::new($right),
-            }
-        };
-    }
-
-    macro_rules! parsed_args {
-        ($($positional:expr),* $(,)?) => {
-            ParsedArguments {
-                args: vec![$($positional),*],
-                kwargs: vec![],
-                args_var: None,
-            }
-        };
-    }
-
-    macro_rules! func_call {
-        ($name:expr, $args:expr) => {
-            Expr::FunctionCall {
-                name: $name.to_string(),
-                args: $args,
-                callee: None,
-            }
-        };
     }
 
     macro_rules! expect_error {
@@ -2388,14 +2288,11 @@ mod tests {
             "a",
             ParsedArguments {
                 args: vec![],
-                kwargs: vec![KwargsOperation::Unpacking(Expr::MemberAccess {
-                    object: Box::new(var!("self")),
-                    field: "kwargs".into(),
-                })],
-                args_var: Some(Box::new(Expr::MemberAccess {
-                    object: Box::new(var!("self")),
-                    field: "args".into(),
-                })),
+                kwargs: vec![KwargsOperation::Unpacking(member_access!(
+                    var!("self"),
+                    "kwargs"
+                ))],
+                args_var: Some(Box::new(member_access!(var!("self"), "args"))),
             }
         );
 
@@ -2826,13 +2723,7 @@ class Foo:
                         args_var: None,
                         kwargs_var: None,
                     },
-                    body: ast![stmt_assign!(
-                        Expr::MemberAccess {
-                            object: Box::new(var!("self")),
-                            field: "x".to_string(),
-                        },
-                        int!(0)
-                    )],
+                    body: ast![stmt_assign!(member_access!(var!("self"), "x"), int!(0))],
                     decorators: vec![],
                     is_async: false,
                 }),
@@ -2848,10 +2739,7 @@ class Foo:
                     },
                     body: ast![stmt(StatementKind::Expression(func_call!(
                         "print",
-                        parsed_args![Expr::MemberAccess {
-                            object: Box::new(var!("self")),
-                            field: "x".to_string(),
-                        }]
+                        parsed_args![member_access!(var!("self"), "x")]
                     )))],
                     decorators: vec![],
                     is_async: false,
@@ -2874,10 +2762,7 @@ class Foo:
         let input = "class Foo(module.Bar): pass";
         let expected_ast = stmt(StatementKind::ClassDef {
             name: "Foo".to_string(),
-            parents: vec![Expr::MemberAccess {
-                object: Box::new(var!("module")),
-                field: "Bar".into(),
-            }],
+            parents: vec![member_access!(var!("module"), "Bar")],
             metaclass: None,
             body: ast![stmt(StatementKind::Pass)],
         });
@@ -2966,10 +2851,7 @@ pass
 
         let input = "mypackage.myothermodule.add('1', '1')";
         let expected_ast = Expr::MethodCall {
-            object: Box::new(Expr::MemberAccess {
-                object: Box::new(var!("mypackage")),
-                field: "myothermodule".into(),
-            }),
+            object: Box::new(member_access!(var!("mypackage"), "myothermodule")),
             name: "add".into(),
             args: parsed_args![str!("1"), str!("1")],
         };
@@ -2978,10 +2860,7 @@ pass
 
         let input = "cls._abc_registry.add(subclass)";
         let expected_ast = Expr::MethodCall {
-            object: Box::new(Expr::MemberAccess {
-                object: Box::new(var!("cls")),
-                field: "_abc_registry".into(),
-            }),
+            object: Box::new(member_access!(var!("cls"), "_abc_registry")),
             name: "add".into(),
             args: parsed_args![var!("subclass")],
         };

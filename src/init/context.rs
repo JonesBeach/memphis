@@ -24,7 +24,7 @@ pub struct MemphisContext {
 
 impl Default for MemphisContext {
     fn default() -> Self {
-        Self::new(Container::new(State::default()))
+        Self::from_module(ModuleSource::default())
     }
 }
 
@@ -106,13 +106,14 @@ impl MemphisContext {
         vm_interpreter.compile(&mut parser)
     }
 
-    pub fn run_vm_and_return(&mut self) -> Result<&mut VmInterpreter, MemphisError> {
-        let _ = self.run_vm_inner()?;
-        Ok(self.ensure_vm())
-    }
-
     pub fn run_vm(&mut self) -> Result<Value, MemphisError> {
-        self.run_vm_inner()
+        let mut parser = self.init_parser();
+        let mut vm_interpreter = self.init_vm_interpreter();
+
+        let result = vm_interpreter.run(&mut parser);
+
+        self.vm_interpreter = Some(vm_interpreter);
+        result
     }
 
     pub fn ensure_treewalk(&self) -> &Interpreter {
@@ -143,7 +144,10 @@ impl MemphisContext {
 
     fn init_lexer(&mut self, text: &str) {
         if self.lexer.is_none() {
-            self.lexer = Some(Lexer::new(text.to_owned()));
+            let mut l = Lexer::new();
+            // TODO we should really handle this error
+            let _ = l.tokenize(text);
+            self.lexer = Some(l);
         } else {
             panic!("Lexer has already been initialized!");
         }
@@ -159,15 +163,5 @@ impl MemphisContext {
 
     fn init_vm_interpreter(&self) -> VmInterpreter {
         VmInterpreter::new(self.state.clone())
-    }
-
-    fn run_vm_inner(&mut self) -> Result<Value, MemphisError> {
-        let mut parser = self.init_parser();
-        let mut vm_interpreter = self.init_vm_interpreter();
-
-        let result = vm_interpreter.run(&mut parser);
-
-        self.vm_interpreter = Some(vm_interpreter);
-        result
     }
 }

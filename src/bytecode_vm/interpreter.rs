@@ -56,7 +56,7 @@ mod vm_interpreter_tests {
 
     use crate::{
         bytecode_vm::vm::types::Object,
-        domain::{ExecutionError, ExecutionErrorKind},
+        domain::{test_utils, ExecutionError, ExecutionErrorKind},
         init::MemphisContext,
     };
 
@@ -78,71 +78,54 @@ mod vm_interpreter_tests {
         )
     }
 
+    fn eval_inner(text: &str) -> Result<Value, MemphisError> {
+        let mut context = init(text);
+        context.run_vm()
+    }
+
+    fn evaluate(text: &str) -> Value {
+        eval_inner(text).expect("Failed to evaluate test string")
+    }
+
+    fn eval_expect_error(text: &str) -> ExecutionError {
+        match eval_inner(text) {
+            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => return e,
+            Err(_) => panic!("Expected an execution error!"),
+        };
+    }
+
+    fn run(context: &mut MemphisContext) -> &mut VmInterpreter {
+        context.run_vm().expect("VM run failed!");
+        context.ensure_vm()
+    }
+
+    fn run_expect_error(context: &mut MemphisContext) -> ExecutionError {
+        match context.run_vm() {
+            Ok(_) => panic!("Expected an error!"),
+            Err(MemphisError::Execution(e)) => return e,
+            Err(_) => panic!("Expected an execution error!"),
+        };
+    }
+
     #[test]
     fn expression() {
         let text = "4 * (2 + 3)";
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(result) => {
-                assert_eq!(result, Value::Integer(20));
-            }
-        }
+        assert_eq!(evaluate(text), Value::Integer(20));
 
         let text = "4 < 5";
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(result) => {
-                assert_eq!(result, Value::Boolean(true));
-            }
-        }
+        assert_eq!(evaluate(text), Value::Boolean(true));
 
         let text = "4 > 5";
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(result) => {
-                assert_eq!(result, Value::Boolean(false));
-            }
-        }
+        assert_eq!(evaluate(text), Value::Boolean(false));
 
         let text = "4 > x";
-        let mut context = init(text);
+        let e = eval_expect_error(text);
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("x".to_string()));
 
-        match context.run_vm() {
-            Err(MemphisError::Execution(e)) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(
-                    e,
-                    ExecutionError::new(
-                        interpreter.vm.state.debug_call_stack(),
-                        ExecutionErrorKind::NameError("x".to_string())
-                    )
-                )
-            }
-            _ => panic!("Expected an exception!"),
-        }
-
-        let text = "x()";
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(MemphisError::Execution(e)) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(
-                    e,
-                    ExecutionError::new(
-                        interpreter.vm.state.debug_call_stack(),
-                        ExecutionErrorKind::NameError("x".to_string())
-                    )
-                )
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        let text = "y()";
+        let e = eval_expect_error(text);
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("y".to_string()));
     }
 
     #[test]
@@ -151,30 +134,18 @@ mod vm_interpreter_tests {
 a = 5 - 3
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
 
         let text = r#"
 a = "Hello World"
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(
-                    interpreter.take("a"),
-                    Some(Value::String("Hello World".into()))
-                );
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(
+            interpreter.take("a"),
+            Some(Value::String("Hello World".into()))
+        );
 
         let text = r#"
 a = 5 - 3
@@ -182,31 +153,19 @@ b = 10
 c = None
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
-                assert_eq!(interpreter.take("b"), Some(Value::Integer(10)));
-                assert_eq!(interpreter.take("c"), Some(Value::None));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
+        assert_eq!(interpreter.take("b"), Some(Value::Integer(10)));
+        assert_eq!(interpreter.take("c"), Some(Value::None));
 
         let text = r#"
 a = 5 - 3
 b = 10 + a
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
-                assert_eq!(interpreter.take("b"), Some(Value::Integer(12)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
+        assert_eq!(interpreter.take("b"), Some(Value::Integer(12)));
     }
 
     #[test]
@@ -218,14 +177,8 @@ while i < n:
     i = i + 1
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("i"), Some(Value::Integer(4)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("i"), Some(Value::Integer(4)));
     }
 
     #[test]
@@ -237,14 +190,8 @@ def foo(a, b):
 c = foo(2, 9)
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("c"), Some(Value::Integer(11)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("c"), Some(Value::Integer(11)));
     }
 
     #[test]
@@ -257,14 +204,8 @@ def foo(a, b):
 d = foo(2, 9)
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
     }
 
     #[test]
@@ -280,11 +221,8 @@ hello()
 world()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {}
-        }
+        // TODO should this do something?
+        let _ = run(&mut context);
     }
 
     #[test]
@@ -298,14 +236,8 @@ def foo(a, b):
 c = foo(2, 9)
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("c"), Some(Value::Integer(29)));
-            }
-        }
+        let interpreter = run(&mut context);
+        assert_eq!(interpreter.take("c"), Some(Value::Integer(29)));
     }
 
     #[test]
@@ -316,23 +248,16 @@ class Foo:
         return 4
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let Some(Value::Class(class)) = interpreter.take("Foo") else {
-                    panic!("Did not find class Foo")
-                };
-                assert_eq!(class.name(), "Foo");
-                let Value::Function(ref function) =
-                    *interpreter.vm.dereference(class.read("bar").unwrap())
-                else {
-                    panic!("Did not find function bar")
-                };
-                assert_eq!(function.code_object.name(), "bar");
-            }
-        }
+        let interpreter = run(&mut context);
+        let Some(Value::Class(class)) = interpreter.take("Foo") else {
+            panic!("Did not find class Foo")
+        };
+        assert_eq!(class.name(), "Foo");
+        let Value::Function(ref function) = *interpreter.vm.dereference(class.read("bar").unwrap())
+        else {
+            panic!("Did not find function bar")
+        };
+        assert_eq!(function.code_object.name(), "bar");
     }
 
     #[test]
@@ -345,24 +270,18 @@ class Foo:
 f = Foo()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let Some(Value::Object(object)) = interpreter.take("f") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(
-                    interpreter
-                        .vm
-                        .dereference(object.class_ref())
-                        .as_class()
-                        .name(),
-                    "Foo"
-                );
-            }
-        }
+        let interpreter = run(&mut context);
+        let Some(Value::Object(object)) = interpreter.take("f") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(
+            interpreter
+                .vm
+                .dereference(object.class_ref())
+                .as_class()
+                .name(),
+            "Foo"
+        );
     }
 
     #[test]
@@ -376,17 +295,11 @@ f = Foo()
 b = f.bar()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let Some(Value::Integer(b)) = interpreter.take("b") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(b, 4);
-            }
-        }
+        let interpreter = run(&mut context);
+        let Some(Value::Integer(b)) = interpreter.take("b") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(b, 4);
 
         let text = r#"
 class Foo:
@@ -397,17 +310,11 @@ f = Foo()
 b = f.bar(11)
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let Some(Value::Integer(b)) = interpreter.take("b") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(b, 15);
-            }
-        }
+        let interpreter = run(&mut context);
+        let Some(Value::Integer(b)) = interpreter.take("b") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(b, 15);
     }
 
     #[test]
@@ -420,17 +327,11 @@ f = Foo()
 f.x = 4
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let mut interpreter = context.ensure_vm();
-                let Some(Value::Object(f)) = interpreter.take("f") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
-            }
-        }
+        let mut interpreter = run(&mut context);
+        let Some(Value::Object(f)) = interpreter.take("f") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
     }
 
     #[test]
@@ -444,17 +345,11 @@ f = Foo()
 f.bar()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let mut interpreter = context.ensure_vm();
-                let Some(Value::Object(f)) = interpreter.take("f") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
-            }
-        }
+        let mut interpreter = run(&mut context);
+        let Some(Value::Object(f)) = interpreter.take("f") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
     }
 
     #[test]
@@ -467,17 +362,11 @@ class Foo:
 f = Foo()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let mut interpreter = context.ensure_vm();
-                let Some(Value::Object(f)) = interpreter.take("f") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(44));
-            }
-        }
+        let mut interpreter = run(&mut context);
+        let Some(Value::Object(f)) = interpreter.take("f") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(44));
     }
 
     #[test]
@@ -490,17 +379,11 @@ class Foo:
 f = Foo(33)
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let mut interpreter = context.ensure_vm();
-                let Some(Value::Object(f)) = interpreter.take("f") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(33));
-            }
-        }
+        let mut interpreter = run(&mut context);
+        let Some(Value::Object(f)) = interpreter.take("f") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(33));
     }
 
     #[test]
@@ -517,17 +400,11 @@ f = Foo(10)
 b = f.bar()
 "#;
         let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let Some(Value::Integer(b)) = interpreter.take("b") else {
-                    panic!("Did not find object f")
-                };
-                assert_eq!(b, 10);
-            }
-        }
+        let interpreter = run(&mut context);
+        let Some(Value::Integer(b)) = interpreter.take("b") else {
+            panic!("Did not find object f")
+        };
+        assert_eq!(b, 10);
     }
 
     #[test]
@@ -542,70 +419,50 @@ def last_call():
 middle_call()
 "#;
         let mut context = init(text);
+        let e = run_expect_error(&mut context);
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("unknown".to_string()));
 
-        match context.run_vm() {
-            Err(MemphisError::Execution(e)) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(
-                    e,
-                    ExecutionError::new(
-                        interpreter.vm.state.debug_call_stack(),
-                        ExecutionErrorKind::NameError("unknown".to_string())
-                    )
-                );
-                let call_stack = e.debug_call_stack;
-                assert_eq!(call_stack.len(), 3);
-                assert_eq!(call_stack.get(0).name(), "<module>");
-                assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(0).line_number(), 8);
-                assert_eq!(call_stack.get(1).name(), "middle_call");
-                assert_eq!(call_stack.get(1).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(1).line_number(), 3);
-                assert_eq!(call_stack.get(2).name(), "last_call");
-                assert_eq!(call_stack.get(2).file_path_str(), "<stdin>");
-                assert_eq!(call_stack.get(2).line_number(), 6);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        let call_stack = e.debug_call_stack;
+        assert_eq!(call_stack.len(), 3);
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
+        assert_eq!(call_stack.get(0).line_number(), 8);
+        assert_eq!(call_stack.get(1).name(), "middle_call");
+        assert_eq!(call_stack.get(1).file_path_str(), "<stdin>");
+        assert_eq!(call_stack.get(1).line_number(), 3);
+        assert_eq!(call_stack.get(2).name(), "last_call");
+        assert_eq!(call_stack.get(2).file_path_str(), "<stdin>");
+        assert_eq!(call_stack.get(2).line_number(), 6);
+    }
 
+    #[test]
+    fn stack_trace_from_file() {
         let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+        let e = run_expect_error(&mut context);
+        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("unknown".to_string()));
 
-        match context.run_vm() {
-            Err(MemphisError::Execution(e)) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(
-                    e,
-                    ExecutionError::new(
-                        interpreter.vm.state.debug_call_stack(),
-                        ExecutionErrorKind::NameError("unknown".to_string())
-                    )
-                );
-
-                let call_stack = e.debug_call_stack;
-                assert_eq!(call_stack.len(), 3);
-                assert_eq!(call_stack.get(0).name(), "<module>");
-                assert!(call_stack
-                    .get(0)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(0).file_path_str().starts_with("/"));
-                assert_eq!(call_stack.get(0).line_number(), 7);
-                assert_eq!(call_stack.get(1).name(), "middle_call");
-                assert!(call_stack
-                    .get(1)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(1).file_path_str().starts_with("/"));
-                assert_eq!(call_stack.get(1).line_number(), 2);
-                assert_eq!(call_stack.get(2).name(), "last_call");
-                assert!(call_stack
-                    .get(2)
-                    .file_path_str()
-                    .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
-                assert!(call_stack.get(2).file_path_str().starts_with("/"));
-                assert_eq!(call_stack.get(2).line_number(), 5);
-            }
-            _ => panic!("Expected an exception!"),
-        }
+        let call_stack = e.debug_call_stack;
+        assert_eq!(call_stack.len(), 3);
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert!(call_stack
+            .get(0)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(0).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(0).line_number(), 7);
+        assert_eq!(call_stack.get(1).name(), "middle_call");
+        assert!(call_stack
+            .get(1)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(1).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(1).line_number(), 2);
+        assert_eq!(call_stack.get(2).name(), "last_call");
+        assert!(call_stack
+            .get(2)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(2).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(2).line_number(), 5);
     }
 }

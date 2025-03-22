@@ -99,8 +99,7 @@ impl Repl {
         ));
 
         // TODO clean up this flow for incremental evaluation
-        // we pass in "" because we need a stack from but our text/code is currently empty
-        let mut context = MemphisContext::from_text("");
+        let mut context = MemphisContext::default();
         // we need this to initialize the interpreter - again, not a clean interface
         let _ = context.run_treewalk();
         // we should probably just pass around a mutable context, but for now, stick with the &mut
@@ -295,7 +294,8 @@ impl Repl {
         self.input.push_str(line);
 
         if self.end_of_statement(line) {
-            let lexer = Lexer::new(self.input.clone());
+            let mut lexer = Lexer::new();
+            let _ = lexer.tokenize(&self.input);
             let mut parser = Parser::new(lexer.tokens());
             match interpreter.run(&mut parser) {
                 Ok(result) => {
