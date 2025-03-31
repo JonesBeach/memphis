@@ -1,16 +1,23 @@
+use std::{collections::VecDeque, iter::Peekable, str::Chars};
+
 use crate::{
     core::{log, LogLevel},
     types::errors::LexerError,
 };
-use std::{iter::Peekable, str::Chars};
 
 pub mod types;
 
 use self::types::{MultilineString, Token};
 
+type LexerResult<T> = Result<T, LexerError>;
+
+#[derive(Default)]
 pub struct Lexer {
-    tokens: Vec<Token>,
-    error: Option<LexerError>,
+    // Tokens we have produced but which have yet to be consumed
+    pending_tokens: VecDeque<Token>,
+
+    // Each input line, added incrementally
+    source_lines: VecDeque<String>,
 
     /// When `None`, we are not inside a multiline string. When `Some`, contains the character we
     /// must see to end the multiline string. If a multiline string is not assigned to a variable,
@@ -26,24 +33,35 @@ pub struct Lexer {
     in_f_string_expr: bool,
 }
 
-impl Lexer {
-    pub fn new() -> Self {
-        Self {
-            tokens: Vec::new(),
-            error: None,
-            multiline_string: None,
-            multiline_context: 0,
-            in_f_string_expr: false,
+impl Iterator for Lexer {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // 1. Return any pending token if available
+            if let Some(token) = self.pending_tokens.pop_front() {
+                return Some(token);
+            }
+
+            // 2. If there’s no more source to lex, stop
+            if self.source_lines.is_empty() {
+                return None;
+            }
+
+            // 3. Process the next line into tokens
+            let line = self.source_lines.pop_front()?;
+            match self.tokenize(&line) {
+                Ok(()) => continue,
+                Err(err) => self.handle_tokenize_error(err),
+            }
         }
     }
+}
 
-    pub fn tokens(&self) -> &[Token] {
-        &self.tokens
-    }
-
-    #[cfg(test)]
-    pub fn finalize(&mut self) {
-        self.tokens.push(Token::Eof);
+impl Lexer {
+    pub fn add_line(&mut self, line: &str) -> LexerResult<()> {
+        self.source_lines.push_back(line.to_string());
+        Ok(())
     }
 
     /// Since we tokenize one line at a time, we must consider whether we are inside a multiline
@@ -52,11 +70,20 @@ impl Lexer {
     fn emit_newline(&mut self) {
         match self.multiline_string {
             None => {
-                self.tokens.push(Token::Newline);
+                self.pending_tokens.push_back(Token::Newline);
             }
             Some(ref mut s) => {
                 s.literal.push('\n');
             }
+        }
+    }
+
+    fn handle_tokenize_error(&mut self, err: LexerError) {
+        match err {
+            LexerError::UnexpectedCharacter(c) => {
+                self.pending_tokens.push_back(Token::InvalidCharacter(c));
+            }
+            _ => panic!("{}", err),
         }
     }
 
@@ -66,7 +93,7 @@ impl Lexer {
         self.multiline_context == 0 && self.multiline_string.is_none()
     }
 
-    pub fn tokenize(&mut self, input: &str) -> Result<(), LexerError> {
+    fn tokenize(&mut self, input: &str) -> LexerResult<()> {
         // Each element here indicates the number of spaces at the beginning of the column for this
         // indentation block. Python does not enforce a particular number of spaces, only that for
         // a given indentation, you are consistent with the number of spaces.
@@ -78,26 +105,24 @@ impl Lexer {
                 continue;
             }
 
-            let mut chars = line.chars().peekable();
-
-            let mut spaces = 0;
-            while let Some(&c) = chars.peek() {
-                if c == ' ' {
-                    spaces += 1;
-                    chars.next();
-                } else {
-                    break;
-                }
-            }
+            let num_spaces = count_leading_spaces(line);
 
             if self.check_in_block() {
-                if spaces > *indentation_stack.last().unwrap() {
-                    indentation_stack.push(spaces);
-                    self.tokens.push(Token::Indent);
+                if num_spaces
+                    > *indentation_stack
+                        .last()
+                        .ok_or_else(|| internal_error("Invalid indentation stack state"))?
+                {
+                    indentation_stack.push(num_spaces);
+                    self.pending_tokens.push_back(Token::Indent);
                 } else {
-                    while spaces < *indentation_stack.last().unwrap() {
+                    while num_spaces
+                        < *indentation_stack
+                            .last()
+                            .ok_or_else(|| internal_error("Invalid indentation stack state"))?
+                    {
                         indentation_stack.pop();
-                        self.tokens.push(Token::Dedent);
+                        self.pending_tokens.push_back(Token::Dedent);
                     }
                 }
             }
@@ -105,68 +130,21 @@ impl Lexer {
             self.tokenize_line(line.trim_start())?;
             self.emit_newline();
         }
-        if self.tokens.last() == Some(&Token::Newline) {
-            self.tokens.remove(self.tokens.len() - 1);
-        }
 
         while indentation_stack.len() > 1 {
             indentation_stack.pop();
-            self.tokens.push(Token::Dedent);
+            self.pending_tokens.push_back(Token::Dedent);
         }
 
         Ok(())
-    }
-
-    fn tokenize_binary_literal(&self, chars: &mut Peekable<Chars>) -> Token {
-        let mut literal = String::from("0b");
-
-        while let Some(&c) = chars.peek() {
-            if c.is_digit(2) {
-                literal.push(c);
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
-        Token::BinaryLiteral(literal)
-    }
-
-    fn tokenize_octal_literal(&self, chars: &mut Peekable<Chars>) -> Token {
-        let mut literal = String::from("0o");
-
-        while let Some(&c) = chars.peek() {
-            if c.is_digit(8) {
-                literal.push(c);
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
-        Token::OctalLiteral(literal)
-    }
-
-    fn tokenize_hex_literal(&self, chars: &mut Peekable<Chars>) -> Token {
-        let mut literal = String::from("0x");
-
-        while let Some(&c) = chars.peek() {
-            if c.is_ascii_hexdigit() {
-                literal.push(c);
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
-        Token::HexLiteral(literal)
     }
 
     /// While inside of an f-string, we do not know the end of a string literal until we hit
     /// another character.
     fn save_string_literal(&mut self, literal: &mut String) {
         if !literal.is_empty() {
-            self.tokens.push(Token::StringLiteral(literal.clone()));
+            self.pending_tokens
+                .push_back(Token::StringLiteral(literal.clone()));
             literal.clear();
         }
     }
@@ -183,7 +161,7 @@ impl Lexer {
                 } else {
                     self.save_string_literal(&mut literal);
                     chars.next();
-                    self.tokens.push(Token::LBrace);
+                    self.pending_tokens.push_back(Token::LBrace);
                     self.in_f_string_expr = true;
 
                     // We are now inside an f-string expression and should use our main lexing loop
@@ -193,7 +171,7 @@ impl Lexer {
             } else if matches!(c, '"' | '\'') {
                 self.save_string_literal(&mut literal);
                 chars.next();
-                self.tokens.push(Token::FStringEnd);
+                self.pending_tokens.push_back(Token::FStringEnd);
 
                 // We are done with the f-string.
                 return;
@@ -205,7 +183,7 @@ impl Lexer {
                     chars.next();
                 } else {
                     chars.next();
-                    self.tokens.push(Token::RBrace);
+                    self.pending_tokens.push_back(Token::RBrace);
                     self.in_f_string_expr = false;
                 }
             } else {
@@ -215,7 +193,7 @@ impl Lexer {
         }
     }
 
-    fn tokenize_line(&mut self, input: &str) -> Result<(), LexerError> {
+    fn tokenize_line(&mut self, input: &str) -> LexerResult<()> {
         let mut chars = input.chars().peekable();
 
         while let Some(&c) = chars.peek() {
@@ -224,19 +202,20 @@ impl Lexer {
                 // Comments cause the rest of the line to be ignored
                 break;
             } else if let Some(string) = &self.multiline_string {
-                if c == string.end_char
-                    && chars.clone().nth(1) == Some(string.end_char)
-                    && chars.clone().nth(2) == Some(string.end_char)
-                {
+                // When we see three of our end_char, our multiline string is ending
+                let triple = std::iter::repeat(string.end_char)
+                    .take(3)
+                    .collect::<String>();
+                if starts_with(&chars, &triple) {
                     chars.next();
                     chars.next();
                     chars.next();
                     if string.raw {
-                        self.tokens
-                            .push(Token::RawStringLiteral(string.literal.clone()));
+                        self.pending_tokens
+                            .push_back(Token::RawStringLiteral(string.literal.clone()));
                     } else {
-                        self.tokens
-                            .push(Token::StringLiteral(string.literal.clone()));
+                        self.pending_tokens
+                            .push_back(Token::StringLiteral(string.literal.clone()));
                     }
                     self.multiline_string = None;
                 } else {
@@ -244,127 +223,74 @@ impl Lexer {
                     if let Some(ref mut s) = self.multiline_string {
                         s.literal.push(c);
                     } else {
-                        panic!("Expected a raw string literal, but found None");
+                        return Err(internal_error(
+                            "Expected a raw string literal, but found None",
+                        ));
                     }
                 }
-            } else if (c == '"'
-                && chars.clone().nth(1) == Some('"')
-                && chars.clone().nth(2) == Some('"'))
-                || (c == '\''
-                    && chars.clone().nth(1) == Some('\'')
-                    && chars.clone().nth(2) == Some('\''))
-            {
-                self.multiline_string = Some(MultilineString::new(false, c));
+            } else if starts_with_any(&chars, &["\"\"\"", "'''"]) {
+                self.multiline_string = Some(MultilineString::new(c));
                 chars.next();
                 chars.next();
                 chars.next();
-            } else if (c == 'r'
-                && (chars.clone().nth(1) == Some('"')
-                    && chars.clone().nth(2) == Some('"')
-                    && chars.clone().nth(3) == Some('"')))
-                || (chars.clone().nth(1) == Some('\'')
-                    && chars.clone().nth(2) == Some('\'')
-                    && chars.clone().nth(3) == Some('\''))
-            {
-                self.multiline_string =
-                    Some(MultilineString::new(true, chars.clone().nth(1).unwrap()));
+            } else if starts_with_any(&chars, &["r\"\"\"", "r'''"]) {
+                let end_char = chars
+                    .clone()
+                    .nth(1)
+                    .ok_or_else(|| internal_error("Invalid multiline string"))?;
+                self.multiline_string = Some(MultilineString::new_raw(end_char));
                 chars.next();
                 chars.next();
                 chars.next();
                 chars.next();
-            } else if c == '.'
-                && chars.clone().nth(1) == Some('.')
-                && chars.clone().nth(2) == Some('.')
-            {
+            } else if starts_with(&chars, "...") {
                 chars.next();
                 chars.next();
                 chars.next();
-                self.tokens.push(Token::Ellipsis);
+                self.pending_tokens.push_back(Token::Ellipsis);
             } else if c.is_whitespace() {
                 chars.next();
             } else if self.in_f_string_expr && c == '}' {
                 self.tokenize_f_string(&mut chars);
-            } else if matches!(c, 'f' | 'F') && matches!(chars.clone().nth(1), Some('"' | '\'')) {
+            } else if starts_with_any(&chars, &["f\"", "f'", "F\"", "F'"]) {
                 chars.next();
                 chars.next();
-                self.tokens.push(Token::FStringStart);
+                self.pending_tokens.push_back(Token::FStringStart);
                 self.tokenize_f_string(&mut chars);
-            } else if c == 'b' && chars.clone().nth(1) == Some('\'') {
+            } else if starts_with(&chars, "b\'") {
                 chars.next();
                 chars.next();
-                let mut literal = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c == '\'' {
-                        chars.next();
-                        break;
-                    } else {
-                        literal.push(c);
-                        chars.next();
-                    }
-                }
-                self.tokens.push(Token::ByteStringLiteral(literal));
-            } else if c == '0' && matches!(chars.clone().nth(1), Some('b' | 'B')) {
+                let literal = consume_delimited(&mut chars, '\'');
+                self.pending_tokens
+                    .push_back(Token::ByteStringLiteral(literal));
+            } else if starts_with_any(&chars, &["0b", "0B"]) {
                 chars.next();
                 chars.next();
-                self.tokens.push(self.tokenize_binary_literal(&mut chars));
-            } else if c == '0' && matches!(chars.clone().nth(1), Some('o' | 'O')) {
+                let literal = consume_literal_with_prefix(&mut chars, "0b", |c| c.is_digit(2));
+                self.pending_tokens.push_back(Token::BinaryLiteral(literal));
+            } else if starts_with_any(&chars, &["0o", "0O"]) {
                 chars.next();
                 chars.next();
-                self.tokens.push(self.tokenize_octal_literal(&mut chars));
-            } else if c == '0' && matches!(chars.clone().nth(1), Some('x' | 'X')) {
+                let literal = consume_literal_with_prefix(&mut chars, "0o", |c| c.is_digit(8));
+                self.pending_tokens.push_back(Token::OctalLiteral(literal));
+            } else if starts_with_any(&chars, &["0x", "0X"]) {
                 chars.next();
                 chars.next();
-                self.tokens.push(self.tokenize_hex_literal(&mut chars));
-            } else if matches!(c, 'r' | 'R') && chars.clone().nth(1) == Some('"') {
+                let literal =
+                    consume_literal_with_prefix(&mut chars, "0x", |c| c.is_ascii_hexdigit());
+                self.pending_tokens.push_back(Token::HexLiteral(literal));
+            } else if starts_with_any(&chars, &["r\"", "R\""]) {
                 chars.next();
                 chars.next();
-                let mut literal = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c == '"' {
-                        chars.next();
-                        break;
-                    } else {
-                        literal.push(c);
-                        chars.next();
-                    }
-                }
-                self.tokens.push(Token::RawStringLiteral(literal));
-            } else if c == '"' {
-                let mut literal = String::new();
+                let literal = consume_delimited(&mut chars, '"');
+                self.pending_tokens
+                    .push_back(Token::RawStringLiteral(literal));
+            } else if matches!(c, '"' | '\'') {
                 chars.next();
-                while let Some(&c) = chars.peek() {
-                    if c == '"' {
-                        chars.next();
-                        break;
-                    } else {
-                        literal.push(c);
-                        chars.next();
-                    }
-                }
-                self.tokens.push(Token::StringLiteral(literal));
-            } else if c == '\'' {
-                let mut literal = String::new();
-                chars.next();
-                while let Some(&c) = chars.peek() {
-                    if c == '\'' {
-                        chars.next();
-                        break;
-                    } else {
-                        literal.push(c);
-                        chars.next();
-                    }
-                }
-                self.tokens.push(Token::StringLiteral(literal));
+                let literal = consume_delimited(&mut chars, c);
+                self.pending_tokens.push_back(Token::StringLiteral(literal));
             } else if c.is_alphabetic() || c == '_' {
-                let mut identifier = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c.is_alphanumeric() || c == '_' {
-                        identifier.push(c);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
+                let identifier = consume_literal(&mut chars, |c| c.is_alphanumeric() || c == '_');
 
                 let token = match identifier.as_str() {
                     "def" => Token::Def,
@@ -406,7 +332,7 @@ impl Lexer {
                     "global" => Token::Global,
                     _ => Token::Identifier(identifier),
                 };
-                self.tokens.push(token);
+                self.pending_tokens.push_back(token);
             } else if c.is_ascii_digit() {
                 let mut value = String::new();
                 let mut is_scientific = false;
@@ -429,14 +355,20 @@ impl Lexer {
                 }
 
                 if value.contains('.') || value.contains('e') || value.contains('E') {
-                    self.tokens
-                        .push(Token::FloatingPoint(value.parse().unwrap()));
+                    let f_value = value
+                        .parse::<f64>()
+                        .map_err(|_| LexerError::InvalidToken(value))?;
+                    self.pending_tokens.push_back(Token::FloatingPoint(f_value));
                 } else {
-                    self.tokens.push(Token::Integer(value.parse().unwrap()));
+                    let i_value = value
+                        .parse::<u64>()
+                        .map_err(|_| LexerError::InvalidToken(value))?;
+                    self.pending_tokens.push_back(Token::Integer(i_value));
                 }
-            } else if matches!(c, '+' | '-' | '*' | '/' | '&' | '^' | '|' | '%' | '@')
-                && chars.clone().nth(1) == Some('=')
-            {
+            } else if starts_with_any(
+                &chars,
+                &["+=", "-=", "*=", "/=", "&=", "^=", "|=", "%=", "@="],
+            ) {
                 chars.next();
                 chars.next();
                 let token = match c {
@@ -451,44 +383,26 @@ impl Lexer {
                     '@' => Token::MatMulEquals,
                     _ => unreachable!(),
                 };
-                self.tokens.push(token);
-            } else if matches!(c, '/' | '*' | '<' | '>')
-                // Look for a second character in a row which is the same
-                && chars.clone().nth(1) == Some(c)
-                && chars.clone().nth(2) == Some('=')
-            {
-                let mut identifier = String::new();
-                while let Some(&c) = chars.peek() {
-                    identifier.push(c);
-                    chars.next();
+                self.pending_tokens.push_back(token);
+            } else if starts_with_any(&chars, &["//=", "**=", "<<=", ">>="]) {
+                chars.next();
+                chars.next();
+                chars.next();
 
-                    if c == '=' {
-                        break;
-                    }
-                }
-
-                let token = match identifier.as_str() {
-                    "//=" => Token::DoubleSlashEquals,
-                    "**=" => Token::ExpoEquals,
-                    "<<=" => Token::LeftShiftEquals,
-                    ">>=" => Token::RightShiftEquals,
+                let token = match c {
+                    '/' => Token::DoubleSlashEquals,
+                    '*' => Token::ExpoEquals,
+                    '<' => Token::LeftShiftEquals,
+                    '>' => Token::RightShiftEquals,
                     _ => unreachable!(),
                 };
-                self.tokens.push(token);
-            } else if c == '-' && chars.clone().nth(1) == Some('>') {
+                self.pending_tokens.push_back(token);
+            } else if starts_with(&chars, "->") {
                 chars.next();
                 chars.next();
-                self.tokens.push(Token::ReturnTypeArrow);
+                self.pending_tokens.push_back(Token::ReturnTypeArrow);
             } else if matches!(c, '=' | '!' | '<' | '>') {
-                let mut operator = String::new();
-                while let Some(&c) = chars.peek() {
-                    if matches!(c, '=' | '!' | '<' | '>') {
-                        operator.push(c);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
+                let operator = consume_literal(&mut chars, |c| matches!(c, '=' | '!' | '<' | '>'));
 
                 let token = match operator.as_str() {
                     "==" => Token::Equal,
@@ -501,20 +415,17 @@ impl Lexer {
                     "!" => Token::Exclamation,
                     "<<" => Token::LeftShift,
                     ">>" => Token::RightShift,
-                    _ => {
-                        self.error = Some(LexerError::UnexpectedCharacter(c));
-                        Token::InvalidCharacter(c)
-                    }
+                    _ => return Err(LexerError::UnexpectedCharacter(c)),
                 };
-                self.tokens.push(token);
-            } else if c == '*' && matches!(chars.clone().nth(1), Some('*')) {
+                self.pending_tokens.push_back(token);
+            } else if starts_with(&chars, "**") {
                 chars.next();
                 chars.next();
-                self.tokens.push(Token::DoubleAsterisk);
-            } else if c == '/' && matches!(chars.clone().nth(1), Some('/')) {
+                self.pending_tokens.push_back(Token::DoubleAsterisk);
+            } else if starts_with(&chars, "//") {
                 chars.next();
                 chars.next();
-                self.tokens.push(Token::DoubleSlash);
+                self.pending_tokens.push_back(Token::DoubleSlash);
             } else {
                 let token = match c {
                     '.' => Token::Dot,
@@ -537,10 +448,7 @@ impl Lexer {
                     '~' => Token::BitwiseNot,
                     '%' => Token::Modulo,
                     '\n' => Token::Newline,
-                    _ => {
-                        self.error = Some(LexerError::UnexpectedCharacter(c));
-                        Token::InvalidCharacter(c)
-                    }
+                    _ => return Err(LexerError::UnexpectedCharacter(c)),
                 };
 
                 // Detect when we are inside multi-line data structures, which should not be
@@ -551,29 +459,95 @@ impl Lexer {
                     self.multiline_context -= 1;
                 }
 
-                self.tokens.push(token);
+                self.pending_tokens.push_back(token);
                 chars.next();
             }
         }
 
-        if let Some(error) = self.error.as_ref() {
-            Err(error.clone())
-        } else {
-            Ok(())
+        Ok(())
+    }
+}
+
+fn starts_with_any(chars: &Peekable<Chars>, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| starts_with(chars, prefix))
+}
+
+fn starts_with(chars: &Peekable<Chars>, prefix: &str) -> bool {
+    let mut clone = chars.clone();
+    for expected in prefix.chars() {
+        match clone.next() {
+            Some(c) if c == expected => continue,
+            _ => return false,
         }
     }
+    true
+}
+
+fn internal_error(msg: &str) -> LexerError {
+    LexerError::InternalError(msg.to_string())
+}
+
+fn count_leading_spaces(line: &str) -> usize {
+    let mut chars = line.chars().peekable();
+    let leading_spaces = consume_literal(&mut chars, |c| c == ' ');
+    leading_spaces.len()
+}
+
+fn consume_literal<F>(chars: &mut Peekable<Chars>, valid_char: F) -> String
+where
+    F: Fn(char) -> bool,
+{
+    consume_literal_with_prefix(chars, "", valid_char)
+}
+
+fn consume_literal_with_prefix<F>(
+    chars: &mut Peekable<Chars>,
+    prefix: &str,
+    valid_char: F,
+) -> String
+where
+    F: Fn(char) -> bool,
+{
+    let mut literal = String::from(prefix);
+
+    while let Some(&c) = chars.peek() {
+        if valid_char(c) {
+            literal.push(c);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    literal
+}
+
+fn consume_delimited(chars: &mut Peekable<Chars>, end_delim: char) -> String {
+    let mut literal = String::new();
+
+    while let Some(&c) = chars.peek() {
+        if c == end_delim {
+            chars.next();
+            break;
+        } else {
+            literal.push(c);
+            chars.next();
+        }
+    }
+
+    literal
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    impl Lexer {
-        fn from_str(input: &str) -> Self {
-            let mut l = Self::new();
-            let _ = l.tokenize(input);
-            l
-        }
+    fn lex(input: &str) -> Vec<Token> {
+        let trimmed = input.trim_matches('\n');
+
+        let mut lexer = Lexer::default();
+        lexer.add_line(trimmed).expect("Failed to add input line");
+        lexer.collect()
     }
 
     #[test]
@@ -584,13 +558,15 @@ def add(x, y):
         let second_input = r#"
     return x + y
 "#;
-        let mut lexer = Lexer::new();
-        let _ = lexer.tokenize(first_input);
-        let _ = lexer.tokenize(second_input);
-        lexer.finalize();
+
+        // TODO this test is still messy
+        let mut lexer = Lexer::default();
+        let _ = lexer.add_line(first_input);
+        let _ = lexer.add_line(second_input);
+        let tokens: Vec<_> = lexer.collect();
 
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Newline,
                 Token::Def,
@@ -602,13 +578,14 @@ def add(x, y):
                 Token::RParen,
                 Token::Colon,
                 Token::Newline,
+                Token::Newline,
                 Token::Indent,
                 Token::Return,
                 Token::Identifier("x".to_string()),
                 Token::Plus,
                 Token::Identifier("y".to_string()),
+                Token::Newline,
                 Token::Dedent,
-                Token::Eof,
             ]
         );
     }
@@ -619,12 +596,11 @@ def add(x, y):
 def add(x, y):
     return x + y
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
 
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Def,
                 Token::Identifier("add".to_string()),
                 Token::LParen,
@@ -639,6 +615,7 @@ def add(x, y):
                 Token::Identifier("x".to_string()),
                 Token::Plus,
                 Token::Identifier("y".to_string()),
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -647,9 +624,9 @@ def add(x, y):
     #[test]
     fn invalid_character() {
         let input = "2 + $";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![Token::Integer(2), Token::Plus, Token::InvalidCharacter('$'),]
         );
     }
@@ -657,68 +634,74 @@ def add(x, y):
     #[test]
     fn comparison_operators() {
         let input = "a > b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::GreaterThan,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a < b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::LessThan,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a == b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::Equal,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a != b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::NotEqual,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a >= b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::GreaterThanOrEqual,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a <= b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::LessThanOrEqual,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
     }
@@ -726,56 +709,68 @@ def add(x, y):
     #[test]
     fn boolean_expressions() {
         let input = "a and b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::And,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a or b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::Or,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a in b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::In,
                 Token::Identifier("b".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "a is None";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Identifier("a".to_string()), Token::Is, Token::None,]
+            tokens,
+            vec![
+                Token::Identifier("a".to_string()),
+                Token::Is,
+                Token::None,
+                Token::Newline,
+            ]
         );
 
         let input = "not b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Not, Token::Identifier("b".to_string()),]
+            tokens,
+            vec![
+                Token::Not,
+                Token::Identifier("b".to_string()),
+                Token::Newline,
+            ]
         );
 
         let input = "not (b or c)";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Not,
                 Token::LParen,
@@ -783,6 +778,7 @@ def add(x, y):
                 Token::Or,
                 Token::Identifier("c".to_string()),
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -790,41 +786,44 @@ def add(x, y):
     #[test]
     fn boolean_literals() {
         let input = "x = True";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::BooleanLiteral(true),
+                Token::Newline,
             ]
         );
 
         let input = "x = False";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::BooleanLiteral(false),
+                Token::Newline,
             ]
         );
 
         let input = "x = None";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::None,
+                Token::Newline,
             ]
         );
 
         let input = "return None";
-        let lexer = Lexer::from_str(input);
-        assert_eq!(lexer.tokens, vec![Token::Return, Token::None,]);
+        let tokens = lex(input);
+        assert_eq!(tokens, vec![Token::Return, Token::None, Token::Newline,]);
     }
 
     #[test]
@@ -837,11 +836,10 @@ elif x > -10:
 else:
     print("Less")
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::If,
                 Token::Identifier("x".to_string()),
                 Token::GreaterThan,
@@ -877,6 +875,7 @@ else:
                 Token::LParen,
                 Token::StringLiteral("Less".to_string()),
                 Token::RParen,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -888,11 +887,10 @@ else:
 while True:
     print("busy loop")
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::While,
                 Token::BooleanLiteral(true),
                 Token::Colon,
@@ -902,6 +900,7 @@ while True:
                 Token::LParen,
                 Token::StringLiteral("busy loop".to_string()),
                 Token::RParen,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -917,11 +916,10 @@ class Foo:
     def bar(self):
         return self.x
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Class,
                 Token::Identifier("Foo".to_string()),
                 Token::Colon,
@@ -955,6 +953,7 @@ class Foo:
                 Token::Identifier("self".to_string()),
                 Token::Dot,
                 Token::Identifier("x".to_string()),
+                Token::Newline,
                 Token::Dedent,
                 Token::Dedent,
             ]
@@ -963,26 +962,30 @@ class Foo:
 
     #[test]
     fn class_instantiation() {
-        let input = "foo = Foo()\n";
-        let lexer = Lexer::from_str(input);
+        let input = "foo = Foo()";
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("foo".to_string()),
                 Token::Assign,
                 Token::Identifier("Foo".to_string()),
                 Token::LParen,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
 
     #[test]
     fn method_invocation() {
-        let input = "foo = Foo()\nfoo.bar()";
-        let lexer = Lexer::from_str(input);
+        let input = r#"
+foo = Foo()
+foo.bar()
+"#;
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("foo".to_string()),
                 Token::Assign,
@@ -995,6 +998,7 @@ class Foo:
                 Token::Identifier("bar".to_string()),
                 Token::LParen,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1002,31 +1006,36 @@ class Foo:
     #[test]
     fn regular_import() {
         let input = "import other";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Import, Token::Identifier("other".to_string()),]
+            tokens,
+            vec![
+                Token::Import,
+                Token::Identifier("other".to_string()),
+                Token::Newline,
+            ]
         );
     }
 
     #[test]
     fn selective_import() {
         let input = "from other import something";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::From,
                 Token::Identifier("other".to_string()),
                 Token::Import,
                 Token::Identifier("something".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "from other import something as something_else";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::From,
                 Token::Identifier("other".to_string()),
@@ -1034,25 +1043,27 @@ class Foo:
                 Token::Identifier("something".to_string()),
                 Token::As,
                 Token::Identifier("something_else".to_string()),
+                Token::Newline,
             ]
         );
 
         let input = "from other import *";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::From,
                 Token::Identifier("other".to_string()),
                 Token::Import,
                 Token::Asterisk,
+                Token::Newline,
             ]
         );
 
         let input = "from other import something, something_else";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::From,
                 Token::Identifier("other".to_string()),
@@ -1060,6 +1071,7 @@ class Foo:
                 Token::Identifier("something".to_string()),
                 Token::Comma,
                 Token::Identifier("something_else".to_string()),
+                Token::Newline,
             ]
         );
     }
@@ -1071,11 +1083,10 @@ foo = Foo(3) # new instance
 # x = foo.baz()
 foo.bar()
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("foo".to_string()),
                 Token::Assign,
                 Token::Identifier("Foo".to_string()),
@@ -1089,6 +1100,7 @@ foo.bar()
                 Token::Identifier("bar".to_string()),
                 Token::LParen,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1096,57 +1108,62 @@ foo.bar()
     #[test]
     fn floating_point() {
         let input = "x = 3.14";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(3.14),
+                Token::Newline,
             ]
         );
 
         let input = "x = 2.5e-3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2.5e-3),
+                Token::Newline,
             ]
         );
 
         let input = "x = 2.5E-3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2.5e-3),
+                Token::Newline,
             ]
         );
 
         let input = "x = 2E-3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2e-3),
+                Token::Newline,
             ]
         );
 
         let input = "x = 2E3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::FloatingPoint(2e3),
+                Token::Newline,
             ]
         );
     }
@@ -1154,69 +1171,80 @@ foo.bar()
     #[test]
     fn negative_numbers() {
         let input = "-3.14";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Minus, Token::FloatingPoint(3.14),]
+            tokens,
+            vec![Token::Minus, Token::FloatingPoint(3.14), Token::Newline,]
         );
 
         let input = "-3";
-        let lexer = Lexer::from_str(input);
-        assert_eq!(lexer.tokens, vec![Token::Minus, Token::Integer(3),]);
+        let tokens = lex(input);
+        assert_eq!(
+            tokens,
+            vec![Token::Minus, Token::Integer(3), Token::Newline,]
+        );
 
         let input = "2 - 3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Integer(2), Token::Minus, Token::Integer(3),]
+            tokens,
+            vec![
+                Token::Integer(2),
+                Token::Minus,
+                Token::Integer(3),
+                Token::Newline,
+            ]
         );
 
         let input = "-2e-3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Minus, Token::FloatingPoint(2e-3),]
+            tokens,
+            vec![Token::Minus, Token::FloatingPoint(2e-3), Token::Newline,]
         );
 
         let input = "3-i";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Integer(3),
                 Token::Minus,
                 Token::Identifier("i".into()),
+                Token::Newline,
             ]
         );
 
         let input = "2 + -3";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Integer(2),
                 Token::Plus,
                 Token::Minus,
                 Token::Integer(3),
+                Token::Newline,
             ]
         );
 
         let input = "-(3)";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Minus,
                 Token::LParen,
                 Token::Integer(3),
                 Token::RParen,
+                Token::Newline,
             ]
         );
 
         let input = "-(2 + 3)";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Minus,
                 Token::LParen,
@@ -1224,6 +1252,7 @@ foo.bar()
                 Token::Plus,
                 Token::Integer(3),
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1231,9 +1260,9 @@ foo.bar()
     #[test]
     fn lists() {
         let input = "[1,2,3]";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::LBracket,
                 Token::Integer(1),
@@ -1242,13 +1271,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
 
         let input = "[1, 2, 3]";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::LBracket,
                 Token::Integer(1),
@@ -1257,13 +1287,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
 
         let input = "a = [1, 2, 3]";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::Assign,
@@ -1274,13 +1305,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
 
         let input = "list([1, 2, 3])";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("list".to_string()),
                 Token::LParen,
@@ -1292,6 +1324,7 @@ foo.bar()
                 Token::Integer(3),
                 Token::RBracket,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1299,9 +1332,9 @@ foo.bar()
     #[test]
     fn sets() {
         let input = "{1,2,3}";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::LBrace,
                 Token::Integer(1),
@@ -1310,13 +1343,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
+                Token::Newline,
             ]
         );
 
         let input = "{1, 2, 3}";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::LBrace,
                 Token::Integer(1),
@@ -1325,13 +1359,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
+                Token::Newline,
             ]
         );
 
         let input = "a = {1, 2, 3}";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::Assign,
@@ -1342,13 +1377,14 @@ foo.bar()
                 Token::Comma,
                 Token::Integer(3),
                 Token::RBrace,
+                Token::Newline,
             ]
         );
 
         let input = "set({1, 2, 3})";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("set".to_string()),
                 Token::LParen,
@@ -1360,6 +1396,7 @@ foo.bar()
                 Token::Integer(3),
                 Token::RBrace,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1367,21 +1404,22 @@ foo.bar()
     #[test]
     fn index_access() {
         let input = "a[0]";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".to_string()),
                 Token::LBracket,
                 Token::Integer(0),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
 
         let input = "[0,1][1]";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::LBracket,
                 Token::Integer(0),
@@ -1391,6 +1429,7 @@ foo.bar()
                 Token::LBracket,
                 Token::Integer(1),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
     }
@@ -1401,11 +1440,10 @@ foo.bar()
 for i in a:
     print(a)
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::For,
                 Token::Identifier("i".to_string()),
                 Token::In,
@@ -1417,6 +1455,7 @@ for i in a:
                 Token::LParen,
                 Token::Identifier("a".to_string()),
                 Token::RParen,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1427,11 +1466,10 @@ for i in a:
         let input = r#"
 b = [ i * 2 for i in a ]
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("b".to_string()),
                 Token::Assign,
                 Token::LBracket,
@@ -1443,6 +1481,7 @@ b = [ i * 2 for i in a ]
                 Token::In,
                 Token::Identifier("a".to_string()),
                 Token::RBracket,
+                Token::Newline,
             ]
         );
     }
@@ -1453,11 +1492,10 @@ b = [ i * 2 for i in a ]
 (1,2)
 print((1,2))
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::LParen,
                 Token::Integer(1),
                 Token::Comma,
@@ -1472,6 +1510,7 @@ print((1,2))
                 Token::Integer(2),
                 Token::RParen,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1484,11 +1523,10 @@ def countdown(n):
         yield n
         n = n - 1
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Def,
                 Token::Identifier("countdown".to_string()),
                 Token::LParen,
@@ -1512,6 +1550,7 @@ def countdown(n):
                 Token::Identifier("n".to_string()),
                 Token::Minus,
                 Token::Integer(1),
+                Token::Newline,
                 Token::Dedent,
                 Token::Dedent,
             ]
@@ -1525,11 +1564,10 @@ class Foo(Parent):
     def __init__(self):
         self.x = 0
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Class,
                 Token::Identifier("Foo".to_string()),
                 Token::LParen,
@@ -1551,6 +1589,7 @@ class Foo(Parent):
                 Token::Identifier("x".to_string()),
                 Token::Assign,
                 Token::Integer(0),
+                Token::Newline,
                 Token::Dedent,
                 Token::Dedent,
             ]
@@ -1562,11 +1601,10 @@ class Foo(Parent):
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".to_string()),
                 Token::Assign,
                 Token::LBrace,
@@ -1578,6 +1616,7 @@ a = { "b": 4, 'c': 5 }
                 Token::Colon,
                 Token::Integer(5),
                 Token::RBrace,
+                Token::Newline,
             ]
         );
     }
@@ -1589,11 +1628,10 @@ async def main():
     task_1 = asyncio.create_task(task1())
     await task_1
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Async,
                 Token::Def,
                 Token::Identifier("main".to_string()),
@@ -1615,6 +1653,7 @@ async def main():
                 Token::Newline,
                 Token::Await,
                 Token::Identifier("task_1".to_string()),
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1628,16 +1667,16 @@ async def main():
 """
 a = 1
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::StringLiteral("comment 5-lines\n5-types\n".into()),
                 Token::Newline,
                 Token::Identifier("a".to_string()),
                 Token::Assign,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
@@ -1647,16 +1686,16 @@ a = 1
 '''
 a = 1
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::StringLiteral("comment 5-lines\n5-types\n".into()),
                 Token::Newline,
                 Token::Identifier("a".to_string()),
                 Token::Assign,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
     }
@@ -1664,10 +1703,10 @@ a = 1
     #[test]
     fn assert() {
         let input = "assert True";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Assert, Token::BooleanLiteral(true),]
+            tokens,
+            vec![Token::Assert, Token::BooleanLiteral(true), Token::Newline,]
         );
     }
 
@@ -1681,11 +1720,10 @@ except:
 finally:
     a = 3
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Try,
                 Token::Colon,
                 Token::Newline,
@@ -1711,6 +1749,7 @@ finally:
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::Integer(3),
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1722,16 +1761,16 @@ finally:
 a = 0x0010
 b
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::HexLiteral("0x0010".into()),
                 Token::Newline,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
     }
@@ -1739,13 +1778,14 @@ b
     #[test]
     fn octal_literal() {
         let input = "a = 0o0010";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::OctalLiteral("0o0010".into()),
+                Token::Newline,
             ]
         );
     }
@@ -1753,13 +1793,14 @@ b
     #[test]
     fn binary_literal() {
         let input = "a = 0b0010";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::Assign,
                 Token::BinaryLiteral("0b0010".into()),
+                Token::Newline,
             ]
         );
     }
@@ -1770,11 +1811,10 @@ b
 def add(*args, **kwargs):
     pass
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Def,
                 Token::Identifier("add".to_string()),
                 Token::LParen,
@@ -1788,6 +1828,7 @@ def add(*args, **kwargs):
                 Token::Newline,
                 Token::Indent,
                 Token::Pass,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1800,11 +1841,10 @@ def add(*args, **kwargs):
 def get_val():
     return 2
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::AtSign,
                 Token::Identifier("test_decorator".to_string()),
                 Token::Newline,
@@ -1817,6 +1857,7 @@ def get_val():
                 Token::Indent,
                 Token::Return,
                 Token::Integer(2),
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1825,10 +1866,14 @@ def get_val():
     #[test]
     fn raise() {
         let input = "raise Exception";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Raise, Token::Identifier("Exception".into()),]
+            tokens,
+            vec![
+                Token::Raise,
+                Token::Identifier("Exception".into()),
+                Token::Newline,
+            ]
         );
     }
 
@@ -1838,11 +1883,10 @@ def get_val():
 with open('test.txt') as f:
     f.read()
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::With,
                 Token::Identifier("open".into()),
                 Token::LParen,
@@ -1858,6 +1902,7 @@ with open('test.txt') as f:
                 Token::Identifier("read".into()),
                 Token::LParen,
                 Token::RParen,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -1866,26 +1911,28 @@ with open('test.txt') as f:
     #[test]
     fn ellipsis() {
         let input = "type(...)";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("type".into()),
                 Token::LParen,
                 Token::Ellipsis,
                 Token::RParen,
+                Token::Newline,
             ]
         );
 
         let input = "type(Ellipsis)";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("type".into()),
                 Token::LParen,
                 Token::Ellipsis,
                 Token::RParen,
+                Token::Newline,
             ]
         );
     }
@@ -1893,165 +1940,178 @@ with open('test.txt') as f:
     #[test]
     fn delete() {
         let input = r#"del a"#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Del, Token::Identifier("a".into()),]
+            tokens,
+            vec![Token::Del, Token::Identifier("a".into()), Token::Newline,]
         );
     }
 
     #[test]
     fn byte_string() {
         let input = r#"b'hello'"#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::ByteStringLiteral("hello".into()),]
+            tokens,
+            vec![Token::ByteStringLiteral("hello".into()), Token::Newline,]
         );
     }
 
     #[test]
     fn compound_assignment() {
         let input = "a += 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::PlusEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a -= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::MinusEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a *= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::AsteriskEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a /= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::SlashEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a &= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseAndEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a ^= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseXorEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a |= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseOrEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a //= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::DoubleSlashEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a <<= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::LeftShiftEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a %= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::ModEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a @= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::MatMulEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a **= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::ExpoEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
 
         let input = "a >>= 1";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::RightShiftEquals,
                 Token::Integer(1),
+                Token::Newline,
             ]
         );
     }
@@ -2061,59 +2121,58 @@ with open('test.txt') as f:
         let input = r#"
 f"Hello {name}"
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("Hello ".into()),
                 Token::LBrace,
                 Token::Identifier("name".into()),
                 Token::RBrace,
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f'Hello {name}'
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("Hello ".into()),
                 Token::LBrace,
                 Token::Identifier("name".into()),
                 Token::RBrace,
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f"Hello"
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("Hello".into()),
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f"Hello {name} goodbye {other}."
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("Hello ".into()),
                 Token::LBrace,
@@ -2125,17 +2184,17 @@ f"Hello {name} goodbye {other}."
                 Token::RBrace,
                 Token::StringLiteral(".".into()),
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f"{first}{last}"
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::LBrace,
                 Token::Identifier("first".into()),
@@ -2144,17 +2203,17 @@ f"{first}{last}"
                 Token::Identifier("last".into()),
                 Token::RBrace,
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f"environ({{{formatted_items}}})"
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("environ({".into()),
                 Token::LBrace,
@@ -2162,17 +2221,17 @@ f"environ({{{formatted_items}}})"
                 Token::RBrace,
                 Token::StringLiteral("})".into()),
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
         let input = r#"
 f"environ({{{formatted_items}after}})"
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::FStringStart,
                 Token::StringLiteral("environ({".into()),
                 Token::LBrace,
@@ -2180,6 +2239,7 @@ f"environ({{{formatted_items}after}})"
                 Token::RBrace,
                 Token::StringLiteral("after})".into()),
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
 
@@ -2190,11 +2250,10 @@ f"environ({{{formatted_items}after}})"
       def copy():
           pass
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Indent,
                 Token::Def,
                 Token::Identifier("__repr__".into()),
@@ -2222,15 +2281,16 @@ f"environ({{{formatted_items}after}})"
                 Token::Newline,
                 Token::Indent,
                 Token::Pass,
+                Token::Newline,
                 Token::Dedent,
                 Token::Dedent,
             ]
         );
 
         let input = r#"f"{first}{last!r}""#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::FStringStart,
                 Token::LBrace,
@@ -2242,15 +2302,30 @@ f"environ({{{formatted_items}after}})"
                 Token::Identifier("r".into()),
                 Token::RBrace,
                 Token::FStringEnd,
+                Token::Newline,
             ]
         );
     }
 
     #[test]
     fn raw_strings() {
-        let input = r#"r"hello""#;
-        let lexer = Lexer::from_str(input);
-        assert_eq!(lexer.tokens, vec![Token::RawStringLiteral("hello".into()),]);
+        let input = r#"
+r"hello"
+"#;
+        let tokens = lex(input);
+        assert_eq!(
+            tokens,
+            vec![Token::RawStringLiteral("hello".into()), Token::Newline,]
+        );
+
+        let input = r#"
+R"hello"
+"#;
+        let tokens = lex(input);
+        assert_eq!(
+            tokens,
+            vec![Token::RawStringLiteral("hello".into()), Token::Newline,]
+        );
 
         let input = r#"
 r"""OS routines for NT or Posix depending on what system we're on.
@@ -2258,99 +2333,112 @@ r"""OS routines for NT or Posix depending on what system we're on.
 This exports:
 """
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![
+            tokens,
+            vec![Token::RawStringLiteral(
+                "OS routines for NT or Posix depending on what system we're on.\n\nThis exports:\n"
+                    .into()
+            ),
                 Token::Newline,
-                Token::RawStringLiteral("OS routines for NT or Posix depending on what system we're on.\n\nThis exports:\n".into()),
-                            ]
+            ]
         );
     }
 
     #[test]
     fn binary_operators() {
         let input = "a // b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::DoubleSlash,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "a & b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseAnd,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "a | b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseOr,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "a ^ b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::BitwiseXor,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "a % b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::Modulo,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "~a";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::BitwiseNot, Token::Identifier("a".into()),]
+            tokens,
+            vec![
+                Token::BitwiseNot,
+                Token::Identifier("a".into()),
+                Token::Newline,
+            ]
         );
 
         let input = "a << b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::LeftShift,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
 
         let input = "a >> b";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
                 Token::Identifier("a".into()),
                 Token::RightShift,
                 Token::Identifier("b".into()),
+                Token::Newline,
             ]
         );
     }
@@ -2361,11 +2449,10 @@ This exports:
 for i in a:
     continue
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::For,
                 Token::Identifier("i".to_string()),
                 Token::In,
@@ -2374,6 +2461,7 @@ for i in a:
                 Token::Newline,
                 Token::Indent,
                 Token::Continue,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -2382,11 +2470,10 @@ for i in a:
 for i in a:
     break
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::For,
                 Token::Identifier("i".to_string()),
                 Token::In,
@@ -2395,6 +2482,7 @@ for i in a:
                 Token::Newline,
                 Token::Indent,
                 Token::Break,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -2403,10 +2491,15 @@ for i in a:
     #[test]
     fn lambda() {
         let input = "lambda: 4";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Lambda, Token::Colon, Token::Integer(4),]
+            tokens,
+            vec![
+                Token::Lambda,
+                Token::Colon,
+                Token::Integer(4),
+                Token::Newline,
+            ]
         );
     }
 
@@ -2416,11 +2509,10 @@ for i in a:
 def add(a: str, b: str) -> int:
     pass
 "#;
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
+            tokens,
             vec![
-                Token::Newline,
                 Token::Def,
                 Token::Identifier("add".into()),
                 Token::LParen,
@@ -2438,6 +2530,7 @@ def add(a: str, b: str) -> int:
                 Token::Newline,
                 Token::Indent,
                 Token::Pass,
+                Token::Newline,
                 Token::Dedent,
             ]
         );
@@ -2446,24 +2539,58 @@ def add(a: str, b: str) -> int:
     #[test]
     fn scope_modifiers() {
         let input = "nonlocal var";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Nonlocal, Token::Identifier("var".into()),]
+            tokens,
+            vec![
+                Token::Nonlocal,
+                Token::Identifier("var".into()),
+                Token::Newline,
+            ]
         );
 
         let input = "global var";
-        let lexer = Lexer::from_str(input);
+        let tokens = lex(input);
         assert_eq!(
-            lexer.tokens,
-            vec![Token::Global, Token::Identifier("var".into()),]
+            tokens,
+            vec![
+                Token::Global,
+                Token::Identifier("var".into()),
+                Token::Newline,
+            ]
         );
     }
 
     #[test]
     fn not_implemented() {
         let input = "NotImplemented";
-        let lexer = Lexer::from_str(input);
-        assert_eq!(lexer.tokens, vec![Token::NotImplemented,]);
+        let tokens = lex(input);
+        assert_eq!(tokens, vec![Token::NotImplemented, Token::Newline,]);
+    }
+
+    #[test]
+    fn blocks() {
+        let input = r#"
+for i in a:
+    continue
+
+
+"#;
+        let tokens = lex(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::For,
+                Token::Identifier("i".to_string()),
+                Token::In,
+                Token::Identifier("a".to_string()),
+                Token::Colon,
+                Token::Newline,
+                Token::Indent,
+                Token::Continue,
+                Token::Newline,
+                Token::Dedent,
+            ]
+        );
     }
 }

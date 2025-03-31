@@ -8,7 +8,7 @@ use crate::{
     domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
     parser::{
         static_analysis::{FunctionAnalysisVisitor, YieldDetector},
-        types::{Ast, Closure, Expr, ParsedArgDefinitions},
+        types::{Ast, Closure, Expr, Params},
     },
     resolved_args,
     treewalk::{interpreter::TreewalkResult, Interpreter, Scope, State},
@@ -43,7 +43,7 @@ pub struct Code;
 #[derive(Clone, Debug)]
 pub struct Function {
     name: String,
-    pub args: ParsedArgDefinitions,
+    pub args: Params,
     pub body: Ast,
     pub module: Container<Module>,
     pub class_context: Option<Container<Class>>,
@@ -98,7 +98,7 @@ impl Function {
     pub fn new(
         state: Container<State>,
         name: &str,
-        args: ParsedArgDefinitions,
+        args: Params,
         body: Ast,
         decorators: &[Expr],
         is_async: bool,
@@ -126,7 +126,7 @@ impl Function {
         }
     }
 
-    pub fn new_lambda(state: Container<State>, args: ParsedArgDefinitions, body: Ast) -> Self {
+    pub fn new_lambda(state: Container<State>, args: Params, body: Ast) -> Self {
         // TODO add line number
         Self::new(state, "<lambda>", args, body, &[], false, 1)
     }
@@ -136,7 +136,7 @@ impl Function {
         Self::new(
             state,
             "<anonymous_generator>",
-            ParsedArgDefinitions::default(),
+            Params::default(),
             body,
             &[],
             false,

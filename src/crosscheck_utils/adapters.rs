@@ -66,7 +66,7 @@ impl InterpreterTest for TreewalkAdapter {
     fn evaluate(&mut self, code: &str) -> Result<TestValue, MemphisError> {
         let mut context = MemphisContext::from_text(code);
 
-        let result = context.run_treewalk()?;
+        let result = context.evaluate()?;
         self.context = Some(context);
         Ok(result.into())
     }

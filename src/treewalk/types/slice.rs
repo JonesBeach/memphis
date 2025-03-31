@@ -1,7 +1,7 @@
 use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     domain::Dunder,
-    parser::types::{Expr, ParsedSliceParams},
+    parser::types::{Expr, SliceParams},
     treewalk::Interpreter,
 };
 use std::{
@@ -43,10 +43,7 @@ impl Slice {
         Self { start, stop, step }
     }
 
-    pub fn resolve(
-        interpreter: &Interpreter,
-        parsed_params: &ParsedSliceParams,
-    ) -> TreewalkResult<Self> {
+    pub fn resolve(interpreter: &Interpreter, params: &SliceParams) -> TreewalkResult<Self> {
         let evaluate_to_integer = |expr_option: &Option<Box<Expr>>| -> TreewalkResult<Option<i64>> {
             match expr_option {
                 Some(expr) => {
@@ -59,11 +56,11 @@ impl Slice {
             }
         };
 
-        let start = evaluate_to_integer(&parsed_params.start)?;
-        let stop = evaluate_to_integer(&parsed_params.stop)?;
-        let step = evaluate_to_integer(&parsed_params.step)?;
+        let start = evaluate_to_integer(&params.start)?;
+        let stop = evaluate_to_integer(&params.stop)?;
+        let step = evaluate_to_integer(&params.step)?;
 
-        Ok(Self { start, stop, step })
+        Ok(Self::new(start, stop, step))
     }
 
     /// Adjusting start and stop according to Python's slicing rules of negative indices

@@ -8,11 +8,8 @@ use crossterm::{
 };
 
 use crate::{
-    core::{InterpreterEntrypoint, Voidable},
+    core::Voidable,
     init::{MemphisContext, TerminalIO},
-    lexer::Lexer,
-    parser::Parser,
-    treewalk::Interpreter,
     types::errors::MemphisError,
 };
 
@@ -46,6 +43,7 @@ fn install_custom_panic_hook() {
 }
 
 /// The Memphis Read-Evaluate-Print-Loop (REPL).
+#[derive(Default)]
 pub struct Repl {
     /// `in_block` may need to become a state for a FSM, but a `bool` seems to be working fine for
     /// now.
@@ -71,26 +69,7 @@ pub struct Repl {
     history_index: Option<usize>,
 }
 
-impl Default for Repl {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Repl {
-    /// Initialize an empty REPL.
-    pub fn new() -> Self {
-        Repl {
-            in_block: false,
-            errors: vec![],
-            line: String::new(),
-            line_index: 0,
-            input: String::new(),
-            history: vec![],
-            history_index: None,
-        }
-    }
-
     /// The primary entrypoint to the REPL.
     pub fn run<T: TerminalIO>(&mut self, terminal_io: &mut T) {
         let _ = terminal_io.writeln(format!(
@@ -98,20 +77,14 @@ impl Repl {
             env!("CARGO_PKG_VERSION")
         ));
 
-        // TODO clean up this flow for incremental evaluation
-        let mut context = MemphisContext::default();
-        // we need this to initialize the interpreter - again, not a clean interface
-        let _ = context.run_treewalk();
-        // we should probably just pass around a mutable context, but for now, stick with the &mut
-        // Interpreter since we need to maintain the state across calls
-        let mut interpreter = context.ensure_treewalk_mut();
-
         // Enable raw mode to handle individual keypresses. This must be disabled during all
         // expected or unexpected exits!
         install_custom_panic_hook();
         let _ = terminal::enable_raw_mode();
-
         self.initialize_prompt(terminal_io, false);
+
+        let mut context = MemphisContext::default();
+
         loop {
             match terminal_io.read_event() {
                 Ok(Event::Key(event)) => {
@@ -131,7 +104,7 @@ impl Repl {
                         _ => {}
                     }
 
-                    self.handle_key_event(terminal_io, &mut interpreter, event);
+                    self.handle_key_event(terminal_io, &mut context, event);
                 }
                 Ok(_) => {}
                 Err(_) => break,
@@ -149,7 +122,7 @@ impl Repl {
     fn handle_key_event<T: TerminalIO>(
         &mut self,
         terminal_io: &mut T,
-        interpreter: &mut Interpreter,
+        context: &mut MemphisContext,
         event: KeyEvent,
     ) {
         match event.code {
@@ -171,7 +144,7 @@ impl Repl {
 
                 // This newline simulates the user pressing the enter key
                 let _ = terminal_io.writeln("");
-                self.process_line(terminal_io, interpreter, &self.line.clone());
+                self.process_line(terminal_io, context, &self.line.clone());
 
                 self.initialize_prompt(terminal_io, false);
             }
@@ -273,20 +246,16 @@ impl Repl {
             .expect("Failed to execute terminal command");
     }
 
-    /// Append the provided line to the constructed statement and evaluate it through the
-    /// `Interpreter`.
+    /// Append the provided line to the constructed statement and evaluate it.
     fn process_line<T: TerminalIO>(
         &mut self,
         terminal_io: &mut T,
-        interpreter: &mut Interpreter,
+        context: &mut MemphisContext,
         line: &str,
     ) {
         if line.trim_end() == "exit()" {
             let _ = terminal::disable_raw_mode();
-            let error_code = match self.errors.len() {
-                0 => 0,
-                _ => 1,
-            };
+            let error_code = if self.errors.is_empty() { 0 } else { 1 };
             // TODO same here - this is difficult to test
             process::exit(error_code);
         }
@@ -294,10 +263,10 @@ impl Repl {
         self.input.push_str(line);
 
         if self.end_of_statement(line) {
-            let mut lexer = Lexer::new();
-            let _ = lexer.tokenize(&self.input);
-            let mut parser = Parser::new(lexer.tokens());
-            match interpreter.run(&mut parser) {
+            // Feed the accumulated block to the lexer
+            context.add_line(&self.input);
+
+            match context.evaluate() {
                 Ok(result) => {
                     if !result.is_none() {
                         let _ = terminal_io.writeln(&result);
@@ -331,7 +300,7 @@ mod tests {
     /// modifiers, do not use this!
     fn run_and_return(input: &str) -> String {
         let mut terminal = MockTerminalIO::from_str(input);
-        Repl::new().run(&mut terminal);
+        Repl::default().run(&mut terminal);
         terminal.return_val()
     }
 
@@ -453,7 +422,7 @@ foo()
         events.insert(4, ctrl_c);
         let mut terminal = MockTerminalIO::new(events);
 
-        Repl::new().run(&mut terminal);
+        Repl::default().run(&mut terminal);
         assert_eq!(terminal.return_val(), "56789");
     }
 }

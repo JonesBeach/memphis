@@ -55,7 +55,7 @@ impl Module {
         let mut context =
             MemphisContext::from_module_with_state(module_source, interpreter.state.clone());
 
-        match context.run_treewalk() {
+        match context.evaluate() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {

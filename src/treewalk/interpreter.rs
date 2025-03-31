@@ -9,10 +9,10 @@ use crate::{
     domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind},
     parser::{
         types::{
-            Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+            Ast, BinOp, CallArgs, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
             ExceptionInstance, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
-            LoopIndex, ParsedArgDefinitions, ParsedArguments, ParsedSliceParams, RegularImport,
-            Statement, StatementKind, TypeNode, UnaryOp, Variable,
+            LoopIndex, Params, RegularImport, SliceParams, Statement, StatementKind, TypeNode,
+            UnaryOp, Variable,
         },
         Parser,
     },
@@ -458,7 +458,7 @@ impl Interpreter {
     fn evaluate_slice_operation(
         &self,
         object: &Expr,
-        params: &ParsedSliceParams,
+        params: &SliceParams,
     ) -> TreewalkResult<ExprResult> {
         let object_result = self.evaluate_expr(object)?;
         let slice = Slice::resolve(self, params)?;
@@ -646,7 +646,7 @@ impl Interpreter {
     fn evaluate_function_call(
         &self,
         name: &str,
-        arguments: &ParsedArguments,
+        arguments: &CallArgs,
         callee: &Option<Box<Expr>>,
     ) -> TreewalkResult<ExprResult> {
         let arguments = ResolvedArguments::from(self, arguments)?;
@@ -664,7 +664,7 @@ impl Interpreter {
         &self,
         obj: &Expr,
         name: S,
-        arguments: &ParsedArguments,
+        arguments: &CallArgs,
     ) -> TreewalkResult<ExprResult>
     where
         S: AsRef<str>,
@@ -678,7 +678,7 @@ impl Interpreter {
     fn evaluate_class_instantiation(
         &self,
         name: &str,
-        arguments: &ParsedArguments,
+        arguments: &CallArgs,
     ) -> TreewalkResult<ExprResult> {
         log(LogLevel::Debug, || format!("Instantiating: {}", name));
         log(LogLevel::Trace, || {
@@ -783,11 +783,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_lambda(
-        &self,
-        arguments: &ParsedArgDefinitions,
-        expr: &Expr,
-    ) -> TreewalkResult<ExprResult> {
+    fn evaluate_lambda(&self, arguments: &Params, expr: &Expr) -> TreewalkResult<ExprResult> {
         let block = Ast::from_expr(expr.clone());
 
         let function = Container::new(Function::new_lambda(
@@ -802,7 +798,7 @@ impl Interpreter {
     fn evaluate_function_def(
         &self,
         name: &str,
-        arguments: &ParsedArgDefinitions,
+        arguments: &Params,
         body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
@@ -1297,7 +1293,7 @@ impl Interpreter {
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
             }
-            Expr::Await { right } => self.evaluate_await(right),
+            Expr::Await(right) => self.evaluate_await(right),
             Expr::FunctionCall { name, args, callee } => {
                 self.evaluate_function_call(name, args, callee)
             }
@@ -1455,7 +1451,7 @@ mod tests {
     }
 
     fn eval_inner(text: &str) -> Result<ExprResult, MemphisError> {
-        init(text).evaluate_oneshot()
+        init(text).evaluate()
     }
 
     fn evaluate(text: &str) -> ExprResult {
@@ -1472,12 +1468,12 @@ mod tests {
 
     /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
     fn run<'a>(context: &'a mut MemphisContext) -> &'a Interpreter {
-        context.run_treewalk().expect("Treewalk evaluation failed!");
+        context.evaluate().expect("Treewalk evaluation failed!");
         context.ensure_treewalk()
     }
 
     fn run_expect_error(context: &mut MemphisContext) -> ExecutionError {
-        match context.run_treewalk() {
+        match context.evaluate() {
             Ok(_) => panic!("Expected an error!"),
             Err(MemphisError::Execution(e)) => return e,
             Err(_) => panic!("Expected an execution error!"),
@@ -3615,7 +3611,7 @@ def test_kwargs(**kwargs):
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        let expected_args = ParsedArgDefinitions {
+        let expected_args = Params {
             args: vec![],
             args_var: None,
             kwargs_var: Some("kwargs".into()),

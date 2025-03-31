@@ -1,144 +1,100 @@
 use std::collections::HashSet;
 
 pub mod static_analysis;
+pub mod token_buffer;
 pub mod types;
 #[cfg(test)]
 #[macro_use]
 pub mod test_utils;
 
+use token_buffer::TokenBuffer;
 use types::Statement;
 
 use crate::{
     ast,
     core::{log, LogLevel},
     domain::ExceptionLiteral,
-    lexer::types::Token,
+    lexer::{types::Token, Lexer},
     parser::types::{
-        Alias, Ast, BinOp, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
-        ExceptionInstance, Expr, ExprFormat, FStringPart, ForClause, FormatOption, ImportPath,
-        ImportedItem, KwargsOperation, LogicalOp, LoopIndex, ParsedArgDefinition,
-        ParsedArgDefinitions, ParsedArgument, ParsedArguments, ParsedSliceParams, RegularImport,
-        StatementKind, TypeNode, UnaryOp, Variable,
+        Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalBlock, DictOperation,
+        ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart, ForClause, FormatOption,
+        ImportPath, ImportedItem, KwargsOperation, LogicalOp, LoopIndex, Param, Params,
+        RegularImport, SliceParams, StatementKind, TypeNode, UnaryOp, Variable,
     },
     types::errors::ParserError,
 };
 
-static EOF: Token = Token::Eof;
-
 /// A recursive-descent parser which attempts to encode the full Python grammar.
 pub struct Parser<'a> {
-    tokens: &'a [Token],
-    current_token: &'a Token,
-    position: usize,
+    tokens: TokenBuffer<'a>,
     line_number: usize,
     delimiter_depth: usize,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a [Token]) -> Self {
-        let current_token = tokens.first().unwrap_or(&EOF);
+    pub fn new(lexer: &'a mut Lexer) -> Self {
         Parser {
-            tokens,
-            current_token,
-            position: 0,
+            tokens: TokenBuffer::new(lexer),
             line_number: 1,
             delimiter_depth: 0,
         }
     }
 
-    pub fn is_finished(&self) -> bool {
-        self.current_token == &EOF
+    fn current_token(&mut self) -> &Token {
+        self.tokens.peek(0)
     }
 
-    fn end_of_statement(&self) -> bool {
-        self.is_finished() || self.current_token == &Token::Newline
+    pub fn is_finished(&mut self) -> bool {
+        self.current_token() == &Token::Eof
+    }
+
+    fn end_of_statement(&mut self) -> bool {
+        self.is_finished() || self.current_token() == &Token::Newline
     }
 
     fn inside_delimiter(&self) -> bool {
         self.delimiter_depth > 0
     }
 
-    /// Return the token a given number ahead of the current position.
-    fn peek(&self, ahead: usize) -> &Token {
-        self.tokens.get(self.position + ahead).unwrap_or(&EOF)
-    }
-
-    /// Get a reference to a slice of the remaining tokens.
-    fn remaining_tokens(&self) -> &[Token] {
-        &self.tokens[self.position..]
-    }
-
-    /// Does the slice of reamining tokens contain the sought after token?
-    fn has(&self, target: &Token) -> bool {
-        self.remaining_tokens().contains(target)
-    }
-
-    /// How far away is the given token, if it exists in the reaming tokens? This is useful on
-    /// slice operations.
-    fn num_away(&self, target: &Token) -> Result<usize, ParserError> {
-        self.remaining_tokens()
-            .iter()
-            .position(|token| token == target)
-            .ok_or(ParserError::ExpectedToken(target.clone(), Token::Eof))
-    }
-
-    /// Check whether the next `tokens.len()` tokens matches those provided, without consuming any
-    /// tokens. This is useful for multi-token operations or where extra context is needed.
-    fn peek_ahead_contains(&self, tokens: &[Token]) -> bool {
-        for (index, token) in tokens.iter().enumerate() {
-            if self.peek(index) != token {
-                return false;
-            }
-        }
-
-        true
-    }
-
     /// If we are inside a string literal, we must check for newline characters rather than
     /// tokens. These are produced by `Lexer::emit_newline`.
     fn advance_line_number_if_needed(&mut self) {
-        if self.current_token == &Token::Newline {
+        if self.current_token() == &Token::Newline {
             self.line_number += 1;
-        } else if let Token::StringLiteral(string) = &self.current_token {
+        } else if let Token::StringLiteral(string) = &self.current_token() {
             self.line_number += string.matches('\n').count();
-        } else if let Token::RawStringLiteral(string) = &self.current_token {
+        } else if let Token::RawStringLiteral(string) = &self.current_token() {
             self.line_number += string.matches('\n').count();
         }
     }
 
-    fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
-        log(LogLevel::Trace, || {
-            format!("Token: {:?}", self.current_token)
-        });
+    fn consume_current(&mut self) -> Result<(), ParserError> {
+        let token = self.tokens.peek(0).clone();
+        self.consume(&token)
+    }
 
-        if self.current_token != expected {
+    fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
+        let current = self.tokens.peek(0);
+
+        log(LogLevel::Trace, || format!("Token: {:?}", current));
+
+        if current != expected {
             return Err(ParserError::ExpectedToken(
                 expected.clone(),
-                self.current_token.clone(),
+                current.clone(),
             ));
+        }
+
+        if matches!(current, Token::LParen | Token::LBracket | Token::LBrace) {
+            self.delimiter_depth += 1;
+        } else if matches!(current, Token::RParen | Token::RBracket | Token::RBrace) {
+            self.delimiter_depth -= 1;
         }
 
         self.advance_line_number_if_needed();
 
-        if matches!(
-            self.current_token,
-            Token::LParen | Token::LBracket | Token::LBrace
-        ) {
-            // We don't treat this as an actual stack because the comparison against expected
-            // above handles this for us.
-            self.delimiter_depth += 1;
-        } else if matches!(
-            self.current_token,
-            Token::RParen | Token::RBracket | Token::RBrace
-        ) {
-            self.delimiter_depth -= 1;
-        }
+        self.tokens.consume();
 
-        self.position += 1;
-        self.current_token = self.tokens.get(self.position).unwrap_or(&EOF);
-
-        // Newlines are allowed freely inside delimiters (), [], {} in Python because the parser
-        // expects there to be an ending coming.
         if self.inside_delimiter() {
             self.consume_optional_many(&Token::Newline);
         }
@@ -147,13 +103,13 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_optional(&mut self, expected: &Token) {
-        if self.current_token == expected {
+        if self.current_token() == expected {
             let _ = self.consume(expected);
         }
     }
 
     fn consume_optional_many(&mut self, expected: &Token) {
-        while self.current_token == expected {
+        while self.current_token() == expected {
             let _ = self.consume(expected);
         }
     }
@@ -173,16 +129,16 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_expr".to_string());
         let left = self.parse_simple_expr()?;
 
-        if self.current_token == &Token::Comma {
+        if self.current_token() == &Token::Comma {
             let mut items = vec![left];
-            while self.current_token == &Token::Comma {
+            while self.current_token() == &Token::Comma {
                 self.consume(&Token::Comma)?;
 
                 // We need this for the case of a trailing comma, which is most often used for a
                 // tuple with a single element.
                 //
                 // The [`Token::Assign`] is when this happens on the LHS.
-                if self.end_of_statement() || self.current_token == &Token::Assign {
+                if self.end_of_statement() || self.current_token() == &Token::Assign {
                     break;
                 }
                 items.push(self.parse_simple_expr()?);
@@ -198,7 +154,7 @@ impl<'a> Parser<'a> {
     /// given context (i.e. a = 4, 5), try `parse_expr`.
     fn parse_simple_expr(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || "parse_simple_expr".to_string());
-        if self.current_token == &Token::Await {
+        if self.current_token() == &Token::Await {
             self.parse_await_expr()
         } else {
             self.parse_ternary_expr()
@@ -209,9 +165,7 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_await_expr".to_string());
         self.consume(&Token::Await)?;
         let right = self.parse_ternary_expr()?;
-        Ok(Expr::Await {
-            right: Box::new(right),
-        })
+        Ok(Expr::Await(Box::new(right)))
     }
 
     /// Implements the Python precedence order in reverse call stack order, meaning the operators
@@ -231,7 +185,7 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_ternary_expr".to_string());
         let if_value = self.parse_binary_expr()?;
 
-        if self.current_token == &Token::If {
+        if self.current_token() == &Token::If {
             self.consume(&Token::If)?;
             let condition = self.parse_binary_expr()?;
             self.consume(&Token::Else)?;
@@ -252,11 +206,11 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_bitwise_shift()?;
 
         while matches!(
-            self.current_token,
+            self.current_token(),
             Token::BitwiseAnd | Token::BitwiseOr | Token::BitwiseXor
         ) {
-            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token)?;
+            let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+            self.consume_current()?;
             let right = self.parse_bitwise_shift()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -272,9 +226,9 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_add_sub".to_string());
         let mut left = self.parse_logical_term()?;
 
-        while matches!(self.current_token, Token::Plus | Token::Minus) {
-            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token)?;
+        while matches!(self.current_token(), Token::Plus | Token::Minus) {
+            let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+            self.consume_current()?;
             let right = self.parse_logical_term()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -290,9 +244,9 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_bitwise_shift".to_string());
         let mut left = self.parse_add_sub()?;
 
-        while matches!(self.current_token, Token::LeftShift | Token::RightShift) {
-            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token)?;
+        while matches!(self.current_token(), Token::LeftShift | Token::RightShift) {
+            let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+            self.consume_current()?;
             let right = self.parse_add_sub()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -309,7 +263,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Dot)?;
         let field = self.parse_identifier()?;
 
-        if self.current_token == &Token::LParen {
+        if self.current_token() == &Token::LParen {
             let args = self.parse_function_call_args()?;
 
             Ok(Expr::MethodCall {
@@ -329,38 +283,44 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_index_access".to_string());
         self.consume(&Token::LBracket)?;
         // [::2]
-        let params = if self.peek_ahead_contains(&[Token::Colon, Token::Colon]) {
+        let params = if self
+            .tokens
+            .peek_ahead_contains(&[Token::Colon, Token::Colon])
+        {
             self.consume(&Token::Colon)?;
             self.consume(&Token::Colon)?;
             let step = Some(Box::new(self.parse_simple_expr()?));
             (true, None, None, step)
             // [:] - this syntax is useful to replace the items in a list without changing the
             // list's reference
-        } else if self.peek_ahead_contains(&[Token::Colon, Token::RBracket]) {
+        } else if self
+            .tokens
+            .peek_ahead_contains(&[Token::Colon, Token::RBracket])
+        {
             self.consume(&Token::Colon)?;
             (true, None, None, None)
             // [:2]
-        } else if self.peek_ahead_contains(&[Token::Colon]) {
+        } else if self.tokens.peek_ahead_contains(&[Token::Colon]) {
             self.consume(&Token::Colon)?;
             let stop = Some(Box::new(self.parse_simple_expr()?));
             (true, None, stop, None)
             // [2:]
             // if there is a Colon immediately before the next RBracket
-        } else if self.has(&Token::Colon)
-            && self.num_away(&Token::Colon)? + 1 == self.num_away(&Token::RBracket)?
+        } else if self.tokens.has(&Token::Colon)
+            && self.tokens.num_away(&Token::Colon)? + 1 == self.tokens.num_away(&Token::RBracket)?
         {
             let start = Some(Box::new(self.parse_simple_expr()?));
             self.consume(&Token::Colon)?;
             (true, start, None, None)
             // [1:1:1] or [2:5]
             // if there is a Colon before the next RBracket
-        } else if self.has(&Token::Colon)
-            && self.num_away(&Token::Colon)? < self.num_away(&Token::RBracket)?
+        } else if self.tokens.has(&Token::Colon)
+            && self.tokens.num_away(&Token::Colon)? < self.tokens.num_away(&Token::RBracket)?
         {
             let start = Some(Box::new(self.parse_simple_expr()?));
             self.consume(&Token::Colon)?;
             let stop = Some(Box::new(self.parse_simple_expr()?));
-            let step = if self.current_token == &Token::Colon {
+            let step = if self.current_token() == &Token::Colon {
                 self.consume(&Token::Colon)?;
                 Some(Box::new(self.parse_simple_expr()?))
             } else {
@@ -382,7 +342,7 @@ impl<'a> Parser<'a> {
         } else {
             Ok(Expr::SliceOperation {
                 object: Box::new(left),
-                params: ParsedSliceParams {
+                params: SliceParams {
                     start: params.1,
                     stop: params.2,
                     step: params.3,
@@ -396,7 +356,7 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_exponentiation".to_string());
         let mut left = self.parse_factor()?;
 
-        while self.current_token == &Token::DoubleAsterisk {
+        while self.current_token() == &Token::DoubleAsterisk {
             self.consume(&Token::DoubleAsterisk)?;
             let right = self.parse_exponentiation()?;
             left = Expr::BinaryOperation {
@@ -413,15 +373,15 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_access_operations".to_string());
         let mut left = self.parse_exponentiation()?;
 
-        while matches!(self.current_token, Token::Dot | Token::LBracket) {
-            left = match self.current_token {
+        while matches!(self.current_token(), Token::Dot | Token::LBracket) {
+            left = match self.current_token() {
                 Token::Dot => self.parse_member_access(left)?,
                 Token::LBracket => self.parse_index_access(left)?,
                 _ => unreachable!(),
             };
         }
 
-        if self.current_token == &Token::LParen {
+        if self.current_token() == &Token::LParen {
             let args = self.parse_function_call_args()?;
             left = Expr::FunctionCall {
                 name: "<anonymous_from_callee>".into(),
@@ -437,9 +397,9 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_logical_term".to_string());
         let mut left = self.parse_term()?;
 
-        while matches!(self.current_token, Token::And | Token::Or) {
-            let op = LogicalOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token)?;
+        while matches!(self.current_token(), Token::And | Token::Or) {
+            let op = LogicalOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+            self.consume_current()?;
             let right = self.parse_term()?;
             left = Expr::LogicalOperation {
                 left: Box::new(left),
@@ -456,11 +416,11 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_access_operations()?;
 
         while matches!(
-            self.current_token,
+            self.current_token(),
             Token::Asterisk | Token::Slash | Token::DoubleSlash | Token::Modulo | Token::AtSign
         ) {
-            let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-            self.consume(self.current_token)?;
+            let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+            self.consume_current()?;
             let right = self.parse_access_operations()?;
             left = Expr::BinaryOperation {
                 left: Box::new(left),
@@ -470,7 +430,7 @@ impl<'a> Parser<'a> {
         }
 
         while matches!(
-            self.current_token,
+            self.current_token(),
             Token::LessThan
                 | Token::LessThanOrEqual
                 | Token::GreaterThan
@@ -479,22 +439,22 @@ impl<'a> Parser<'a> {
                 | Token::NotEqual
                 | Token::In
                 | Token::Is
-        ) || self.peek_ahead_contains(&[Token::Not, Token::In])
-            || self.peek_ahead_contains(&[Token::Is, Token::Not])
+        ) || self.tokens.peek_ahead_contains(&[Token::Not, Token::In])
+            || self.tokens.peek_ahead_contains(&[Token::Is, Token::Not])
         {
             // Handle two tokens to produce one `BinOp::NotIn` operation. If this gets too messy,
             // we could look to move multi-word tokens into the lexer.
-            let op = if self.peek_ahead_contains(&[Token::Not, Token::In]) {
+            let op = if self.tokens.peek_ahead_contains(&[Token::Not, Token::In]) {
                 self.consume(&Token::Not)?;
                 self.consume(&Token::In)?;
                 BinOp::NotIn
-            } else if self.peek_ahead_contains(&[Token::Is, Token::Not]) {
+            } else if self.tokens.peek_ahead_contains(&[Token::Is, Token::Not]) {
                 self.consume(&Token::Is)?;
                 self.consume(&Token::Not)?;
                 BinOp::IsNot
             } else {
-                let op = BinOp::try_from(self.current_token).unwrap_or_else(|_| unreachable!());
-                self.consume(self.current_token)?;
+                let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+                self.consume_current()?;
                 op
             };
 
@@ -511,7 +471,7 @@ impl<'a> Parser<'a> {
 
     fn parse_minus(&mut self) -> Result<Expr, ParserError> {
         self.consume(&Token::Minus)?;
-        match self.current_token.clone() {
+        match self.current_token().clone() {
             Token::Integer(i) => {
                 self.consume(&Token::Integer(i))?;
                 Ok(Expr::Integer(-(i as i64)))
@@ -534,7 +494,7 @@ impl<'a> Parser<'a> {
     /// behaviors using `Dunder::Pos`.
     fn parse_plus(&mut self) -> Result<Expr, ParserError> {
         self.consume(&Token::Plus)?;
-        match self.current_token.clone() {
+        match self.current_token().clone() {
             Token::Integer(i) => {
                 self.consume(&Token::Integer(i))?;
                 Ok(Expr::Integer(i as i64))
@@ -555,9 +515,9 @@ impl<'a> Parser<'a> {
 
     fn parse_factor(&mut self) -> Result<Expr, ParserError> {
         log(LogLevel::Trace, || {
-            format!("parse_factor: {:?}", self.current_token)
+            format!("parse_factor: {:?}", self.current_token())
         });
-        match self.current_token.clone() {
+        match self.current_token().clone() {
             Token::Minus => self.parse_minus(),
             Token::Plus => self.parse_plus(),
             Token::Asterisk => {
@@ -579,12 +539,12 @@ impl<'a> Parser<'a> {
             Token::Yield => {
                 self.consume(&Token::Yield)?;
 
-                if self.current_token == &Token::From {
+                if self.current_token() == &Token::From {
                     self.consume(&Token::From)?;
                     let expr = self.parse_simple_expr()?;
                     Ok(Expr::YieldFrom(Box::new(expr)))
                 // The [`Token::RParen`] can be found on generator lambdas.
-                } else if self.end_of_statement() || self.current_token == &Token::RParen {
+                } else if self.end_of_statement() || self.current_token() == &Token::RParen {
                     Ok(Expr::Yield(None))
                 } else {
                     let expr = self.parse_simple_expr()?;
@@ -632,7 +592,7 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Boolean(b))
             }
             Token::Identifier(_) => {
-                if self.peek(1) == &Token::LParen {
+                if self.tokens.peek(1) == &Token::LParen {
                     let name = self.parse_identifier()?;
                     let args = self.parse_function_call_args()?;
 
@@ -641,7 +601,7 @@ impl<'a> Parser<'a> {
                         args,
                         callee: None,
                     })
-                } else if self.current_token.is_type() {
+                } else if self.current_token().is_type() {
                     let type_node = self.parse_type_node()?;
 
                     match type_node {
@@ -673,7 +633,7 @@ impl<'a> Parser<'a> {
             Token::OctalLiteral(literal) => self.parse_octal_literal(literal),
             Token::HexLiteral(literal) => self.parse_hex_literal(literal),
             Token::FStringStart => self.parse_f_string(),
-            _ => Err(ParserError::UnexpectedToken(self.current_token.clone())),
+            _ => Err(ParserError::UnexpectedToken(self.current_token().clone())),
         }
     }
 
@@ -682,7 +642,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Indent)?;
 
         let mut statements = Vec::new();
-        while self.current_token != &Token::Dedent {
+        while self.current_token() != &Token::Dedent {
             statements.push(self.parse_statement()?);
         }
         self.consume(&Token::Dedent)?;
@@ -692,18 +652,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
-        match self.current_token {
+        match self.current_token() {
             Token::Dot => {
                 self.consume(&Token::Dot)?;
                 let mut levels = 0;
-                while self.current_token == &Token::Dot {
+                while self.current_token() == &Token::Dot {
                     self.consume(&Token::Dot)?;
                     levels += 1;
                 }
 
-                let path = if matches!(self.current_token, Token::Identifier(_)) {
+                let path = if matches!(self.current_token(), Token::Identifier(_)) {
                     let mut path = vec![self.parse_identifier()?];
-                    while self.current_token == &Token::Dot {
+                    while self.current_token() == &Token::Dot {
                         self.consume(&Token::Dot)?;
                         path.push(self.parse_identifier()?);
                     }
@@ -716,7 +676,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 let mut path = vec![self.parse_identifier()?];
-                while self.current_token == &Token::Dot {
+                while self.current_token() == &Token::Dot {
                     self.consume(&Token::Dot)?;
                     path.push(self.parse_identifier()?);
                 }
@@ -727,7 +687,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_alias(&mut self) -> Result<Option<String>, ParserError> {
-        if self.current_token == &Token::As {
+        if self.current_token() == &Token::As {
             self.consume(&Token::As)?;
             let alias = self.parse_identifier()?;
             Ok(Some(alias))
@@ -745,7 +705,7 @@ impl<'a> Parser<'a> {
             let alias = self.parse_alias()?;
             items.push(RegularImport { import_path, alias });
 
-            if self.current_token == &Token::Comma {
+            if self.current_token() == &Token::Comma {
                 self.consume(&Token::Comma)?;
             } else {
                 break;
@@ -760,7 +720,7 @@ impl<'a> Parser<'a> {
         let import_path = self.parse_import_path()?;
 
         self.consume(&Token::Import)?;
-        let stmt = match self.current_token {
+        let stmt = match self.current_token() {
             Token::Asterisk => {
                 self.consume(&Token::Asterisk)?;
                 StatementKind::SelectiveImport {
@@ -789,7 +749,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
 
-                    match self.current_token {
+                    match self.current_token() {
                         Token::Comma => {
                             self.consume(&Token::Comma)?;
                             continue;
@@ -801,7 +761,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             return Err(ParserError::ExpectedToken(
                                 Token::Comma,
-                                self.current_token.clone(),
+                                self.current_token().clone(),
                             ));
                         }
                     }
@@ -844,7 +804,7 @@ impl<'a> Parser<'a> {
         let mut nodes = vec![];
 
         loop {
-            let node = match self.current_token {
+            let node = match self.current_token() {
                 Token::Identifier(ref identifier) => match identifier.as_str() {
                     "int" => {
                         self.consume(&Token::Identifier("int".into()))?;
@@ -861,7 +821,7 @@ impl<'a> Parser<'a> {
                     "list" => {
                         self.consume(&Token::Identifier("list".into()))?;
 
-                        if self.current_token == &Token::LBracket {
+                        if self.current_token() == &Token::LBracket {
                             self.consume(&Token::LBracket)?;
                             let parameters = self.parse_type_node()?;
                             self.consume(&Token::RBracket)?;
@@ -887,7 +847,7 @@ impl<'a> Parser<'a> {
 
             nodes.push(node);
 
-            if self.current_token != &Token::BitwiseOr {
+            if self.current_token() != &Token::BitwiseOr {
                 break;
             }
             self.consume(&Token::BitwiseOr)?;
@@ -909,7 +869,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::With)?;
         let expr = self.parse_simple_expr()?;
 
-        let variable = if self.current_token == &Token::As {
+        let variable = if self.current_token() == &Token::As {
             self.consume(&Token::As)?;
             Some(self.parse_identifier()?)
         } else {
@@ -928,17 +888,17 @@ impl<'a> Parser<'a> {
     fn parse_raise(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Raise)?;
 
-        let instance = if matches!(self.current_token, Token::Identifier(_)) {
+        let instance = if matches!(self.current_token(), Token::Identifier(_)) {
             let literal = self.parse_exception_literal()?;
 
-            let args = if self.current_token == &Token::LParen {
+            let args = if self.current_token() == &Token::LParen {
                 self.parse_function_call_args()?
             } else {
-                ParsedArguments::default()
+                CallArgs::default()
             };
 
             // TODO support exception chaining here and in the interpreter
-            if self.current_token == &Token::From {
+            if self.current_token() == &Token::From {
                 self.consume(&Token::From)?;
                 let _from = self.parse_simple_expr()?;
             }
@@ -956,9 +916,9 @@ impl<'a> Parser<'a> {
         let try_block = self.parse_indented_block()?;
 
         let mut except_clauses: Vec<ExceptClause> = vec![];
-        while self.current_token == &Token::Except {
+        while self.current_token() == &Token::Except {
             self.consume(&Token::Except)?;
-            if self.current_token == &Token::Colon {
+            if self.current_token() == &Token::Colon {
                 self.consume(&Token::Colon)?;
                 let except_block = self.parse_indented_block()?;
                 except_clauses.push(ExceptClause {
@@ -966,10 +926,10 @@ impl<'a> Parser<'a> {
                     alias: None,
                     block: except_block,
                 });
-            } else if self.current_token == &Token::LParen {
+            } else if self.current_token() == &Token::LParen {
                 self.consume(&Token::LParen)?;
                 let mut literals = vec![];
-                while self.current_token != &Token::RParen {
+                while self.current_token() != &Token::RParen {
                     let literal = self.parse_exception_literal()?;
                     literals.push(literal);
                     self.consume_optional(&Token::Comma);
@@ -997,7 +957,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let else_block = if self.current_token == &Token::Else {
+        let else_block = if self.current_token() == &Token::Else {
             self.consume(&Token::Else)?;
             self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
@@ -1005,7 +965,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let finally_block = if self.current_token == &Token::Finally {
+        let finally_block = if self.current_token() == &Token::Finally {
             self.consume(&Token::Finally)?;
             self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
@@ -1035,7 +995,7 @@ impl<'a> Parser<'a> {
         };
 
         let mut elif_parts: Vec<ConditionalBlock> = vec![];
-        while self.current_token == &Token::Elif {
+        while self.current_token() == &Token::Elif {
             self.consume(&Token::Elif)?;
             let condition = self.parse_simple_expr()?;
             self.consume(&Token::Colon)?;
@@ -1048,7 +1008,7 @@ impl<'a> Parser<'a> {
             elif_parts.push(elif_parts_part);
         }
 
-        let else_part = if self.current_token == &Token::Else {
+        let else_part = if self.current_token() == &Token::Else {
             self.consume(&Token::Else)?;
             self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
@@ -1067,7 +1027,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::For)?;
 
         let index_a = self.parse_identifier()?;
-        let index = if self.current_token == &Token::Comma {
+        let index = if self.current_token() == &Token::Comma {
             self.consume(&Token::Comma)?;
             let index_b = self.parse_identifier()?;
             LoopIndex::Tuple(vec![index_a, index_b])
@@ -1080,7 +1040,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Colon)?;
         let body = self.parse_indented_block()?;
 
-        let else_block = if self.current_token == &Token::Else {
+        let else_block = if self.current_token() == &Token::Else {
             self.consume(&Token::Else)?;
             self.consume(&Token::Colon)?;
             Some(self.parse_indented_block()?)
@@ -1097,7 +1057,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_block(&mut self) -> Result<Ast, ParserError> {
-        if self.current_token == &Token::Newline {
+        if self.current_token() == &Token::Newline {
             self.parse_indented_block()
         } else {
             // Support single-line functions or classes
@@ -1134,10 +1094,12 @@ impl<'a> Parser<'a> {
         let mut parents = vec![];
         let mut metaclass = None;
 
-        if self.current_token == &Token::LParen {
+        if self.current_token() == &Token::LParen {
             self.consume(&Token::LParen)?;
-            while self.current_token != &Token::RParen {
-                if self.peek_ahead_contains(&[Token::Identifier("metaclass".into()), Token::Assign])
+            while self.current_token() != &Token::RParen {
+                if self
+                    .tokens
+                    .peek_ahead_contains(&[Token::Identifier("metaclass".into()), Token::Assign])
                 {
                     // Support for metaclasses, i.e. the `__new__` method which constructs a class
                     // (instead of an object like the normal `__new__` method).
@@ -1174,7 +1136,7 @@ impl<'a> Parser<'a> {
     fn parse_function_definition(&mut self) -> Result<StatementKind, ParserError> {
         let mut decorators: Vec<Expr> = vec![];
 
-        while self.current_token == &Token::AtSign {
+        while self.current_token() == &Token::AtSign {
             self.consume(&Token::AtSign)?;
             decorators.push(self.parse_simple_expr()?);
 
@@ -1182,7 +1144,7 @@ impl<'a> Parser<'a> {
             self.consume(&Token::Newline)?;
         }
 
-        let is_async = if self.current_token == &Token::Async {
+        let is_async = if self.current_token() == &Token::Async {
             self.consume(&Token::Async)?;
             true
         } else {
@@ -1196,7 +1158,7 @@ impl<'a> Parser<'a> {
         self.consume(&Token::RParen)?;
 
         // Support type hints in the return type
-        if self.current_token == &Token::ReturnTypeArrow {
+        if self.current_token() == &Token::ReturnTypeArrow {
             self.consume(&Token::ReturnTypeArrow)?;
             let _ = self.parse_simple_expr()?;
         }
@@ -1219,7 +1181,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_simple_expr()?;
             exprs.push(expr);
 
-            if self.current_token != &Token::Comma {
+            if self.current_token() != &Token::Comma {
                 break;
             }
             self.consume(&Token::Comma)?;
@@ -1258,7 +1220,7 @@ impl<'a> Parser<'a> {
     pub fn parse_statement(&mut self) -> Result<Statement, ParserError> {
         self.consume_optional_many(&Token::Newline);
         let start_line = self.line_number;
-        let stmt = match self.current_token.clone() {
+        let stmt = match self.current_token().clone() {
             Token::Del => self.parse_delete(),
             Token::Def => self.parse_function_definition(),
             Token::AtSign => self.parse_function_definition(),
@@ -1316,7 +1278,7 @@ impl<'a> Parser<'a> {
     fn parse_statement_without_starting_keyword(&mut self) -> Result<StatementKind, ParserError> {
         let left = self.parse_expr()?;
 
-        if self.current_token == &Token::Assign {
+        if self.current_token() == &Token::Assign {
             self.consume(&Token::Assign)?;
             match left {
                 Expr::Tuple(vars) => Ok(StatementKind::UnpackingAssignment {
@@ -1327,7 +1289,7 @@ impl<'a> Parser<'a> {
                     let mut left_items = vec![left];
 
                     let mut right = self.parse_expr()?;
-                    while self.current_token == &Token::Assign {
+                    while self.current_token() == &Token::Assign {
                         self.consume(&Token::Assign)?;
                         left_items.push(right);
                         right = self.parse_expr()?;
@@ -1346,8 +1308,8 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-        } else if self.current_token.is_compound_assign() {
-            let operator = match self.current_token {
+        } else if self.current_token().is_compound_assign() {
+            let operator = match self.current_token() {
                 Token::PlusEquals => CompoundOperator::Add,
                 Token::MinusEquals => CompoundOperator::Subtract,
                 Token::AsteriskEquals => CompoundOperator::Multiply,
@@ -1363,7 +1325,7 @@ impl<'a> Parser<'a> {
                 Token::ExpoEquals => CompoundOperator::Expo,
                 _ => unreachable!(),
             };
-            self.consume(self.current_token)?;
+            self.consume_current()?;
 
             let value = self.parse_simple_expr()?;
             Ok(StatementKind::CompoundAssignment {
@@ -1381,7 +1343,7 @@ impl<'a> Parser<'a> {
         let args = self.parse_function_def_args(Token::Colon)?;
         self.consume(&Token::Colon)?;
 
-        let expr = if self.current_token == &Token::LParen {
+        let expr = if self.current_token() == &Token::LParen {
             self.consume(&Token::LParen)?;
             let expr = self.parse_simple_expr()?;
             self.consume(&Token::RParen)?;
@@ -1391,7 +1353,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Expr::Lambda {
-            args: Box::new(args),
+            args,
             expr: Box::new(expr),
         })
     }
@@ -1401,24 +1363,24 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         self.consume(&Token::LBracket)?;
-        while self.current_token != &Token::RBracket {
+        while self.current_token() != &Token::RBracket {
             let expr = self.parse_simple_expr()?;
             items.push(expr.clone());
 
-            if self.current_token == &Token::Comma {
+            if self.current_token() == &Token::Comma {
                 self.consume(&Token::Comma)?;
 
                 // Handle trailing comma
-                if self.current_token == &Token::RBracket {
+                if self.current_token() == &Token::RBracket {
                     self.consume(&Token::RBracket)?;
                     return Ok(Expr::List(items));
                 }
-            } else if self.current_token == &Token::RBracket {
+            } else if self.current_token() == &Token::RBracket {
                 self.consume(&Token::RBracket)?;
                 return Ok(Expr::List(items));
             }
 
-            if self.current_token == &Token::For {
+            if self.current_token() == &Token::For {
                 let clauses = self.parse_comprehension_clauses()?;
                 self.consume(&Token::RBracket)?;
 
@@ -1439,8 +1401,8 @@ impl<'a> Parser<'a> {
         self.consume(&Token::FStringStart)?;
 
         let mut parts = vec![];
-        while self.current_token != &Token::FStringEnd {
-            match self.current_token.clone() {
+        while self.current_token() != &Token::FStringEnd {
+            match self.current_token().clone() {
                 Token::StringLiteral(s) => {
                     self.consume(&Token::StringLiteral(s.to_string()))?;
                     parts.push(FStringPart::String(s.to_string()));
@@ -1450,9 +1412,9 @@ impl<'a> Parser<'a> {
                     self.consume(&Token::LBrace)?;
                     let expr = self.parse_simple_expr()?;
 
-                    let format = if self.current_token == &Token::Exclamation {
+                    let format = if self.current_token() == &Token::Exclamation {
                         self.consume(&Token::Exclamation)?;
-                        if let Token::Identifier(token) = self.current_token.clone() {
+                        if let Token::Identifier(token) = self.current_token().clone() {
                             self.consume(&Token::Identifier(token.to_string()))?;
                             match token.as_str() {
                                 "r" => FormatOption::Repr,
@@ -1460,12 +1422,12 @@ impl<'a> Parser<'a> {
                                 "a" => FormatOption::Ascii,
                                 _ => {
                                     return Err(ParserError::UnexpectedToken(
-                                        self.current_token.clone(),
+                                        self.current_token().clone(),
                                     ));
                                 }
                             }
                         } else {
-                            return Err(ParserError::UnexpectedToken(self.current_token.clone()));
+                            return Err(ParserError::UnexpectedToken(self.current_token().clone()));
                         }
                     } else {
                         FormatOption::Str
@@ -1478,7 +1440,7 @@ impl<'a> Parser<'a> {
                     }));
                 }
                 _ => {
-                    return Err(ParserError::UnexpectedToken(self.current_token.clone()));
+                    return Err(ParserError::UnexpectedToken(self.current_token().clone()));
                 }
             }
         }
@@ -1493,10 +1455,10 @@ impl<'a> Parser<'a> {
         let mut set = HashSet::new();
 
         self.consume(&Token::LBrace)?;
-        while self.current_token != &Token::RBrace {
+        while self.current_token() != &Token::RBrace {
             let key = self.parse_simple_expr()?;
 
-            match self.current_token {
+            match self.current_token() {
                 // A Comma or an RBrace indicates the end of an element, which means this element
                 // will not be a key-value (i.e. have a colon). However, only an RBrace indicates
                 // an end to the entire literal.
@@ -1513,7 +1475,7 @@ impl<'a> Parser<'a> {
                         }
                     };
                     self.consume_optional(&Token::Comma);
-                    if self.current_token == &Token::RBrace {
+                    if self.current_token() == &Token::RBrace {
                         break;
                     }
                 }
@@ -1529,14 +1491,14 @@ impl<'a> Parser<'a> {
                     self.consume(&Token::Colon)?;
                     let value = self.parse_simple_expr()?;
 
-                    match self.current_token {
+                    match self.current_token() {
                         // A Comma or an RBrace indicates the end of an element, which means this
                         // element _will_ be a key-value (i.e. have a colon). Only an RBrace
                         // indicates an end to the entire literal.
                         Token::Comma | Token::RBrace => {
                             pairs.push(DictOperation::Pair(key, value));
                             self.consume_optional(&Token::Comma);
-                            if self.current_token == &Token::RBrace {
+                            if self.current_token() == &Token::RBrace {
                                 break;
                             }
                         }
@@ -1549,10 +1511,12 @@ impl<'a> Parser<'a> {
                                 value_body: Box::new(value),
                             });
                         }
-                        _ => return Err(ParserError::UnexpectedToken(self.current_token.clone())),
+                        _ => {
+                            return Err(ParserError::UnexpectedToken(self.current_token().clone()))
+                        }
                     }
                 }
-                _ => return Err(ParserError::UnexpectedToken(self.current_token.clone())),
+                _ => return Err(ParserError::UnexpectedToken(self.current_token().clone())),
             }
         }
 
@@ -1566,37 +1530,34 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_function_def_args(
-        &mut self,
-        end_token: Token,
-    ) -> Result<ParsedArgDefinitions, ParserError> {
+    fn parse_function_def_args(&mut self, end_token: Token) -> Result<Params, ParserError> {
         let mut args = Vec::new();
         let mut args_var = None;
         let mut kwargs_var = None;
-        while self.current_token != &end_token {
+        while self.current_token() != &end_token {
             // This is to support positional-only parameters.
             // Context: PEP 570 (https://peps.python.org/pep-0570/)
             // TODO test positional-only parameters now that we support args/kwargs
-            if self.current_token == &Token::Slash {
+            if self.current_token() == &Token::Slash {
                 self.consume(&Token::Slash)?;
 
                 // We will only see a comma if the slash isn't the last "parameter".
                 // We test this is the "slash_args" interpreter test. This is also found in
                 // types.py in the standard lib.
-                if self.current_token == &Token::Comma {
+                if self.current_token() == &Token::Comma {
                     self.consume(&Token::Comma)?;
                 } else {
                     break;
                 }
             }
 
-            if self.current_token == &Token::Asterisk {
+            if self.current_token() == &Token::Asterisk {
                 self.consume(&Token::Asterisk)?;
 
                 // We will see an asterisk without a trailing identifier for keyword-only
                 // parameters. TODO we do not yet enforce this.
                 // Context: PEP 3102 (https://peps.python.org/pep-3102/)
-                if matches!(self.current_token, Token::Identifier(_)) {
+                if matches!(self.current_token(), Token::Identifier(_)) {
                     args_var = Some(self.parse_identifier()?);
                 }
 
@@ -1607,27 +1568,27 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if self.current_token == &Token::DoubleAsterisk {
+            if self.current_token() == &Token::DoubleAsterisk {
                 self.consume(&Token::DoubleAsterisk)?;
                 kwargs_var = Some(self.parse_identifier()?);
                 break;
             }
 
             let arg = self.parse_identifier()?;
-            let default = if self.current_token == &Token::Assign {
+            let default = if self.current_token() == &Token::Assign {
                 self.consume(&Token::Assign)?;
                 Some(self.parse_simple_expr()?)
             } else {
                 None
             };
 
-            args.push(ParsedArgDefinition { arg, default });
+            args.push(Param { arg, default });
 
             // Support for type hints. Will there be reason to store these alongside the params
             // themselves? Perhaps for future toolings like memphis-lsp.
             //
             // Not sure if the check for end_token here is correct or not. This is for lambdas.
-            if end_token != Token::Colon && self.current_token == &Token::Colon {
+            if end_token != Token::Colon && self.current_token() == &Token::Colon {
                 self.consume(&Token::Colon)?;
                 let _type = self.parse_simple_expr()?;
             }
@@ -1635,21 +1596,21 @@ impl<'a> Parser<'a> {
             self.consume_optional(&Token::Comma);
         }
 
-        Ok(ParsedArgDefinitions {
+        Ok(Params {
             args,
             args_var,
             kwargs_var,
         })
     }
 
-    fn parse_function_call_args(&mut self) -> Result<ParsedArguments, ParserError> {
+    fn parse_function_call_args(&mut self) -> Result<CallArgs, ParserError> {
         self.consume(&Token::LParen)?;
 
         let mut args = Vec::new();
         let mut kwargs = vec![];
         let mut args_var = None;
-        while self.current_token != &Token::RParen {
-            if self.current_token == &Token::Asterisk {
+        while self.current_token() != &Token::RParen {
+            if self.current_token() == &Token::Asterisk {
                 self.consume(&Token::Asterisk)?;
                 args_var = Some(Box::new(self.parse_simple_expr()?));
 
@@ -1663,7 +1624,7 @@ impl<'a> Parser<'a> {
             // This is to support the formats
             // - foo(**{'a': 2, 'b': 1})
             // - foo(**args)
-            if self.current_token == &Token::DoubleAsterisk {
+            if self.current_token() == &Token::DoubleAsterisk {
                 self.consume(&Token::DoubleAsterisk)?;
                 let kwargs_expr = self.parse_simple_expr()?;
                 match kwargs_expr {
@@ -1690,10 +1651,10 @@ impl<'a> Parser<'a> {
 
             match self.parse_function_call_arg()? {
                 // This is to support the format foo(a=2, b=1)
-                ParsedArgument::Keyword { arg, expr } => {
+                CallArg::Keyword { arg, expr } => {
                     kwargs.push(KwargsOperation::Pair(arg, expr));
                 }
-                ParsedArgument::Positional(expr) => {
+                CallArg::Positional(expr) => {
                     args.push(expr);
                 }
             }
@@ -1703,7 +1664,7 @@ impl<'a> Parser<'a> {
 
         self.consume(&Token::RParen)?;
 
-        Ok(ParsedArguments {
+        Ok(CallArgs {
             args,
             kwargs,
             args_var,
@@ -1713,21 +1674,21 @@ impl<'a> Parser<'a> {
     /// An argument in a function call can be either variable `a` or contain an equals such as
     /// `a = 4`. We originally (and ignorantly) called `parse_statement` but that contains too many
     /// other cases to be safely used inside function call parsing.
-    fn parse_function_call_arg(&mut self) -> Result<ParsedArgument, ParserError> {
+    fn parse_function_call_arg(&mut self) -> Result<CallArg, ParserError> {
         let expr = self.parse_simple_expr()?;
-        match self.current_token {
+        match self.current_token() {
             Token::Assign => {
                 self.consume(&Token::Assign)?;
                 let arg = expr.as_variable().ok_or(ParserError::SyntaxError)?;
-                Ok(ParsedArgument::Keyword {
+                Ok(CallArg::Keyword {
                     arg,
                     expr: self.parse_simple_expr()?,
                 })
             }
-            Token::For => Ok(ParsedArgument::Positional(
+            Token::For => Ok(CallArg::Positional(
                 self.parse_generator_comprehension(&expr)?,
             )),
-            _ => Ok(ParsedArgument::Positional(expr)),
+            _ => Ok(CallArg::Positional(expr)),
         }
     }
 
@@ -1741,7 +1702,7 @@ impl<'a> Parser<'a> {
 
     fn parse_comprehension_clauses(&mut self) -> Result<Vec<ForClause>, ParserError> {
         let mut clauses = vec![];
-        while self.current_token == &Token::For {
+        while self.current_token() == &Token::For {
             clauses.push(self.parse_comprehension_clause()?);
         }
         Ok(clauses)
@@ -1752,13 +1713,13 @@ impl<'a> Parser<'a> {
 
         // The parentheses are optional here, but if one is present, both must be present
         let mut need_rparen = false;
-        if self.current_token == &Token::LParen {
+        if self.current_token() == &Token::LParen {
             self.consume(&Token::LParen)?;
             need_rparen = true;
         }
 
         let mut indices = vec![self.parse_identifier()?];
-        while self.current_token == &Token::Comma {
+        while self.current_token() == &Token::Comma {
             self.consume(&Token::Comma)?;
             indices.push(self.parse_identifier()?);
         }
@@ -1775,7 +1736,7 @@ impl<'a> Parser<'a> {
         // ternary operations are handled.
         let iterable = self.parse_binary_expr()?;
 
-        let condition = if self.current_token == &Token::If {
+        let condition = if self.current_token() == &Token::If {
             self.consume(&Token::If)?;
             Some(self.parse_simple_expr()?)
         } else {
@@ -1803,16 +1764,16 @@ impl<'a> Parser<'a> {
 
         let mut args = Vec::new();
         let mut is_single_element = true;
-        while self.current_token != &Token::RParen {
+        while self.current_token() != &Token::RParen {
             let expr = self.parse_simple_expr()?;
             args.push(expr.clone());
 
-            if self.current_token == &Token::Comma {
+            if self.current_token() == &Token::Comma {
                 self.consume(&Token::Comma)?;
                 is_single_element = false;
             }
 
-            if self.current_token == &Token::For {
+            if self.current_token() == &Token::For {
                 // If you saw a For token, we must be in list comprehension.
                 assert_eq!(args.len(), 1);
                 let gen_comp = self.parse_generator_comprehension(&expr)?;
@@ -1833,7 +1794,7 @@ impl<'a> Parser<'a> {
 
     fn parse_identifiers(&mut self) -> Result<Vec<Variable>, ParserError> {
         let mut items = vec![self.parse_identifier()?];
-        while self.current_token == &Token::Comma {
+        while self.current_token() == &Token::Comma {
             self.consume(&Token::Comma)?;
             items.push(self.parse_identifier()?);
         }
@@ -1842,13 +1803,13 @@ impl<'a> Parser<'a> {
 
     /// Parse a `Token::Identifier` without any semantic analysis.
     fn parse_identifier(&mut self) -> Result<String, ParserError> {
-        match self.current_token.clone() {
+        match self.current_token().clone() {
             Token::Identifier(name) => {
                 let name_clone = name.clone();
                 self.consume(&Token::Identifier(name_clone.clone()))?;
                 Ok(name_clone)
             }
-            _ => Err(ParserError::UnexpectedToken(self.current_token.clone())),
+            _ => Err(ParserError::UnexpectedToken(self.current_token().clone())),
         }
     }
 }
@@ -1863,8 +1824,15 @@ mod tests {
         MemphisContext::from_text(text)
     }
 
+    fn parse_all(input: &str) -> Ast {
+        let mut context = init(input);
+        context
+            .parse_all_statements()
+            .expect("Failed to parse all statements!")
+    }
+
     macro_rules! expect_error {
-        ($input:expr, $expected:expr, $pattern:ident) => {
+        ($input:expr, $pattern:ident) => {
             match init($input).parse_oneshot::<$pattern>() {
                 Ok(_) => panic!("Expected a ParserError!"),
                 Err(e) => e,
@@ -2246,11 +2214,7 @@ mod tests {
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "\"\".join([])";
-        let expected_ast = Expr::MethodCall {
-            object: Box::new(str!("")),
-            name: "join".into(),
-            args: parsed_args![list![]],
-        };
+        let expected_ast = method_call!(str!(""), "join", call_args![list![]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2279,14 +2243,14 @@ mod tests {
     #[test]
     fn function_call() {
         let input = "print(\"Hello, World!\")";
-        let expected_ast = func_call!("print", parsed_args![str!("Hello, World!")]);
+        let expected_ast = func_call!("print", call_args![str!("Hello, World!")]);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a(*self.args, **self.kwargs)";
         let expected_ast = func_call!(
             "a",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![KwargsOperation::Unpacking(member_access!(
                     var!("self"),
@@ -2307,25 +2271,8 @@ def add(x, y):
 ";
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "add".to_string(),
-            args: ParsedArgDefinitions {
-                args: vec![
-                    ParsedArgDefinition {
-                        arg: "x".into(),
-                        default: None,
-                    },
-                    ParsedArgDefinition {
-                        arg: "y".into(),
-                        default: None,
-                    },
-                ],
-                args_var: None,
-                kwargs_var: None,
-            },
-            body: ast![stmt(StatementKind::Return(vec![bin_op!(
-                var!("x"),
-                Add,
-                var!("y")
-            )]))],
+            args: params![param!("x"), param!("y")],
+            body: ast![stmt_return![bin_op!(var!("x"), Add, var!("y"))]],
             decorators: vec![],
             is_async: false,
         });
@@ -2335,7 +2282,7 @@ def add(x, y):
         let input = "def _f(): pass";
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "_f".to_string(),
-            args: ParsedArgDefinitions::default(),
+            args: params![],
             body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -2344,66 +2291,31 @@ def add(x, y):
         assert_ast_eq!(input, expected_ast);
 
         let input = "lambda: 4";
-        let expected_ast = Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions::default()),
-            expr: Box::new(int!(4)),
-        };
+        let expected_ast = lambda!(params![], int!(4));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "lambda index: 4";
-        let expected_ast = Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions {
-                args: vec![ParsedArgDefinition {
-                    arg: "index".into(),
-                    default: None,
-                }],
-                args_var: None,
-                kwargs_var: None,
-            }),
-            expr: Box::new(int!(4)),
-        };
+        let expected_ast = lambda!(params![param!("index")], int!(4));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "lambda index, val: 4";
-        let expected_ast = Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions {
-                args: vec![
-                    ParsedArgDefinition {
-                        arg: "index".into(),
-                        default: None,
-                    },
-                    ParsedArgDefinition {
-                        arg: "val".into(),
-                        default: None,
-                    },
-                ],
-                args_var: None,
-                kwargs_var: None,
-            }),
-            expr: Box::new(int!(4)),
-        };
+        let expected_ast = lambda!(params![param!("index"), param!("val")], int!(4));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "lambda: (yield)";
-        let expected_ast = Expr::Lambda {
-            args: Box::new(ParsedArgDefinitions::default()),
-            expr: Box::new(Expr::Yield(None)),
-        };
+        let expected_ast = lambda!(params![], Expr::Yield(None));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "(lambda: (yield))()";
-        let expected_ast = Expr::FunctionCall {
-            name: "<anonymous_from_callee>".into(),
-            args: parsed_args![],
-            callee: Some(Box::new(Expr::Lambda {
-                args: Box::new(ParsedArgDefinitions::default()),
-                expr: Box::new(Expr::Yield(None)),
-            })),
-        };
+        let expected_ast = func_call!(
+            "<anonymous_from_callee>",
+            call_args![],
+            lambda!(params![], Expr::Yield(None))
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -2415,20 +2327,7 @@ def __init__(
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "__init__".into(),
-            args: ParsedArgDefinitions {
-                args: vec![
-                    ParsedArgDefinition {
-                        arg: "self".into(),
-                        default: None,
-                    },
-                    ParsedArgDefinition {
-                        arg: "indent".into(),
-                        default: Some(Expr::None),
-                    },
-                ],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: params![param!("self"), param!("indent", Expr::None)],
             body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -2437,29 +2336,29 @@ def __init__(
         assert_ast_eq!(input, expected_ast);
 
         let input = "return a, b";
-        let expected_ast = stmt(StatementKind::Return(vec![var!("a"), var!("b")]));
+        let expected_ast = stmt_return![var!("a"), var!("b")];
 
         assert_ast_eq!(input, expected_ast);
     }
 
     #[test]
     fn boolean_expressions() {
-        let input = "x and y\n";
+        let input = "x and y";
         let expected_ast = logic_op!(var!("x"), And, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
-        let input = "x or y\n";
+        let input = "x or y";
         let expected_ast = logic_op!(var!("x"), Or, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
-        let input = "x or not y\n";
+        let input = "x or not y";
         let expected_ast = logic_op!(var!("x"), Or, unary_op!(Not, var!("y")));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
-        let input = "not (x or y)\n";
+        let input = "not (x or y)";
         let expected_ast = unary_op!(Not, logic_op!(var!("x"), Or, var!("y")));
 
         assert_ast_eq!(input, expected_ast, Expr);
@@ -2536,23 +2435,23 @@ if (a
 
     #[test]
     fn boolean_operators() {
-        let input = "x = True\n";
-        let expected_ast = stmt_assign!(var!("x"), Expr::Boolean(true));
+        let input = "x = True";
+        let expected_ast = stmt_assign!(var!("x"), bool!(true));
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "True or False\n";
-        let expected_ast = logic_op!(Expr::Boolean(true), Or, Expr::Boolean(false));
+        let input = "True or False";
+        let expected_ast = logic_op!(bool!(true), Or, bool!(false));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
-        let input = "x = None\n";
+        let input = "x = None";
         let expected_ast = stmt_assign!(var!("x"), Expr::None);
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "return None\n";
-        let expected_ast = stmt(StatementKind::Return(vec![Expr::None]));
+        let input = "return None";
+        let expected_ast = stmt_return![Expr::None];
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2572,19 +2471,19 @@ else:
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
                 block: ast![stmt(StatementKind::Expression(func_call!(
                     "print",
-                    parsed_args![str!("Greater")]
+                    call_args![str!("Greater")]
                 )))],
             },
             elif_parts: vec![ConditionalBlock {
                 condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
                 block: ast![stmt(StatementKind::Expression(func_call!(
                     "print",
-                    parsed_args![str!("Medium")]
+                    call_args![str!("Medium")]
                 )))],
             }],
             else_part: Some(ast![stmt(StatementKind::Expression(func_call!(
                 "print",
-                parsed_args![str!("Less")]
+                call_args![str!("Less")]
             )))]),
         });
 
@@ -2603,7 +2502,7 @@ elif x > -20:
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
                 block: ast![stmt(StatementKind::Expression(func_call!(
                     "print",
-                    parsed_args![str!("Greater")]
+                    call_args![str!("Greater")]
                 )))],
             },
             elif_parts: vec![
@@ -2611,14 +2510,14 @@ elif x > -20:
                     condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
                     block: ast![stmt(StatementKind::Expression(func_call!(
                         "print",
-                        parsed_args![str!("Medium")]
+                        call_args![str!("Medium")]
                     )))],
                 },
                 ConditionalBlock {
                     condition: bin_op!(var!("x"), GreaterThan, int!(-20)),
                     block: ast![stmt(StatementKind::Expression(func_call!(
                         "print",
-                        parsed_args![str!("Less")]
+                        call_args![str!("Less")]
                     )))],
                 },
             ],
@@ -2636,7 +2535,7 @@ if x > 0:
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
                 block: ast![stmt(StatementKind::Expression(func_call!(
                     "print",
-                    parsed_args![str!("Greater")]
+                    call_args![str!("Greater")]
                 )))],
             },
             elif_parts: vec![],
@@ -2650,8 +2549,8 @@ if True: return False
 "#;
         let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
-                condition: Expr::Boolean(true),
-                block: ast![stmt(StatementKind::Return(vec![Expr::Boolean(false)]))],
+                condition: bool!(true),
+                block: ast![stmt_return![bool!(false)]],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2688,10 +2587,10 @@ while True:
     print(\"busy loop\")
 ";
         let expected_ast = stmt(StatementKind::WhileLoop {
-            condition: Expr::Boolean(true),
+            condition: bool!(true),
             body: ast![stmt(StatementKind::Expression(func_call!(
                 "print",
-                parsed_args![str!("busy loop")]
+                call_args![str!("busy loop")]
             )))],
         });
 
@@ -2715,31 +2614,17 @@ class Foo:
             body: ast![
                 stmt(StatementKind::FunctionDef {
                     name: "__init__".to_string(),
-                    args: ParsedArgDefinitions {
-                        args: vec![ParsedArgDefinition {
-                            arg: "self".to_string(),
-                            default: None,
-                        }],
-                        args_var: None,
-                        kwargs_var: None,
-                    },
+                    args: params![param!("self")],
                     body: ast![stmt_assign!(member_access!(var!("self"), "x"), int!(0))],
                     decorators: vec![],
                     is_async: false,
                 }),
                 stmt(StatementKind::FunctionDef {
                     name: "bar".to_string(),
-                    args: ParsedArgDefinitions {
-                        args: vec![ParsedArgDefinition {
-                            arg: "self".to_string(),
-                            default: None,
-                        }],
-                        args_var: None,
-                        kwargs_var: None,
-                    },
+                    args: params![param!("self")],
                     body: ast![stmt(StatementKind::Expression(func_call!(
                         "print",
-                        parsed_args![member_access!(var!("self"), "x")]
+                        call_args![member_access!(var!("self"), "x")]
                     )))],
                     decorators: vec![],
                     is_async: false,
@@ -2773,7 +2658,7 @@ class Foo:
     #[test]
     fn class_instantiation() {
         let input = "foo = Foo()";
-        let expected_ast = stmt_assign!(var!("foo"), func_call!("Foo", parsed_args![]));
+        let expected_ast = stmt_assign!(var!("foo"), func_call!("Foo", call_args![]));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2781,11 +2666,7 @@ class Foo:
     #[test]
     fn method_invocation() {
         let input = "foo.bar()";
-        let expected_ast = Expr::MethodCall {
-            object: Box::new(var!("foo")),
-            name: "bar".to_string(),
-            args: parsed_args![],
-        };
+        let expected_ast = method_call!(var!("foo"), "bar");
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2806,7 +2687,7 @@ def foo():
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "foo".to_string(),
-            args: ParsedArgDefinitions::default(),
+            args: params![],
             body: ast![stmt(StatementKind::RegularImport(vec![
                 RegularImport {
                     import_path: ImportPath::Absolute(vec!["other".into()]),
@@ -2829,8 +2710,6 @@ def foo():
 import other as b
 pass
 "#;
-        let context = init(input);
-
         let expected_ast = stmt(StatementKind::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: Some("b".into()),
@@ -2839,31 +2718,26 @@ pass
         // Before we handling Token::As processing, this test would fail, but only once it began
         // parsing the next statement. We needed to parse two statements here to produce the
         // failing test.
-        let mut parser = context.init_parser();
-        match parser.parse_statement() {
-            Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_stmt_eq!(ast, expected_ast),
-        }
-        match parser.parse_statement() {
-            Err(e) => panic!("Parser error: {:?}", e),
-            Ok(ast) => assert_stmt_eq!(ast, stmt(StatementKind::Pass)),
-        }
+        let asts = parse_all(input);
+        assert_eq!(asts.len(), 2);
+        assert_stmt_eq!(asts.get(0).unwrap(), expected_ast);
+        assert_stmt_eq!(asts.get(1).unwrap(), stmt(StatementKind::Pass));
 
         let input = "mypackage.myothermodule.add('1', '1')";
-        let expected_ast = Expr::MethodCall {
-            object: Box::new(member_access!(var!("mypackage"), "myothermodule")),
-            name: "add".into(),
-            args: parsed_args![str!("1"), str!("1")],
-        };
+        let expected_ast = method_call!(
+            member_access!(var!("mypackage"), "myothermodule"),
+            "add",
+            call_args![str!("1"), str!("1")]
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "cls._abc_registry.add(subclass)";
-        let expected_ast = Expr::MethodCall {
-            object: Box::new(member_access!(var!("cls"), "_abc_registry")),
-            name: "add".into(),
-            args: parsed_args![var!("subclass")],
-        };
+        let expected_ast = method_call!(
+            member_access!(var!("cls"), "_abc_registry"),
+            "add",
+            call_args![var!("subclass")]
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -3092,7 +2966,7 @@ a = [1,
         assert_ast_eq!(input, expected_ast);
 
         let input = "list([1, 2, 3])";
-        let expected_ast = func_call!("list", parsed_args![list![int!(1), int!(2), int!(3)]]);
+        let expected_ast = func_call!("list", call_args![list![int!(1), int!(2), int!(3)]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -3115,7 +2989,7 @@ a = [1,
         assert_ast_eq!(input, expected_ast);
 
         let input = "set({1, 2, 3})";
-        let expected_ast = func_call!("set", parsed_args![set![int!(1), int!(2), int!(3)]]);
+        let expected_ast = func_call!("set", call_args![set![int!(1), int!(2), int!(3)]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -3173,7 +3047,7 @@ a = [1,
         assert_ast_eq!(input, expected_ast);
 
         let input = "tuple((1, 2, 3))";
-        let expected_ast = func_call!("tuple", parsed_args![tuple![int!(1), int!(2), int!(3)]]);
+        let expected_ast = func_call!("tuple", call_args![tuple![int!(1), int!(2), int!(3)]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -3184,7 +3058,7 @@ tuple((1,
 "#;
         let expected_ast = stmt(StatementKind::Expression(func_call!(
             "tuple",
-            parsed_args![tuple![int!(1), int!(2), int!(3)]]
+            call_args![tuple![int!(1), int!(2), int!(3)]]
         )));
 
         assert_ast_eq!(input, expected_ast);
@@ -3231,7 +3105,7 @@ for i in a:
             iterable: var!("a"),
             body: ast![stmt(StatementKind::Expression(func_call!(
                 "print",
-                parsed_args![var!("i")]
+                call_args![var!("i")]
             )))],
             else_block: None,
         });
@@ -3244,14 +3118,10 @@ for k, v in a.items():
 "#;
         let expected_ast = stmt(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
-            iterable: Expr::MethodCall {
-                object: Box::new(var!("a")),
-                name: "items".into(),
-                args: parsed_args![],
-            },
+            iterable: method_call!(var!("a"), "items"),
             body: ast![stmt(StatementKind::Expression(func_call!(
                 "print",
-                parsed_args![var!("v")]
+                call_args![var!("v")]
             )))],
             else_block: None,
         });
@@ -3279,7 +3149,7 @@ for k, v in a.items():
             clauses: vec![ForClause {
                 indices: vec!["i".to_string()],
                 iterable: var!("a"),
-                condition: Some(Expr::Boolean(true)),
+                condition: Some(bool!(true)),
             }],
         };
 
@@ -3296,14 +3166,7 @@ def countdown(n):
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "countdown".to_string(),
-            args: ParsedArgDefinitions {
-                args: vec![ParsedArgDefinition {
-                    arg: "n".into(),
-                    default: None,
-                }],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: params![param!("n")],
             body: ast![stmt(StatementKind::WhileLoop {
                 condition: bin_op!(var!("n"), GreaterThan, int!(0)),
                 body: ast![
@@ -3421,12 +3284,12 @@ namespace = {
 
         assert_ast_eq!(input, expected_ast, Expr);
 
-        let input = r#"{ 2, **second }"#;
-        let e = expect_error!(input, expected_ast, Expr);
+        let input = "{ 2, **second }";
+        let e = expect_error!(input, Expr);
         assert_eq!(e, ParserError::SyntaxError);
 
-        let input = r#"{ 2, **second, }"#;
-        let e = expect_error!(input, expected_ast, Expr);
+        let input = "{ 2, **second, }";
+        let e = expect_error!(input, Expr);
         assert_eq!(e, ParserError::SyntaxError);
 
         let input = r#"{ key: val * 2 for key, val in d }"#;
@@ -3465,19 +3328,17 @@ async def main():
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "main".to_string(),
-            args: ParsedArgDefinitions::default(),
+            args: params![],
             body: ast![
                 stmt_assign!(
                     var!("task_1"),
-                    Expr::MethodCall {
-                        object: Box::new(var!("asyncio")),
-                        name: "create_task".to_string(),
-                        args: parsed_args![func_call!("task1", parsed_args![])],
-                    }
+                    method_call!(
+                        var!("asyncio"),
+                        "create_task",
+                        call_args![func_call!("task1")]
+                    )
                 ),
-                stmt(StatementKind::Return(vec![Expr::Await {
-                    right: Box::new(var!("task_1"))
-                }])),
+                stmt_return![Expr::Await(Box::new(var!("task_1")))],
             ],
             decorators: vec![],
             is_async: true,
@@ -3491,7 +3352,7 @@ async def main():
         let input = r#"
 assert True
 "#;
-        let expected_ast = stmt(StatementKind::Assert(Expr::Boolean(true)));
+        let expected_ast = stmt(StatementKind::Assert(bool!(true)));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3613,7 +3474,7 @@ a = 1
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
-                block: ast![stmt(StatementKind::Return(vec![]))],
+                block: ast![stmt_return![]],
             }],
             else_block: None,
             finally_block: None,
@@ -3654,7 +3515,7 @@ def test_args(*args):
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_args".into(),
-            args: ParsedArgDefinitions {
+            args: Params {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: None,
@@ -3672,7 +3533,7 @@ def test_args(*args, **kwargs):
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_args".into(),
-            args: ParsedArgDefinitions {
+            args: Params {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: Some("kwargs".into()),
@@ -3689,7 +3550,7 @@ def test_kwargs(**kwargs):
     print(kwargs['a'])
 "#;
         let ast = parse!(input, Statement);
-        let expected_args = ParsedArgDefinitions {
+        let expected_args = Params {
             args: vec![],
             args_var: None,
             kwargs_var: Some("kwargs".into()),
@@ -3705,14 +3566,7 @@ def test_default(file=None):
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "test_default".into(),
-            args: ParsedArgDefinitions {
-                args: vec![ParsedArgDefinition {
-                    arg: "file".into(),
-                    default: Some(Expr::None),
-                }],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: params![param!("file", Expr::None)],
             body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -3723,7 +3577,7 @@ def test_default(file=None):
         let input = "test_kwargs(a=1, b=2)";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![
                     KwargsOperation::Pair("a".into(), int!(1)),
@@ -3738,7 +3592,7 @@ def test_default(file=None):
         let input = "test_kwargs(**{'a':1, 'b':2})";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![
                     KwargsOperation::Pair("a".into(), int!(1)),
@@ -3753,7 +3607,7 @@ def test_default(file=None):
         let input = "test_kwargs(**{'a':1, 'b':2}, **{'c': 3})";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![
                     KwargsOperation::Pair("a".into(), int!(1)),
@@ -3769,7 +3623,7 @@ def test_default(file=None):
         let input = "test_kwargs(**first, **second)";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![
                     KwargsOperation::Unpacking(var!("first")),
@@ -3784,7 +3638,7 @@ def test_default(file=None):
         let input = "test_kwargs(**kwargs)";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![KwargsOperation::Unpacking(var!("kwargs"))],
                 args_var: None,
@@ -3796,7 +3650,7 @@ def test_default(file=None):
         let input = "test_kwargs(*args)";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![],
                 args_var: Some(Box::new(var!("args"))),
@@ -3808,7 +3662,7 @@ def test_default(file=None):
         let input = "test_kwargs(*args, **kwargs)";
         let expected_ast = func_call!(
             "test_kwargs",
-            ParsedArguments {
+            CallArgs {
                 args: vec![],
                 kwargs: vec![KwargsOperation::Unpacking(var!("kwargs"))],
                 args_var: Some(Box::new(var!("args"))),
@@ -3825,7 +3679,7 @@ deprecated("collections.abc.ByteString",
         // don't think this should technically be required
         let expected_ast = stmt(StatementKind::Expression(func_call!(
             "deprecated",
-            parsed_args![str!("collections.abc.ByteString")]
+            call_args![str!("collections.abc.ByteString")]
         )));
 
         assert_ast_eq!(input, expected_ast);
@@ -3840,8 +3694,8 @@ def get_val():
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "get_val".into(),
-            args: ParsedArgDefinitions::default(),
-            body: ast![stmt(StatementKind::Return(vec![int!(2)]))],
+            args: params![],
+            body: ast![stmt_return![int!(2)]],
             decorators: vec![var!("test_decorator")],
             is_async: false,
         });
@@ -3849,14 +3703,11 @@ def get_val():
         assert_ast_eq!(input, expected_ast);
 
         let input = "test_decorator(get_val_undecorated)()";
-        let expected_ast = Expr::FunctionCall {
-            name: "<anonymous_from_callee>".into(),
-            args: parsed_args![],
-            callee: Some(Box::new(func_call!(
-                "test_decorator",
-                parsed_args![var!("get_val_undecorated")]
-            ))),
-        };
+        let expected_ast = func_call!(
+            "<anonymous_from_callee>",
+            call_args![],
+            func_call!("test_decorator", call_args![var!("get_val_undecorated")])
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -3866,7 +3717,7 @@ def get_val():
         let input = "raise Exception";
         let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
-            args: parsed_args![],
+            args: call_args![],
         })));
 
         assert_ast_eq!(input, expected_ast);
@@ -3874,7 +3725,7 @@ def get_val():
         let input = r#"raise Exception("message")"#;
         let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
-            args: parsed_args![str!("message")],
+            args: call_args![str!("message")],
         })));
 
         assert_ast_eq!(input, expected_ast);
@@ -3887,7 +3738,7 @@ def get_val():
         let input = r#"raise Exception("message") from None"#;
         let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
-            args: parsed_args![str!("message")],
+            args: call_args![str!("message")],
         })));
 
         assert_ast_eq!(input, expected_ast);
@@ -3900,7 +3751,7 @@ with open('test.txt') as f:
     pass
 "#;
         let expected_ast = stmt(StatementKind::ContextManager {
-            expr: func_call!("open", parsed_args![str!("test.txt")]),
+            expr: func_call!("open", call_args![str!("test.txt")]),
             variable: Some("f".into()),
             block: ast![stmt(StatementKind::Pass)],
         });
@@ -3912,7 +3763,7 @@ with open('test.txt'):
     pass
 "#;
         let expected_ast = stmt(StatementKind::ContextManager {
-            expr: func_call!("open", parsed_args![str!("test.txt")]),
+            expr: func_call!("open", call_args![str!("test.txt")]),
             variable: None,
             block: ast![stmt(StatementKind::Pass)],
         });
@@ -4286,20 +4137,7 @@ def add(x: str, y: str) -> str:
     return x + y
 ";
         let ast = parse!(input, Statement);
-        let expected_args = ParsedArgDefinitions {
-            args: vec![
-                ParsedArgDefinition {
-                    arg: "x".into(),
-                    default: None,
-                },
-                ParsedArgDefinition {
-                    arg: "y".into(),
-                    default: None,
-                },
-            ],
-            args_var: None,
-            kwargs_var: None,
-        };
+        let expected_args = params![param!("x"), param!("y")];
 
         let StatementKind::FunctionDef { args, .. } = ast.kind else {
             panic!("Expected function def!")
@@ -4313,7 +4151,7 @@ def add(x: str, y: str) -> str:
         let input = "a[1:1:1]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: Some(Box::new(int!(1))),
                 stop: Some(Box::new(int!(1))),
                 step: Some(Box::new(int!(1))),
@@ -4325,7 +4163,7 @@ def add(x: str, y: str) -> str:
         let input = "a[2:5]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: Some(Box::new(int!(2))),
                 stop: Some(Box::new(int!(5))),
                 step: None,
@@ -4337,7 +4175,7 @@ def add(x: str, y: str) -> str:
         let input = "a[:5]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: None,
                 stop: Some(Box::new(int!(5))),
                 step: None,
@@ -4349,7 +4187,7 @@ def add(x: str, y: str) -> str:
         let input = "a[3:]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: Some(Box::new(int!(3))),
                 stop: None,
                 step: None,
@@ -4361,7 +4199,7 @@ def add(x: str, y: str) -> str:
         let input = "a[::2]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: None,
                 stop: None,
                 step: Some(Box::new(int!(2))),
@@ -4373,7 +4211,7 @@ def add(x: str, y: str) -> str:
         let input = "a[:]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("a")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: None,
                 stop: None,
                 step: None,
@@ -4385,7 +4223,7 @@ def add(x: str, y: str) -> str:
         let input = "new_bases[i+shift:shift+1]";
         let expected_ast = Expr::SliceOperation {
             object: Box::new(var!("new_bases")),
-            params: ParsedSliceParams {
+            params: SliceParams {
                 start: Some(Box::new(bin_op!(var!("i"), Add, var!("shift")))),
                 stop: Some(Box::new(bin_op!(var!("shift"), Add, int!(1)))),
                 step: None,
@@ -4407,18 +4245,18 @@ def outer():
 ";
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "outer".into(),
-            args: ParsedArgDefinitions::default(),
+            args: params![],
             body: ast![
                 stmt_assign!(var!("a"), int!(1)),
                 stmt_assign!(var!("b"), int!(2)),
                 stmt(StatementKind::FunctionDef {
                     name: "inner".into(),
-                    args: ParsedArgDefinitions::default(),
+                    args: params![],
                     body: ast![
                         stmt_assign!(var!("b"), int!(3)),
                         stmt(StatementKind::Expression(func_call!(
                             "print",
-                            parsed_args![var!("a")]
+                            call_args![var!("a")]
                         ))),
                     ],
                     decorators: vec![],
@@ -4461,7 +4299,7 @@ def outer():
         let expected_ast = stmt_assign!(
             var!("a"),
             Expr::TernaryOp {
-                condition: Box::new(Expr::Boolean(true)),
+                condition: Box::new(bool!(true)),
                 if_value: Box::new(int!(4)),
                 else_value: Box::new(int!(5)),
             }
@@ -4510,7 +4348,7 @@ def outer():
         let input = "foo(i * 2 for i in b)";
         let expected_ast = func_call!(
             "foo",
-            parsed_args![Expr::GeneratorComprehension {
+            call_args![Expr::GeneratorComprehension {
                 body: Box::new(bin_op!(var!("i"), Mul, int!(2))),
                 clauses: vec![ForClause {
                     indices: vec!["i".into()],
@@ -4531,14 +4369,7 @@ def foo(data=None):
 "#;
         let expected_ast = stmt(StatementKind::FunctionDef {
             name: "foo".into(),
-            args: ParsedArgDefinitions {
-                args: vec![ParsedArgDefinition {
-                    arg: "data".into(),
-                    default: Some(Expr::None),
-                }],
-                args_var: None,
-                kwargs_var: None,
-            },
+            args: params![param!("data", Expr::None)],
             body: ast![stmt(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -4557,12 +4388,12 @@ def foo(data=None):
         let input = "foo(a, *b[1:])";
         let expected_ast = func_call!(
             "foo",
-            ParsedArguments {
+            CallArgs {
                 args: vec![var!("a")],
                 kwargs: vec![],
                 args_var: Some(Box::new(Expr::SliceOperation {
                     object: Box::new(var!("b")),
-                    params: ParsedSliceParams {
+                    params: SliceParams {
                         start: Some(Box::new(int!(1))),
                         stop: None,
                         step: None,
@@ -4579,7 +4410,7 @@ if True:
 "#;
         let expected_ast = stmt(StatementKind::IfElse {
             if_part: ConditionalBlock {
-                condition: Expr::Boolean(true),
+                condition: bool!(true),
                 block: ast![stmt(StatementKind::UnpackingAssignment {
                     left: vec![var!("a"), var!("b")],
                     right: tuple![var!("b"), var!("a"),],
@@ -4605,7 +4436,7 @@ if True:
         let input = "a = b = True";
         let expected_ast = stmt(StatementKind::MultipleAssignment {
             left: vec![var!("a"), var!("b")],
-            right: Expr::Boolean(true),
+            right: bool!(true),
         });
 
         assert_ast_eq!(input, expected_ast);

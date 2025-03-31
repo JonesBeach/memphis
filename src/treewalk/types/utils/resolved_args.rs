@@ -2,7 +2,7 @@ use crate::treewalk::interpreter::TreewalkResult;
 use std::collections::HashMap;
 
 use crate::{
-    parser::types::{KwargsOperation, ParsedArguments},
+    parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         types::{ExprResult, Str},
         Interpreter,
@@ -20,7 +20,7 @@ pub struct ResolvedArguments {
 }
 
 impl ResolvedArguments {
-    pub fn from(interpreter: &Interpreter, arguments: &ParsedArguments) -> TreewalkResult<Self> {
+    pub fn from(interpreter: &Interpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
         let mut arg_values = arguments
             .args
             .iter()

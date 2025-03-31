@@ -85,6 +85,10 @@ impl ModuleSource {
         self.name.as_deref().unwrap_or(Self::DEFAULT_CONTEXT)
     }
 
+    pub fn has_text(&self) -> bool {
+        self.text.is_some()
+    }
+
     pub fn text(&self) -> &str {
         self.text.as_deref().unwrap_or(Self::DEFAULT_TEXT)
     }

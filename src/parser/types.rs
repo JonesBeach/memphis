@@ -36,6 +36,10 @@ impl Ast {
         self.statements.get(index)
     }
 
+    pub fn push(&mut self, stmt: Statement) {
+        self.statements.push(stmt);
+    }
+
     pub fn accept<V: Visitor>(&self, visitor: &mut V) {
         visitor.visit_ast(self);
         for statement in self.iter() {
@@ -232,21 +236,22 @@ impl From<FunctionAnalysisVisitor> for Closure {
     }
 }
 
-/// An individual function argument and its optional default.
+/// An individual function parameter and its optional default.
 #[derive(Clone, PartialEq, Debug)]
-pub struct ParsedArgDefinition {
+pub struct Param {
     pub arg: Variable,
     pub default: Option<Expr>,
 }
 
+/// Function parameter list and any args/kwargs parameters.
 #[derive(Clone, PartialEq, Debug, Default)]
-pub struct ParsedArgDefinitions {
+pub struct Params {
     /// The variables for all the positional arguments.
     /// ```python
     /// def foo(a, b):
     ///     ...
     /// ```
-    pub args: Vec<ParsedArgDefinition>,
+    pub args: Vec<Param>,
 
     /// An optional variable to hold arguments passed in for variable arity.
     /// ```python
@@ -263,7 +268,8 @@ pub struct ParsedArgDefinitions {
     pub kwargs_var: Option<Variable>,
 }
 
-pub enum ParsedArgument {
+/// Call-site argument
+pub enum CallArg {
     Keyword { arg: Variable, expr: Expr },
     Positional(Expr),
 }
@@ -276,9 +282,9 @@ pub enum KwargsOperation {
     Pair(String, Expr), // Represents a key-value pair
 }
 
-/// All the information provided when a function is called (besides of the name of the function).
+/// Call-site argument list
 #[derive(Clone, PartialEq, Debug, Default)]
-pub struct ParsedArguments {
+pub struct CallArgs {
     /// Any args passed in positionally.
     /// ```python
     /// foo(1, 2)
@@ -296,14 +302,14 @@ pub struct ParsedArguments {
     /// Any variable-arity arguments passed in through a variable. For example,
     /// ```python
     /// args = [1, 2]
-    /// foo(**args)
+    /// foo(*args)
     /// ```
     /// The `Expr` here references a variable which will be read during the interpreter stage.
     pub args_var: Option<Box<Expr>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ParsedSliceParams {
+pub struct SliceParams {
     pub start: Option<Box<Expr>>,
     pub stop: Option<Box<Expr>>,
     pub step: Option<Box<Expr>>,
@@ -334,6 +340,7 @@ pub enum Expr {
     FString(Vec<FStringPart>),
     Yield(Option<Box<Expr>>),
     YieldFrom(Box<Expr>),
+    Await(Box<Expr>),
     BinaryOperation {
         left: Box<Expr>,
         op: BinOp,
@@ -363,24 +370,21 @@ pub enum Expr {
     },
     SliceOperation {
         object: Box<Expr>,
-        params: ParsedSliceParams,
-    },
-    Await {
-        right: Box<Expr>,
+        params: SliceParams,
     },
     FunctionCall {
         name: String,
-        args: ParsedArguments,
+        args: CallArgs,
         callee: Option<Box<Expr>>,
     },
     ClassInstantiation {
         name: String,
-        args: ParsedArguments,
+        args: CallArgs,
     },
     MethodCall {
         object: Box<Expr>,
         name: String,
-        args: ParsedArguments,
+        args: CallArgs,
     },
     GeneratorComprehension {
         clauses: Vec<ForClause>,
@@ -400,7 +404,7 @@ pub enum Expr {
         value_body: Box<Expr>,
     },
     Lambda {
-        args: Box<ParsedArgDefinitions>,
+        args: Params,
         expr: Box<Expr>,
     },
     TypeNode(TypeNode),
@@ -438,7 +442,7 @@ impl Hash for Expr {
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExceptionInstance {
     pub literal: ExceptionLiteral,
-    pub args: ParsedArguments,
+    pub args: CallArgs,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -602,7 +606,7 @@ pub enum StatementKind {
     },
     FunctionDef {
         name: String,
-        args: ParsedArgDefinitions,
+        args: Params,
         body: Ast,
         decorators: Vec<Expr>,
         is_async: bool,

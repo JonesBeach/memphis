@@ -2,6 +2,7 @@ mod bytecode_vm;
 mod core;
 pub mod crosscheck_utils;
 pub mod domain;
+mod engine;
 pub mod init;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
@@ -11,15 +12,8 @@ mod treewalk;
 mod types;
 
 // We need these public for crosscheck
+pub use engine::Engine;
 pub use types::errors::MemphisError;
-
-#[derive(PartialEq)]
-pub enum Engine {
-    TreeWalk,
-    BytecodeVm,
-    #[cfg(feature = "llvm_backend")]
-    LlvmBackend,
-}
 
 #[cfg(feature = "wasm")]
 mod wasm {
@@ -39,10 +33,8 @@ mod wasm {
         // Set the panic hook for better error messages in the browser console
         set_once();
 
-        let context = MemphisContext::from_text(&code);
-        let result = context
-            .evaluate_oneshot()
-            .expect("Failed to evaluate expression.");
+        let mut context = MemphisContext::from_text(&code);
+        let result = context.evaluate().expect("Failed to evaluate.");
         format!("{}", result)
     }
 }

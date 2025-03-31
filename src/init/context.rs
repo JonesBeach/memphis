@@ -1,12 +1,15 @@
 use std::{fmt::Display, path::Path, process};
 
 use crate::{
+    ast,
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
     core::{Container, InterpreterEntrypoint},
     lexer::Lexer,
-    parser::{types::ParseNode, Parser},
+    parser::{
+        types::{Ast, ParseNode},
+        Parser,
+    },
     treewalk::{
-        interpreter::TreewalkDisruption,
         module_loader,
         types::{ExprResult, Module},
         Interpreter, ModuleSource, State,
@@ -17,7 +20,7 @@ use crate::{
 pub struct MemphisContext {
     // TODO this shouldn't need to be public, we're using it in a few tests atm
     pub state: Container<State>,
-    lexer: Option<Lexer>,
+    lexer: Lexer,
     interpreter: Option<Interpreter>,
     vm_interpreter: Option<VmInterpreter>,
 }
@@ -48,9 +51,14 @@ impl MemphisContext {
 
     pub fn from_module_with_state(module_source: ModuleSource, state: Container<State>) -> Self {
         state.push_module_source(module_source.clone());
-        let mut context = Self::new(state);
-        context.init_lexer(module_source.text());
-        context
+        let mut lexer = Lexer::default();
+        // empty ModuleSource can occur in REPL mode
+        if module_source.has_text() {
+            lexer
+                .add_line(module_source.text())
+                .expect("Failed to add line to lexer");
+        }
+        Self::new(state, lexer)
     }
 
     fn from_module(module_source: ModuleSource) -> Self {
@@ -60,17 +68,17 @@ impl MemphisContext {
 
     /// This is the base constructor but it isn't public because there are other entry points for
     /// that.
-    fn new(state: Container<State>) -> Self {
+    fn new(state: Container<State>, lexer: Lexer) -> Self {
         Self {
             state,
-            lexer: None,
+            lexer,
             interpreter: None,
             vm_interpreter: None,
         }
     }
 
     /// Parse a single [`ParseNode`]. This cannot be used for multiple parse calls.
-    pub fn parse_oneshot<T>(&self) -> Result<T, ParserError>
+    pub fn parse_oneshot<T>(&mut self) -> Result<T, ParserError>
     where
         T: ParseNode,
     {
@@ -78,41 +86,55 @@ impl MemphisContext {
         T::parse_oneshot(parser)
     }
 
-    /// Parse and evaluate a single expression using the treewalk interpreter.
-    pub fn evaluate_oneshot(&self) -> Result<ExprResult, MemphisError> {
+    pub fn parse_all_statements(&mut self) -> Result<Ast, ParserError> {
         let mut parser = self.init_parser();
-        let interpreter = self.init_interpreter();
-        let expr = parser.parse_expr().map_err(MemphisError::Parser)?;
-        match interpreter.evaluate_expr(&expr) {
-            Ok(result) => Ok(result),
-            Err(TreewalkDisruption::Error(e)) => Err(MemphisError::Execution(e)),
-            Err(TreewalkDisruption::Signal(_)) => todo!(),
+        let mut statements = ast![];
+
+        while !parser.is_finished() {
+            statements.push(parser.parse_statement()?);
         }
+
+        Ok(statements)
     }
 
-    /// Run the treewalk interpreter to completion.
-    pub fn run_treewalk(&mut self) -> Result<ExprResult, MemphisError> {
-        let mut parser = self.init_parser();
-        let mut interpreter = self.init_interpreter();
-        let result = interpreter.run(&mut parser);
+    pub fn add_line(&mut self, line: &str) {
+        self.lexer
+            .add_line(line)
+            .expect("Failed to add line to lexer");
+    }
 
-        self.interpreter = Some(interpreter);
-        result
+    pub fn evaluate(&mut self) -> Result<ExprResult, MemphisError> {
+        self.ensure_treewalk_initialized();
+
+        // Destructure to break the borrow into disjoint pieces
+        let MemphisContext {
+            lexer, interpreter, ..
+        } = self;
+
+        let interpreter = interpreter
+            .as_mut()
+            .expect("Interpreter must be initialized before calling evaluate");
+
+        // We create a new Parser each time because our parser just wraps a streaming view over the
+        // current lexer.
+        let mut parser = Parser::new(lexer);
+        interpreter.run(&mut parser)
     }
 
     pub fn compile(&mut self) -> Result<CompiledProgram, MemphisError> {
-        let mut parser = self.init_parser();
         let mut vm_interpreter = self.init_vm_interpreter();
+        let mut parser = self.init_parser();
         vm_interpreter.compile(&mut parser)
     }
 
     pub fn run_vm(&mut self) -> Result<Value, MemphisError> {
-        let mut parser = self.init_parser();
         let mut vm_interpreter = self.init_vm_interpreter();
+        let mut parser = self.init_parser();
 
         let result = vm_interpreter.run(&mut parser);
 
         self.vm_interpreter = Some(vm_interpreter);
+
         result
     }
 
@@ -134,31 +156,19 @@ impl MemphisContext {
             .expect("Failed to initialize VmInterpreter")
     }
 
-    fn ensure_lexer(&self) -> &Lexer {
-        self.lexer.as_ref().expect("Failed to initialize Lexer")
+    fn init_parser(&mut self) -> Parser {
+        Parser::new(&mut self.lexer)
     }
 
-    pub fn init_parser(&self) -> Parser {
-        Parser::new(self.ensure_lexer().tokens())
-    }
-
-    fn init_lexer(&mut self, text: &str) {
-        if self.lexer.is_none() {
-            let mut l = Lexer::new();
-            // TODO we should really handle this error
-            let _ = l.tokenize(text);
-            self.lexer = Some(l);
-        } else {
-            panic!("Lexer has already been initialized!");
+    fn ensure_treewalk_initialized(&mut self) {
+        if self.interpreter.is_none() {
+            let module_source = self.state.current_module_source();
+            self.state.push_stack_frame(&*module_source);
+            self.state
+                .push_module(Container::new(Module::new(*module_source)));
+            let interpreter = Interpreter::new(self.state.clone());
+            self.interpreter = Some(interpreter);
         }
-    }
-
-    fn init_interpreter(&self) -> Interpreter {
-        let module_source = self.state.current_module_source();
-        self.state.push_stack_frame(&*module_source);
-        self.state
-            .push_module(Container::new(Module::new(*module_source)));
-        Interpreter::new(self.state.clone())
     }
 
     fn init_vm_interpreter(&self) -> VmInterpreter {

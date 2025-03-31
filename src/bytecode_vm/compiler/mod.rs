@@ -5,8 +5,7 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::Context,
     parser::types::{
-        Ast, BinOp, ConditionalBlock, Expr, ParsedArgDefinitions, ParsedArguments, Statement,
-        StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, ConditionalBlock, Expr, Params, Statement, StatementKind, UnaryOp,
     },
     treewalk::State,
 };
@@ -282,7 +281,7 @@ impl Compiler {
     fn compile_function_definition(
         &mut self,
         name: &str,
-        args: &ParsedArgDefinitions,
+        args: &Params,
         body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
@@ -438,7 +437,7 @@ impl Compiler {
     fn compile_function_call(
         &mut self,
         name: &str,
-        args: &ParsedArguments,
+        args: &CallArgs,
         callee: &Option<Box<Expr>>,
     ) -> CompilerResult<()> {
         if callee.is_some() {
@@ -474,7 +473,7 @@ impl Compiler {
         &mut self,
         object: &Expr,
         name: &str,
-        args: &ParsedArguments,
+        args: &CallArgs,
     ) -> CompilerResult<()> {
         if !args.kwargs.is_empty() {
             unimplemented!(
@@ -578,8 +577,8 @@ mod bytecode_tests {
     use super::{types::Bytecode, *};
 
     use crate::{
-        ast, bin_op, func_call, int, member_access, parsed_args,
-        parser::{test_utils::*, types::ParsedArguments},
+        ast, bin_op, call_args, func_call, int, member_access,
+        parser::{test_utils::*, types::CallArgs},
         stmt_assign, str,
         treewalk::ModuleSource,
         unary_op, var,
@@ -803,7 +802,7 @@ mod bytecode_tests {
 
     #[test]
     fn function_call() {
-        let expr = func_call!("foo", parsed_args![var!("a"), var!("b")]);
+        let expr = func_call!("foo", call_args![var!("a"), var!("b")]);
         let bytecode = compile_expr(&expr);
         assert_eq!(
             bytecode,
@@ -821,7 +820,7 @@ mod bytecode_tests {
         let expr = Expr::MethodCall {
             object: Box::new(var!("foo")),
             name: "bar".to_string(),
-            args: parsed_args![int!(88), int!(99)],
+            args: call_args![int!(88), int!(99)],
         };
         let bytecode = compile_expr(&expr);
         assert_eq!(

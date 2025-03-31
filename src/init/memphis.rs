@@ -12,7 +12,7 @@ impl Memphis {
             Engine::TreeWalk => {
                 let mut context = MemphisContext::from_path(filepath);
 
-                match context.run_treewalk() {
+                match context.evaluate() {
                     Ok(_) => {}
                     Err(err) => memphis_utils::exit(err),
                 }

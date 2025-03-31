@@ -4,27 +4,13 @@ use std::{env, process};
 use memphis::init::{CrosstermIO, Repl};
 use memphis::{init::Memphis, Engine};
 
-/// I could see the default becoming [`Engine::BytecodeVm`] in the future once it supports more.
-const DEFAULT_ENGINE: Engine = Engine::TreeWalk;
-
 fn main() {
     let args: Vec<String> = env::args().collect();
-
-    let engine = if let Ok(mode) = env::var("MEMPHIS_ENGINE") {
-        match mode.to_lowercase().as_str() {
-            "vm" | "bytecode_vm" => Engine::BytecodeVm,
-            #[cfg(feature = "llvm_backend")]
-            "llvm" | "llvm_backend" | "native" => Engine::LlvmBackend,
-            "tw" | "treewalk" => Engine::TreeWalk,
-            _ => panic!("Unsupported engine: {}", mode),
-        }
-    } else {
-        DEFAULT_ENGINE
-    };
+    let engine = Engine::from_env();
 
     match args.len() {
         #[cfg(feature = "repl")]
-        1 => Repl::new().run(&mut CrosstermIO),
+        1 => Repl::default().run(&mut CrosstermIO),
         #[cfg(not(feature = "repl"))]
         1 => {
             eprintln!("Must enable 'repl' feature flag!");
