@@ -13,6 +13,13 @@ use crate::{
     types::errors::MemphisError,
 };
 
+type ExitCode = i32;
+
+enum ReplControl {
+    Continue,
+    Exit(ExitCode),
+}
+
 /// Install a panic hook to ensure raw mode is disabled on panic.
 fn install_custom_panic_hook() {
     panic::set_hook(Box::new(|info| {
@@ -81,41 +88,33 @@ impl Repl {
         // expected or unexpected exits!
         install_custom_panic_hook();
         let _ = terminal::enable_raw_mode();
-        self.initialize_prompt(terminal_io, false);
+        self.initialize_prompt(terminal_io);
 
-        let mut context = MemphisContext::default();
+        let exit_code = self.run_inner(terminal_io);
 
-        loop {
-            match terminal_io.read_event() {
-                Ok(Event::Key(event)) => {
-                    match (event.code, event.modifiers) {
-                        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                            // CPython emits a `KeyboardInterrupt` here. We could do that and then
-                            // probably handle it one level up? That could help for the other
-                            // panics as well.
-                            self.initialize_prompt(terminal_io, true);
-                            continue;
-                        }
-                        (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                            // TODO this probably shouldn't full-on panic, which makes it difficult
-                            // to test
-                            panic!("^D");
-                        }
-                        _ => {}
-                    }
-
-                    self.handle_key_event(terminal_io, &mut context, event);
-                }
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-
-        // We should only get here during the tests when we throw an io error because there are no
-        // more events. In interactive mode, we will exit via a panic (and the custom panic handler
-        // above) or by typing exit().
         let _ = terminal::disable_raw_mode();
         let _ = panic::take_hook();
+
+        process::exit(exit_code);
+    }
+
+    pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T) -> ExitCode {
+        let mut context = MemphisContext::default();
+
+        let exit_code = loop {
+            match terminal_io.read_event() {
+                Ok(Event::Key(event)) => {
+                    match self.handle_key_event(terminal_io, &mut context, event) {
+                        ReplControl::Continue => {}
+                        ReplControl::Exit(code) => break code,
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => break 1,
+            }
+        };
+
+        exit_code
     }
 
     /// Update the terminal and interpreter state based on the given `KeyEvent`.
@@ -124,7 +123,23 @@ impl Repl {
         terminal_io: &mut T,
         context: &mut MemphisContext,
         event: KeyEvent,
-    ) {
+    ) -> ReplControl {
+        match (event.code, event.modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                // CPython emits a `KeyboardInterrupt` here. We could do that and then
+                // probably handle it one level up? That could help for the other
+                // panics as well.
+                let _ = terminal_io.enter();
+                self.initialize_prompt(terminal_io);
+                return ReplControl::Continue;
+            }
+            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                let _ = terminal_io.enter();
+                return ReplControl::Exit(0);
+            }
+            _ => {}
+        }
+
         match event.code {
             KeyCode::Char(c) => {
                 self.line.insert(self.line_index, c);
@@ -142,11 +157,15 @@ impl Repl {
                 self.history.push(self.line.clone());
                 self.history_index = None;
 
-                // This newline simulates the user pressing the enter key
-                let _ = terminal_io.writeln("");
-                self.process_line(terminal_io, context, &self.line.clone());
+                // We must virtually hit Enter before processing the line so any results will be
+                // displayed on the next line.
+                let _ = terminal_io.enter();
+                let control = self.process_line(terminal_io, context, &self.line.clone());
+                if matches!(control, ReplControl::Exit(_)) {
+                    return control;
+                }
 
-                self.initialize_prompt(terminal_io, false);
+                self.initialize_prompt(terminal_io);
             }
             KeyCode::Up => {
                 if let Some(index) = self.history_index {
@@ -196,6 +215,8 @@ impl Repl {
             }
             _ => {}
         }
+
+        ReplControl::Continue
     }
 
     /// Gives the indicator for the start of the given line, based on whether or not the most
@@ -224,26 +245,26 @@ impl Repl {
     }
 
     /// Clear the REPL prompt to prepare for user input.
-    fn initialize_prompt<T: TerminalIO>(&mut self, terminal_io: &mut T, add_new_line: bool) {
+    fn initialize_prompt<T: TerminalIO>(&mut self, terminal_io: &mut T) {
         self.line.clear();
         self.line_index = 0;
-        if add_new_line {
-            let _ = terminal_io.writeln("");
-        }
-        let _ = terminal_io.write(self.prompt());
+        let _ = terminal_io.write(format!("\r{}", self.prompt()));
     }
 
     /// Clear the current input, redraw it, and align the cursor to the proper column.
     fn redraw_and_position<T: TerminalIO>(&self, terminal_io: &mut T) {
-        // Redraw
-        execute!(io::stdout(), Clear(ClearType::CurrentLine))
-            .expect("Failed to execute terminal command");
-        let _ = terminal_io.write(format!("\r{}{}", self.prompt(), self.line));
+        if terminal_io.is_real_terminal() {
+            // Redraw
+            execute!(io::stdout(), Clear(ClearType::CurrentLine)).unwrap();
+            let _ = terminal_io.write(format!("\r{}{}", self.prompt(), self.line));
 
-        // Position
-        let cursor_col = (self.line_index + self.prompt().len()) as u16;
-        execute!(io::stdout(), cursor::MoveToColumn(cursor_col))
-            .expect("Failed to execute terminal command");
+            // Position
+            let cursor_col = (self.line_index + self.prompt().len()) as u16;
+            execute!(io::stdout(), cursor::MoveToColumn(cursor_col)).unwrap();
+        } else {
+            // Simpler fallback for tests
+            let _ = terminal_io.write(format!("{}{}", self.prompt(), self.line));
+        }
     }
 
     /// Append the provided line to the constructed statement and evaluate it.
@@ -252,20 +273,16 @@ impl Repl {
         terminal_io: &mut T,
         context: &mut MemphisContext,
         line: &str,
-    ) {
+    ) -> ReplControl {
         if line.trim_end() == "exit()" {
-            let _ = terminal::disable_raw_mode();
-            let error_code = if self.errors.is_empty() { 0 } else { 1 };
-            // TODO same here - this is difficult to test
-            process::exit(error_code);
+            let code = if self.errors.is_empty() { 0 } else { 1 };
+            return ReplControl::Exit(code);
         }
 
         self.input.push_str(line);
 
         if self.end_of_statement(line) {
-            // Feed the accumulated block to the lexer
             context.add_line(&self.input);
-
             match context.evaluate() {
                 Ok(result) => {
                     if !result.is_none() {
@@ -287,6 +304,8 @@ impl Repl {
             self.input.push('\n');
             self.in_block = true;
         }
+
+        ReplControl::Continue
     }
 }
 
@@ -296,12 +315,29 @@ mod tests {
 
     use super::*;
 
+    fn run_inner(terminal: &mut MockTerminalIO) -> (ExitCode, String) {
+        let exit_code = Repl::default().run_inner(terminal);
+        (exit_code, terminal.return_val())
+    }
+
     /// Run the complete flow, from input code string to return value string. If you need any Ctrl
     /// modifiers, do not use this!
-    fn run_and_return(input: &str) -> String {
+    fn run(input: &str) -> String {
         let mut terminal = MockTerminalIO::from_str(input);
-        Repl::default().run(&mut terminal);
-        terminal.return_val()
+        let (_, return_val) = run_inner(&mut terminal);
+        return_val
+    }
+
+    fn run_events(events: Vec<Event>) -> String {
+        let mut terminal = MockTerminalIO::new(events);
+        let (_, return_val) = run_inner(&mut terminal);
+        return_val
+    }
+
+    fn run_and_exit_code(events: Vec<Event>) -> ExitCode {
+        let mut terminal = MockTerminalIO::new(events);
+        let (exit_code, _) = run_inner(&mut terminal);
+        exit_code
     }
 
     fn string_to_events(input: &str) -> Vec<Event> {
@@ -361,6 +397,10 @@ mod tests {
     }
 
     impl TerminalIO for MockTerminalIO {
+        fn is_real_terminal(&self) -> bool {
+            false
+        }
+
         fn read_event(&mut self) -> Result<Event, io::Error> {
             if self.events.is_empty() {
                 Err(io::Error::new(io::ErrorKind::Other, "No more events"))
@@ -384,19 +424,19 @@ mod tests {
 
     #[test]
     fn test_repl_name_error() {
-        let return_val = run_and_return("e\n");
+        let return_val = run("e\n");
         assert!(return_val.contains("NameError: name 'e' is not defined"));
     }
 
     #[test]
     fn test_repl_expr() {
-        let third_from_last = run_and_return("12345\n");
-        assert_eq!(third_from_last, "12345");
+        let return_val = run("12345\n");
+        assert_eq!(return_val, "12345");
     }
 
     #[test]
     fn test_repl_statement() {
-        let return_val = run_and_return("a = 5.5\n");
+        let return_val = run("a = 5.5\n");
 
         // empty string because a statement does not have a return value
         assert_eq!(return_val, "");
@@ -411,7 +451,7 @@ def foo():
 
 foo()
 "#;
-        let return_val = run_and_return(code);
+        let return_val = run(code);
         assert_eq!(return_val, "20");
     }
 
@@ -420,9 +460,31 @@ foo()
         let mut events = string_to_events("123456789\n");
         let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         events.insert(4, ctrl_c);
-        let mut terminal = MockTerminalIO::new(events);
 
-        Repl::default().run(&mut terminal);
-        assert_eq!(terminal.return_val(), "56789");
+        let return_val = run_events(events);
+        assert_eq!(return_val, "56789");
+    }
+
+    #[test]
+    fn test_repl_ctrl_d() {
+        let mut events = string_to_events("123");
+        let ctrl_d = Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        events.push(ctrl_d);
+        let exit_code = run_and_exit_code(events);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn test_repl_exit_function() {
+        let events = string_to_events("exit()\n");
+        let exit_code = run_and_exit_code(events);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn test_repl_exit_function_after_error() {
+        let events = string_to_events("undefined_var\nexit()\n");
+        let exit_code = run_and_exit_code(events);
+        assert_eq!(exit_code, 1);
     }
 }
