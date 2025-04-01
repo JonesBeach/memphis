@@ -222,18 +222,19 @@ impl VirtualMachine {
 
     /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
     /// new frame.
-    fn enter_context(&mut self, frame: Frame) {
-        let current_frame = self.current_frame().unwrap();
+    fn enter_context(&mut self, frame: Frame) -> VmResult<()> {
+        let current_frame = self.current_frame()?;
         // This is a bit counterintuitive: when we enter a new frame, we will begin tracking its
         // latest opcode/statements in `run_loop`. To keep track of where we came from, we push the
         // previous frame onto the stack.
         self.state.push_stack_frame(current_frame);
         self.call_stack.push(frame);
+        Ok(())
     }
 
-    fn exit_context(&mut self) -> Frame {
+    fn exit_context(&mut self) -> VmResult<Frame> {
         self.state.pop_stack_frame();
-        self.call_stack.pop().expect("Empty call stack!")
+        self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
     /// Extract primitives and resolve any references to a [`Value`]. A [`Cow`] is returned to make
@@ -256,7 +257,7 @@ impl VirtualMachine {
             Reference::ObjectRef(index) => {
                 mem::replace(&mut self.object_table[*index], Value::None)
             }
-            Reference::ConstantRef(index) => self.constant_pool.get(*index).unwrap().into(),
+            Reference::ConstantRef(index) => self.read_constant(index).unwrap(),
             _ => reference.into(),
         }
     }
@@ -483,15 +484,14 @@ impl VirtualMachine {
                         Some(self.convert_method_to_frame(method.as_method().clone(), args));
                 }
                 Opcode::ReturnValue => {
-                    // TODO is reference of 0 a safe default here?
-                    let return_value = self.pop().unwrap_or(Reference::Int(0));
+                    let return_value = self.pop()?;
 
                     // Exit the loop if there are no more frames
                     if self.call_stack.is_empty() {
                         break;
                     }
 
-                    let _ = self.exit_context();
+                    self.exit_context()?;
                     // Push the return value to the caller's frame
                     self.push(return_value)?;
 
@@ -502,9 +502,9 @@ impl VirtualMachine {
                 Opcode::EndClass => {
                     // Grab the frame before it gets popped off the call stack below. Its locals
                     // are the class namespace for the class we just finished defining.
-                    let frame = self.exit_context();
+                    let frame = self.exit_context()?;
 
-                    let name = self.class_stack.pop().expect("Failed to get class name");
+                    let name = self.class_stack.pop().ok_or_else(|| self.runtime_error())?;
                     let class = Class::new(name.clone(), frame.namespace());
                     let reference = self.create(Value::Class(class));
 
@@ -523,13 +523,13 @@ impl VirtualMachine {
 
             // Check if we need to enter a new function frame
             if let Some(frame) = deferred_frame.take() {
-                self.enter_context(frame);
+                self.enter_context(frame)?;
                 continue; // Restart loop immediately in new frame
             }
 
             // Handle functions that complete without explicit return
             if self.call_stack[current_frame_index].is_finished() {
-                let _ = self.exit_context();
+                self.exit_context()?;
             }
         }
 
@@ -599,7 +599,12 @@ d = foo(2, 9)
             Ok(_) => {
                 let interpreter = context.ensure_vm();
                 assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
-                assert_eq!(interpreter.vm.current_frame().unwrap().locals.len(), 0);
+                let locals = &interpreter
+                    .vm
+                    .current_frame()
+                    .expect("Failed to get locals")
+                    .locals;
+                assert_eq!(locals.len(), 0);
             }
         }
     }

@@ -74,7 +74,7 @@ mod vm_interpreter_tests {
                 .read(attr.into(), |reference| {
                     interpreter.vm.dereference(reference)
                 })
-                .unwrap(),
+                .expect(&format!("Failed to read attr \"{}\" from object", attr)),
         )
     }
 
