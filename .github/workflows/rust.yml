@@ -20,10 +20,10 @@ jobs:
         features:
           - ""
           - "stdlib"
-          # - "c_stdlib"
-          # - "stdlib c_stdlib"
+          - "c_stdlib"
+          - "stdlib c_stdlib"
           - "repl"
-          # - "c_stdlib repl"
+          - "c_stdlib repl"
 
     steps:
     - uses: actions/checkout@v4

@@ -216,7 +216,7 @@ impl Iterator for ListIterator {
     type Item = ExprResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_index == self.list_ref.borrow().items.len() {
+        if self.current_index == self.list_ref.borrow().len() {
             None
         } else {
             self.current_index += 1;
@@ -226,6 +226,12 @@ impl Iterator for ListIterator {
                 .get(self.current_index - 1)
                 .cloned()
         }
+    }
+}
+
+impl ExactSizeIterator for ListIterator {
+    fn len(&self) -> usize {
+        self.list_ref.borrow().len() - self.current_index
     }
 }
 

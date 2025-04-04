@@ -4,9 +4,10 @@
 features=(
     ""
     "stdlib"
-    # "c_stdlib"
+    "c_stdlib"
+    "stdlib c_stdlib"
     "repl"
-    # "c_stdlib repl"
+    "c_stdlib repl"
     "llvm_backend" # test this by itself for now just to ensure we didn't break it
 )
 

@@ -1,17 +1,21 @@
-use crate::treewalk::interpreter::TreewalkResult;
+use std::{
+    collections::HashMap,
+    fmt::{Display, Error, Formatter},
+};
+
 use pyo3::{
-    prelude::Python,
+    prelude::*,
     pyclass,
     types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PyString, PyTuple},
-    IntoPy, Py, PyObject, PyResult, ToPyObject,
+    Bound, IntoPy, Py, PyObject, PyResult, ToPyObject,
 };
-use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
     domain::Dunder,
     parser::types::ImportPath,
     treewalk::{
+        interpreter::TreewalkResult,
         types::{
             domain::traits::{Callable, IndexRead, IndexWrite, MemberReader},
             utils::ResolvedArguments,
@@ -19,7 +23,6 @@ use crate::{
         },
         Interpreter,
     },
-    types::errors::InterpreterError,
 };
 
 pub struct BuiltinModuleCache {
@@ -134,8 +137,13 @@ const BUILTIN_MODULE_NAMES: [&'static str; 8] = [
     "_weakref",
 ];
 
-#[derive(Clone)]
 pub struct CPythonModule(PyObject);
+
+impl Clone for CPythonModule {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| CPythonModule(self.0.clone_ref(py)))
+    }
+}
 
 impl Display for Container<CPythonModule> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
@@ -147,7 +155,7 @@ impl CPythonModule {
     pub fn new(name: &str) -> Self {
         pyo3::prepare_freethreaded_python();
         let pymodule = Python::with_gil(|py| {
-            PyModule::import(py, name)
+            py.import_bound(name)
                 .expect(&format!("Failed to import CPython module '{}'", name))
                 .into()
         });
@@ -167,11 +175,9 @@ impl CPythonModule {
     where
         S: IntoPy<Py<PyString>>,
     {
-        Ok(Python::with_gil(|py| {
-            match self.0.as_ref(py).getattr(name) {
-                Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
-                Err(_) => None,
-            }
+        Ok(Python::with_gil(|py| match self.0.bind(py).getattr(name) {
+            Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
+            Err(_) => None,
         }))
     }
 }
@@ -187,9 +193,9 @@ impl MemberReader for CPythonModule {
 
     fn dir(&self) -> Vec<String> {
         Python::with_gil(|py| {
-            self.0
-                .as_ref(py)
-                .dir()
+            let py_list = self.0.bind(py).dir().unwrap();
+
+            py_list
                 .iter()
                 .map(|item| item.extract::<String>().unwrap())
                 .collect()
@@ -204,7 +210,7 @@ impl Callable for CPythonObject {
         args: ResolvedArguments,
     ) -> TreewalkResult<ExprResult> {
         Python::with_gil(|py| {
-            let py_attr: &PyAny = self.0.as_ref(py);
+            let py_attr = self.0.bind(py);
             if py_attr.is_callable() {
                 if args.is_empty() {
                     let result = py_attr.call0().map_err(|e| {
@@ -246,25 +252,20 @@ impl ToPyObject for ExprResult {
             ExprResult::Boolean(b) => b.to_object(py),
             ExprResult::Integer(i) => i.to_object(py),
             ExprResult::String(s) => s.as_str().to_object(py),
-            ExprResult::List(l) => {
-                let list = PyList::empty(py);
-                for item in l.clone().into_iter() {
-                    list.append(item).expect("Failed to append to PyList");
-                }
-                list.to_object(py)
-            }
+            ExprResult::List(l) => PyList::new_bound(py, l.clone()).to_object(py),
             ExprResult::Function(_) => {
                 // TODO our PyCFunction implementation is a no-op, we need to find a way to pass
                 // the interpreter into here.
-                let callback = |_args: &PyTuple, _kwargs: Option<&PyDict>| -> PyResult<bool> {
+                let callback = |_args: &Bound<'_, PyTuple>,
+                                _kwargs: Option<&Bound<'_, PyDict>>|
+                 -> PyResult<bool> {
                     log(LogLevel::Warn, || {
                         "Potentially lossy PyCFunction invocation.".to_string()
                     });
                     Ok(true)
                 };
                 // TODO use real function name
-                let py_cfunc =
-                    PyCFunction::new_closure(py, Some("memphis_func"), None, callback).unwrap();
+                let py_cfunc = PyCFunction::new_closure_bound(py, None, None, callback).unwrap();
                 py_cfunc.to_object(py)
             }
             ExprResult::Class(_) => {
@@ -272,11 +273,16 @@ impl ToPyObject for ExprResult {
                 Py::new(py, TestClass {}).unwrap().to_object(py)
             }
             ExprResult::Module(module) => {
-                let py_module = PyModule::new(py, &module.borrow().name()).unwrap();
+                let name = PyString::new_bound(py, module.borrow().name());
+                let types = py.import_bound("types").unwrap();
+                let module_type = types.getattr("ModuleType").unwrap();
+                let args = PyTuple::new_bound(py, &[name]);
+                let py_module_obj = module_type.call1(args).unwrap();
+                let py_module = py_module_obj.downcast().unwrap();
 
                 // Flatten all key-value pairs from scope into the module
                 for (key, value) in module.borrow().dict() {
-                    py_module.add(key, value.to_object(py)).unwrap();
+                    PyModuleMethods::add(py_module, key.as_str(), value.to_object(py)).unwrap();
                 }
 
                 py_module.to_object(py)
@@ -292,12 +298,21 @@ impl ToPyObject for ExprResult {
     }
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
 pub struct CPythonClass(PyObject);
 
-#[derive(Clone)]
+impl Clone for CPythonClass {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| CPythonClass(self.0.clone_ref(py)))
+    }
+}
+
 pub struct CPythonObject(PyObject);
+
+impl Clone for CPythonObject {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| CPythonObject(self.0.clone_ref(py)))
+    }
+}
 
 impl CPythonObject {
     pub fn new(py_object: PyObject) -> Self {
@@ -314,14 +329,14 @@ impl Display for CPythonObject {
 impl CPythonObject {
     pub fn get_type(&self) -> ExprResult {
         Python::with_gil(|py| {
-            let obj_ref: &PyAny = self.0.as_ref(py);
+            let obj_ref = self.0.bind(py);
             let obj_type = obj_ref.getattr(Dunder::Class).unwrap();
             ExprResult::CPythonClass(CPythonClass(obj_type.into()))
         })
     }
 
     pub fn hasattr(&self, attr: Dunder) -> bool {
-        Python::with_gil(|py| utils::hasattr(py, self.0.as_ref(py), attr).unwrap())
+        Python::with_gil(|py| utils::hasattr(py, self.0.bind(py), attr).unwrap())
     }
 }
 
@@ -335,7 +350,7 @@ impl IndexRead for CPythonObject {
             let key = index.to_object(py);
             let result = self
                 .0
-                .as_ref(py)
+                .bind(py)
                 .call_method1(Dunder::GetItem, (key,))
                 .unwrap();
             Ok(Some(utils::from_pyobject(py, result)))
@@ -354,7 +369,7 @@ impl IndexWrite for CPythonObject {
             let key = index.to_object(py);
             let value = value.to_object(py);
             self.0
-                .as_ref(py)
+                .bind(py)
                 .call_method1(Dunder::SetItem, (key, value))
                 .unwrap();
         });
@@ -366,7 +381,7 @@ impl IndexWrite for CPythonObject {
         Python::with_gil(|py| {
             let key = index.to_object(py);
             self.0
-                .as_ref(py)
+                .bind(py)
                 .call_method1(Dunder::DelItem, (key,))
                 .unwrap();
         });
@@ -385,20 +400,20 @@ pub mod utils {
 
     use super::*;
 
-    pub fn from_pyobject(py: Python, py_obj: &PyAny) -> ExprResult {
+    pub fn from_pyobject(py: Python, py_obj: Bound<PyAny>) -> ExprResult {
         if let Ok(value) = py_obj.extract::<i64>() {
             ExprResult::Integer(value)
         } else if let Ok(value) = py_obj.extract::<f64>() {
             ExprResult::FloatingPoint(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
             ExprResult::String(Str::new(value.to_string()))
-        } else if let Ok(py_tuple) = py_obj.extract::<&PyTuple>() {
+        } else if let Ok(py_tuple) = py_obj.extract::<Bound<PyTuple>>() {
             let elements = py_tuple
                 .iter()
                 .map(|item| from_pyobject(py, item))
                 .collect();
             ExprResult::Tuple(Tuple::new(elements))
-        } else if let Ok(py_module) = py_obj.extract::<&PyModule>() {
+        } else if let Ok(py_module) = py_obj.extract::<Bound<PyModule>>() {
             let mut module = Module::default();
 
             // Get the module's __dict__ to iterate over all attributes
@@ -409,10 +424,10 @@ pub mod utils {
             }
 
             ExprResult::Module(Container::new(module))
-        } else if let Ok(py_set) = py_obj.extract::<&PySet>() {
+        } else if let Ok(py_set) = py_obj.extract::<Bound<PySet>>() {
             let elements = py_set.iter().map(|item| from_pyobject(py, item)).collect();
             ExprResult::Set(Container::new(Set::new(elements)))
-        } else if let Ok(py_list) = py_obj.extract::<&PyList>() {
+        } else if let Ok(py_list) = py_obj.extract::<Bound<PyList>>() {
             let elements = py_list.iter().map(|item| from_pyobject(py, item)).collect();
             ExprResult::List(Container::new(List::new(elements)))
         } else {
@@ -424,21 +439,23 @@ pub mod utils {
         }
     }
 
-    pub fn to_args(py: Python, args: ResolvedArguments) -> &PyTuple {
+    pub fn to_args(py: Python, args: ResolvedArguments) -> Bound<PyTuple> {
         let args = args
             .iter_args()
             .map(|a| a.to_object(py))
             .collect::<Vec<_>>();
-        PyTuple::new(py, args.iter().map(|item| item.as_ref(py)))
+        PyTuple::new_bound(py, args.iter().map(|item| item.bind(py)))
     }
 
-    pub fn hasattr<S>(py: Python, obj: &PyAny, attr: S) -> PyResult<bool>
+    pub fn hasattr<S>(py: Python, obj: &Bound<PyAny>, attr: S) -> PyResult<bool>
     where
         S: IntoPy<Py<PyAny>>,
     {
-        let hasattr = py.eval("hasattr", None, None)?.to_object(py);
+        let builtins = py.import_bound("builtins")?;
+        let hasattr = builtins.getattr("hasattr")?.to_object(py);
+
         let has_setitem = hasattr.call1(py, (obj, attr))?;
-        let has_setitem_bool = has_setitem.extract::<&PyBool>(py)?;
+        let has_setitem_bool = has_setitem.extract::<Bound<PyBool>>(py)?;
         Ok(has_setitem_bool.is_true())
     }
 }
