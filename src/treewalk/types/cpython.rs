@@ -6,12 +6,12 @@ use std::{
 use pyo3::{
     prelude::*,
     pyclass,
-    types::{PyAny, PyCFunction, PyDict, PyList, PyModule, PyString, PyTuple},
-    Bound, IntoPy, Py, PyObject, PyResult, ToPyObject,
+    types::{PyAny, PyList, PyModule, PyString, PyTuple},
+    Bound, BoundObject, PyObject, PyResult,
 };
 
 use crate::{
-    core::{log, Container, LogLevel},
+    core::Container,
     domain::Dunder,
     parser::types::ImportPath,
     treewalk::{
@@ -37,7 +37,7 @@ impl BuiltinModuleCache {
     }
 
     pub fn import_builtin_module(&mut self, import_path: &ImportPath) -> Container<CPythonModule> {
-        if let Some(module) = self.builtin_module_cache.get(&import_path) {
+        if let Some(module) = self.builtin_module_cache.get(import_path) {
             module.clone()
         } else {
             let module = Container::new(CPythonModule::new(&import_path.as_str()));
@@ -126,7 +126,7 @@ pub fn import_from_cpython(
 //     "sys",
 //     "time",
 // ];
-const BUILTIN_MODULE_NAMES: [&'static str; 8] = [
+const BUILTIN_MODULE_NAMES: [&str; 8] = [
     "builtins",
     "errno",
     "posix",
@@ -155,8 +155,8 @@ impl CPythonModule {
     pub fn new(name: &str) -> Self {
         pyo3::prepare_freethreaded_python();
         let pymodule = Python::with_gil(|py| {
-            py.import_bound(name)
-                .expect(&format!("Failed to import CPython module '{}'", name))
+            py.import(name)
+                .unwrap_or_else(|_| panic!("Failed to import CPython module '{}'", name))
                 .into()
         });
 
@@ -164,17 +164,16 @@ impl CPythonModule {
     }
 
     fn name(&self) -> String {
-        self.get_item(Dunder::Name)
-            .unwrap()
-            .unwrap()
-            .as_string()
-            .unwrap()
+        Python::with_gil(|py| {
+            self.get_item(Dunder::Name.into_pyobject(py).unwrap())
+                .unwrap()
+                .unwrap()
+                .as_string()
+                .unwrap()
+        })
     }
 
-    fn get_item<S>(&self, name: S) -> TreewalkResult<Option<ExprResult>>
-    where
-        S: IntoPy<Py<PyString>>,
-    {
+    fn get_item(&self, name: Bound<PyString>) -> TreewalkResult<Option<ExprResult>> {
         Ok(Python::with_gil(|py| match self.0.bind(py).getattr(name) {
             Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
             Err(_) => None,
@@ -188,7 +187,7 @@ impl MemberReader for CPythonModule {
         _interpreter: &Interpreter,
         name: &str,
     ) -> TreewalkResult<Option<ExprResult>> {
-        self.get_item(name)
+        Python::with_gil(|py| self.get_item(name.into_pyobject(py).unwrap()))
     }
 
     fn dir(&self) -> Vec<String> {
@@ -245,58 +244,78 @@ impl Callable for CPythonObject {
 #[pyclass(weakref)]
 struct TestClass;
 
-impl ToPyObject for ExprResult {
-    fn to_object(&self, py: Python) -> PyObject {
-        match self {
-            ExprResult::None => py.None(),
-            ExprResult::Boolean(b) => b.to_object(py),
-            ExprResult::Integer(i) => i.to_object(py),
-            ExprResult::String(s) => s.as_str().to_object(py),
-            ExprResult::List(l) => PyList::new_bound(py, l.clone()).to_object(py),
-            ExprResult::Function(_) => {
-                // TODO our PyCFunction implementation is a no-op, we need to find a way to pass
-                // the interpreter into here.
-                let callback = |_args: &Bound<'_, PyTuple>,
-                                _kwargs: Option<&Bound<'_, PyDict>>|
-                 -> PyResult<bool> {
-                    log(LogLevel::Warn, || {
-                        "Potentially lossy PyCFunction invocation.".to_string()
-                    });
-                    Ok(true)
-                };
-                // TODO use real function name
-                let py_cfunc = PyCFunction::new_closure_bound(py, None, None, callback).unwrap();
-                py_cfunc.to_object(py)
-            }
-            ExprResult::Class(_) => {
-                // TODO same here, our PyClass implementation does bring real fields
-                Py::new(py, TestClass {}).unwrap().to_object(py)
-            }
-            ExprResult::Module(module) => {
-                let name = PyString::new_bound(py, module.borrow().name());
-                let types = py.import_bound("types").unwrap();
-                let module_type = types.getattr("ModuleType").unwrap();
-                let args = PyTuple::new_bound(py, &[name]);
-                let py_module_obj = module_type.call1(args).unwrap();
-                let py_module = py_module_obj.downcast().unwrap();
+impl<'py> IntoPyObject<'py> for ExprResult {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = std::convert::Infallible;
 
-                // Flatten all key-value pairs from scope into the module
-                for (key, value) in module.borrow().dict() {
-                    PyModuleMethods::add(py_module, key.as_str(), value.to_object(py)).unwrap();
-                }
-
-                py_module.to_object(py)
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let o = match self {
+            ExprResult::None => py.None().as_any().bind(py).to_owned(),
+            ExprResult::Boolean(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
+            ExprResult::String(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
+            _ => {
+                dbg!(&self);
+                todo!()
             }
-            ExprResult::CPythonModule(module) => module.borrow().0.to_object(py),
-            ExprResult::CPythonObject(object) => object.0.to_object(py),
-            _ => unimplemented!(
-                "Attempting to convert {} to a PyObject, but {} conversion is not implemented!",
-                self,
-                self.get_type()
-            ),
-        }
+        };
+
+        Ok(o)
     }
 }
+
+// This code is left over from pyo3 v0.22. When we upgrade it to use IntoPyObject, we should lock
+// this down with unit tests.
+//
+// impl ToPyObject for ExprResult {
+//     fn to_object(&self, py: Python) -> PyObject {
+//         match self {
+//             ExprResult::Integer(i) => i.to_object(py),
+//             ExprResult::List(l) => PyList::new(py, l.clone()).unwrap().to_object(py),
+//             ExprResult::Function(_) => {
+//                 // TODO our PyCFunction implementation is a no-op, we need to find a way to pass
+//                 // the interpreter into here.
+//                 let callback = |_args: &Bound<'_, PyTuple>,
+//                                 _kwargs: Option<&Bound<'_, PyDict>>|
+//                  -> PyResult<bool> {
+//                     log(LogLevel::Warn, || {
+//                         "Potentially lossy PyCFunction invocation.".to_string()
+//                     });
+//                     Ok(true)
+//                 };
+//                 // TODO use real function name
+//                 let py_cfunc = PyCFunction::new_closure_bound(py, None, None, callback).unwrap();
+//                 py_cfunc.to_object(py)
+//             }
+//             ExprResult::Class(_) => {
+//                 // TODO same here, our PyClass implementation does bring real fields
+//                 Py::new(py, TestClass {}).unwrap().to_object(py)
+//             }
+//             ExprResult::Module(module) => {
+//                 let name = PyString::new(py, module.borrow().name());
+//                 let types = py.import_bound("types").unwrap();
+//                 let module_type = types.getattr("ModuleType").unwrap();
+//                 let args = PyTuple::new(py, &[name]).unwrap();
+//                 let py_module_obj = module_type.call1(args).unwrap();
+//                 let py_module = py_module_obj.downcast().unwrap();
+//
+//                 // Flatten all key-value pairs from scope into the module
+//                 for (key, value) in module.borrow().dict() {
+//                     PyModuleMethods::add(py_module, key.as_str(), value.to_object(py)).unwrap();
+//                 }
+//
+//                 py_module.to_object(py)
+//             }
+//             ExprResult::CPythonModule(module) => module.borrow().0.to_object(py),
+//             ExprResult::CPythonObject(object) => object.0.to_object(py),
+//             _ => unimplemented!(
+//                 "Attempting to convert {} to a PyObject, but {} conversion is not implemented!",
+//                 self,
+//                 self.get_type()
+//             ),
+//         }
+//     }
+// }
 
 pub struct CPythonClass(PyObject);
 
@@ -336,7 +355,10 @@ impl CPythonObject {
     }
 
     pub fn hasattr(&self, attr: Dunder) -> bool {
-        Python::with_gil(|py| utils::hasattr(py, self.0.bind(py), attr).unwrap())
+        Python::with_gil(|py| {
+            let attr = attr.into_pyobject(py).unwrap();
+            utils::hasattr(py, self.0.bind(py), attr).unwrap()
+        })
     }
 }
 
@@ -347,7 +369,7 @@ impl IndexRead for CPythonObject {
         index: ExprResult,
     ) -> TreewalkResult<Option<ExprResult>> {
         Python::with_gil(|py| {
-            let key = index.to_object(py);
+            let key = index.into_pyobject(py).unwrap();
             let result = self
                 .0
                 .bind(py)
@@ -366,8 +388,8 @@ impl IndexWrite for CPythonObject {
         value: ExprResult,
     ) -> TreewalkResult<()> {
         Python::with_gil(|py| {
-            let key = index.to_object(py);
-            let value = value.to_object(py);
+            let key = index.into_pyobject(py).unwrap();
+            let value = value.into_pyobject(py).unwrap();
             self.0
                 .bind(py)
                 .call_method1(Dunder::SetItem, (key, value))
@@ -379,7 +401,7 @@ impl IndexWrite for CPythonObject {
 
     fn delitem(&mut self, _interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
         Python::with_gil(|py| {
-            let key = index.to_object(py);
+            let key = index.into_pyobject(py).unwrap();
             self.0
                 .bind(py)
                 .call_method1(Dunder::DelItem, (key,))
@@ -425,6 +447,7 @@ pub mod utils {
 
             ExprResult::Module(Container::new(module))
         } else if let Ok(py_set) = py_obj.extract::<Bound<PySet>>() {
+            #[allow(clippy::mutable_key_type)]
             let elements = py_set.iter().map(|item| from_pyobject(py, item)).collect();
             ExprResult::Set(Container::new(Set::new(elements)))
         } else if let Ok(py_list) = py_obj.extract::<Bound<PyList>>() {
@@ -435,27 +458,24 @@ pub mod utils {
             // log(LogLevel::Warn, || {
             //     "Potentially ambiguous CPythonObject instance.".to_string()
             // });
-            ExprResult::CPythonObject(CPythonObject::new(py_obj.into_py(py)))
+            ExprResult::CPythonObject(CPythonObject::new(py_obj.into_pyobject(py).unwrap().into()))
         }
     }
 
     pub fn to_args(py: Python, args: ResolvedArguments) -> Bound<PyTuple> {
         let args = args
             .iter_args()
-            .map(|a| a.to_object(py))
+            .map(|a| a.clone().into_pyobject(py).unwrap())
             .collect::<Vec<_>>();
-        PyTuple::new_bound(py, args.iter().map(|item| item.bind(py)))
+        PyTuple::new(py, args).unwrap()
     }
 
-    pub fn hasattr<S>(py: Python, obj: &Bound<PyAny>, attr: S) -> PyResult<bool>
-    where
-        S: IntoPy<Py<PyAny>>,
-    {
-        let builtins = py.import_bound("builtins")?;
-        let hasattr = builtins.getattr("hasattr")?.to_object(py);
+    pub fn hasattr(py: Python, obj: &Bound<PyAny>, attr: Bound<PyString>) -> PyResult<bool> {
+        let builtins = py.import("builtins")?;
+        let hasattr = builtins.getattr("hasattr")?.into_pyobject(py)?;
 
-        let has_setitem = hasattr.call1(py, (obj, attr))?;
-        let has_setitem_bool = has_setitem.extract::<Bound<PyBool>>(py)?;
+        let has_setitem = hasattr.call1((obj, attr))?;
+        let has_setitem_bool = has_setitem.extract::<Bound<PyBool>>()?;
         Ok(has_setitem_bool.is_true())
     }
 }

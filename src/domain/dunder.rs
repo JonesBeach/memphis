@@ -105,20 +105,15 @@ impl AsRef<str> for Dunder {
 mod cpython {
     use super::*;
 
-    use pyo3::{types::PyString, IntoPy, Py, PyAny, Python, ToPyObject};
+    use pyo3::{types::PyString, Bound, IntoPyObject, Python};
 
-    impl IntoPy<Py<PyString>> for Dunder {
-        fn into_py(self, py: Python<'_>) -> Py<PyString> {
-            self.value()
-                .to_object(py)
-                .extract(py)
-                .expect("Failed to convert to PyString!")
-        }
-    }
+    impl<'py> IntoPyObject<'py> for Dunder {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = std::convert::Infallible;
 
-    impl IntoPy<Py<PyAny>> for Dunder {
-        fn into_py(self, py: Python<'_>) -> Py<PyAny> {
-            self.value().to_object(py)
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.value().into_pyobject(py)
         }
     }
 }

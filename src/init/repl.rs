@@ -101,7 +101,7 @@ impl Repl {
     pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T) -> ExitCode {
         let mut context = MemphisContext::default();
 
-        let exit_code = loop {
+        loop {
             match terminal_io.read_event() {
                 Ok(Event::Key(event)) => {
                     match self.handle_key_event(terminal_io, &mut context, event) {
@@ -112,9 +112,7 @@ impl Repl {
                 Ok(_) => {}
                 Err(_) => break 1,
             }
-        };
-
-        exit_code
+        }
     }
 
     /// Update the terminal and interpreter state based on the given `KeyEvent`.

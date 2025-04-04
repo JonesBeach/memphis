@@ -20,6 +20,7 @@ fn run_clippy() -> Result<bool> {
     let mut cargo = Command::new("cargo");
     let cmd = cargo
         .arg("clippy")
+        .arg("--all-features")
         .env("RUSTFLAGS", "-D warnings")
         .stdout(Stdio::piped());
 
