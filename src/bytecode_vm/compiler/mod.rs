@@ -2,12 +2,11 @@ pub mod types;
 
 use crate::{
     bytecode_vm::{types::CompilerError, Opcode},
-    core::{log, Container, LogLevel},
-    domain::Context,
+    core::{log, LogLevel},
+    domain::{Context, Source},
     parser::types::{
         Ast, BinOp, CallArgs, ConditionalBlock, Expr, Params, Statement, StatementKind, UnaryOp,
     },
-    treewalk::State,
 };
 
 use self::types::{CodeObject, CompiledProgram, Constant};
@@ -17,7 +16,7 @@ use super::indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex};
 type CompilerResult<T> = Result<T, CompilerError>;
 
 pub struct Compiler {
-    state: Container<State>,
+    source: Source,
 
     /// Constants discovered during compilation. These will be compiled into the
     /// [`CompiledProgram`] which is handed off to the VM.
@@ -33,10 +32,11 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new(state: Container<State>) -> Self {
-        let code = CodeObject::new_root(*state.current_module_source());
+    pub fn new(source: Source) -> Self {
+        let code = CodeObject::new_root(source.clone());
+
         Self {
-            state,
+            source,
             constant_pool: vec![],
             code_stack: vec![code],
             context_stack: vec![Context::Global],
@@ -297,11 +297,8 @@ impl Compiler {
             .iter()
             .map(|p| p.arg.clone())
             .collect::<Vec<String>>();
-        let code_object = CodeObject::with_args(
-            Some(name.to_string()),
-            &varnames,
-            *self.state.current_module_source(),
-        );
+        let code_object =
+            CodeObject::with_args(Some(name.to_string()), &varnames, self.source.clone());
 
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
@@ -329,7 +326,7 @@ impl Compiler {
             unimplemented!("Metaclasses are not yet supported in the bytecode VM.")
         }
 
-        let code_object = CodeObject::new(name, *self.state.current_module_source());
+        let code_object = CodeObject::new(name, self.source.clone());
 
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
@@ -577,29 +574,19 @@ mod bytecode_tests {
     use super::{types::Bytecode, *};
 
     use crate::{
-        ast, bin_op, call_args, func_call, int, member_access,
-        parser::{test_utils::*, types::CallArgs},
-        stmt_assign, str,
-        treewalk::ModuleSource,
-        unary_op, var,
+        ast, bin_op, call_args, func_call, int, member_access, parser::test_utils::*, stmt_assign,
+        str, unary_op, var,
     };
 
     fn init() -> Compiler {
-        let state = Container::new(State::default());
-        state.push_module_source(ModuleSource::default());
-        Compiler::new(state)
+        Compiler::new(Source::default())
     }
 
-    fn compile_expr(expr: &Expr) -> Bytecode {
-        let mut compiler = init();
-        compiler
-            .compile_expr(&expr)
-            .expect("Failed to compile test Expr!");
-        let code = compiler.ensure_code_object();
-        code.bytecode.clone()
+    fn compile_expr(expr: Expr) -> Bytecode {
+        compile_stmt(stmt(StatementKind::Expression(expr)))
     }
 
-    fn compile_stmt(stmt: &Statement) -> Bytecode {
+    fn compile_stmt(stmt: Statement) -> Bytecode {
         let mut compiler = init();
         compiler
             .compile_stmt(&stmt)
@@ -611,7 +598,7 @@ mod bytecode_tests {
     #[test]
     fn expression() {
         let expr = bin_op!(int!(4), Mul, bin_op!(int!(2), Add, int!(3)));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[
@@ -627,14 +614,14 @@ mod bytecode_tests {
     #[test]
     fn binary_operations() {
         let expr = bin_op!(int!(4), LessThan, int!(5));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[Opcode::Push(4), Opcode::Push(5), Opcode::LessThan,]
         );
 
         let expr = bin_op!(int!(4), GreaterThan, int!(5));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[Opcode::Push(4), Opcode::Push(5), Opcode::GreaterThan,]
@@ -644,29 +631,29 @@ mod bytecode_tests {
     #[test]
     fn unary_operations() {
         let expr = unary_op!(Minus, int!(4));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryNegative]);
 
         let expr = unary_op!(Plus, int!(4));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(bytecode, &[Opcode::Push(4)]);
 
         let expr = unary_op!(Not, Expr::Boolean(false));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[Opcode::LoadConst(Index::new(0)), Opcode::UnaryNot]
         );
 
         let expr = unary_op!(BitwiseNot, int!(4));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryInvert]);
     }
 
     #[test]
     fn assignment() {
         let s = stmt_assign!(var!("var"), bin_op!(int!(5), Sub, int!(2)));
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -678,7 +665,7 @@ mod bytecode_tests {
         );
 
         let s = stmt_assign!(var!("var"), str!("Hello World"));
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -688,7 +675,7 @@ mod bytecode_tests {
         );
 
         let s = stmt_assign!(var!("var"), Expr::None);
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -698,7 +685,7 @@ mod bytecode_tests {
         );
 
         let expr = bin_op!(int!(2), Add, var!("a"));
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[
@@ -712,7 +699,7 @@ mod bytecode_tests {
     #[test]
     fn member_access() {
         let s = stmt_assign!(member_access!(var!("foo"), "x"), int!(4));
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -723,7 +710,7 @@ mod bytecode_tests {
         );
 
         let expr = member_access!(var!("foo"), "x");
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[
@@ -739,7 +726,7 @@ mod bytecode_tests {
             condition: bin_op!(int!(4), LessThan, int!(5)),
             body: ast![],
         });
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -762,7 +749,7 @@ mod bytecode_tests {
             elif_parts: vec![],
             else_part: None,
         });
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -783,7 +770,7 @@ mod bytecode_tests {
             elif_parts: vec![],
             else_part: Some(ast![stmt_assign!(var!("a"), int!(3))]),
         });
-        let bytecode = compile_stmt(&s);
+        let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
@@ -803,7 +790,7 @@ mod bytecode_tests {
     #[test]
     fn function_call() {
         let expr = func_call!("foo", call_args![var!("a"), var!("b")]);
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[
@@ -822,7 +809,7 @@ mod bytecode_tests {
             name: "bar".to_string(),
             args: call_args![int!(88), int!(99)],
         };
-        let bytecode = compile_expr(&expr);
+        let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
             &[
@@ -840,7 +827,7 @@ mod bytecode_tests {
 mod compiler_state_tests {
     use super::*;
 
-    use crate::{init::MemphisContext, treewalk::ModuleSource};
+    use crate::init::MemphisContext;
 
     fn compile(text: &str) -> CompiledProgram {
         let mut context = MemphisContext::from_text(text);
@@ -862,7 +849,7 @@ mod compiler_state_tests {
         code
     }
 
-    /// This is designed to confirm everything in a CodeObject matches besides the ModuleSource and
+    /// This is designed to confirm everything in a CodeObject matches besides the Source and
     /// the line number mappings.
     macro_rules! assert_code_eq {
         ($actual:expr, $expected:expr) => {
@@ -919,7 +906,7 @@ def foo(a, b):
                 arg_count: 2,
                 varnames: vec!["a".into(), "b".into()],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -955,7 +942,7 @@ def foo(a, b):
                 arg_count: 0,
                 varnames: vec![],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -975,7 +962,7 @@ def foo(a, b):
                 arg_count: 2,
                 varnames: vec!["a".into(), "b".into(), "inner".into()],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1009,7 +996,7 @@ def foo():
                 arg_count: 0,
                 varnames: vec!["c".into()],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1049,7 +1036,7 @@ def foo():
                 arg_count: 0,
                 varnames: vec!["c".into()],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1097,7 +1084,7 @@ world()
                 arg_count: 0,
                 varnames: vec![],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1111,7 +1098,7 @@ world()
                 arg_count: 0,
                 varnames: vec![],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1138,7 +1125,7 @@ class Foo:
                 arg_count: 1,
                 varnames: vec!["self".into()],
                 names: vec![],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );
@@ -1190,7 +1177,7 @@ class Foo:
                 arg_count: 1,
                 varnames: vec!["self".into()],
                 names: vec!["val".into()],
-                module_source: ModuleSource::default(),
+                source: Source::default(),
                 line_map: vec![],
             }
         );

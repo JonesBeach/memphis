@@ -12,7 +12,7 @@ use crate::{
     },
     core::{log, log_impure, Container, LogLevel},
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
-    treewalk::State,
+    runtime::MemphisState,
 };
 
 mod frame;
@@ -26,7 +26,7 @@ use self::{
 type VmResult<T> = Result<T, ExecutionError>;
 
 pub struct VirtualMachine {
-    state: Container<State>,
+    state: Container<MemphisState>,
 
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
@@ -51,7 +51,7 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn new(state: Container<State>) -> Self {
+    pub fn new(state: Container<MemphisState>) -> Self {
         Self {
             state,
             call_stack: vec![],
@@ -96,18 +96,17 @@ impl VirtualMachine {
         self.constant_pool.get(*index).map(|c| c.into())
     }
 
+    fn error(&self, error_kind: ExecutionErrorKind) -> ExecutionError {
+        self.state.save_line_number();
+        ExecutionError::new(self.state.debug_call_stack(), error_kind)
+    }
+
     fn runtime_error(&self) -> ExecutionError {
-        ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::RuntimeError,
-        )
+        self.error(ExecutionErrorKind::RuntimeError)
     }
 
     fn name_error(&self, name: &str) -> ExecutionError {
-        ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::NameError(name.to_string()),
-        )
+        self.error(ExecutionErrorKind::NameError(name.to_string()))
     }
 
     fn update_fn<F>(&mut self, index: ObjectTableIndex, function: F)
@@ -223,11 +222,11 @@ impl VirtualMachine {
     /// This does not kick off a separate loop; instead, `run_loop` continues execution with the
     /// new frame.
     fn enter_context(&mut self, frame: Frame) -> VmResult<()> {
-        let current_frame = self.current_frame()?;
-        // This is a bit counterintuitive: when we enter a new frame, we will begin tracking its
-        // latest opcode/statements in `run_loop`. To keep track of where we came from, we push the
-        // previous frame onto the stack.
-        self.state.push_stack_frame(current_frame);
+        // If we don't save the current line number, we won't properly record where in the current
+        // file we called the next function from. We do something similar in the treewalk
+        // interpreter.
+        self.state.save_line_number();
+        self.state.push_stack_frame(&frame);
         self.call_stack.push(frame);
         Ok(())
     }
@@ -282,13 +281,16 @@ impl VirtualMachine {
 
         while let Some(current_frame_index) = self.call_stack.len().checked_sub(1) {
             let frame = self.current_frame()?;
+            // Save this in case we encounter a runtime exception and need to record this info in
+            // the stack trace
+            self.state.set_line_number(frame.current_line());
+
             let opcode = frame.get_inst();
 
             log(LogLevel::Debug, || {
                 let code_name = &frame.function.code_object.name();
                 format!("{}: {:?}", code_name, opcode)
             });
-            self.state.push_stack_frame(frame);
 
             match opcode {
                 Opcode::Iadd => {
@@ -519,7 +521,6 @@ impl VirtualMachine {
 
             // Increment PC for all instructions.
             self.call_stack[current_frame_index].pc += 1;
-            self.state.pop_stack_frame();
 
             // Check if we need to enter a new function frame
             if let Some(frame) = deferred_frame.take() {
@@ -539,7 +540,7 @@ impl VirtualMachine {
 
 impl Default for VirtualMachine {
     fn default() -> Self {
-        Self::new(Container::new(State::default()))
+        Self::new(Container::new(MemphisState::default()))
     }
 }
 

@@ -1,17 +1,18 @@
+#[cfg(feature = "c_stdlib")]
+use std::collections::hash_map::Iter;
 use std::{
-    collections::hash_map::Iter,
     fmt::{Display, Error, Formatter},
     path::Path,
 };
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::ExecutionErrorKind,
+    domain::{ExecutionErrorKind, Source},
     init::MemphisContext,
     parser::types::ImportPath,
     treewalk::{
         interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter, ModuleSource, Scope,
+        Interpreter, Scope,
     },
     types::errors::MemphisError,
 };
@@ -21,7 +22,7 @@ use super::{domain::traits::MemberReader, Dict, ExprResult};
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
     scope: Scope,
-    module_source: ModuleSource,
+    source: Source,
 }
 
 impl Module {
@@ -42,18 +43,22 @@ impl Module {
             .state
             .store_module(import_path, Container::new(Module::default()));
 
-        let module_source = interpreter
+        let source = interpreter
             .state
-            .load_module_source(import_path)
+            .load_source(import_path)
             .ok_or_else(|| interpreter.import_error(import_path.as_str()))?;
 
         interpreter.state.save_line_number();
+        interpreter.state.push_stack_frame(&source);
         interpreter
             .state
-            .push_module(Container::new(Module::new(module_source.clone())));
+            .push_module(Container::new(Module::new(source.clone())));
 
-        let mut context =
-            MemphisContext::from_module_with_state(module_source, interpreter.state.clone());
+        let mut context = MemphisContext::from_module_from_treewalk(
+            source,
+            interpreter.state.memphis_state(),
+            interpreter.state.clone(),
+        );
 
         match context.evaluate() {
             Ok(_) => {}
@@ -65,7 +70,7 @@ impl Module {
             _ => unreachable!(),
         };
 
-        let _ = interpreter.state.pop_stack_frame();
+        interpreter.state.pop_stack_frame();
         let module = interpreter
             .state
             .pop_module()
@@ -75,30 +80,20 @@ impl Module {
         Ok(module)
     }
 
-    pub fn new(module_source: ModuleSource) -> Self {
-        Self {
-            scope: Scope::default(),
-            module_source,
-        }
+    pub fn new(source: Source) -> Self {
+        Self::with_scope(source, Scope::default())
     }
 
-    pub fn from_scope(module_source: ModuleSource, scope: Scope) -> Self {
-        Self {
-            scope,
-            module_source,
-        }
+    pub fn with_scope(source: Source, scope: Scope) -> Self {
+        Self { scope, source }
     }
 
     pub fn path(&self) -> &Path {
-        self.module_source.display_path()
+        self.source.display_path()
     }
 
     pub fn name(&self) -> &str {
-        self.module_source.name()
-    }
-
-    pub fn context(&self) -> &str {
-        self.module_source.context()
+        self.source.name()
     }
 
     pub fn get(&self, name: &str) -> Option<ExprResult> {
@@ -115,12 +110,11 @@ impl Module {
 
     // Should this return an actual dict? We chose not to do that right now because a
     // `Container<Dict>` requires a reference to the interpreter.
+    #[cfg(feature = "c_stdlib")]
     pub fn dict(&self) -> Iter<String, ExprResult> {
         self.scope.into_iter()
     }
 
-    // Should this return an actual dict? We chose not to do that right now because a
-    // `Container<Dict>` requires a reference to the interpreter.
     pub fn as_dict(&self, interpreter: &Interpreter) -> Container<Dict> {
         self.scope.as_dict(interpreter)
     }

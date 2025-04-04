@@ -50,6 +50,10 @@ impl Frame {
         }
         namespace
     }
+
+    pub fn current_line(&self) -> usize {
+        self.function.code_object.get_line_number(self.pc)
+    }
 }
 
 impl ToDebugStackFrame for Frame {
@@ -57,7 +61,7 @@ impl ToDebugStackFrame for Frame {
         DebugStackFrame::new(
             self.function.code_object.context(),
             self.function.code_object.path().to_path_buf(),
-            self.function.code_object.get_line_number(self.pc),
+            self.current_line(),
         )
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     core::Container,
-    domain::Context,
+    domain::{Context, Source},
     treewalk::{
         executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
         types::{
@@ -15,10 +15,9 @@ use crate::{
             utils::EnvironmentFrame,
             ExprResult, Module,
         },
+        Scope, TypeRegistry,
     },
 };
-
-use super::{ModuleSource, Scope, TypeRegistry};
 
 fn get_asyncio_builtins() -> Vec<Box<dyn Callable>> {
     vec![
@@ -63,8 +62,8 @@ fn init_builtin_scope() -> Scope {
 
     scope.insert(
         "asyncio",
-        ExprResult::Module(Container::new(Module::from_scope(
-            ModuleSource::default(),
+        ExprResult::Module(Container::new(Module::with_scope(
+            Source::default(),
             asyncio_scope,
         ))),
     );

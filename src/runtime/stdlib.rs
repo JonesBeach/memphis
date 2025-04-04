@@ -11,7 +11,7 @@ pub struct Stdlib {
 }
 
 impl Stdlib {
-    pub fn init() -> Self {
+    pub fn load_from_host() -> Self {
         // The location of any "standard-lib" modules we add ourselves. This refers to the lib
         // directory of this repository.
         let mut paths = vec![PathBuf::from("./lib".to_string())];
@@ -28,6 +28,7 @@ impl Stdlib {
         let mut sys_path = run_in_python("import sys; print('\\n'.join(sys.path))")
             .expect("Failed to get sys path");
         paths.append(&mut sys_path);
+
         Self { paths }
     }
 

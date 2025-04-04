@@ -8,6 +8,7 @@ mod lexer;
 #[cfg(feature = "llvm_backend")]
 mod llvm_backend;
 mod parser;
+mod runtime;
 mod treewalk;
 mod types;
 

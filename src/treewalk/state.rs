@@ -1,44 +1,41 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, ToDebugStackFrame},
+    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame},
     parser::types::ImportPath,
+    runtime::MemphisState,
     treewalk::{
         interpreter::TreewalkResult,
         module_loader,
         types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
-        EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, ModuleContext,
-        ModuleSource, Scope, ScopeManager, TypeRegistry,
+        EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, Scope, ScopeManager,
+        TypeRegistry,
     },
 };
 
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::{BuiltinModuleCache, CPythonModule};
 
-pub struct State {
-    module_context: ModuleContext,
-    debug_call_stack: DebugCallStack,
-    module_source_stack: Vec<ModuleSource>,
-    line_number: usize,
-
+pub struct TreewalkState {
+    memphis_state: Container<MemphisState>,
     module_cache: EvaluatedModuleCache,
+    type_registry: TypeRegistry,
+    scope_manager: ScopeManager,
+    execution_context: ExecutionContextManager,
+    executor: Container<Executor>,
     #[cfg(feature = "c_stdlib")]
     builtin_module_cache: BuiltinModuleCache,
-    scope_manager: ScopeManager,
-    executor: Container<Executor>,
-    type_registry: TypeRegistry,
-    execution_context: ExecutionContextManager,
 }
 
-impl Default for State {
+impl Default for TreewalkState {
     fn default() -> Self {
-        Self::new()
+        Self::new(Container::new(MemphisState::default()))
     }
 }
 
-impl State {
-    fn new() -> Self {
+impl TreewalkState {
+    fn new(memphis_state: Container<MemphisState>) -> Self {
         let type_registry = TypeRegistry::new();
         let mut scope_manager = ScopeManager::new();
 
@@ -46,12 +43,8 @@ impl State {
         // available in the builtin scope before execution begins.
         scope_manager.register_callable_builtin_types(&type_registry);
 
-        State {
-            module_context: ModuleContext::new(),
-            debug_call_stack: DebugCallStack::new(),
-            module_source_stack: Vec::new(),
-            line_number: 1,
-
+        TreewalkState {
+            memphis_state,
             module_cache: EvaluatedModuleCache::new(),
             type_registry,
             scope_manager,
@@ -62,17 +55,43 @@ impl State {
         }
     }
 
-    pub fn from_source(module_source: ModuleSource) -> Container<Self> {
-        let state = Container::new(Self::new());
-        if let Some(path) = module_source.path() {
-            state.register_root(path);
-        }
-        state.push_module_source(module_source);
-        state
+    pub fn from_source_state(
+        memphis_state: Container<MemphisState>,
+        source: Source,
+    ) -> Container<Self> {
+        let treewalk_state = Container::new(Self::new(memphis_state));
+        treewalk_state.push_module(Container::new(Module::new(source)));
+        treewalk_state
     }
 }
 
-impl Container<State> {
+impl Container<TreewalkState> {
+    pub fn memphis_state(&self) -> Container<MemphisState> {
+        self.borrow().memphis_state.clone()
+    }
+
+    pub fn save_line_number(&self) {
+        self.borrow().memphis_state.save_line_number();
+    }
+
+    pub fn set_line_number(&self, line_number: usize) {
+        self.borrow().memphis_state.set_line_number(line_number);
+    }
+
+    /// Return the `CallStack` at the current moment in time. This should be used at the time of an
+    /// exception or immediately before any other use as it is a snapshot and will not keep updating.
+    pub fn debug_call_stack(&self) -> DebugCallStack {
+        self.borrow().memphis_state.debug_call_stack()
+    }
+
+    pub fn push_stack_frame<T: ToDebugStackFrame>(&self, context: &T) {
+        self.borrow().memphis_state.push_stack_frame(context);
+    }
+
+    pub fn pop_stack_frame(&self) -> Option<DebugStackFrame> {
+        self.borrow().memphis_state.pop_stack_frame()
+    }
+
     pub fn get_type(&self, result: &ExprResult) -> ExprResult {
         match result {
             #[cfg(feature = "c_stdlib")]
@@ -80,17 +99,6 @@ impl Container<State> {
             ExprResult::Object(o) => ExprResult::Class(o.borrow().class.clone()),
             _ => ExprResult::Class(self.get_type_class(result.get_type())),
         }
-    }
-
-    pub fn save_line_number(&self) {
-        let line_number = self.borrow().line_number;
-        self.borrow_mut()
-            .debug_call_stack
-            .update_line_number(line_number);
-    }
-
-    pub fn set_line_number(&self, line_number: usize) {
-        self.borrow_mut().line_number = line_number;
     }
 
     /// Write an `ExprResult` to the symbol table.
@@ -116,12 +124,6 @@ impl Container<State> {
         self.borrow_mut().scope_manager.delete(name)
     }
 
-    /// Return the `CallStack` at the current moment in time. This should be used at the time of an
-    /// exception or immediately before any other use as it is a snapshot and will not keep updating.
-    pub fn debug_call_stack(&self) -> DebugCallStack {
-        self.borrow().debug_call_stack.clone()
-    }
-
     pub fn get_executor(&self) -> Container<Executor> {
         self.borrow_mut().executor.clone()
     }
@@ -142,33 +144,6 @@ impl Container<State> {
         self.borrow_mut().scope_manager.pop_local()
     }
 
-    pub fn push_stack_frame<T: ToDebugStackFrame>(&self, context: &T) {
-        self.borrow_mut()
-            .debug_call_stack
-            .push_stack_frame(context.to_stack_frame());
-    }
-
-    pub fn pop_stack_frame(&self) -> Option<DebugStackFrame> {
-        self.borrow_mut().debug_call_stack.pop_stack_frame()
-    }
-
-    pub fn push_module_source(&self, module_source: ModuleSource) {
-        self.borrow_mut().module_source_stack.push(module_source);
-    }
-
-    pub fn pop_module_source(&self) -> Option<ModuleSource> {
-        self.borrow_mut().module_source_stack.pop()
-    }
-
-    pub fn current_module_source(&self) -> Box<ModuleSource> {
-        let binding = self.borrow();
-        let current_module_source = binding
-            .module_source_stack
-            .last()
-            .expect("No module source!");
-        Box::new(current_module_source.to_owned())
-    }
-
     pub fn push_module(&self, module: Container<Module>) {
         self.borrow_mut().scope_manager.push_module(module);
     }
@@ -179,14 +154,6 @@ impl Container<State> {
 
     pub fn current_module(&self) -> Container<Module> {
         self.borrow().scope_manager.read_module()
-    }
-
-    pub fn current_context(&self) -> String {
-        if let Some(function) = self.current_function() {
-            function.borrow().name().to_string()
-        } else {
-            self.current_module().borrow().context().to_string()
-        }
     }
 
     pub fn current_path(&self) -> Box<PathBuf> {
@@ -268,8 +235,10 @@ impl Container<State> {
         self.borrow().scope_manager.is_class(name)
     }
 
-    pub fn register_root(&self, path: &Path) {
-        self.borrow_mut().module_context.register_root(path);
+    pub fn load_source(&self, import_path: &ImportPath) -> Option<Source> {
+        let current_path = self.current_path();
+        let search_paths = self.borrow().memphis_state.search_paths();
+        module_loader::load_source(import_path, &current_path, &search_paths)
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -277,13 +246,6 @@ impl Container<State> {
         self.borrow_mut()
             .builtin_module_cache
             .import_builtin_module(import_path)
-    }
-
-    pub fn load_module_source(&self, import_path: &ImportPath) -> Option<ModuleSource> {
-        let current_path = self.current_path();
-        let binding = self.borrow();
-        let search_paths = binding.module_context.search_paths();
-        module_loader::load_module_source(import_path, &current_path, search_paths)
     }
 
     pub fn store_module(&self, import_path: &ImportPath, module: Container<Module>) {

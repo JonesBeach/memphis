@@ -1,105 +1,6 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    str,
-};
+use std::collections::HashMap;
 
-use crate::{
-    core::Container,
-    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
-    parser::types::ImportPath,
-    treewalk::types::Module,
-};
-
-#[cfg(feature = "stdlib")]
-use super::stdlib::Stdlib;
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct ModuleSource {
-    name: Option<String>,
-    path: Option<PathBuf>,
-    text: Option<String>,
-}
-
-impl Default for ModuleSource {
-    /// An empty module occurs when there is no Python code for a module. This can occur for a few
-    /// reasons:
-    /// 1) Rust-backed module
-    /// 2) a module created as a layer in an import such as `import mypackage.mymodule`.
-    fn default() -> Self {
-        Self {
-            name: None,
-            path: None,
-            text: None,
-        }
-    }
-}
-
-impl ModuleSource {
-    const DEFAULT_NAME: Dunder = Dunder::Main;
-    const DEFAULT_CONTEXT: &str = "<module>";
-    const DEFAULT_PATH: &str = "<stdin>";
-    const DEFAULT_TEXT: &str = "<module with no Python code>";
-
-    pub fn new(name: &str, path: PathBuf, text: String) -> Self {
-        Self {
-            name: Some(name.to_string()),
-            path: Some(path),
-            text: Some(text),
-        }
-    }
-
-    pub fn from_root(path: PathBuf, text: String) -> Self {
-        Self {
-            name: None,
-            path: Some(path),
-            text: Some(text),
-        }
-    }
-
-    /// This exists for the unit tests where code is provided directly as a string without reading
-    /// from the file system.
-    pub fn from_text(text: &str) -> Self {
-        Self {
-            name: None,
-            path: None,
-            text: Some(text.to_string()),
-        }
-    }
-
-    pub fn path(&self) -> Option<&PathBuf> {
-        self.path.as_ref()
-    }
-
-    pub fn display_path(&self) -> &Path {
-        self.path
-            .as_deref()
-            .unwrap_or(Path::new(Self::DEFAULT_PATH))
-    }
-
-    pub fn name(&self) -> &str {
-        self.name.as_deref().unwrap_or(Self::DEFAULT_NAME.into())
-    }
-
-    pub fn context(&self) -> &str {
-        self.name.as_deref().unwrap_or(Self::DEFAULT_CONTEXT)
-    }
-
-    pub fn has_text(&self) -> bool {
-        self.text.is_some()
-    }
-
-    pub fn text(&self) -> &str {
-        self.text.as_deref().unwrap_or(Self::DEFAULT_TEXT)
-    }
-}
-
-impl ToDebugStackFrame for ModuleSource {
-    fn to_stack_frame(&self) -> DebugStackFrame {
-        let name = self.name.as_deref().unwrap_or("<module>");
-        DebugStackFrame::new(name, self.display_path().to_path_buf(), 1)
-    }
-}
+use crate::{core::Container, parser::types::ImportPath, treewalk::types::Module};
 
 pub struct EvaluatedModuleCache {
     /// A cache of the module after evaluation.
@@ -122,41 +23,6 @@ impl EvaluatedModuleCache {
     }
 }
 
-pub struct ModuleContext {
-    /// The list of directories searched during each import. This will be seeded with the location
-    /// of the Python stdlib present on the host system.
-    search_paths: Vec<PathBuf>,
-}
-
-impl ModuleContext {
-    pub fn new() -> Self {
-        Self {
-            #[cfg(feature = "stdlib")]
-            search_paths: Stdlib::init().paths().to_vec(),
-            #[cfg(not(feature = "stdlib"))]
-            search_paths: vec![],
-        }
-    }
-
-    /// Subsequent absolute imports will use the provided [`PathBuf`] to search for modules.
-    pub fn register_root(&mut self, path: &Path) {
-        let path = path
-            .parent()
-            .map_or_else(|| PathBuf::from("./"), |parent| parent.to_path_buf());
-
-        // Insert at the start of the paths so this directory is searched first on subsequent
-        // module imports
-        // Also, avoid duplicate paths
-        if !self.search_paths.contains(&path) {
-            self.search_paths.insert(0, path);
-        }
-    }
-
-    pub fn search_paths(&self) -> &[PathBuf] {
-        &self.search_paths
-    }
-}
-
 pub mod module_loader {
     use std::{
         fs,
@@ -165,29 +31,27 @@ pub mod module_loader {
 
     use crate::{
         core::{log, LogLevel},
-        domain::Dunder,
+        domain::{Dunder, Source},
         parser::types::ImportPath,
     };
 
-    use super::ModuleSource;
-
-    pub fn load_root_module_source(filepath: &Path) -> Option<ModuleSource> {
+    pub fn load_root_source(filepath: &Path) -> Option<Source> {
         let source = read_source(filepath)?;
         let absolute_path = filepath.canonicalize().ok()?;
-        Some(ModuleSource::from_root(absolute_path, source))
+        Some(Source::from_named_path(absolute_path, source))
     }
 
-    pub fn load_module_source(
+    pub fn load_source(
         import_path: &ImportPath,
         current_path: &Path,
         search_paths: &[PathBuf],
-    ) -> Option<ModuleSource> {
+    ) -> Option<Source> {
         log(LogLevel::Debug, || format!("Importing {}", import_path));
         let resolved_path = resolve_path(import_path, current_path, search_paths)?;
         let source = read_source(&resolved_path);
 
         if let Some(source) = source {
-            Some(ModuleSource::new(
+            Some(Source::from_path(
                 &import_path.as_str(),
                 resolved_path,
                 source,

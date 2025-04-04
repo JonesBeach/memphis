@@ -4,22 +4,20 @@ use crate::{
     ast,
     bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
     core::{Container, InterpreterEntrypoint},
+    domain::Source,
     lexer::Lexer,
     parser::{
         types::{Ast, ParseNode},
         Parser,
     },
-    treewalk::{
-        module_loader,
-        types::{ExprResult, Module},
-        Interpreter, ModuleSource, State,
-    },
+    runtime::MemphisState,
+    treewalk::{module_loader, types::ExprResult, Interpreter, TreewalkState},
     types::errors::{MemphisError, ParserError},
 };
 
 pub struct MemphisContext {
-    // TODO this shouldn't need to be public, we're using it in a few tests atm
-    pub state: Container<State>,
+    source: Source,
+    state: Container<MemphisState>,
     lexer: Lexer,
     interpreter: Option<Interpreter>,
     vm_interpreter: Option<VmInterpreter>,
@@ -27,7 +25,7 @@ pub struct MemphisContext {
 
 impl Default for MemphisContext {
     fn default() -> Self {
-        Self::from_module(ModuleSource::default())
+        Self::from_module(Source::default())
     }
 }
 
@@ -36,45 +34,60 @@ impl MemphisContext {
     where
         P: AsRef<Path> + Display,
     {
-        let module_source = module_loader::load_root_module_source(filepath.as_ref())
-            .unwrap_or_else(|| {
-                eprintln!("Error reading file: {}", filepath);
-                process::exit(1);
-            });
-        Self::from_module(module_source)
+        let source = module_loader::load_root_source(filepath.as_ref()).unwrap_or_else(|| {
+            eprintln!("Error reading file: {}", filepath);
+            process::exit(1);
+        });
+        Self::from_module(source)
     }
 
     pub fn from_text(text: &str) -> Self {
-        let module_source = ModuleSource::from_text(text);
-        Self::from_module(module_source)
+        let source = Source::from_text(text);
+        Self::from_module(source)
     }
 
-    pub fn from_module_with_state(module_source: ModuleSource, state: Container<State>) -> Self {
-        state.push_module_source(module_source.clone());
-        let mut lexer = Lexer::default();
-        // empty ModuleSource can occur in REPL mode
-        if module_source.has_text() {
-            lexer
-                .add_line(module_source.text())
-                .expect("Failed to add line to lexer");
-        }
-        Self::new(state, lexer)
-    }
+    /// Initialize a context from a [`Source`] and existing treewalk state.
+    pub fn from_module_from_treewalk(
+        source: Source,
+        memphis_state: Container<MemphisState>,
+        treewalk_state: Container<TreewalkState>,
+    ) -> Self {
+        let lexer = Self::init_lexer(&source);
 
-    fn from_module(module_source: ModuleSource) -> Self {
-        let state = State::from_source(module_source.clone());
-        Self::from_module_with_state(module_source, state)
-    }
-
-    /// This is the base constructor but it isn't public because there are other entry points for
-    /// that.
-    fn new(state: Container<State>, lexer: Lexer) -> Self {
         Self {
+            source,
+            state: memphis_state,
+            lexer,
+            interpreter: Some(Interpreter::new(treewalk_state)),
+            vm_interpreter: None,
+        }
+    }
+
+    /// Given a [`Source`], setup a context which can be used for any execution engines.
+    fn from_module(source: Source) -> Self {
+        let lexer = Self::init_lexer(&source);
+        let state = MemphisState::from_source(&source);
+
+        Self {
+            source,
             state,
             lexer,
             interpreter: None,
             vm_interpreter: None,
         }
+    }
+
+    fn init_lexer(source: &Source) -> Lexer {
+        let mut lexer = Lexer::default();
+
+        // empty Source can occur in REPL mode
+        if source.has_text() {
+            lexer
+                .add_line(source.text())
+                .expect("Failed to add line to lexer");
+        }
+
+        lexer
     }
 
     /// Parse a single [`ParseNode`]. This cannot be used for multiple parse calls.
@@ -162,16 +175,14 @@ impl MemphisContext {
 
     fn ensure_treewalk_initialized(&mut self) {
         if self.interpreter.is_none() {
-            let module_source = self.state.current_module_source();
-            self.state.push_stack_frame(&*module_source);
-            self.state
-                .push_module(Container::new(Module::new(*module_source)));
-            let interpreter = Interpreter::new(self.state.clone());
+            let treewalk_state =
+                TreewalkState::from_source_state(self.state.clone(), self.source.clone());
+            let interpreter = Interpreter::new(treewalk_state);
             self.interpreter = Some(interpreter);
         }
     }
 
     fn init_vm_interpreter(&self) -> VmInterpreter {
-        VmInterpreter::new(self.state.clone())
+        VmInterpreter::new(self.state.clone(), self.source.clone())
     }
 }

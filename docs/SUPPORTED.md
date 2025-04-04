@@ -18,7 +18,7 @@
 |Comments|✅|✅|
 |Floating point|✅||
 |Negative numbers|✅||
-|Stack traces|✅||
+|Stack traces|✅|✅|
 |Lists (and list comprehension)|✅||
 |Sets (and set comprehension)|✅||
 |Dictionaries (and dict comprehension)|✅||

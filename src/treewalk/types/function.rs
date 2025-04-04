@@ -11,7 +11,7 @@ use crate::{
         types::{Ast, Closure, Expr, Params},
     },
     resolved_args,
-    treewalk::{interpreter::TreewalkResult, Interpreter, Scope, State},
+    treewalk::{interpreter::TreewalkResult, Interpreter, Scope, TreewalkState},
 };
 
 use super::{
@@ -96,7 +96,7 @@ impl ToDebugStackFrame for Function {
 
 impl Function {
     pub fn new(
-        state: Container<State>,
+        state: Container<TreewalkState>,
         name: &str,
         args: Params,
         body: Ast,
@@ -126,12 +126,12 @@ impl Function {
         }
     }
 
-    pub fn new_lambda(state: Container<State>, args: Params, body: Ast) -> Self {
+    pub fn new_lambda(state: Container<TreewalkState>, args: Params, body: Ast) -> Self {
         // TODO add line number
         Self::new(state, "<lambda>", args, body, &[], false, 1)
     }
 
-    pub fn new_anonymous_generator(state: Container<State>, body: Ast) -> Self {
+    pub fn new_anonymous_generator(state: Container<TreewalkState>, body: Ast) -> Self {
         // TODO add line number
         Self::new(
             state,

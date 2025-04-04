@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+};
 
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
-use super::{evaluators, Scope, State};
 use crate::{
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind},
@@ -17,13 +18,17 @@ use crate::{
         Parser,
     },
     resolved_args,
-    treewalk::types::{
-        domain::traits::{Callable, MemberReader},
-        function::FunctionType,
-        iterators::GeneratorIterator,
-        utils::ResolvedArguments,
-        Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
-        Tuple,
+    treewalk::{
+        evaluators,
+        types::{
+            domain::traits::{Callable, MemberReader},
+            function::FunctionType,
+            iterators::GeneratorIterator,
+            utils::ResolvedArguments,
+            Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
+            Tuple,
+        },
+        Scope, TreewalkState,
     },
     types::errors::MemphisError,
 };
@@ -48,15 +53,16 @@ pub type TreewalkResult<T> = Result<T, TreewalkDisruption>;
 
 #[derive(Clone)]
 pub struct Interpreter {
-    pub state: Container<State>,
+    pub state: Container<TreewalkState>,
 }
 
 impl Interpreter {
-    pub fn new(state: Container<State>) -> Self {
+    pub fn new(state: Container<TreewalkState>) -> Self {
         Interpreter { state }
     }
 
     pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
+        self.state.save_line_number();
         TreewalkDisruption::Error(ExecutionError::new(
             self.state.debug_call_stack(),
             error_kind,
@@ -68,60 +74,35 @@ impl Interpreter {
     }
 
     pub fn type_error_optional_message(&self, message: Option<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::TypeError(message),
-        ))
+        self.error(ExecutionErrorKind::TypeError(message))
     }
 
     pub fn value_error(&self, message: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::ValueError(message.into()),
-        ))
+        self.error(ExecutionErrorKind::ValueError(message.into()))
     }
 
     pub fn key_error(&self, key: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::KeyError(key.into()),
-        ))
+        self.error(ExecutionErrorKind::KeyError(key.into()))
     }
 
     pub fn name_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        self.state.save_line_number();
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::NameError(name.into()),
-        ))
+        self.error(ExecutionErrorKind::NameError(name.into()))
     }
 
     pub fn import_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::ImportError(name.into()),
-        ))
+        self.error(ExecutionErrorKind::ImportError(name.into()))
     }
 
     pub fn runtime_error(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::RuntimeError,
-        ))
+        self.error(ExecutionErrorKind::RuntimeError)
     }
 
     pub fn assertion_error(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::AssertionError,
-        ))
+        self.error(ExecutionErrorKind::AssertionError)
     }
 
     pub fn stop_iteration(&self) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::StopIteration,
-        ))
+        self.error(ExecutionErrorKind::StopIteration)
     }
 
     pub fn attribute_error(
@@ -129,12 +110,9 @@ impl Interpreter {
         object: ExprResult,
         attr: impl Into<String>,
     ) -> TreewalkDisruption {
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            ExecutionErrorKind::AttributeError(
-                object.get_class(self).borrow().name().to_string(),
-                attr.into(),
-            ),
+        self.error(ExecutionErrorKind::AttributeError(
+            object.get_class(self).borrow().name().to_string(),
+            attr.into(),
         ))
     }
 
@@ -180,6 +158,9 @@ impl Interpreter {
         self.state
             .push_captured_env(function.borrow().captured_env.clone());
         self.state.push_local(scope);
+
+        // If we don't save the current line number, we won't properly record where in the current
+        // file we called the next function from.
         self.state.save_line_number();
         self.state.push_stack_frame(&*function.borrow());
         self.state.push_function(function.clone());

@@ -8,7 +8,7 @@ use crate::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
             ExprResult, Function,
         },
-        Interpreter, Scope, State,
+        Interpreter, Scope, TreewalkState,
     },
 };
 
@@ -28,7 +28,7 @@ impl Generator {
     }
 
     pub fn new_from_comprehension(
-        state: Container<State>,
+        state: Container<TreewalkState>,
         body: &Expr,
         clauses: &[ForClause],
     ) -> Self {

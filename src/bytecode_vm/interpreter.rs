@@ -1,8 +1,9 @@
 use crate::{
     bytecode_vm::{types::Value, Compiler, VirtualMachine},
     core::{log, Container, InterpreterEntrypoint, LogLevel},
+    domain::Source,
     parser::Parser,
-    treewalk::State,
+    runtime::MemphisState,
     types::errors::MemphisError,
 };
 
@@ -15,9 +16,9 @@ pub struct VmInterpreter {
 }
 
 impl VmInterpreter {
-    pub fn new(state: Container<State>) -> Self {
+    pub fn new(state: Container<MemphisState>, source: Source) -> Self {
         Self {
-            compiler: Compiler::new(state.clone()),
+            compiler: Compiler::new(source),
             vm: VirtualMachine::new(state),
         }
     }
@@ -35,7 +36,7 @@ impl VmInterpreter {
 
 impl Default for VmInterpreter {
     fn default() -> Self {
-        Self::new(Container::new(State::default()))
+        Self::new(Container::new(MemphisState::default()), Source::default())
     }
 }
 
@@ -61,7 +62,7 @@ mod vm_interpreter_tests {
     };
 
     fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
+        MemphisContext::from_text(text.trim())
     }
 
     fn init_path(path: &str) -> MemphisContext {
@@ -420,26 +421,26 @@ middle_call()
 "#;
         let mut context = init(text);
         let e = run_expect_error(&mut context);
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("unknown".to_string()));
+        test_utils::assert_name_error(&e, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
         assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
-        assert_eq!(call_stack.get(0).line_number(), 8);
+        assert_eq!(call_stack.get(0).line_number(), 7);
         assert_eq!(call_stack.get(1).name(), "middle_call");
         assert_eq!(call_stack.get(1).file_path_str(), "<stdin>");
-        assert_eq!(call_stack.get(1).line_number(), 3);
+        assert_eq!(call_stack.get(1).line_number(), 2);
         assert_eq!(call_stack.get(2).name(), "last_call");
         assert_eq!(call_stack.get(2).file_path_str(), "<stdin>");
-        assert_eq!(call_stack.get(2).line_number(), 6);
+        assert_eq!(call_stack.get(2).line_number(), 5);
     }
 
     #[test]
     fn stack_trace_from_file() {
         let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
         let e = run_expect_error(&mut context);
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("unknown".to_string()));
+        test_utils::assert_name_error(&e, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);

@@ -3,7 +3,10 @@ use std::{
     path::Path,
 };
 
-use crate::{bytecode_vm::opcode::Opcode, domain::Dunder, treewalk::ModuleSource};
+use crate::{
+    bytecode_vm::opcode::Opcode,
+    domain::{Dunder, Source},
+};
 
 pub type Bytecode = Vec<Opcode>;
 
@@ -92,34 +95,30 @@ pub struct CodeObject {
     /// Non-local identifiers
     pub names: Vec<String>,
 
-    // this may not be the right thing here? We don't really need a full module source
-    pub module_source: ModuleSource,
+    // this may not be the right thing here? We don't really need a full source
+    pub source: Source,
     pub line_map: Vec<(usize, usize)>,
 }
 
 impl CodeObject {
     const DEFAULT_NAME: Dunder = Dunder::Main;
 
-    pub fn new_root(module_source: ModuleSource) -> Self {
-        Self::with_args(None, &[], module_source)
+    pub fn new_root(source: Source) -> Self {
+        Self::with_args(None, &[], source)
     }
 
-    pub fn new(name: &str, module_source: ModuleSource) -> Self {
-        Self::with_args(Some(name.to_string()), &[], module_source)
+    pub fn new(name: &str, source: Source) -> Self {
+        Self::with_args(Some(name.to_string()), &[], source)
     }
 
-    pub fn with_args(
-        name: Option<String>,
-        varnames: &[String],
-        module_source: ModuleSource,
-    ) -> Self {
+    pub fn with_args(name: Option<String>, varnames: &[String], source: Source) -> Self {
         Self {
             name,
             bytecode: vec![],
             arg_count: varnames.len(),
             varnames: varnames.to_vec(),
             names: vec![],
-            module_source,
+            source,
             line_map: vec![],
         }
     }
@@ -131,11 +130,11 @@ impl CodeObject {
     pub fn context(&self) -> &str {
         self.name
             .as_deref()
-            .unwrap_or_else(|| self.module_source.context())
+            .unwrap_or_else(|| self.source.context())
     }
 
     pub fn path(&self) -> &Path {
-        self.module_source.display_path()
+        self.source.display_path()
     }
 
     pub fn get_line_number(&self, pc: usize) -> usize {
