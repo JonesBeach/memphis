@@ -878,10 +878,7 @@ impl From<TreewalkValue> for MemphisValue {
                     .collect::<Vec<MemphisValue>>();
                 MemphisValue::List(items)
             }
-            _ => unimplemented!(
-                "Conversion to TestValue not implemented for type '{}'",
-                value.get_type()
-            ),
+            _ => unimplemented!("Conversion not implemented for type '{}'", value.get_type()),
         }
     }
 }

@@ -9,10 +9,10 @@ pub struct Memphis;
 impl Memphis {
     pub fn start(filepath: &str, engine: Engine) {
         match engine {
-            Engine::TreeWalk => {
+            Engine::Treewalk => {
                 let mut context = MemphisContext::from_path(filepath);
 
-                match context.evaluate() {
+                match context.run_treewalk() {
                     Ok(_) => {}
                     Err(err) => memphis_utils::exit(err),
                 }

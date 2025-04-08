@@ -11,6 +11,7 @@ use crate::{
     core::Voidable,
     init::{MemphisContext, TerminalIO},
     types::errors::MemphisError,
+    Engine,
 };
 
 type ExitCode = i32;
@@ -79,9 +80,11 @@ pub struct Repl {
 impl Repl {
     /// The primary entrypoint to the REPL.
     pub fn run<T: TerminalIO>(&mut self, terminal_io: &mut T) {
+        let engine = Engine::from_env();
         let _ = terminal_io.writeln(format!(
-            "memphis {} REPL (Type 'exit()' to quit)",
-            env!("CARGO_PKG_VERSION")
+            "memphis {} REPL (engine: {}) (Type 'exit()' to quit)",
+            env!("CARGO_PKG_VERSION"),
+            engine
         ));
 
         // Enable raw mode to handle individual keypresses. This must be disabled during all
@@ -90,7 +93,7 @@ impl Repl {
         let _ = terminal::enable_raw_mode();
         self.initialize_prompt(terminal_io);
 
-        let exit_code = self.run_inner(terminal_io);
+        let exit_code = self.run_inner(terminal_io, engine);
 
         let _ = terminal::disable_raw_mode();
         let _ = panic::take_hook();
@@ -98,13 +101,13 @@ impl Repl {
         process::exit(exit_code);
     }
 
-    pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T) -> ExitCode {
+    pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T, engine: Engine) -> ExitCode {
         let mut context = MemphisContext::default();
 
         loop {
             match terminal_io.read_event() {
                 Ok(Event::Key(event)) => {
-                    match self.handle_key_event(terminal_io, &mut context, event) {
+                    match self.handle_key_event(terminal_io, &mut context, engine, event) {
                         ReplControl::Continue => {}
                         ReplControl::Exit(code) => break code,
                     }
@@ -120,6 +123,7 @@ impl Repl {
         &mut self,
         terminal_io: &mut T,
         context: &mut MemphisContext,
+        engine: Engine,
         event: KeyEvent,
     ) -> ReplControl {
         match (event.code, event.modifiers) {
@@ -158,7 +162,7 @@ impl Repl {
                 // We must virtually hit Enter before processing the line so any results will be
                 // displayed on the next line.
                 let _ = terminal_io.enter();
-                let control = self.process_line(terminal_io, context, &self.line.clone());
+                let control = self.process_line(terminal_io, context, engine, &self.line.clone());
                 if matches!(control, ReplControl::Exit(_)) {
                     return control;
                 }
@@ -270,6 +274,7 @@ impl Repl {
         &mut self,
         terminal_io: &mut T,
         context: &mut MemphisContext,
+        engine: Engine,
         line: &str,
     ) -> ReplControl {
         if line.trim_end() == "exit()" {
@@ -281,7 +286,7 @@ impl Repl {
 
         if self.end_of_statement(line) {
             context.add_line(&self.input);
-            match context.evaluate() {
+            match context.run(engine) {
                 Ok(result) => {
                     if !result.is_none() {
                         let _ = terminal_io.writeln(&result);
@@ -314,7 +319,7 @@ mod tests {
     use super::*;
 
     fn run_inner(terminal: &mut MockTerminalIO) -> (ExitCode, String) {
-        let exit_code = Repl::default().run_inner(terminal);
+        let exit_code = Repl::default().run_inner(terminal, Engine::Treewalk);
         (exit_code, terminal.return_val())
     }
 

@@ -4,7 +4,7 @@ use crate::{
     ast,
     bytecode_vm::{compiler::types::CompiledProgram, VmInterpreter, VmValue},
     core::{Container, InterpreterEntrypoint},
-    domain::Source,
+    domain::{MemphisValue, Source},
     lexer::Lexer,
     parser::{
         types::{Ast, ParseNode},
@@ -13,6 +13,7 @@ use crate::{
     runtime::MemphisState,
     treewalk::{module_loader, Interpreter, TreewalkState, TreewalkValue},
     types::errors::{MemphisError, ParserError},
+    Engine,
 };
 
 pub struct MemphisContext {
@@ -116,7 +117,7 @@ impl MemphisContext {
             .expect("Failed to add line to lexer");
     }
 
-    pub fn evaluate(&mut self) -> Result<TreewalkValue, MemphisError> {
+    pub fn run_treewalk(&mut self) -> Result<TreewalkValue, MemphisError> {
         self.ensure_treewalk_initialized();
 
         // Destructure to break the borrow into disjoint pieces
@@ -149,6 +150,15 @@ impl MemphisContext {
         self.vm_interpreter = Some(vm_interpreter);
 
         result
+    }
+
+    pub fn run(&mut self, engine: Engine) -> Result<MemphisValue, MemphisError> {
+        match engine {
+            Engine::Treewalk => Ok(self.run_treewalk()?.into()),
+            Engine::BytecodeVm => Ok(self.run_vm()?.into()),
+            #[cfg(feature = "llvm_backend")]
+            _ => unimplemented!(),
+        }
     }
 
     pub fn ensure_treewalk(&self) -> &Interpreter {

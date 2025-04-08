@@ -1418,7 +1418,7 @@ mod tests {
     }
 
     fn eval_inner(text: &str) -> Result<TreewalkValue, MemphisError> {
-        init(text).evaluate()
+        init(text).run_treewalk()
     }
 
     fn evaluate(text: &str) -> TreewalkValue {
@@ -1435,12 +1435,12 @@ mod tests {
 
     /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
     fn run<'a>(context: &'a mut MemphisContext) -> &'a Interpreter {
-        context.evaluate().expect("Treewalk evaluation failed!");
+        context.run_treewalk().expect("Treewalk evaluation failed!");
         context.ensure_treewalk()
     }
 
     fn run_expect_error(context: &mut MemphisContext) -> ExecutionError {
-        match context.evaluate() {
+        match context.run_treewalk() {
             Ok(_) => panic!("Expected an error!"),
             Err(MemphisError::Execution(e)) => return e,
             Err(_) => panic!("Expected an execution error!"),

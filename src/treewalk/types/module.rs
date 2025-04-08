@@ -58,7 +58,7 @@ impl Module {
             interpreter.state.clone(),
         );
 
-        match context.evaluate() {
+        match context.run_treewalk() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {

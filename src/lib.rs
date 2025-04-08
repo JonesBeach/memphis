@@ -35,7 +35,7 @@ mod wasm {
         set_once();
 
         let mut context = MemphisContext::from_text(&code);
-        let result = context.evaluate().expect("Failed to evaluate.");
+        let result = context.run_treewalk().expect("Failed to evaluate.");
         format!("{}", result)
     }
 }
