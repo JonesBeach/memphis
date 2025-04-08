@@ -127,7 +127,7 @@ impl MemphisContext {
 
         let interpreter = interpreter
             .as_mut()
-            .expect("Interpreter must be initialized before calling evaluate");
+            .expect("Interpreter must be initialized before use");
 
         // We create a new Parser each time because our parser just wraps a streaming view over the
         // current lexer.
@@ -136,20 +136,39 @@ impl MemphisContext {
     }
 
     pub fn compile(&mut self) -> Result<CompiledProgram, MemphisError> {
-        let mut vm_interpreter = self.init_vm_interpreter();
-        let mut parser = self.init_parser();
-        vm_interpreter.compile(&mut parser)
+        self.ensure_vm_initialized();
+
+        // Destructure to break the borrow into disjoint pieces
+        let MemphisContext {
+            lexer,
+            vm_interpreter,
+            ..
+        } = self;
+
+        let interpreter = vm_interpreter
+            .as_mut()
+            .expect("Interpreter must be initialized before use");
+
+        let mut parser = Parser::new(lexer);
+        interpreter.compile(&mut parser)
     }
 
     pub fn run_vm(&mut self) -> Result<VmValue, MemphisError> {
-        let mut vm_interpreter = self.init_vm_interpreter();
-        let mut parser = self.init_parser();
+        self.ensure_vm_initialized();
 
-        let result = vm_interpreter.run(&mut parser);
+        // Destructure to break the borrow into disjoint pieces
+        let MemphisContext {
+            lexer,
+            vm_interpreter,
+            ..
+        } = self;
 
-        self.vm_interpreter = Some(vm_interpreter);
+        let interpreter = vm_interpreter
+            .as_mut()
+            .expect("Interpreter must be initialized before use");
 
-        result
+        let mut parser = Parser::new(lexer);
+        interpreter.run(&mut parser)
     }
 
     pub fn run(&mut self, engine: Engine) -> Result<MemphisValue, MemphisError> {
@@ -187,12 +206,13 @@ impl MemphisContext {
         if self.interpreter.is_none() {
             let treewalk_state =
                 TreewalkState::from_source_state(self.state.clone(), self.source.clone());
-            let interpreter = Interpreter::new(treewalk_state);
-            self.interpreter = Some(interpreter);
+            self.interpreter = Some(Interpreter::new(treewalk_state));
         }
     }
 
-    fn init_vm_interpreter(&self) -> VmInterpreter {
-        VmInterpreter::new(self.state.clone(), self.source.clone())
+    fn ensure_vm_initialized(&mut self) {
+        if self.vm_interpreter.is_none() {
+            self.vm_interpreter = Some(VmInterpreter::new(self.state.clone(), self.source.clone()))
+        }
     }
 }
