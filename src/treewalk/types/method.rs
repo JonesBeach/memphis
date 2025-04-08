@@ -2,19 +2,17 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::Container,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
+    treewalk::{protocols::Callable, utils::Arguments, Interpreter, TreewalkResult, TreewalkValue},
 };
-
-use super::{domain::traits::Callable, utils::ResolvedArguments, ExprResult};
 
 #[derive(Debug, Clone)]
 pub struct Method {
-    receiver: ExprResult,
+    receiver: TreewalkValue,
     function: Container<Box<dyn Callable>>,
 }
 
 impl Method {
-    pub fn new(receiver: ExprResult, function: Container<Box<dyn Callable>>) -> Self {
+    pub fn new(receiver: TreewalkValue, function: Container<Box<dyn Callable>>) -> Self {
         Self { receiver, function }
     }
 
@@ -22,17 +20,13 @@ impl Method {
         format!("{} of {}", self.function.borrow().name(), &self.receiver)
     }
 
-    pub fn receiver(&self) -> ExprResult {
+    pub fn receiver(&self) -> TreewalkValue {
         self.receiver.clone()
     }
 }
 
 impl Callable for Container<Method> {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         interpreter
             .state
             .push_receiver(self.borrow().receiver.clone());
@@ -46,7 +40,7 @@ impl Callable for Container<Method> {
         self.borrow().name()
     }
 
-    fn receiver(&self) -> Option<ExprResult> {
+    fn receiver(&self) -> Option<TreewalkValue> {
         Some(self.borrow().receiver())
     }
 }

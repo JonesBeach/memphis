@@ -6,6 +6,7 @@ use std::{
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
 use crate::{
+    args,
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind},
     parser::{
@@ -17,39 +18,18 @@ use crate::{
         },
         Parser,
     },
-    resolved_args,
     treewalk::{
         evaluators,
+        protocols::{Callable, MemberReader},
         types::{
-            domain::traits::{Callable, MemberReader},
-            function::FunctionType,
-            iterators::GeneratorIterator,
-            utils::ResolvedArguments,
-            Class, Coroutine, Dict, ExprResult, Function, Generator, List, Module, Set, Slice, Str,
-            Tuple,
+            function::FunctionType, iterators::GeneratorIterator, Class, Coroutine, Dict, Function,
+            Generator, List, Module, Set, Slice, Str, Tuple,
         },
-        Scope, TreewalkState,
+        utils::Arguments,
+        Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState, TreewalkValue,
     },
     types::errors::MemphisError,
 };
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum TreewalkDisruption {
-    Signal(TreewalkSignal), // Control flow (not errors)
-    Error(ExecutionError),  // Actual Python runtime errors
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum TreewalkSignal {
-    Return(ExprResult),
-    Raise,
-    Await,
-    Sleep,
-    Break,
-    Continue,
-}
-
-pub type TreewalkResult<T> = Result<T, TreewalkDisruption>;
 
 #[derive(Clone)]
 pub struct Interpreter {
@@ -107,7 +87,7 @@ impl Interpreter {
 
     pub fn attribute_error(
         &self,
-        object: ExprResult,
+        object: TreewalkValue,
         attr: impl Into<String>,
     ) -> TreewalkDisruption {
         self.error(ExecutionErrorKind::AttributeError(
@@ -119,8 +99,8 @@ impl Interpreter {
     pub fn call(
         &self,
         callable: Container<Box<dyn Callable>>,
-        arguments: &ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+        arguments: &Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         let mut bound_args = arguments.clone();
         if let Some(receiver) = callable.borrow().receiver() {
             bound_args.bind(receiver);
@@ -136,8 +116,8 @@ impl Interpreter {
     pub fn call_function(
         &self,
         name: &str,
-        arguments: &ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+        arguments: &Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         let function = self.read_callable(name)?;
         self.call_function_inner(function, arguments)
     }
@@ -146,7 +126,7 @@ impl Interpreter {
         &self,
         function: Container<Function>,
         scope: Container<Scope>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let cross_module = !self
             .state
             .current_module()
@@ -188,7 +168,7 @@ impl Interpreter {
 
     pub fn resolve_method<S>(
         &self,
-        receiver: ExprResult,
+        receiver: TreewalkValue,
         name: S,
     ) -> TreewalkResult<Container<Box<dyn Callable>>>
     where
@@ -201,10 +181,10 @@ impl Interpreter {
 
     pub fn invoke_method<S>(
         &self,
-        receiver: ExprResult,
+        receiver: TreewalkValue,
         name: S,
-        arguments: &ResolvedArguments,
-    ) -> TreewalkResult<ExprResult>
+        arguments: &Arguments,
+    ) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
     {
@@ -231,8 +211,8 @@ impl Interpreter {
     fn call_function_inner(
         &self,
         function: Container<Box<dyn Callable>>,
-        arguments: &ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+        arguments: &Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         let function_type = function.borrow().function_type();
         match function_type {
             FunctionType::Generator => {
@@ -247,7 +227,7 @@ impl Interpreter {
                 let scope = Scope::new(self, &function, arguments)?;
                 let generator_function = Generator::new(scope, function);
                 let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
-                Ok(ExprResult::Generator(Container::new(generator_iterator)))
+                Ok(TreewalkValue::Generator(Container::new(generator_iterator)))
             }
             FunctionType::Async => {
                 let function = function
@@ -258,7 +238,7 @@ impl Interpreter {
                     .ok_or_else(|| self.type_error("Expected a function"))?;
                 let scope = Scope::new(self, &function, arguments)?;
                 let coroutine = Coroutine::new(scope, function);
-                Ok(ExprResult::Coroutine(Container::new(coroutine)))
+                Ok(TreewalkValue::Coroutine(Container::new(coroutine)))
             }
             FunctionType::Regular => self.call(function, arguments),
         }
@@ -268,7 +248,7 @@ impl Interpreter {
     // End of higher-order functions
     // -----------------------------
 
-    pub fn write_loop_index(&self, index: &LoopIndex, value: ExprResult) {
+    pub fn write_loop_index(&self, index: &LoopIndex, value: TreewalkValue) {
         match index {
             LoopIndex::Variable(var) => {
                 self.state.write(var, value);
@@ -289,9 +269,9 @@ impl Interpreter {
 
     pub fn read_index(
         &self,
-        object: &ExprResult,
-        index: &ExprResult,
-    ) -> TreewalkResult<ExprResult> {
+        object: &TreewalkValue,
+        index: &TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
         object
             .as_index_read(self)
             .ok_or_else(|| {
@@ -306,20 +286,20 @@ impl Interpreter {
 
     fn evaluate_binary_operation_inner(
         &self,
-        left: ExprResult,
+        left: TreewalkValue,
         op: &BinOp,
-        right: ExprResult,
-    ) -> TreewalkResult<ExprResult> {
+        right: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
         if matches!(op, BinOp::In) {
             if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(ExprResult::Boolean(iterable.contains(left)));
+                return Ok(TreewalkValue::Boolean(iterable.contains(left)));
             }
             return Err(self.type_error("Expected an iterable"));
         }
 
         if matches!(op, BinOp::NotIn) {
             if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(ExprResult::Boolean(!iterable.contains(left)));
+                return Ok(TreewalkValue::Boolean(!iterable.contains(left)));
             }
             return Err(self.type_error("Expected an iterable"));
         }
@@ -345,7 +325,7 @@ impl Interpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.invoke_method(left, &dunder, &resolved_args![right])
+            self.invoke_method(left, &dunder, &args![right])
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
@@ -353,9 +333,9 @@ impl Interpreter {
 
     fn evaluate_member_access_inner<S>(
         &self,
-        result: &ExprResult,
+        result: &TreewalkValue,
         field: S,
-    ) -> TreewalkResult<ExprResult>
+    ) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
     {
@@ -372,7 +352,7 @@ impl Interpreter {
     // End of medium-order functions
     // -----------------------------
 
-    fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<ExprResult> {
+    fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<TreewalkValue> {
         // is this useful? is it valuable to read a module directly from the scope as opposed from
         // the module cache
         if let Some(module) = self.state.read(&import_path.as_str()) {
@@ -384,10 +364,14 @@ impl Interpreter {
             return Ok(result);
         }
 
-        Ok(ExprResult::Module(Module::import(self, import_path)?))
+        Ok(TreewalkValue::Module(Module::import(self, import_path)?))
     }
 
-    fn evaluate_unary_operation(&self, op: &UnaryOp, right: &Expr) -> TreewalkResult<ExprResult> {
+    fn evaluate_unary_operation(
+        &self,
+        op: &UnaryOp,
+        right: &Expr,
+    ) -> TreewalkResult<TreewalkValue> {
         let right = self.evaluate_expr(right)?;
         evaluators::evaluate_unary_operation(op, right, self)
     }
@@ -397,7 +381,7 @@ impl Interpreter {
         condition: &Expr,
         if_value: &Expr,
         else_value: &Expr,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         if self.evaluate_expr(condition)?.as_boolean() {
             self.evaluate_expr(if_value)
         } else {
@@ -410,7 +394,7 @@ impl Interpreter {
         left: &Expr,
         op: &LogicalOp,
         right: &Expr,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let left = self.evaluate_expr(left)?.as_boolean();
         let right = self.evaluate_expr(right)?.as_boolean();
         evaluators::evaluate_logical_op(left, op, right)
@@ -421,14 +405,14 @@ impl Interpreter {
         left: &Expr,
         op: &BinOp,
         right: &Expr,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let left = self.evaluate_expr(left)?;
         let right = self.evaluate_expr(right)?;
 
         self.evaluate_binary_operation_inner(left, op, right)
     }
 
-    fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<ExprResult>
+    fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
     {
@@ -440,29 +424,29 @@ impl Interpreter {
         &self,
         object: &Expr,
         params: &SliceParams,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let object_result = self.evaluate_expr(object)?;
         let slice = Slice::resolve(self, params)?;
 
-        self.read_index(&object_result, &ExprResult::Slice(slice))
+        self.read_index(&object_result, &TreewalkValue::Slice(slice))
     }
 
-    fn evaluate_index_access(&self, object: &Expr, index: &Expr) -> TreewalkResult<ExprResult> {
+    fn evaluate_index_access(&self, object: &Expr, index: &Expr) -> TreewalkResult<TreewalkValue> {
         let object_result = self.evaluate_expr(object)?;
         let index_result = self.evaluate_expr(index)?;
 
         self.read_index(&object_result, &index_result)
     }
 
-    fn evaluate_list(&self, items: &[Expr]) -> TreewalkResult<ExprResult> {
+    fn evaluate_list(&self, items: &[Expr]) -> TreewalkResult<TreewalkValue> {
         items
             .iter()
             .map(|arg| self.evaluate_expr(arg))
             .collect::<Result<Vec<_>, _>>()
-            .map(|l| ExprResult::List(Container::new(List::new(l))))
+            .map(|l| TreewalkValue::List(Container::new(List::new(l))))
     }
 
-    fn evaluate_tuple(&self, items: &[Expr]) -> TreewalkResult<ExprResult> {
+    fn evaluate_tuple(&self, items: &[Expr]) -> TreewalkResult<TreewalkValue> {
         let mut results = vec![];
         for item in items {
             let evaluated = self.evaluate_expr(item)?;
@@ -484,21 +468,21 @@ impl Interpreter {
             }
         }
 
-        Ok(ExprResult::Tuple(Tuple::new(results)))
+        Ok(TreewalkValue::Tuple(Tuple::new(results)))
     }
 
-    fn evaluate_set(&self, items: &HashSet<Expr>) -> TreewalkResult<ExprResult> {
+    fn evaluate_set(&self, items: &HashSet<Expr>) -> TreewalkResult<TreewalkValue> {
         items
             .iter()
             .map(|arg| self.evaluate_expr(arg))
             .collect::<Result<HashSet<_>, _>>()
             .map(Set::new)
             .map(Container::new)
-            .map(ExprResult::Set)
+            .map(TreewalkValue::Set)
     }
 
-    fn evaluate_dict(&self, dict_ops: &[DictOperation]) -> TreewalkResult<ExprResult> {
-        // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
+    fn evaluate_dict(&self, dict_ops: &[DictOperation]) -> TreewalkResult<TreewalkValue> {
+        // TODO we are suppressing this clippy error for now because `TreewalkValue` allows interior
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
         let mut result = HashMap::new();
@@ -516,10 +500,10 @@ impl Interpreter {
                 }
             }
         }
-        Ok(ExprResult::Dict(Container::new(Dict::new(self, result))))
+        Ok(TreewalkValue::Dict(Container::new(Dict::new(self, result))))
     }
 
-    fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<ExprResult> {
+    fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<TreewalkValue> {
         let coroutine_to_await = self.evaluate_expr(expr)?.expect_coroutine(self)?;
 
         if let Some(result) = coroutine_to_await.clone().borrow().is_finished() {
@@ -575,7 +559,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_return(&self, exprs: &[Expr]) -> TreewalkResult<ExprResult> {
+    fn evaluate_return(&self, exprs: &[Expr]) -> TreewalkResult<TreewalkValue> {
         assert!(!exprs.is_empty());
 
         let results = exprs
@@ -584,7 +568,7 @@ impl Interpreter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let return_val = if results.len() > 1 {
-            ExprResult::Tuple(Tuple::new(results))
+            TreewalkValue::Tuple(Tuple::new(results))
         } else {
             results[0].clone()
         };
@@ -602,7 +586,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate_f_string(&self, parts: &[FStringPart]) -> TreewalkResult<ExprResult> {
+    fn evaluate_f_string(&self, parts: &[FStringPart]) -> TreewalkResult<TreewalkValue> {
         let mut result = String::new();
         for part in parts {
             match part {
@@ -616,12 +600,12 @@ impl Interpreter {
             }
         }
 
-        Ok(ExprResult::String(Str::new(result)))
+        Ok(TreewalkValue::String(Str::new(result)))
     }
 
-    fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<ExprResult> {
+    fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
         ast.iter()
-            .try_fold(ExprResult::None, |_, stmt| self.evaluate_statement(stmt))
+            .try_fold(TreewalkValue::None, |_, stmt| self.evaluate_statement(stmt))
     }
 
     fn evaluate_function_call(
@@ -629,8 +613,8 @@ impl Interpreter {
         name: &str,
         arguments: &CallArgs,
         callee: &Option<Box<Expr>>,
-    ) -> TreewalkResult<ExprResult> {
-        let arguments = ResolvedArguments::from(self, arguments)?;
+    ) -> TreewalkResult<TreewalkValue> {
+        let arguments = Arguments::from(self, arguments)?;
 
         let function = if let Some(callee) = callee {
             self.evaluate_expr(callee)?.expect_callable(self)?
@@ -646,11 +630,11 @@ impl Interpreter {
         obj: &Expr,
         name: S,
         arguments: &CallArgs,
-    ) -> TreewalkResult<ExprResult>
+    ) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
     {
-        let arguments = ResolvedArguments::from(self, arguments)?;
+        let arguments = Arguments::from(self, arguments)?;
         let result = self.evaluate_expr(obj)?;
 
         self.invoke_method(result, name, &arguments)
@@ -660,7 +644,7 @@ impl Interpreter {
         &self,
         name: &str,
         arguments: &CallArgs,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         log(LogLevel::Debug, || format!("Instantiating: {}", name));
         log(LogLevel::Trace, || {
             format!("... from module: {}", self.state.current_module())
@@ -676,7 +660,7 @@ impl Interpreter {
         }
 
         let class = self.read_callable(name)?;
-        let arguments = ResolvedArguments::from(self, arguments)?;
+        let arguments = Arguments::from(self, arguments)?;
         self.call(class, &arguments)
     }
 
@@ -693,7 +677,7 @@ impl Interpreter {
 
     /// Assignment functionality shared by traditional assignment such as `a = 1` and compound
     /// assignment such as `a += 1`.
-    fn evaluate_assignment_inner(&self, name: &Expr, value: ExprResult) -> TreewalkResult<()> {
+    fn evaluate_assignment_inner(&self, name: &Expr, value: TreewalkValue) -> TreewalkResult<()> {
         match name {
             Expr::Variable(name) => {
                 self.state.write(name, value.clone());
@@ -764,7 +748,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_lambda(&self, arguments: &Params, expr: &Expr) -> TreewalkResult<ExprResult> {
+    fn evaluate_lambda(&self, arguments: &Params, expr: &Expr) -> TreewalkResult<TreewalkValue> {
         let block = Ast::from_expr(expr.clone());
 
         let function = Container::new(Function::new_lambda(
@@ -773,7 +757,7 @@ impl Interpreter {
             block,
         ));
 
-        Ok(ExprResult::Function(function))
+        Ok(TreewalkValue::Function(function))
     }
 
     fn evaluate_function_def(
@@ -847,7 +831,7 @@ impl Interpreter {
             .borrow()
             .clone();
 
-        self.state.write(name, ExprResult::Class(class));
+        self.state.write(name, TreewalkValue::Class(class));
 
         Ok(())
     }
@@ -901,17 +885,17 @@ impl Interpreter {
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let generator = Generator::new_from_comprehension(self.state.clone(), body, clauses);
         let iterator = GeneratorIterator::new(generator, self.clone());
-        Ok(ExprResult::Generator(Container::new(iterator)))
+        Ok(TreewalkValue::Generator(Container::new(iterator)))
     }
 
     fn evaluate_list_comprehension(
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         if let Some((first_clause, remaining_clauses)) = clauses.split_first() {
             // Recursive case: Process the first ForClause
             let mut output = vec![];
@@ -933,12 +917,12 @@ impl Interpreter {
                 // Recursively handle the rest of the clauses. If `remaining_clauses` is empty,
                 // we'll hit the base case on the next call.
                 match self.evaluate_list_comprehension(body, remaining_clauses)? {
-                    ExprResult::List(list) => output.extend(list),
+                    TreewalkValue::List(list) => output.extend(list),
                     single => output.push(single),
                 }
             }
 
-            Ok(ExprResult::List(Container::new(List::new(output))))
+            Ok(TreewalkValue::List(Container::new(List::new(output))))
         } else {
             // Base case: Evaluate the expression. We drop into this case when `clauses` is empty.
             self.evaluate_expr(body)
@@ -949,11 +933,11 @@ impl Interpreter {
         &self,
         body: &Expr,
         clauses: &[ForClause],
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         self.evaluate_list_comprehension(body, clauses)?
             .try_into()
             .map_err(|_| self.type_error("Expected a set"))
-            .map(ExprResult::Set)
+            .map(TreewalkValue::Set)
     }
 
     fn evaluate_dict_comprehension(
@@ -961,13 +945,13 @@ impl Interpreter {
         clauses: &[ForClause],
         key_body: &Expr,
         value_body: &Expr,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let first_clause = match clauses {
             [first] => first,
             _ => unimplemented!(),
         };
 
-        // TODO we are suppressing this clippy error for now because `ExprResult` allows interior
+        // TODO we are suppressing this clippy error for now because `TreewalkValue` allows interior
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
         let mut output = HashMap::new();
@@ -979,7 +963,7 @@ impl Interpreter {
             let value_result = self.evaluate_expr(value_body)?;
             output.insert(key_result, value_result);
         }
-        Ok(ExprResult::Dict(Container::new(Dict::new(self, output))))
+        Ok(TreewalkValue::Dict(Container::new(Dict::new(self, output))))
     }
 
     fn evaluate_for_in_loop(
@@ -1028,7 +1012,7 @@ impl Interpreter {
         import_path: &ImportPath,
         alias: &Option<String>,
     ) -> TreewalkResult<()> {
-        // A mutable ExprResult::Module that will be updated on each loop iteration
+        // A mutable TreewalkValue::Module that will be updated on each loop iteration
         let mut inner_module = self.evaluate_module_import(import_path)?;
 
         // This is a case where it's simpler if we have an alias: just make the module available
@@ -1049,7 +1033,7 @@ impl Interpreter {
             for segment in segments.iter().rev().take(segments.len() - 1) {
                 let mut new_outer_module = Module::default();
                 new_outer_module.insert(segment, inner_module);
-                inner_module = ExprResult::Module(Container::new(new_outer_module));
+                inner_module = TreewalkValue::Module(Container::new(new_outer_module));
             }
 
             self.state
@@ -1116,7 +1100,7 @@ impl Interpreter {
             return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
-        let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &resolved_args![])?;
+        let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &args![])?;
 
         if let Some(variable) = variable {
             self.state.write(variable, result);
@@ -1126,7 +1110,11 @@ impl Interpreter {
         self.invoke_method(
             expr_result.clone(),
             Dunder::Exit,
-            &resolved_args![ExprResult::None, ExprResult::None, ExprResult::None],
+            &args![
+                TreewalkValue::None,
+                TreewalkValue::None,
+                TreewalkValue::None
+            ],
         )?;
 
         // Return the exception if one is called.
@@ -1142,7 +1130,7 @@ impl Interpreter {
         }
 
         let instance = instance.as_ref().unwrap();
-        let args = ResolvedArguments::from(self, &instance.args)?;
+        let args = Arguments::from(self, &instance.args)?;
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
@@ -1175,7 +1163,7 @@ impl Interpreter {
             {
                 if let Some(alias) = &except_clause.alias {
                     self.state
-                        .write(alias, ExprResult::Exception(error.clone()));
+                        .write(alias, TreewalkValue::Exception(error.clone()));
                 }
 
                 match self.evaluate_ast(&except_clause.block) {
@@ -1237,20 +1225,20 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate_type_node(&self, type_node: &TypeNode) -> TreewalkResult<ExprResult> {
-        Ok(ExprResult::TypeNode(type_node.into()))
+    fn evaluate_type_node(&self, type_node: &TypeNode) -> TreewalkResult<TreewalkValue> {
+        Ok(TreewalkValue::TypeNode(type_node.into()))
     }
 
-    pub fn evaluate_expr(&self, expr: &Expr) -> TreewalkResult<ExprResult> {
+    pub fn evaluate_expr(&self, expr: &Expr) -> TreewalkResult<TreewalkValue> {
         match expr {
-            Expr::None => Ok(ExprResult::None),
-            Expr::Ellipsis => Ok(ExprResult::Ellipsis),
-            Expr::NotImplemented => Ok(ExprResult::NotImplemented),
-            Expr::Integer(value) => Ok(ExprResult::Integer(*value)),
-            Expr::FloatingPoint(value) => Ok(ExprResult::FloatingPoint(*value)),
-            Expr::Boolean(value) => Ok(ExprResult::Boolean(*value)),
-            Expr::StringLiteral(value) => Ok(ExprResult::String(Str::new(value.clone()))),
-            Expr::ByteStringLiteral(value) => Ok(ExprResult::Bytes(value.clone())),
+            Expr::None => Ok(TreewalkValue::None),
+            Expr::Ellipsis => Ok(TreewalkValue::Ellipsis),
+            Expr::NotImplemented => Ok(TreewalkValue::NotImplemented),
+            Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
+            Expr::FloatingPoint(value) => Ok(TreewalkValue::FloatingPoint(*value)),
+            Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
+            Expr::StringLiteral(value) => Ok(TreewalkValue::String(Str::new(value.clone()))),
+            Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
@@ -1305,7 +1293,7 @@ impl Interpreter {
         }
     }
 
-    pub fn evaluate_statement(&self, stmt: &Statement) -> TreewalkResult<ExprResult> {
+    pub fn evaluate_statement(&self, stmt: &Statement) -> TreewalkResult<TreewalkValue> {
         self.state.set_line_number(stmt.start_line);
 
         // These are the only types of statements that will return a value.
@@ -1389,15 +1377,15 @@ impl Interpreter {
         // Return an error if one is thrown, otherwise all statements will return None.
         result?;
 
-        Ok(ExprResult::None)
+        Ok(TreewalkValue::None)
     }
 }
 
 impl InterpreterEntrypoint for Interpreter {
-    type Return = ExprResult;
+    type Return = TreewalkValue;
 
     fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
-        let mut result = ExprResult::None;
+        let mut result = TreewalkValue::None;
         while !parser.is_finished() {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
             result = match self.evaluate_statement(&stmt) {
@@ -1416,11 +1404,9 @@ mod tests {
     use super::*;
     use crate::{
         ast,
-        domain::test_utils,
+        domain::{test_utils, Type},
         init::MemphisContext,
-        treewalk::types::{
-            domain::Type, ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet,
-        },
+        treewalk::types::{ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet},
     };
 
     fn init_path(path: &str) -> MemphisContext {
@@ -1431,11 +1417,11 @@ mod tests {
         MemphisContext::from_text(text)
     }
 
-    fn eval_inner(text: &str) -> Result<ExprResult, MemphisError> {
+    fn eval_inner(text: &str) -> Result<TreewalkValue, MemphisError> {
         init(text).evaluate()
     }
 
-    fn evaluate(text: &str) -> ExprResult {
+    fn evaluate(text: &str) -> TreewalkValue {
         eval_inner(text).expect("Failed to evaluate test string!")
     }
 
@@ -1465,11 +1451,11 @@ mod tests {
         Statement::new(1, kind)
     }
 
-    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<ExprResult> {
+    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<TreewalkValue> {
         interpreter.state.read(name)
     }
 
-    fn read(interpreter: &Interpreter, name: &str) -> ExprResult {
+    fn read(interpreter: &Interpreter, name: &str) -> TreewalkValue {
         read_optional(interpreter, name).expect("Failed to read var")
     }
 
@@ -1486,7 +1472,7 @@ mod tests {
 
     macro_rules! assert_type_is {
         ($interp:expr, $input:expr, $pattern:ident) => {
-            assert!(matches!(read($interp, $input), ExprResult::$pattern(_)));
+            assert!(matches!(read($interp, $input), TreewalkValue::$pattern(_)));
         };
     }
 
@@ -1499,7 +1485,7 @@ mod tests {
     macro_rules! extract {
         ($interp:expr, $input:expr, $variant:ident) => {{
             match read($interp, $input) {
-                ExprResult::$variant(v) => v,
+                TreewalkValue::$variant(v) => v,
                 _ => panic!("Expected {}: {}", stringify!($variant), $input),
             }
         }};
@@ -1522,37 +1508,37 @@ mod tests {
 
     macro_rules! str {
         ($input:expr) => {
-            ExprResult::String(Str::new($input.to_string()))
+            TreewalkValue::String(Str::new($input.to_string()))
         };
     }
 
     macro_rules! int {
         ($val:expr) => {
-            ExprResult::Integer($val)
+            TreewalkValue::Integer($val)
         };
     }
 
     macro_rules! float {
         ($val:expr) => {
-            ExprResult::FloatingPoint($val)
+            TreewalkValue::FloatingPoint($val)
         };
     }
 
     macro_rules! complex {
         ($real:expr, $imag:expr) => {
-            ExprResult::Complex(Complex::new($real, $imag))
+            TreewalkValue::Complex(Complex::new($real, $imag))
         };
     }
 
     macro_rules! bool {
         ($val:expr) => {
-            ExprResult::Boolean($val)
+            TreewalkValue::Boolean($val)
         };
     }
 
     macro_rules! list {
         ($($expr:expr),* $(,)?) => {
-            ExprResult::List(Container::new(List::new(vec![
+            TreewalkValue::List(Container::new(List::new(vec![
                 $($expr),*
             ])))
         };
@@ -1560,7 +1546,7 @@ mod tests {
 
     macro_rules! tuple {
         ($($expr:expr),* $(,)?) => {
-            ExprResult::Tuple(Tuple::new(vec![
+            TreewalkValue::Tuple(Tuple::new(vec![
                 $($expr),*
             ]))
         };
@@ -1568,7 +1554,7 @@ mod tests {
 
     macro_rules! set {
         ($($expr:expr),* $(,)?) => {
-            ExprResult::Set(Container::new(Set::new(HashSet::from([
+            TreewalkValue::Set(Container::new(Set::new(HashSet::from([
                 $($expr),*
             ]))))
         };
@@ -1576,7 +1562,7 @@ mod tests {
 
     macro_rules! dict {
         ($interp:expr, { $($key:expr => $value:expr),* $(,)? }) => {
-            ExprResult::Dict(Container::new(Dict::new(
+            TreewalkValue::Dict(Container::new(Dict::new(
                 $interp,
                 vec![
                     $(($key, $value)),*
@@ -1640,7 +1626,7 @@ c = None
 
         assert_eq!(read(interpreter, "a"), int!(14));
         assert_eq!(read(interpreter, "b"), int!(19));
-        assert_eq!(read(interpreter, "c"), ExprResult::None);
+        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
     }
 
     #[test]
@@ -2359,7 +2345,7 @@ t.extend([3,4])
         assert_eq!(read(interpreter, "a"), list![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            list![int!(1), ExprResult::FloatingPoint(2.1)]
+            list![int!(1), TreewalkValue::FloatingPoint(2.1)]
         );
         assert_eq!(read(interpreter, "c"), list![int!(1), int!(2)]);
         assert_eq!(read(interpreter, "d"), list![int!(1), int!(2)]);
@@ -2420,7 +2406,7 @@ l = {1} <= {2}
         assert_eq!(read(interpreter, "a"), set![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            set![ExprResult::FloatingPoint(2.1), int!(1),]
+            set![TreewalkValue::FloatingPoint(2.1), int!(1),]
         );
         assert_eq!(read(interpreter, "c"), set![int!(1), int!(2),]);
         assert_eq!(read(interpreter, "d"), set![int!(1), int!(2),]);
@@ -2462,7 +2448,7 @@ j = 9, 10
         assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2), int!(3),]);
         assert_eq!(
             read(interpreter, "b"),
-            tuple![int!(1), ExprResult::FloatingPoint(2.1)]
+            tuple![int!(1), TreewalkValue::FloatingPoint(2.1)]
         );
         assert_eq!(read(interpreter, "c"), tuple![int!(1), int!(2)]);
         assert_eq!(read(interpreter, "d"), tuple![int!(1), int!(2)]);
@@ -3266,7 +3252,7 @@ w = { key for key, value in a.items() }
         );
         assert_eq!(
             read(interpreter, "b"),
-            ExprResult::DictItems(DictItems::new(
+            TreewalkValue::DictItems(DictItems::new(
                 interpreter.clone(),
                 vec![(str!("b"), int!(4)), (str!("c"), int!(5)),]
             ))
@@ -3287,27 +3273,27 @@ w = { key for key, value in a.items() }
         assert_eq!(read(interpreter, "g"), dict!(interpreter, {}));
         assert_eq!(
             read(interpreter, "h"),
-            ExprResult::DictItems(DictItems::default())
+            TreewalkValue::DictItems(DictItems::default())
         );
         assert_type_is!(interpreter, "q", DictItemsIterator);
         assert_type_class(interpreter, "r", Type::DictItemIterator);
         assert_eq!(
             read(interpreter, "i"),
-            ExprResult::DictKeys(DictKeys::new(vec![]))
+            TreewalkValue::DictKeys(DictKeys::new(vec![]))
         );
         assert_eq!(
             read(interpreter, "j"),
-            ExprResult::DictKeys(DictKeys::new(vec![str!("b"), str!("c"),]))
+            TreewalkValue::DictKeys(DictKeys::new(vec![str!("b"), str!("c"),]))
         );
         assert_type_is!(interpreter, "k", DictKeysIterator);
         assert_type_class(interpreter, "l", Type::DictKeyIterator);
         assert_eq!(
             read(interpreter, "m"),
-            ExprResult::DictValues(DictValues::new(vec![]))
+            TreewalkValue::DictValues(DictValues::new(vec![]))
         );
         assert_eq!(
             read(interpreter, "n"),
-            ExprResult::DictValues(DictValues::new(vec![int!(4), int!(5),]))
+            TreewalkValue::DictValues(DictValues::new(vec![int!(4), int!(5),]))
         );
         assert_type_is!(interpreter, "o", DictValuesIterator);
         assert_type_class(interpreter, "p", Type::DictValueIterator);
@@ -3327,7 +3313,7 @@ d = a.get("d", 99)
         let interpreter = run(&mut context);
 
         assert_eq!(read(interpreter, "b"), int!(4));
-        assert_eq!(read(interpreter, "c"), ExprResult::None);
+        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
         assert_eq!(read(interpreter, "d"), int!(99));
 
         let input = r#"
@@ -3828,7 +3814,7 @@ c = _cell_factory()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "c"), ExprResult::None);
+        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
     }
 
     #[test]
@@ -4183,7 +4169,7 @@ a = b'hello'
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("hello".into()));
+        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("hello".into()));
 
         let input = r#"
 a = iter(b'hello')
@@ -4212,7 +4198,7 @@ a = bytearray()
 
         assert_eq!(
             read(interpreter, "a"),
-            ExprResult::ByteArray(Container::new(ByteArray::new("".into())))
+            TreewalkValue::ByteArray(Container::new(ByteArray::new("".into())))
         );
 
         let input = r#"
@@ -4223,7 +4209,7 @@ a = bytearray(b'hello')
 
         assert_eq!(
             read(interpreter, "a"),
-            ExprResult::ByteArray(Container::new(ByteArray::new("hello".into())))
+            TreewalkValue::ByteArray(Container::new(ByteArray::new("hello".into())))
         );
 
         let input = r#"
@@ -4259,7 +4245,7 @@ a = bytes()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("".into()));
+        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("".into()));
 
         let input = r#"
 a = bytes(b'hello')
@@ -4267,7 +4253,7 @@ a = bytes(b'hello')
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::Bytes("hello".into()));
+        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("hello".into()));
 
         let input = r#"
 a = bytes('hello')
@@ -4769,7 +4755,7 @@ b = Foo.make()
         let interpreter = run(&mut context);
 
         let method = extract_member!(interpreter, "Foo", "make", Class);
-        assert!(matches!(method, ExprResult::Method(_)));
+        assert!(matches!(method, TreewalkValue::Method(_)));
 
         assert_eq!(read(interpreter, "b"), int!(5));
 
@@ -4944,7 +4930,7 @@ a = Foo()
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(read(interpreter, "a"), ExprResult::None);
+        assert_eq!(read(interpreter, "a"), TreewalkValue::None);
     }
 
     #[test]
@@ -5545,11 +5531,11 @@ e = frozenset().__contains__
 
         assert_eq!(
             read(interpreter, "a"),
-            ExprResult::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
+            TreewalkValue::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
         );
         assert_eq!(
             read(interpreter, "b"),
-            ExprResult::FrozenSet(FrozenSet::default())
+            TreewalkValue::FrozenSet(FrozenSet::default())
         );
         assert_type_class(interpreter, "c", Type::FrozenSet);
         assert_eq!(read(interpreter, "d"), list![int!(1), int!(2),]);
@@ -5908,10 +5894,10 @@ d = c(g)
 
         assert_eq!(read(interpreter, "a"), bool!(true));
         assert_eq!(read(interpreter, "b"), bool!(false));
-        let ExprResult::Method(method) = read(interpreter, "c") else {
+        let TreewalkValue::Method(method) = read(interpreter, "c") else {
             panic!("Expected a method!");
         };
-        assert!(matches!(method.receiver(), Some(ExprResult::Object(_))));
+        assert!(matches!(method.receiver(), Some(TreewalkValue::Object(_))));
         assert_eq!(read(interpreter, "d"), bool!(false));
     }
 

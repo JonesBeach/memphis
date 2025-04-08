@@ -2,20 +2,16 @@ use crate::{
     core::Container,
     domain::{Context, Source},
     treewalk::{
-        executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
-        types::{
-            domain::{
-                builtins::{
-                    CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, HashBuiltin,
-                    IsinstanceBuiltin, IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin,
-                    PrintBuiltin,
-                },
-                traits::Callable,
-            },
-            utils::EnvironmentFrame,
-            ExprResult, Module,
+        builtins::{
+            CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, HashBuiltin,
+            IsinstanceBuiltin, IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin,
+            PrintBuiltin,
         },
-        Scope, TypeRegistry,
+        executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
+        protocols::Callable,
+        types::Module,
+        utils::EnvironmentFrame,
+        Scope, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -48,7 +44,7 @@ fn init_builtin_scope() -> Scope {
     for builtin in get_builtins() {
         scope.insert(
             &builtin.name(),
-            ExprResult::BuiltinFunction(Container::new(builtin)),
+            TreewalkValue::BuiltinFunction(Container::new(builtin)),
         );
     }
 
@@ -56,13 +52,13 @@ fn init_builtin_scope() -> Scope {
     for builtin in get_asyncio_builtins() {
         asyncio_scope.insert(
             &builtin.name(),
-            ExprResult::BuiltinFunction(Container::new(builtin)),
+            TreewalkValue::BuiltinFunction(Container::new(builtin)),
         );
     }
 
     scope.insert(
         "asyncio",
-        ExprResult::Module(Container::new(Module::with_scope(
+        TreewalkValue::Module(Container::new(Module::with_scope(
             Source::default(),
             asyncio_scope,
         ))),
@@ -112,7 +108,7 @@ impl ScopeManager {
         for builtin_class in registry.get_callable_builtin_types() {
             self.builtin_scope.insert(
                 builtin_class.borrow().builtin_type().into(),
-                ExprResult::Class(builtin_class.clone()),
+                TreewalkValue::Class(builtin_class.clone()),
             );
         }
     }
@@ -157,7 +153,7 @@ impl ScopeManager {
         self.read_local().borrow_mut().mark_nonlocal(var);
     }
 
-    pub fn delete(&mut self, name: &str) -> Option<ExprResult> {
+    pub fn delete(&mut self, name: &str) -> Option<TreewalkValue> {
         if self.read_local().borrow().get(name).is_some() {
             return self.read_local().borrow_mut().delete(name);
         }
@@ -174,7 +170,7 @@ impl ScopeManager {
         None
     }
 
-    pub fn read(&self, name: &str) -> Option<ExprResult> {
+    pub fn read(&self, name: &str) -> Option<TreewalkValue> {
         if let Some(value) = self.read_local().borrow().get(name) {
             return Some(value);
         }
@@ -200,7 +196,7 @@ impl ScopeManager {
         self.builtin_scope.get(name)
     }
 
-    pub fn write(&mut self, name: &str, value: ExprResult) {
+    pub fn write(&mut self, name: &str, value: TreewalkValue) {
         let local_scope = self.read_local().borrow().clone();
 
         if local_scope.has_global(name) {
@@ -249,6 +245,6 @@ impl ScopeManager {
     /// Used during the parsing process to determine whether to insert a `Expr::FunctionCall` or
     /// `Expr::ClassInstantiation` into the AST.
     pub fn is_class(&self, name: &str) -> bool {
-        matches!(self.read(name), Some(ExprResult::Class(_)))
+        matches!(self.read(name), Some(TreewalkValue::Class(_)))
     }
 }

@@ -1,25 +1,23 @@
 use std::time::{Duration, Instant};
 
-use crate::core::Container;
-use crate::parser::types::Statement;
-use crate::treewalk::interpreter::{TreewalkDisruption, TreewalkResult, TreewalkSignal};
 use crate::{
-    treewalk::types::{
-        domain::{
-            builtins::utils,
-            traits::{Callable, MethodProvider, Typed},
-            Type,
+    core::Container,
+    domain::Type,
+    parser::types::Statement,
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        types::{
+            pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
+            Function,
         },
-        pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
-        utils::ResolvedArguments,
-        ExprResult, Function,
+        utils::{check_args, Arguments},
+        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
-    treewalk::{Interpreter, Scope},
 };
 
 pub enum Poll {
     Waiting,
-    Ready(ExprResult),
+    Ready(TreewalkValue),
 }
 
 /// Stateful encapsulation of a pausable `Function` with a `Scope`. This struct needs a
@@ -29,7 +27,7 @@ pub struct Coroutine {
     context: Container<PausableContext>,
     wait_on: Option<Container<Coroutine>>,
     wake_at: Option<Instant>,
-    return_val: Option<ExprResult>,
+    return_val: Option<TreewalkValue>,
 }
 
 impl Typed for Coroutine {
@@ -71,7 +69,7 @@ impl Coroutine {
                 .is_some_and(|coroutine| coroutine.borrow().is_finished().is_none())
     }
 
-    pub fn is_finished(&self) -> Option<ExprResult> {
+    pub fn is_finished(&self) -> Option<TreewalkValue> {
         self.return_val.clone()
     }
 
@@ -83,7 +81,7 @@ impl Coroutine {
         self.wait_on = Some(coroutine);
     }
 
-    pub fn set_return_val(&mut self, return_val: ExprResult) {
+    pub fn set_return_val(&mut self, return_val: TreewalkValue) {
         self.return_val = Some(return_val);
     }
 }
@@ -101,9 +99,13 @@ impl Pausable for Container<Coroutine> {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(&self, _interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult> {
+    fn finish(
+        &self,
+        _interpreter: &Interpreter,
+        result: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
         self.borrow_mut().set_return_val(result.clone());
-        Ok(ExprResult::None)
+        Ok(TreewalkValue::None)
     }
 
     fn handle_step(
@@ -154,7 +156,7 @@ impl Container<Coroutine> {
         } else {
             // We return `None` here because this is the return type of all statements (with a few
             // exceptions that we don't have to worry about here).
-            Ok(Poll::Ready(ExprResult::None))
+            Ok(Poll::Ready(TreewalkValue::None))
         }
     }
 }
@@ -165,13 +167,9 @@ struct CloseBuiltin;
 // ResourceWarning, but I'm not doing anything when I invoke a coroutine right now that would lead
 // to this.
 impl Callable for CloseBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 0, interpreter)?;
-        Ok(ExprResult::None)
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 0, interpreter)?;
+        Ok(TreewalkValue::None)
     }
 
     fn name(&self) -> String {

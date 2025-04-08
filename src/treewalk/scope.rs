@@ -2,17 +2,17 @@ use std::collections::{hash_map::Iter, HashMap, HashSet};
 
 use crate::{
     core::Container,
-    treewalk::types::{
-        utils::ResolvedArguments, Dict, DictItems, ExprResult, Function, Str, Tuple,
+    treewalk::{
+        types::{Dict, DictItems, Function, Str, Tuple},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
 };
-
-use super::{interpreter::TreewalkResult, types::domain::builtins::utils, Interpreter};
 
 /// This represents a symbol table for a given scope.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Scope {
-    symbol_table: HashMap<String, ExprResult>,
+    symbol_table: HashMap<String, TreewalkValue>,
 
     /// Used to hold directives such as `global x` which will expire with this scope.
     global_vars: HashSet<String>,
@@ -25,7 +25,7 @@ impl Scope {
     pub fn new(
         interpreter: &Interpreter,
         function: &Container<Function>,
-        args: &ResolvedArguments,
+        args: &Arguments,
     ) -> TreewalkResult<Container<Self>> {
         let mut scope = Self::default();
 
@@ -33,7 +33,7 @@ impl Scope {
 
         // Function expects fewer positional args than it was invoked with and there is not an
         // `args_var` in which to store the rest.
-        utils::validate_args(
+        check_args(
             args,
             |_| !(expected_args.args.len() < args.bound_len() && expected_args.args_var.is_none()),
             interpreter,
@@ -54,7 +54,7 @@ impl Scope {
                         // We use None here only because if we hit this case, we will return an
                         // error shortly after this loop. We can't do it here because we need to
                         // find all the missing args first.
-                        ExprResult::None
+                        TreewalkValue::None
                     }
                 }
             };
@@ -87,20 +87,20 @@ impl Scope {
         if let Some(ref args_var) = expected_args.args_var {
             let extra = args.len() - expected_args.args.len();
             let left_over = bound_args.iter().rev().take(extra).rev().cloned().collect();
-            let args_value = ExprResult::Tuple(Tuple::new(left_over));
+            let args_value = TreewalkValue::Tuple(Tuple::new(left_over));
             scope.insert(args_var.as_str(), args_value);
         }
 
         if let Some(ref kwargs_var) = expected_args.kwargs_var {
             let kwargs_value =
-                ExprResult::Dict(Container::new(Dict::new(interpreter, args.get_kwargs())));
+                TreewalkValue::Dict(Container::new(Dict::new(interpreter, args.get_kwargs())));
             scope.insert(kwargs_var.as_str(), kwargs_value);
         }
 
         Ok(Container::new(scope.to_owned()))
     }
 
-    pub fn get(&self, name: &str) -> Option<ExprResult> {
+    pub fn get(&self, name: &str) -> Option<TreewalkValue> {
         self.symbol_table.get(name).cloned()
     }
 
@@ -109,13 +109,13 @@ impl Scope {
         self.symbol_table.keys().cloned().collect()
     }
 
-    pub fn delete(&mut self, name: &str) -> Option<ExprResult> {
+    pub fn delete(&mut self, name: &str) -> Option<TreewalkValue> {
         self.symbol_table.remove(name)
     }
 
-    /// Insert an `ExprResult` to this `Scope`. The `Scope` is returned to allow calls to be
+    /// Insert an `TreewalkValue` to this `Scope`. The `Scope` is returned to allow calls to be
     /// chained.
-    pub fn insert(&mut self, name: &str, value: ExprResult) -> &mut Self {
+    pub fn insert(&mut self, name: &str, value: TreewalkValue) -> &mut Self {
         self.symbol_table.insert(name.to_string(), value);
         self
     }
@@ -146,7 +146,7 @@ impl Scope {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
-            items.insert(ExprResult::String(Str::new(key.clone())), value.clone());
+            items.insert(TreewalkValue::String(Str::new(key.clone())), value.clone());
         }
 
         Container::new(Dict::new(interpreter, items))
@@ -155,16 +155,16 @@ impl Scope {
 
 /// Implement IntoIterator for &Scope to allow iteration by reference
 impl<'a> IntoIterator for &'a Scope {
-    type Item = (&'a String, &'a ExprResult);
-    type IntoIter = Iter<'a, String, ExprResult>;
+    type Item = (&'a String, &'a TreewalkValue);
+    type IntoIter = Iter<'a, String, TreewalkValue>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.symbol_table.iter()
     }
 }
 
-impl From<HashMap<String, ExprResult>> for Scope {
-    fn from(symbol_table: HashMap<String, ExprResult>) -> Self {
+impl From<HashMap<String, TreewalkValue>> for Scope {
+    fn from(symbol_table: HashMap<String, TreewalkValue>) -> Self {
         Self {
             symbol_table,
             global_vars: HashSet::new(),

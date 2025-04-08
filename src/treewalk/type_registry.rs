@@ -2,18 +2,18 @@ use std::collections::HashMap;
 
 use crate::{
     core::Container,
-    treewalk::types::{
-        domain::{
-            traits::{
-                Callable, DataDescriptorProvider, DescriptorProvider, MethodProvider,
-                NonDataDescriptor,
-            },
-            Type,
+    domain::Type,
+    treewalk::{
+        protocols::{
+            Callable, DataDescriptorProvider, DescriptorProvider, MethodProvider, NonDataDescriptor,
         },
-        iterators::{ReversedIterator, ZipIterator},
-        Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
-        ExprResult, FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set,
-        Slice, Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
+        types::{
+            iterators::{ReversedIterator, ZipIterator},
+            Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
+            FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
+            Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
+        },
+        TreewalkValue,
     },
 };
 
@@ -175,7 +175,7 @@ fn type_class() -> Container<Class> {
     for method in Object::get_methods().into_iter() {
         object_base.set_on_class(
             &method.name(),
-            ExprResult::BuiltinMethod(Container::new(method)),
+            TreewalkValue::BuiltinMethod(Container::new(method)),
         );
     }
 
@@ -183,14 +183,14 @@ fn type_class() -> Container<Class> {
     for method in TypeClass::get_methods().into_iter() {
         type_base.set_on_class(
             &method.name(),
-            ExprResult::BuiltinMethod(Container::new(method)),
+            TreewalkValue::BuiltinMethod(Container::new(method)),
         );
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
         type_base.set_on_class(
             &attr.name(),
-            ExprResult::NonDataDescriptor(Container::new(attr)),
+            TreewalkValue::NonDataDescriptor(Container::new(attr)),
         );
     }
 
@@ -198,14 +198,14 @@ fn type_class() -> Container<Class> {
     for method in TypeClass::get_methods().into_iter() {
         type_class.set_on_class(
             &method.name(),
-            ExprResult::BuiltinMethod(Container::new(method)),
+            TreewalkValue::BuiltinMethod(Container::new(method)),
         );
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
         type_class.set_on_class(
             &attr.name(),
-            ExprResult::NonDataDescriptor(Container::new(attr)),
+            TreewalkValue::NonDataDescriptor(Container::new(attr)),
         );
     }
 
@@ -219,21 +219,21 @@ fn object_class(metaclass: Container<Class>) -> Container<Class> {
     for method in Object::get_methods().into_iter() {
         object_class.set_on_class(
             &method.name(),
-            ExprResult::BuiltinMethod(Container::new(method)),
+            TreewalkValue::BuiltinMethod(Container::new(method)),
         );
     }
 
     for attr in Object::get_descriptors().into_iter() {
         object_class.set_on_class(
             &attr.name(),
-            ExprResult::NonDataDescriptor(Container::new(attr)),
+            TreewalkValue::NonDataDescriptor(Container::new(attr)),
         );
     }
 
     for attr in Object::get_data_descriptors().into_iter() {
         object_class.set_on_class(
             &attr.name(),
-            ExprResult::DataDescriptor(Container::new(attr)),
+            TreewalkValue::DataDescriptor(Container::new(attr)),
         );
     }
 
@@ -276,7 +276,7 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
             for method in methods_for_type.into_iter().by_ref() {
                 class.set_on_class(
                     &method.name(),
-                    ExprResult::BuiltinMethod(Container::new(method)),
+                    TreewalkValue::BuiltinMethod(Container::new(method)),
                 );
             }
         }
@@ -286,7 +286,7 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
             for attr in attributes_for_type.into_iter().by_ref() {
                 class.set_on_class(
                     &attr.name(),
-                    ExprResult::NonDataDescriptor(Container::new(attr)),
+                    TreewalkValue::NonDataDescriptor(Container::new(attr)),
                 );
             }
         }

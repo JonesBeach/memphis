@@ -1,17 +1,12 @@
 use crate::{
     core::Container,
-    domain::Dunder,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
-};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, IndexRead, MethodProvider, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        types::List,
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult, List,
 };
 
 #[derive(Clone)]
@@ -45,7 +40,7 @@ impl ReversedIterator {
 }
 
 impl Iterator for ReversedIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_index == 0 {
@@ -55,7 +50,7 @@ impl Iterator for ReversedIterator {
             self.list_ref
                 .getitem(
                     &self.interpreter,
-                    ExprResult::Integer(self.current_index as i64),
+                    TreewalkValue::Integer(self.current_index as i64),
                 )
                 .unwrap()
         }
@@ -65,14 +60,10 @@ impl Iterator for ReversedIterator {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 2, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 2, interpreter)?;
         let list = args.get_arg(1).expect_list(interpreter)?;
-        Ok(ExprResult::ReversedIterator(ReversedIterator::new(
+        Ok(TreewalkValue::ReversedIterator(ReversedIterator::new(
             interpreter.clone(),
             list.clone(),
         )))

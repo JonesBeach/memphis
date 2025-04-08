@@ -15,13 +15,10 @@ use crate::{
     domain::Dunder,
     parser::types::ImportPath,
     treewalk::{
-        interpreter::TreewalkResult,
-        types::{
-            domain::traits::{Callable, IndexRead, IndexWrite, MemberReader},
-            utils::ResolvedArguments,
-            ExprResult, Str,
-        },
-        Interpreter,
+        protocols::{Callable, IndexRead, IndexWrite, MemberReader},
+        types::Str,
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -51,9 +48,9 @@ impl BuiltinModuleCache {
 pub fn import_from_cpython(
     interpreter: &Interpreter,
     import_path: &ImportPath,
-) -> Option<ExprResult> {
+) -> Option<TreewalkValue> {
     if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
-        return Some(ExprResult::CPythonModule(
+        return Some(TreewalkValue::CPythonModule(
             interpreter.state.import_builtin_module(import_path),
         ));
     }
@@ -73,7 +70,7 @@ pub fn import_from_cpython(
         let module_result = sys_modules
             .as_index_read(interpreter)
             .expect("Failed to read sys.modules")
-            .getitem(interpreter, ExprResult::String(Str::new(import_str)))
+            .getitem(interpreter, TreewalkValue::String(Str::new(import_str)))
             .expect("Failed to find this import path");
         if let Some(module) = module_result {
             return Some(module);
@@ -173,7 +170,7 @@ impl CPythonModule {
         })
     }
 
-    fn get_item(&self, name: Bound<PyString>) -> TreewalkResult<Option<ExprResult>> {
+    fn get_item(&self, name: Bound<PyString>) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(Python::with_gil(|py| match self.0.bind(py).getattr(name) {
             Ok(py_attr) => Some(utils::from_pyobject(py, py_attr)),
             Err(_) => None,
@@ -186,7 +183,7 @@ impl MemberReader for CPythonModule {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         Python::with_gil(|py| self.get_item(name.into_pyobject(py).unwrap()))
     }
 
@@ -203,11 +200,7 @@ impl MemberReader for CPythonModule {
 }
 
 impl Callable for CPythonObject {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         Python::with_gil(|py| {
             let py_attr = self.0.bind(py);
             if py_attr.is_callable() {
@@ -244,16 +237,16 @@ impl Callable for CPythonObject {
 #[pyclass(weakref)]
 struct TestClass;
 
-impl<'py> IntoPyObject<'py> for ExprResult {
+impl<'py> IntoPyObject<'py> for TreewalkValue {
     type Target = PyAny;
     type Output = Bound<'py, Self::Target>;
     type Error = std::convert::Infallible;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let o = match self {
-            ExprResult::None => py.None().as_any().bind(py).to_owned(),
-            ExprResult::Boolean(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
-            ExprResult::String(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
+            TreewalkValue::None => py.None().as_any().bind(py).to_owned(),
+            TreewalkValue::Boolean(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
+            TreewalkValue::String(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
             _ => {
                 dbg!(&self);
                 todo!()
@@ -267,12 +260,12 @@ impl<'py> IntoPyObject<'py> for ExprResult {
 // This code is left over from pyo3 v0.22. When we upgrade it to use IntoPyObject, we should lock
 // this down with unit tests.
 //
-// impl ToPyObject for ExprResult {
+// impl ToPyObject for TreewalkValue {
 //     fn to_object(&self, py: Python) -> PyObject {
 //         match self {
-//             ExprResult::Integer(i) => i.to_object(py),
-//             ExprResult::List(l) => PyList::new(py, l.clone()).unwrap().to_object(py),
-//             ExprResult::Function(_) => {
+//             TreewalkValue::Integer(i) => i.to_object(py),
+//             TreewalkValue::List(l) => PyList::new(py, l.clone()).unwrap().to_object(py),
+//             TreewalkValue::Function(_) => {
 //                 // TODO our PyCFunction implementation is a no-op, we need to find a way to pass
 //                 // the interpreter into here.
 //                 let callback = |_args: &Bound<'_, PyTuple>,
@@ -287,11 +280,11 @@ impl<'py> IntoPyObject<'py> for ExprResult {
 //                 let py_cfunc = PyCFunction::new_closure_bound(py, None, None, callback).unwrap();
 //                 py_cfunc.to_object(py)
 //             }
-//             ExprResult::Class(_) => {
+//             TreewalkValue::Class(_) => {
 //                 // TODO same here, our PyClass implementation does bring real fields
 //                 Py::new(py, TestClass {}).unwrap().to_object(py)
 //             }
-//             ExprResult::Module(module) => {
+//             TreewalkValue::Module(module) => {
 //                 let name = PyString::new(py, module.borrow().name());
 //                 let types = py.import_bound("types").unwrap();
 //                 let module_type = types.getattr("ModuleType").unwrap();
@@ -306,8 +299,8 @@ impl<'py> IntoPyObject<'py> for ExprResult {
 //
 //                 py_module.to_object(py)
 //             }
-//             ExprResult::CPythonModule(module) => module.borrow().0.to_object(py),
-//             ExprResult::CPythonObject(object) => object.0.to_object(py),
+//             TreewalkValue::CPythonModule(module) => module.borrow().0.to_object(py),
+//             TreewalkValue::CPythonObject(object) => object.0.to_object(py),
 //             _ => unimplemented!(
 //                 "Attempting to convert {} to a PyObject, but {} conversion is not implemented!",
 //                 self,
@@ -346,11 +339,11 @@ impl Display for CPythonObject {
 }
 
 impl CPythonObject {
-    pub fn get_type(&self) -> ExprResult {
+    pub fn get_type(&self) -> TreewalkValue {
         Python::with_gil(|py| {
             let obj_ref = self.0.bind(py);
             let obj_type = obj_ref.getattr(Dunder::Class).unwrap();
-            ExprResult::CPythonClass(CPythonClass(obj_type.into()))
+            TreewalkValue::CPythonClass(CPythonClass(obj_type.into()))
         })
     }
 
@@ -366,8 +359,8 @@ impl IndexRead for CPythonObject {
     fn getitem(
         &self,
         _interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> TreewalkResult<Option<ExprResult>> {
+        index: TreewalkValue,
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         Python::with_gil(|py| {
             let key = index.into_pyobject(py).unwrap();
             let result = self
@@ -384,8 +377,8 @@ impl IndexWrite for CPythonObject {
     fn setitem(
         &mut self,
         _interpreter: &Interpreter,
-        index: ExprResult,
-        value: ExprResult,
+        index: TreewalkValue,
+        value: TreewalkValue,
     ) -> TreewalkResult<()> {
         Python::with_gil(|py| {
             let key = index.into_pyobject(py).unwrap();
@@ -399,7 +392,7 @@ impl IndexWrite for CPythonObject {
         Ok(())
     }
 
-    fn delitem(&mut self, _interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()> {
+    fn delitem(&mut self, _interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()> {
         Python::with_gil(|py| {
             let key = index.into_pyobject(py).unwrap();
             self.0
@@ -422,19 +415,19 @@ pub mod utils {
 
     use super::*;
 
-    pub fn from_pyobject(py: Python, py_obj: Bound<PyAny>) -> ExprResult {
+    pub fn from_pyobject(py: Python, py_obj: Bound<PyAny>) -> TreewalkValue {
         if let Ok(value) = py_obj.extract::<i64>() {
-            ExprResult::Integer(value)
+            TreewalkValue::Integer(value)
         } else if let Ok(value) = py_obj.extract::<f64>() {
-            ExprResult::FloatingPoint(value)
+            TreewalkValue::FloatingPoint(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
-            ExprResult::String(Str::new(value.to_string()))
+            TreewalkValue::String(Str::new(value.to_string()))
         } else if let Ok(py_tuple) = py_obj.extract::<Bound<PyTuple>>() {
             let elements = py_tuple
                 .iter()
                 .map(|item| from_pyobject(py, item))
                 .collect();
-            ExprResult::Tuple(Tuple::new(elements))
+            TreewalkValue::Tuple(Tuple::new(elements))
         } else if let Ok(py_module) = py_obj.extract::<Bound<PyModule>>() {
             let mut module = Module::default();
 
@@ -445,24 +438,26 @@ pub mod utils {
                 module.insert(&key_str, expr_value);
             }
 
-            ExprResult::Module(Container::new(module))
+            TreewalkValue::Module(Container::new(module))
         } else if let Ok(py_set) = py_obj.extract::<Bound<PySet>>() {
             #[allow(clippy::mutable_key_type)]
             let elements = py_set.iter().map(|item| from_pyobject(py, item)).collect();
-            ExprResult::Set(Container::new(Set::new(elements)))
+            TreewalkValue::Set(Container::new(Set::new(elements)))
         } else if let Ok(py_list) = py_obj.extract::<Bound<PyList>>() {
             let elements = py_list.iter().map(|item| from_pyobject(py, item)).collect();
-            ExprResult::List(Container::new(List::new(elements)))
+            TreewalkValue::List(Container::new(List::new(elements)))
         } else {
             // TODO think of a way to detect whether this is an object we can convert or not
             // log(LogLevel::Warn, || {
             //     "Potentially ambiguous CPythonObject instance.".to_string()
             // });
-            ExprResult::CPythonObject(CPythonObject::new(py_obj.into_pyobject(py).unwrap().into()))
+            TreewalkValue::CPythonObject(CPythonObject::new(
+                py_obj.into_pyobject(py).unwrap().into(),
+            ))
         }
     }
 
-    pub fn to_args(py: Python, args: ResolvedArguments) -> Bound<PyTuple> {
+    pub fn to_args(py: Python, args: Arguments) -> Bound<PyTuple> {
         let args = args
             .iter_args()
             .map(|a| a.clone().into_pyobject(py).unwrap())

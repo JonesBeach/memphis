@@ -7,7 +7,7 @@ use std::{
 use crate::bytecode_vm::{
     compiler::types::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
-    types::Value,
+    VmValue,
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -29,11 +29,11 @@ impl Display for Reference {
     }
 }
 
-impl From<Value> for Reference {
-    fn from(value: Value) -> Self {
+impl From<VmValue> for Reference {
+    fn from(value: VmValue) -> Self {
         match value {
-            Value::Integer(i) => Reference::Int(i),
-            Value::Boolean(i) => Reference::Bool(i),
+            VmValue::Integer(i) => Reference::Int(i),
+            VmValue::Boolean(i) => Reference::Bool(i),
             _ => unimplemented!(),
         }
     }
@@ -83,7 +83,7 @@ impl<'a> Object {
 
     pub fn read<T>(&self, name: &str, deref: T) -> Option<Reference>
     where
-        T: FnOnce(Reference) -> Cow<'a, Value>,
+        T: FnOnce(Reference) -> Cow<'a, VmValue>,
     {
         if let Some(result) = self.namespace.get(name) {
             return Some(*result);

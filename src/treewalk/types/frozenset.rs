@@ -1,25 +1,22 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        builtins::utils::validate_args,
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    core::Container,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        types::{iterators::ListIterator, Set},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    iterators::ListIterator,
-    utils::ResolvedArguments,
-    ExprResult, Set,
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct FrozenSet {
-    pub items: HashSet<ExprResult>,
+    pub items: HashSet<TreewalkValue>,
 }
 
 impl Typed for FrozenSet {
@@ -36,7 +33,7 @@ impl MethodProvider for FrozenSet {
 
 impl FrozenSet {
     #[allow(clippy::mutable_key_type)]
-    pub fn new(items: HashSet<ExprResult>) -> Self {
+    pub fn new(items: HashSet<TreewalkValue>) -> Self {
         Self { items }
     }
 }
@@ -48,7 +45,7 @@ impl From<Container<Set>> for FrozenSet {
 }
 
 impl IntoIterator for FrozenSet {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = ListIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -72,12 +69,8 @@ struct NewBuiltin;
 struct ContainsBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let frozen_set = match args.len() {
             1 => FrozenSet::default(),
@@ -91,7 +84,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::FrozenSet(frozen_set))
+        Ok(TreewalkValue::FrozenSet(frozen_set))
     }
 
     fn name(&self) -> String {
@@ -100,11 +93,7 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for ContainsBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
         unimplemented!();
     }
 

@@ -1,5 +1,5 @@
 use crate::{
-    bytecode_vm::{types::Value, Compiler, VirtualMachine},
+    bytecode_vm::{Compiler, VirtualMachine, VmValue},
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     domain::Source,
     parser::Parser,
@@ -23,7 +23,7 @@ impl VmInterpreter {
         }
     }
 
-    pub fn take(&mut self, name: &str) -> Option<Value> {
+    pub fn take(&mut self, name: &str) -> Option<VmValue> {
         let reference = self.vm.load_global_by_name(name).ok()?;
         Some(self.vm.take(reference))
     }
@@ -41,7 +41,7 @@ impl Default for VmInterpreter {
 }
 
 impl InterpreterEntrypoint for VmInterpreter {
-    type Return = Value;
+    type Return = VmValue;
 
     fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
         let program = self.compile(parser)?;
@@ -69,7 +69,7 @@ mod vm_interpreter_tests {
         MemphisContext::from_path(path)
     }
 
-    fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> Value {
+    fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> VmValue {
         interpreter.vm.take(
             object
                 .read(attr.into(), |reference| {
@@ -79,12 +79,12 @@ mod vm_interpreter_tests {
         )
     }
 
-    fn eval_inner(text: &str) -> Result<Value, MemphisError> {
+    fn eval_inner(text: &str) -> Result<VmValue, MemphisError> {
         let mut context = init(text);
         context.run_vm()
     }
 
-    fn evaluate(text: &str) -> Value {
+    fn evaluate(text: &str) -> VmValue {
         eval_inner(text).expect("Failed to evaluate test string")
     }
 
@@ -112,13 +112,13 @@ mod vm_interpreter_tests {
     #[test]
     fn expression() {
         let text = "4 * (2 + 3)";
-        assert_eq!(evaluate(text), Value::Integer(20));
+        assert_eq!(evaluate(text), VmValue::Integer(20));
 
         let text = "4 < 5";
-        assert_eq!(evaluate(text), Value::Boolean(true));
+        assert_eq!(evaluate(text), VmValue::Boolean(true));
 
         let text = "4 > 5";
-        assert_eq!(evaluate(text), Value::Boolean(false));
+        assert_eq!(evaluate(text), VmValue::Boolean(false));
 
         let text = "4 > x";
         let e = eval_expect_error(text);
@@ -136,7 +136,7 @@ a = 5 - 3
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
+        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
 
         let text = r#"
 a = "Hello World"
@@ -145,7 +145,7 @@ a = "Hello World"
         let interpreter = run(&mut context);
         assert_eq!(
             interpreter.take("a"),
-            Some(Value::String("Hello World".into()))
+            Some(VmValue::String("Hello World".into()))
         );
 
         let text = r#"
@@ -155,9 +155,9 @@ c = None
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
-        assert_eq!(interpreter.take("b"), Some(Value::Integer(10)));
-        assert_eq!(interpreter.take("c"), Some(Value::None));
+        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
+        assert_eq!(interpreter.take("b"), Some(VmValue::Integer(10)));
+        assert_eq!(interpreter.take("c"), Some(VmValue::None));
 
         let text = r#"
 a = 5 - 3
@@ -165,8 +165,8 @@ b = 10 + a
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(Value::Integer(2)));
-        assert_eq!(interpreter.take("b"), Some(Value::Integer(12)));
+        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
+        assert_eq!(interpreter.take("b"), Some(VmValue::Integer(12)));
     }
 
     #[test]
@@ -179,7 +179,7 @@ while i < n:
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("i"), Some(Value::Integer(4)));
+        assert_eq!(interpreter.take("i"), Some(VmValue::Integer(4)));
     }
 
     #[test]
@@ -192,7 +192,7 @@ c = foo(2, 9)
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("c"), Some(Value::Integer(11)));
+        assert_eq!(interpreter.take("c"), Some(VmValue::Integer(11)));
     }
 
     #[test]
@@ -206,7 +206,7 @@ d = foo(2, 9)
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("d"), Some(Value::Integer(20)));
+        assert_eq!(interpreter.take("d"), Some(VmValue::Integer(20)));
     }
 
     #[test]
@@ -238,7 +238,7 @@ c = foo(2, 9)
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("c"), Some(Value::Integer(29)));
+        assert_eq!(interpreter.take("c"), Some(VmValue::Integer(29)));
     }
 
     #[test]
@@ -250,11 +250,12 @@ class Foo:
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        let Some(Value::Class(class)) = interpreter.take("Foo") else {
+        let Some(VmValue::Class(class)) = interpreter.take("Foo") else {
             panic!("Did not find class Foo")
         };
         assert_eq!(class.name(), "Foo");
-        let Value::Function(ref function) = *interpreter.vm.dereference(class.read("bar").unwrap())
+        let VmValue::Function(ref function) =
+            *interpreter.vm.dereference(class.read("bar").unwrap())
         else {
             panic!("Did not find function bar")
         };
@@ -272,7 +273,7 @@ f = Foo()
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        let Some(Value::Object(object)) = interpreter.take("f") else {
+        let Some(VmValue::Object(object)) = interpreter.take("f") else {
             panic!("Did not find object f")
         };
         assert_eq!(
@@ -297,7 +298,7 @@ b = f.bar()
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        let Some(Value::Integer(b)) = interpreter.take("b") else {
+        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
             panic!("Did not find object f")
         };
         assert_eq!(b, 4);
@@ -312,7 +313,7 @@ b = f.bar(11)
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        let Some(Value::Integer(b)) = interpreter.take("b") else {
+        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
             panic!("Did not find object f")
         };
         assert_eq!(b, 15);
@@ -329,10 +330,10 @@ f.x = 4
 "#;
         let mut context = init(text);
         let mut interpreter = run(&mut context);
-        let Some(Value::Object(f)) = interpreter.take("f") else {
+        let Some(VmValue::Object(f)) = interpreter.take("f") else {
             panic!("Did not find object f")
         };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), VmValue::Integer(4));
     }
 
     #[test]
@@ -347,10 +348,10 @@ f.bar()
 "#;
         let mut context = init(text);
         let mut interpreter = run(&mut context);
-        let Some(Value::Object(f)) = interpreter.take("f") else {
+        let Some(VmValue::Object(f)) = interpreter.take("f") else {
             panic!("Did not find object f")
         };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(4));
+        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), VmValue::Integer(4));
     }
 
     #[test]
@@ -364,10 +365,13 @@ f = Foo()
 "#;
         let mut context = init(text);
         let mut interpreter = run(&mut context);
-        let Some(Value::Object(f)) = interpreter.take("f") else {
+        let Some(VmValue::Object(f)) = interpreter.take("f") else {
             panic!("Did not find object f")
         };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(44));
+        assert_eq!(
+            take_obj_attr(&mut interpreter, f, "x"),
+            VmValue::Integer(44)
+        );
     }
 
     #[test]
@@ -381,10 +385,13 @@ f = Foo(33)
 "#;
         let mut context = init(text);
         let mut interpreter = run(&mut context);
-        let Some(Value::Object(f)) = interpreter.take("f") else {
+        let Some(VmValue::Object(f)) = interpreter.take("f") else {
             panic!("Did not find object f")
         };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), Value::Integer(33));
+        assert_eq!(
+            take_obj_attr(&mut interpreter, f, "x"),
+            VmValue::Integer(33)
+        );
     }
 
     #[test]
@@ -402,7 +409,7 @@ b = f.bar()
 "#;
         let mut context = init(text);
         let interpreter = run(&mut context);
-        let Some(Value::Integer(b)) = interpreter.take("b") else {
+        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
             panic!("Did not find object f")
         };
         assert_eq!(b, 10);

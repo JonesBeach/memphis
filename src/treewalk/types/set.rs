@@ -1,25 +1,22 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     collections::HashSet,
     fmt::{Display, Error, Formatter},
 };
 
-use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    core::Container,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        types::{iterators::ListIterator, FrozenSet, List, Range, Tuple},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    iterators::ListIterator,
-    utils::ResolvedArguments,
-    ExprResult, FrozenSet, List, Range, Tuple,
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Set {
-    pub items: HashSet<ExprResult>,
+    pub items: HashSet<TreewalkValue>,
 }
 
 impl Typed for Set {
@@ -36,11 +33,11 @@ impl MethodProvider for Set {
 
 impl Set {
     #[allow(clippy::mutable_key_type)]
-    pub fn new(items: HashSet<ExprResult>) -> Self {
+    pub fn new(items: HashSet<TreewalkValue>) -> Self {
         Self { items }
     }
 
-    pub fn add(&mut self, item: ExprResult) -> bool {
+    pub fn add(&mut self, item: TreewalkValue) -> bool {
         self.items.insert(item)
     }
 
@@ -49,15 +46,15 @@ impl Set {
     }
 }
 
-impl TryFrom<ExprResult> for Container<Set> {
+impl TryFrom<TreewalkValue> for Container<Set> {
     type Error = ();
 
-    fn try_from(value: ExprResult) -> Result<Self, Self::Error> {
+    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
         match value {
-            ExprResult::Set(set) => Ok(set.clone()),
-            ExprResult::List(list) => Ok(list.clone().into()),
-            ExprResult::Tuple(tuple) => Ok(tuple.clone().into()),
-            ExprResult::Range(range) => Ok(range.clone().into()),
+            TreewalkValue::Set(set) => Ok(set.clone()),
+            TreewalkValue::List(list) => Ok(list.clone().into()),
+            TreewalkValue::Tuple(tuple) => Ok(tuple.clone().into()),
+            TreewalkValue::Range(range) => Ok(range.clone().into()),
             _ => Err(()),
         }
     }
@@ -88,7 +85,7 @@ impl From<FrozenSet> for Container<Set> {
 }
 
 impl IntoIterator for Container<Set> {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = ListIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -110,12 +107,8 @@ struct NewBuiltin;
 struct AddBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let set = match args.len() {
             1 => Container::new(Set::default()),
@@ -126,7 +119,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::Set(set))
+        Ok(TreewalkValue::Set(set))
     }
 
     fn name(&self) -> String {
@@ -135,17 +128,13 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for AddBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 1, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
 
         let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
-        Ok(ExprResult::Boolean(result))
+        Ok(TreewalkValue::Boolean(result))
     }
 
     fn name(&self) -> String {

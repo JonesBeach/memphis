@@ -1,4 +1,7 @@
-use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::{
+    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TreewalkAdapter},
+    domain::MemphisValue,
+};
 
 fn run_test<T: InterpreterTest>(mut interpreter: T) {
     let input = r#"
@@ -8,7 +11,7 @@ while i < n:
     i = i + 1
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("i"), Some(TestValue::Integer(4)));
+    assert_eq!(interpreter.read("i"), Some(MemphisValue::Integer(4)));
 
     let input = r#"
 i = 0
@@ -16,7 +19,7 @@ if i < 10:
     a = -1
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(-1)));
+    assert_eq!(interpreter.read("a"), Some(MemphisValue::Integer(-1)));
 
     let input = r#"
 i = 0
@@ -26,7 +29,7 @@ else:
     a = 3
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("a"), Some(TestValue::Integer(3)));
+    assert_eq!(interpreter.read("a"), Some(MemphisValue::Integer(3)));
 }
 
 #[test]

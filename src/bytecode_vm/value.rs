@@ -1,12 +1,14 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::core::Voidable;
+use crate::{core::Voidable, domain::MemphisValue};
 
-use super::compiler::types::{CodeObject, Constant};
-use super::vm::types::{Class, FunctionObject, Method, Object, Reference};
+use super::{
+    compiler::types::{CodeObject, Constant},
+    vm::types::{Class, FunctionObject, Method, Object, Reference},
+};
 
 #[derive(Clone, PartialEq, Debug)]
-pub enum Value {
+pub enum VmValue {
     None,
     Integer(i64),
     String(String),
@@ -19,120 +21,122 @@ pub enum Value {
     BuiltinFunction,
 }
 
-impl Default for Value {
+impl Default for VmValue {
     fn default() -> Self {
         Self::None
     }
 }
 
-impl Voidable for Value {
+impl Voidable for VmValue {
     fn is_none(&self) -> bool {
-        matches!(self, Value::None)
+        matches!(self, VmValue::None)
     }
 }
 
-impl From<Reference> for Value {
+impl From<Reference> for VmValue {
     fn from(value: Reference) -> Self {
         match value {
-            Reference::Int(i) => Value::Integer(i),
-            Reference::Bool(i) => Value::Boolean(i),
+            Reference::Int(i) => VmValue::Integer(i),
+            Reference::Bool(i) => VmValue::Boolean(i),
             // These require a lookup using VM state and must be converted before this function.
             Reference::ObjectRef(_) | Reference::ConstantRef(_) => unreachable!(),
         }
     }
 }
 
-impl From<&Constant> for Value {
+impl From<&Constant> for VmValue {
     fn from(value: &Constant) -> Self {
         match value {
-            Constant::None => Value::None,
-            Constant::Boolean(i) => Value::Boolean(*i),
-            Constant::String(i) => Value::String(i.to_string()),
-            Constant::Code(i) => Value::Code(i.clone()),
+            Constant::None => VmValue::None,
+            Constant::Boolean(i) => VmValue::Boolean(*i),
+            Constant::String(i) => VmValue::String(i.to_string()),
+            Constant::Code(i) => VmValue::Code(i.clone()),
         }
     }
 }
 
-impl Display for Value {
+impl Display for VmValue {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Value::None => write!(f, "None"),
-            Value::Integer(i) => write!(f, "{}", i),
-            Value::String(i) => write!(f, "{}", i),
-            Value::Boolean(i) => write!(f, "{}", i),
-            Value::Code(i) => write!(f, "{}", i),
+            VmValue::None => write!(f, "None"),
+            VmValue::Integer(i) => write!(f, "{}", i),
+            VmValue::String(i) => write!(f, "{}", i),
+            VmValue::Boolean(i) => write!(f, "{}", i),
+            VmValue::Code(i) => write!(f, "{}", i),
             _ => unimplemented!("Type {:?} unimplemented in the bytecode VM.", self),
         }
     }
 }
 
-impl Value {
+impl VmValue {
     pub fn as_integer(&self) -> i64 {
         match self {
-            Value::Integer(i) => *i,
+            VmValue::Integer(i) => *i,
             _ => panic!("expected integer"),
         }
     }
 
     pub fn as_boolean(&self) -> bool {
         match self {
-            Value::Boolean(i) => *i,
+            VmValue::Boolean(i) => *i,
             _ => panic!("expected boolean"),
         }
     }
 
     pub fn as_string(&self) -> &str {
         match self {
-            Value::String(i) => i,
+            VmValue::String(i) => i,
             _ => panic!("expected string"),
         }
     }
 
     pub fn as_code(&self) -> &CodeObject {
         match self {
-            Value::Code(i) => i,
+            VmValue::Code(i) => i,
             _ => panic!("expected code"),
         }
     }
 
     pub fn as_function(&self) -> &FunctionObject {
         match self {
-            Value::Function(i) => i,
+            VmValue::Function(i) => i,
             _ => panic!("expected method"),
         }
     }
 
     pub fn as_method(&self) -> &Method {
         match self {
-            Value::Method(i) => i,
+            VmValue::Method(i) => i,
             _ => panic!("expected method"),
         }
     }
 
     pub fn as_object(&self) -> &Object {
         match self {
-            Value::Object(i) => i,
+            VmValue::Object(i) => i,
             _ => panic!("expected object"),
         }
     }
 
     pub fn as_class(&self) -> &Class {
         match self {
-            Value::Class(i) => i,
+            VmValue::Class(i) => i,
             _ => panic!("expected object"),
         }
     }
 }
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Clone, PartialEq, Debug)]
-pub enum CompilerError {
-    SyntaxError(String),
-    StackUnderflow,
-}
-
-impl Display for CompilerError {
-    fn fmt(&self, _f: &mut Formatter) -> Result<(), Error> {
-        unimplemented!("Unsupported error type in bytecode VM")
+impl From<VmValue> for MemphisValue {
+    fn from(value: VmValue) -> Self {
+        match value {
+            VmValue::None => MemphisValue::None,
+            VmValue::Integer(val) => MemphisValue::Integer(val),
+            VmValue::String(val) => MemphisValue::String(val),
+            VmValue::Boolean(val) => MemphisValue::Boolean(val),
+            _ => unimplemented!(
+                "Conversion to TestValue not implemented for type {:?}",
+                value
+            ),
+        }
     }
 }

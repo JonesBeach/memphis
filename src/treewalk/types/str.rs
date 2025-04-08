@@ -1,18 +1,16 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     fmt::{Display, Error, Formatter},
     ops::Deref,
 };
 
-use crate::treewalk::Interpreter;
-
-use super::{
-    domain::{
-        traits::{Callable, IndexRead, MethodProvider, Typed},
-        Type,
+use crate::{
+    domain::Type,
+    treewalk::{
+        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        types::Slice,
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult, Slice,
 };
 
 #[derive(Clone, PartialEq)]
@@ -65,17 +63,17 @@ impl IndexRead for Str {
     fn getitem(
         &self,
         _interpreter: &Interpreter,
-        key: ExprResult,
-    ) -> TreewalkResult<Option<ExprResult>> {
+        key: TreewalkValue,
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(match key {
-            ExprResult::Integer(i) => self
+            TreewalkValue::Integer(i) => self
                 .0
                 .chars()
                 .nth(i as usize)
                 .map(|c| c.to_string())
                 .map(Str::new)
-                .map(ExprResult::String),
-            ExprResult::Slice(s) => Some(ExprResult::String(self.slice(&s))),
+                .map(TreewalkValue::String),
+            TreewalkValue::Slice(s) => Some(TreewalkValue::String(self.slice(&s))),
             _ => None,
         })
     }
@@ -84,11 +82,7 @@ impl IndexRead for Str {
 struct JoinBuiltin;
 
 impl Callable for JoinBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 
@@ -100,11 +94,7 @@ impl Callable for JoinBuiltin {
 struct MaketransBuiltin;
 
 impl Callable for MaketransBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 
@@ -129,11 +119,11 @@ impl StringIterator {
 }
 
 impl Iterator for StringIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.string[self.position..].chars().next()?;
         self.position += result.len_utf8();
-        Some(ExprResult::String(Str::new(result.to_string())))
+        Some(TreewalkValue::String(Str::new(result.to_string())))
     }
 }

@@ -1,11 +1,14 @@
-use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::{
+    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TreewalkAdapter},
+    domain::MemphisValue,
+};
 
 fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     let input = "2 + 2";
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(4));
+            assert_eq!(result, MemphisValue::Integer(4));
         }
     }
 
@@ -13,7 +16,7 @@ fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(1));
+            assert_eq!(result, MemphisValue::Integer(1));
         }
     }
 
@@ -21,7 +24,7 @@ fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Boolean(true));
+            assert_eq!(result, MemphisValue::Boolean(true));
         }
     }
 
@@ -29,7 +32,7 @@ fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Boolean(false));
+            assert_eq!(result, MemphisValue::Boolean(false));
         }
     }
 
@@ -37,7 +40,7 @@ fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(20));
+            assert_eq!(result, MemphisValue::Integer(20));
         }
     }
 }
@@ -47,7 +50,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(-2));
+            assert_eq!(result, MemphisValue::Integer(-2));
         }
     }
 
@@ -55,7 +58,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(2));
+            assert_eq!(result, MemphisValue::Integer(2));
         }
     }
 
@@ -63,7 +66,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(5));
+            assert_eq!(result, MemphisValue::Integer(5));
         }
     }
 
@@ -71,7 +74,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(-5));
+            assert_eq!(result, MemphisValue::Integer(-5));
         }
     }
 
@@ -79,7 +82,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Boolean(false));
+            assert_eq!(result, MemphisValue::Boolean(false));
         }
     }
 
@@ -87,7 +90,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Boolean(true));
+            assert_eq!(result, MemphisValue::Boolean(true));
         }
     }
 
@@ -95,7 +98,7 @@ fn run_unary_expression_test<T: InterpreterTest>(mut interpreter: T) {
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),
         Ok(result) => {
-            assert_eq!(result, TestValue::Integer(-14));
+            assert_eq!(result, MemphisValue::Integer(-14));
         }
     }
 

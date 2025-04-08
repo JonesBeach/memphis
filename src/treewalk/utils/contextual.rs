@@ -1,4 +1,3 @@
-use crate::{core::memphis_utils, treewalk::interpreter::TreewalkDisruption};
 use std::{
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -6,13 +5,12 @@ use std::{
 };
 
 use crate::{
+    args,
+    core::memphis_utils,
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
-    resolved_args,
-    treewalk::{types::ExprResult, Interpreter},
+    treewalk::{utils::Arguments, Interpreter, TreewalkDisruption, TreewalkValue},
     types::errors::MemphisError,
 };
-
-use super::ResolvedArguments;
 
 /// A wrapper which includes a reference to an `Interpreter`.
 ///
@@ -68,7 +66,7 @@ where
     }
 }
 
-impl Contextual<ExprResult> {
+impl Contextual<TreewalkValue> {
     /// Use the interpreter to evaluate equality
     fn equals(&self, other: &Self) -> bool {
         // This isn't technically correct, but the idea here is that we should fallback to the
@@ -105,11 +103,11 @@ impl Contextual<ExprResult> {
         let result = self.interpreter.invoke_method(
             self.value.clone(),
             Dunder::Eq,
-            &resolved_args![other.value.clone()],
+            &args![other.value.clone()],
         );
 
         match result {
-            Ok(ExprResult::Boolean(true)) => true,
+            Ok(TreewalkValue::Boolean(true)) => true,
             Ok(_) => false,
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
@@ -120,10 +118,10 @@ impl Contextual<ExprResult> {
     fn hash(&self) -> u64 {
         let result = self
             .interpreter
-            .call_function("hash", &resolved_args![self.value.clone()]);
+            .call_function("hash", &args![self.value.clone()]);
 
         match result {
-            Ok(ExprResult::Integer(hash_val)) => hash_val as u64,
+            Ok(TreewalkValue::Integer(hash_val)) => hash_val as u64,
             Ok(_) => memphis_utils::exit(MemphisError::Execution(ExecutionError::new(
                 self.interpreter.state.debug_call_stack(),
                 ExecutionErrorKind::TypeError(None),
@@ -134,15 +132,15 @@ impl Contextual<ExprResult> {
     }
 }
 
-impl PartialEq for Contextual<ExprResult> {
+impl PartialEq for Contextual<TreewalkValue> {
     fn eq(&self, other: &Self) -> bool {
         self.equals(other)
     }
 }
 
-impl Eq for Contextual<ExprResult> {}
+impl Eq for Contextual<TreewalkValue> {}
 
-impl Hash for Contextual<ExprResult> {
+impl Hash for Contextual<TreewalkValue> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_u64(self.hash());
     }

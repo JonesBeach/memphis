@@ -3,12 +3,11 @@ use crate::{
     domain::ExecutionErrorKind,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
         types::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
-            ExprResult, Function,
+            Function,
         },
-        Interpreter, Scope, TreewalkState,
+        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
 
@@ -87,7 +86,11 @@ impl Pausable for Container<Generator> {
         self.borrow_mut().scope = scope;
     }
 
-    fn finish(&self, interpreter: &Interpreter, _result: ExprResult) -> TreewalkResult<ExprResult> {
+    fn finish(
+        &self,
+        interpreter: &Interpreter,
+        _result: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
         Err(interpreter.stop_iteration())
     }
 
@@ -118,7 +121,7 @@ impl Container<Generator> {
         interpreter: &Interpreter,
         stmt: Statement,
         control_flow: bool,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         if !control_flow {
             match &stmt.kind {
                 StatementKind::Expression(Expr::Yield(None)) => Ok(None),
@@ -154,7 +157,7 @@ impl GeneratorIterator {
 }
 
 impl Iterator for GeneratorIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.generator.context().current_state() == PausableState::Finished {
@@ -175,7 +178,7 @@ impl Iterator for GeneratorIterator {
 }
 
 impl IntoIterator for Container<GeneratorIterator> {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = GeneratorIterator;
 
     fn into_iter(self) -> Self::IntoIter {

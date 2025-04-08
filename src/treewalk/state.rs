@@ -2,15 +2,15 @@ use std::path::PathBuf;
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame},
+    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame, Type},
     parser::types::ImportPath,
     runtime::MemphisState,
     treewalk::{
-        interpreter::TreewalkResult,
         module_loader,
-        types::{domain::Type, utils::EnvironmentFrame, Class, Dict, ExprResult, Function, Module},
+        types::{Class, Dict, Function, Module},
+        utils::EnvironmentFrame,
         EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, Scope, ScopeManager,
-        TypeRegistry,
+        TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -92,22 +92,22 @@ impl Container<TreewalkState> {
         self.borrow().memphis_state.pop_stack_frame()
     }
 
-    pub fn get_type(&self, result: &ExprResult) -> ExprResult {
+    pub fn get_type(&self, result: &TreewalkValue) -> TreewalkValue {
         match result {
             #[cfg(feature = "c_stdlib")]
-            ExprResult::CPythonObject(o) => o.get_type(),
-            ExprResult::Object(o) => ExprResult::Class(o.borrow().class.clone()),
-            _ => ExprResult::Class(self.get_type_class(result.get_type())),
+            TreewalkValue::CPythonObject(o) => o.get_type(),
+            TreewalkValue::Object(o) => TreewalkValue::Class(o.borrow().class.clone()),
+            _ => TreewalkValue::Class(self.get_type_class(result.get_type())),
         }
     }
 
-    /// Write an `ExprResult` to the symbol table.
-    pub fn write(&self, name: &str, value: ExprResult) {
+    /// Write an `TreewalkValue` to the symbol table.
+    pub fn write(&self, name: &str, value: TreewalkValue) {
         self.borrow_mut().scope_manager.write(name, value);
     }
 
-    /// Attempt to read an `ExprResult`, adhering to Python scoping rules.
-    pub fn read(&self, name: &str) -> Option<ExprResult> {
+    /// Attempt to read an `TreewalkValue`, adhering to Python scoping rules.
+    pub fn read(&self, name: &str) -> Option<TreewalkValue> {
         self.borrow().scope_manager.read(name)
     }
 
@@ -115,12 +115,12 @@ impl Container<TreewalkState> {
         &self,
         name: &str,
         interpreter: &Interpreter,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         self.read(name).ok_or_else(|| interpreter.name_error(name))
     }
 
-    /// Attempt to delete an `ExprResult`, adhering to Python scoping rules.
-    pub fn delete(&self, name: &str) -> Option<ExprResult> {
+    /// Attempt to delete an `TreewalkValue`, adhering to Python scoping rules.
+    pub fn delete(&self, name: &str) -> Option<TreewalkValue> {
         self.borrow_mut().scope_manager.delete(name)
     }
 
@@ -179,11 +179,11 @@ impl Container<TreewalkState> {
         self.borrow_mut().execution_context.pop_function()
     }
 
-    pub fn push_receiver(&self, receiver: ExprResult) {
+    pub fn push_receiver(&self, receiver: TreewalkValue) {
         self.borrow_mut().execution_context.push_receiver(receiver);
     }
 
-    pub fn pop_receiver(&self) -> Option<ExprResult> {
+    pub fn pop_receiver(&self) -> Option<TreewalkValue> {
         self.borrow_mut().execution_context.pop_receiver()
     }
 
@@ -195,7 +195,7 @@ impl Container<TreewalkState> {
         self.borrow().execution_context.read_current_function()
     }
 
-    pub fn current_receiver(&self) -> Option<ExprResult> {
+    pub fn current_receiver(&self) -> Option<TreewalkValue> {
         self.borrow().execution_context.read_current_receiver()
     }
 

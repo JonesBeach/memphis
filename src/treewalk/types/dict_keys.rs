@@ -1,14 +1,14 @@
 use std::fmt::{Display, Error, Formatter};
 
-use super::{Dict, ExprResult};
+use crate::treewalk::{types::Dict, TreewalkValue};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictKeys {
-    items: Vec<ExprResult>,
+    items: Vec<TreewalkValue>,
 }
 
 impl DictKeys {
-    pub fn new(items: Vec<ExprResult>) -> Self {
+    pub fn new(items: Vec<TreewalkValue>) -> Self {
         Self { items }
     }
 }
@@ -17,7 +17,7 @@ impl From<Dict> for DictKeys {
     fn from(dict: Dict) -> Self {
         let mut items = vec![];
         for item in dict.keys() {
-            // Dereference `i` twice to get `ExprResult` (because `Deref` returns &ExprResult)
+            // Dereference `i` twice to get `TreewalkValue` (because `Deref` returns &TreewalkValue)
             items.push((**item).clone());
         }
         items.sort();
@@ -36,7 +36,7 @@ impl Display for DictKeys {
 }
 
 impl IntoIterator for DictKeys {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = DictKeysIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -54,7 +54,7 @@ impl DictKeysIterator {
 }
 
 impl Iterator for DictKeysIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.items.is_empty() {

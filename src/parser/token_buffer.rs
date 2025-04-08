@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    lexer::{types::Token, Lexer},
+    lexer::{Lexer, Token},
     types::errors::ParserError,
 };
 

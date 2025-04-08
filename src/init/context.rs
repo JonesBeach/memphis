@@ -2,7 +2,7 @@ use std::{fmt::Display, path::Path, process};
 
 use crate::{
     ast,
-    bytecode_vm::{compiler::types::CompiledProgram, types::Value, VmInterpreter},
+    bytecode_vm::{compiler::types::CompiledProgram, VmInterpreter, VmValue},
     core::{Container, InterpreterEntrypoint},
     domain::Source,
     lexer::Lexer,
@@ -11,7 +11,7 @@ use crate::{
         Parser,
     },
     runtime::MemphisState,
-    treewalk::{module_loader, types::ExprResult, Interpreter, TreewalkState},
+    treewalk::{module_loader, Interpreter, TreewalkState, TreewalkValue},
     types::errors::{MemphisError, ParserError},
 };
 
@@ -116,7 +116,7 @@ impl MemphisContext {
             .expect("Failed to add line to lexer");
     }
 
-    pub fn evaluate(&mut self) -> Result<ExprResult, MemphisError> {
+    pub fn evaluate(&mut self) -> Result<TreewalkValue, MemphisError> {
         self.ensure_treewalk_initialized();
 
         // Destructure to break the borrow into disjoint pieces
@@ -140,7 +140,7 @@ impl MemphisContext {
         vm_interpreter.compile(&mut parser)
     }
 
-    pub fn run_vm(&mut self) -> Result<Value, MemphisError> {
+    pub fn run_vm(&mut self) -> Result<VmValue, MemphisError> {
         let mut vm_interpreter = self.init_vm_interpreter();
         let mut parser = self.init_parser();
 

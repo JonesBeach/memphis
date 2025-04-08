@@ -1,22 +1,16 @@
-use crate::treewalk::interpreter::TreewalkResult;
-use crate::{
-    domain::Dunder,
-    parser::types::{Expr, SliceParams},
-    treewalk::Interpreter,
-};
 use std::{
     cmp::Ordering,
     fmt::{Display, Error, Formatter},
 };
 
-use super::{
-    domain::{
-        builtins::utils::validate_args,
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    domain::{Dunder, Type},
+    parser::types::{Expr, SliceParams},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 #[derive(Clone)]
@@ -125,12 +119,8 @@ impl Display for Slice {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        validate_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
         let slice = match args.len() {
             2 => {
@@ -151,7 +141,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::Slice(slice))
+        Ok(TreewalkValue::Slice(slice))
     }
 
     fn name(&self) -> String {

@@ -1,16 +1,12 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
-    treewalk::types::{
-        domain::{builtins::utils, traits::Callable},
-        pausable::Pausable,
-        utils::ResolvedArguments,
-        Coroutine, ExprResult,
+    treewalk::{
+        protocols::Callable,
+        types::{pausable::Pausable, Coroutine},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
 };
-
-use super::interpreter::{TreewalkDisruption, TreewalkSignal};
-use super::Interpreter;
 
 /// An event loop which runs `Coroutine` objects using the `CoroutineExecutor` utility.
 pub struct Executor {
@@ -57,7 +53,7 @@ impl Executor {
         &self,
         interpreter: &Interpreter,
         coroutine: Container<Coroutine>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         self.set_current_coroutine(coroutine.clone());
 
         coroutine.run_until_pause(interpreter)?;
@@ -68,16 +64,16 @@ impl Executor {
         *self.sleep_indicator.borrow_mut() = None;
 
         self.clear_current_coroutine();
-        Ok(ExprResult::None)
+        Ok(TreewalkValue::None)
     }
 
-    /// The main interface to the `Executor` event loop. An `ExprResult` will be returned once the
+    /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once the
     /// coroutine has resolved.
     pub fn run(
         &self,
         interpreter: &Interpreter,
         coroutine: Container<Coroutine>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let executor = Container::new(self);
         executor
             .borrow()
@@ -118,13 +114,13 @@ impl Executor {
     }
 
     /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the event loop.
-    pub fn spawn(&self, coroutine: Container<Coroutine>) -> TreewalkResult<ExprResult> {
+    pub fn spawn(&self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
         coroutine.context().start();
         self.spawned.borrow_mut().push(coroutine.clone());
-        Ok(ExprResult::Coroutine(coroutine))
+        Ok(TreewalkValue::Coroutine(coroutine))
     }
 
-    pub fn sleep(&self, duration: f64) -> TreewalkResult<ExprResult> {
+    pub fn sleep(&self, duration: f64) -> TreewalkResult<TreewalkValue> {
         *self.sleep_indicator.borrow_mut() = Some(duration);
         Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep))
     }
@@ -141,12 +137,8 @@ pub struct AsyncioSleepBuiltin;
 pub struct AsyncioCreateTaskBuiltin;
 
 impl Callable for AsyncioRunBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 1, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
         let executor = interpreter.state.get_executor();
@@ -162,12 +154,8 @@ impl Callable for AsyncioRunBuiltin {
 }
 
 impl Callable for AsyncioSleepBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 1, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
         let duration = args.get_arg(0).expect_fp(interpreter)?;
         interpreter.state.get_executor().borrow().sleep(duration)
     }
@@ -178,12 +166,8 @@ impl Callable for AsyncioSleepBuiltin {
 }
 
 impl Callable for AsyncioCreateTaskBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 1, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
         interpreter.state.get_executor().borrow().spawn(coroutine)

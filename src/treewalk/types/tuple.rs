@@ -1,22 +1,19 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, IndexRead, MethodProvider, Typed},
-        Type,
+use crate::{
+    core::Container,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        types::{iterators::ListIterator, List, Range, Set},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    iterators::ListIterator,
-    utils::ResolvedArguments,
-    ExprResult, List, Range, Set,
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Tuple {
-    items: Vec<ExprResult>,
+    items: Vec<TreewalkValue>,
 }
 
 impl Typed for Tuple {
@@ -32,25 +29,25 @@ impl MethodProvider for Tuple {
 }
 
 impl Tuple {
-    pub fn new(items: Vec<ExprResult>) -> Self {
+    pub fn new(items: Vec<TreewalkValue>) -> Self {
         Self { items }
     }
 
-    pub fn raw(&self) -> Vec<ExprResult> {
+    pub fn raw(&self) -> Vec<TreewalkValue> {
         self.items.clone()
     }
 }
 
 impl Tuple {
-    fn get_item(&self, index: usize) -> Option<ExprResult> {
+    fn get_item(&self, index: usize) -> Option<TreewalkValue> {
         self.items.get(index).cloned()
     }
 
-    pub fn first(&self) -> ExprResult {
+    pub fn first(&self) -> TreewalkValue {
         self.get_item(0).expect("No first tuple element!")
     }
 
-    pub fn second(&self) -> ExprResult {
+    pub fn second(&self) -> TreewalkValue {
         self.get_item(1).expect("No second tuple element!")
     }
 }
@@ -59,8 +56,8 @@ impl IndexRead for Tuple {
     fn getitem(
         &self,
         interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> TreewalkResult<Option<ExprResult>> {
+        index: TreewalkValue,
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         let i = index.expect_integer(interpreter)?;
         Ok(self.get_item(i as usize))
     }
@@ -69,8 +66,8 @@ impl IndexRead for Tuple {
 impl From<Container<Set>> for Tuple {
     fn from(set: Container<Set>) -> Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
-        //let mut items: Vec<ExprResult> = set.into_iter().collect();
-        let mut items: Vec<ExprResult> = set.borrow().items.clone().into_iter().collect();
+        //let mut items: Vec<TreewalkValue> = set.into_iter().collect();
+        let mut items: Vec<TreewalkValue> = set.borrow().items.clone().into_iter().collect();
         // TODO remove unwrap
         items.sort_by_key(|x| x.as_integer().unwrap());
         Tuple::new(items)
@@ -100,7 +97,7 @@ impl Display for Tuple {
 }
 
 impl IntoIterator for Tuple {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = ListIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -111,14 +108,10 @@ impl IntoIterator for Tuple {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| len == 2, interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 2, interpreter)?;
         let tuple = args.get_arg(1).expect_tuple(interpreter)?;
-        Ok(ExprResult::Tuple(tuple))
+        Ok(TreewalkValue::Tuple(tuple))
     }
 
     fn name(&self) -> String {

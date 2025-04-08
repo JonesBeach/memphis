@@ -1,16 +1,12 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        builtins::utils::validate_args,
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 const DEFAULT_RE: f64 = 0.0;
@@ -81,12 +77,8 @@ impl Display for Complex {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        validate_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
 
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
@@ -111,7 +103,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::Complex(complex))
+        Ok(TreewalkValue::Complex(complex))
     }
 
     fn name(&self) -> String {

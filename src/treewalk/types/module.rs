@@ -11,13 +11,11 @@ use crate::{
     init::MemphisContext,
     parser::types::ImportPath,
     treewalk::{
-        interpreter::{TreewalkDisruption, TreewalkResult},
-        Interpreter, Scope,
+        protocols::MemberReader, types::Dict, Interpreter, Scope, TreewalkDisruption,
+        TreewalkResult, TreewalkValue,
     },
     types::errors::MemphisError,
 };
-
-use super::{domain::traits::MemberReader, Dict, ExprResult};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
@@ -96,22 +94,22 @@ impl Module {
         self.source.name()
     }
 
-    pub fn get(&self, name: &str) -> Option<ExprResult> {
+    pub fn get(&self, name: &str) -> Option<TreewalkValue> {
         self.scope.get(name)
     }
 
-    pub fn insert(&mut self, name: &str, value: ExprResult) {
+    pub fn insert(&mut self, name: &str, value: TreewalkValue) {
         self.scope.insert(name, value);
     }
 
-    pub fn delete(&mut self, name: &str) -> Option<ExprResult> {
+    pub fn delete(&mut self, name: &str) -> Option<TreewalkValue> {
         self.scope.delete(name)
     }
 
     // Should this return an actual dict? We chose not to do that right now because a
     // `Container<Dict>` requires a reference to the interpreter.
     #[cfg(feature = "c_stdlib")]
-    pub fn dict(&self) -> Iter<String, ExprResult> {
+    pub fn dict(&self) -> Iter<String, TreewalkValue> {
         self.scope.into_iter()
     }
 
@@ -125,7 +123,7 @@ impl MemberReader for Module {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(self.scope.get(name))
     }
 

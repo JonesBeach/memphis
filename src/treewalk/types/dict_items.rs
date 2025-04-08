@@ -1,32 +1,38 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Container, treewalk::Interpreter};
+use crate::{
+    core::Container,
+    treewalk::{
+        protocols::IndexRead,
+        types::{Dict, Tuple},
+        utils::Contextual,
+        Interpreter, TreewalkValue,
+    },
+};
 
-use super::{domain::traits::IndexRead as _, utils::Contextual, Dict, ExprResult, Tuple};
-
-/// A helper to hold a pair of `ExprResult` objects but which enforces the first hold a reference
-/// to its interpreter via a `ContextualExprResult`. We need this for `DictItems` since the first
+/// A helper to hold a pair of `TreewalkValue` objects but which enforces the first hold a reference
+/// to its interpreter via a `ContextualTreewalkValue`. We need this for `DictItems` since the first
 /// will become the keys of a `Dict`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ContextualPair {
-    key: Contextual<ExprResult>,
-    value: ExprResult,
+    key: Contextual<TreewalkValue>,
+    value: TreewalkValue,
 }
 
 impl ContextualPair {
-    pub fn new(key: Contextual<ExprResult>, value: ExprResult) -> Self {
+    pub fn new(key: Contextual<TreewalkValue>, value: TreewalkValue) -> Self {
         Self { key, value }
     }
 
-    pub fn first(&self) -> &Contextual<ExprResult> {
+    pub fn first(&self) -> &Contextual<TreewalkValue> {
         &self.key
     }
 
-    pub fn first_resolved(&self) -> &ExprResult {
+    pub fn first_resolved(&self) -> &TreewalkValue {
         &self.key
     }
 
-    pub fn second(&self) -> &ExprResult {
+    pub fn second(&self) -> &TreewalkValue {
         &self.value
     }
 }
@@ -43,7 +49,7 @@ pub struct DictItems {
 }
 
 impl DictItems {
-    pub fn new(interpreter: Interpreter, items: Vec<(ExprResult, ExprResult)>) -> Self {
+    pub fn new(interpreter: Interpreter, items: Vec<(TreewalkValue, TreewalkValue)>) -> Self {
         let mut new_hash = Vec::new();
         for (key, value) in items {
             let new_key = Contextual::new(key, interpreter.clone());
@@ -89,7 +95,7 @@ impl Display for DictItems {
 }
 
 impl IntoIterator for DictItems {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = DictItemsIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -107,7 +113,7 @@ impl DictItemsIterator {
 }
 
 impl Iterator for DictItemsIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.items.is_empty() {
@@ -116,14 +122,14 @@ impl Iterator for DictItemsIterator {
             let removed = self.0.items.remove(0);
             let key = removed.first_resolved().clone();
             let value = removed.second().clone();
-            let tuple = ExprResult::Tuple(Tuple::new(vec![key, value]));
+            let tuple = TreewalkValue::Tuple(Tuple::new(vec![key, value]));
             Some(tuple)
         }
     }
 }
 
-/// An iterator for `DictItems` when we need to return a `Contextual<ExprResult>` instead of an
-/// `ExprResult`. This is useful in the conversation between `DictItems` and `Dict`.
+/// An iterator for `DictItems` when we need to return a `Contextual<TreewalkValue>` instead of an
+/// `TreewalkValue`. This is useful in the conversation between `DictItems` and `Dict`.
 #[derive(Clone)]
 pub struct ContextualDictItemsIterator(DictItems);
 

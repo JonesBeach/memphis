@@ -1,4 +1,3 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::{
     any::Any,
     fmt::{Debug, Error, Formatter},
@@ -6,20 +5,16 @@ use std::{
 
 use crate::{
     core::Container,
+    domain::Type,
     treewalk::{
-        types::{
-            domain::Type, function::FunctionType, utils::ResolvedArguments, Class, ExprResult,
-        },
-        Interpreter,
+        types::{function::FunctionType, Class},
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 pub trait Callable {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult>;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue>;
 
     fn name(&self) -> String;
 
@@ -33,7 +28,7 @@ pub trait Callable {
     }
 
     /// A callable will not have a receiver by default, but certain types (`Method`) can have them.
-    fn receiver(&self) -> Option<ExprResult> {
+    fn receiver(&self) -> Option<TreewalkValue> {
         None
     }
 }
@@ -58,7 +53,7 @@ pub trait MemberReader {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>>;
+    ) -> TreewalkResult<Option<TreewalkValue>>;
 
     /// Returns a sorted list of the symbols available.
     fn dir(&self) -> Vec<String> {
@@ -71,7 +66,7 @@ pub trait MemberWriter {
         &mut self,
         interpreter: &Interpreter,
         name: &str,
-        value: ExprResult,
+        value: TreewalkValue,
     ) -> TreewalkResult<()>;
     fn delete_member(&mut self, interpreter: &Interpreter, name: &str) -> TreewalkResult<()>;
 }
@@ -81,9 +76,9 @@ pub trait NonDataDescriptor {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult>;
+    ) -> TreewalkResult<TreewalkValue>;
 }
 
 /// All data descriptors in Python, which provide write access, can be assumed to also be non-data
@@ -92,28 +87,29 @@ pub trait DataDescriptor: NonDataDescriptor {
     fn set_attr(
         &self,
         interpreter: &Interpreter,
-        instance: ExprResult,
-        value: ExprResult,
+        instance: TreewalkValue,
+        value: TreewalkValue,
     ) -> TreewalkResult<()>;
-    fn delete_attr(&self, interpreter: &Interpreter, instance: ExprResult) -> TreewalkResult<()>;
+    fn delete_attr(&self, interpreter: &Interpreter, instance: TreewalkValue)
+        -> TreewalkResult<()>;
 }
 
 pub trait IndexRead {
     fn getitem(
         &self,
         interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> TreewalkResult<Option<ExprResult>>;
+        index: TreewalkValue,
+    ) -> TreewalkResult<Option<TreewalkValue>>;
 }
 
 pub trait IndexWrite {
     fn setitem(
         &mut self,
         interpreter: &Interpreter,
-        index: ExprResult,
-        value: ExprResult,
+        index: TreewalkValue,
+        value: TreewalkValue,
     ) -> TreewalkResult<()>;
-    fn delitem(&mut self, interpreter: &Interpreter, index: ExprResult) -> TreewalkResult<()>;
+    fn delitem(&mut self, interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()>;
 }
 
 // pub trait IndexAccessor: IndexRead + IndexWrite {}

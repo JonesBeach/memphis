@@ -1,6 +1,7 @@
 use std::fmt::{Display, Error, Formatter};
 
-/// These are all of the builtin types. For the class 'type', see `TypeClass`.
+/// Represents the logical Python type of a value, as shown in stack traces or `type()` calls.
+/// This is not tied to any specific runtime engine.
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub enum Type {
     #[allow(clippy::enum_variant_names)]

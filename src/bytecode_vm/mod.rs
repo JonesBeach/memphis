@@ -2,11 +2,16 @@ pub mod compiler;
 pub mod indices;
 mod interpreter;
 mod opcode;
-pub mod types;
+mod result;
+mod utils;
+mod value;
 #[allow(clippy::module_inception)]
 pub mod vm;
 
-use compiler::Compiler;
+pub use compiler::{Compiler, CompilerError};
 pub use interpreter::VmInterpreter;
 use opcode::Opcode;
-use vm::VirtualMachine;
+pub use result::{CompilerResult, VmResult};
+pub use utils::find_index;
+pub use value::VmValue;
+pub use vm::VirtualMachine;

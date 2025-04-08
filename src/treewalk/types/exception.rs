@@ -1,11 +1,11 @@
-use crate::{core::Container, domain::Dunder, treewalk::interpreter::TreewalkResult};
-
-use super::{
-    domain::{
-        traits::{DescriptorProvider, NonDataDescriptor, Typed},
-        Type,
+use crate::{
+    core::Container,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{DescriptorProvider, NonDataDescriptor, Typed},
+        types::Class,
+        TreewalkResult, TreewalkValue,
     },
-    Class, ExprResult,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -29,10 +29,10 @@ impl NonDataDescriptor for TracebackAttribute {
     fn get_attr(
         &self,
         _interpreter: &crate::treewalk::Interpreter,
-        _instance: Option<ExprResult>,
+        _instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
-        Ok(ExprResult::Traceback(Traceback))
+    ) -> TreewalkResult<TreewalkValue> {
+        Ok(TreewalkValue::Traceback(Traceback))
     }
 
     fn name(&self) -> String {
@@ -61,10 +61,10 @@ impl NonDataDescriptor for FrameAttribute {
     fn get_attr(
         &self,
         _interpreter: &crate::treewalk::Interpreter,
-        _instance: Option<ExprResult>,
+        _instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
-        Ok(ExprResult::Frame)
+    ) -> TreewalkResult<TreewalkValue> {
+        Ok(TreewalkValue::Frame)
     }
 
     fn name(&self) -> String {

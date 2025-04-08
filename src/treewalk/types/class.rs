@@ -1,20 +1,15 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
+    args,
     core::{log, Container, LogLevel},
-    domain::Dunder,
-    resolved_args,
-    treewalk::{Interpreter, Scope},
-};
-
-use super::{
-    domain::{
-        traits::{Callable, MemberReader, MemberWriter},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MemberReader, MemberWriter},
+        types::{Str, Tuple},
+        utils::Arguments,
+        Interpreter, Scope, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult, Str, Tuple,
 };
 
 #[derive(Debug, PartialEq)]
@@ -44,24 +39,24 @@ impl Class {
         let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
 
         let bases = if parent_classes.is_empty() {
-            ExprResult::Tuple(Tuple::default())
+            TreewalkValue::Tuple(Tuple::default())
         } else {
             let bases = parent_classes
                 .iter()
                 .cloned()
-                .map(ExprResult::Class)
-                .collect::<Vec<ExprResult>>();
-            ExprResult::Tuple(Tuple::new(bases))
+                .map(TreewalkValue::Class)
+                .collect::<Vec<TreewalkValue>>();
+            TreewalkValue::Tuple(Tuple::new(bases))
         };
 
-        let args = &resolved_args![
-            ExprResult::Class(metaclass.clone()),
-            ExprResult::String(Str::new(name.into())),
+        let args = &args![
+            TreewalkValue::Class(metaclass.clone()),
+            TreewalkValue::String(Str::new(name.into())),
             bases,
-            ExprResult::Dict(Scope::default().as_dict(interpreter))
+            TreewalkValue::Dict(Scope::default().as_dict(interpreter))
         ];
         interpreter
-            .invoke_method(ExprResult::Class(metaclass), Dunder::New, args)?
+            .invoke_method(TreewalkValue::Class(metaclass), Dunder::New, args)?
             .expect_class(interpreter)
     }
 
@@ -222,7 +217,7 @@ impl Container<Class> {
 
     /// Use the class MRO to search for an attribute. This does not consider metaclasses but it
     /// does consider the class itself.
-    fn search(iterable: &[Container<Class>], name: &str) -> Option<ExprResult> {
+    fn search(iterable: &[Container<Class>], name: &str) -> Option<TreewalkValue> {
         for class in iterable {
             if let Some(attr) = class.borrow().scope.get(name) {
                 return Some(attr);
@@ -232,11 +227,11 @@ impl Container<Class> {
         None
     }
 
-    fn search_mro(&self, name: &str) -> Option<ExprResult> {
+    fn search_mro(&self, name: &str) -> Option<TreewalkValue> {
         Self::search(&self.mro(), name)
     }
 
-    pub fn get_from_class(&self, name: &str) -> Option<ExprResult> {
+    pub fn get_from_class(&self, name: &str) -> Option<TreewalkValue> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}::{}", self, name)
         });
@@ -244,7 +239,7 @@ impl Container<Class> {
         self.search_mro(name)
     }
 
-    pub fn get_from_metaclass(&self, name: &str) -> Option<ExprResult> {
+    pub fn get_from_metaclass(&self, name: &str) -> Option<TreewalkValue> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}::{}", self.borrow().metaclass(), name)
         });
@@ -254,7 +249,7 @@ impl Container<Class> {
 
     /// Insert into the class scope. Used by `MemberWriter` or anywhere we do not have an
     /// `Interpreter`, like in the `TypeRegistry` on startup.
-    pub fn set_on_class(&self, name: &str, value: ExprResult) {
+    pub fn set_on_class(&self, name: &str, value: TreewalkValue) {
         self.borrow_mut().scope.insert(name, value);
     }
 }
@@ -269,7 +264,7 @@ impl MemberReader for Container<Class> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         if let Some(attr) = self.get_from_class(name) {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class [from class]", self, name)
@@ -287,7 +282,7 @@ impl MemberReader for Container<Class> {
             });
             return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
-                Some(ExprResult::Class(self.clone())),
+                Some(TreewalkValue::Class(self.clone())),
                 self.borrow().metaclass(),
             )?));
         }
@@ -308,7 +303,7 @@ impl MemberWriter for Container<Class> {
         &mut self,
         _interpreter: &Interpreter,
         name: &str,
-        value: ExprResult,
+        value: TreewalkValue,
     ) -> TreewalkResult<()> {
         self.set_on_class(name, value);
         Ok(())
@@ -322,12 +317,8 @@ impl Display for Container<Class> {
 }
 
 impl Callable for Container<Class> {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        ExprResult::new(interpreter, self.clone(), args)
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        TreewalkValue::new(interpreter, self.clone(), args)
     }
 
     fn name(&self) -> String {

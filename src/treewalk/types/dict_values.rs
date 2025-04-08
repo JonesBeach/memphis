@@ -1,16 +1,17 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::core::Container;
-
-use super::{domain::traits::IndexRead as _, Dict, ExprResult};
+use crate::{
+    core::Container,
+    treewalk::{protocols::IndexRead, types::Dict, TreewalkValue},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictValues {
-    items: Vec<ExprResult>,
+    items: Vec<TreewalkValue>,
 }
 
 impl DictValues {
-    pub fn new(items: Vec<ExprResult>) -> Self {
+    pub fn new(items: Vec<TreewalkValue>) -> Self {
         Self { items }
     }
 }
@@ -46,7 +47,7 @@ impl Display for DictValues {
 }
 
 impl IntoIterator for DictValues {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = DictValuesIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -64,7 +65,7 @@ impl DictValuesIterator {
 }
 
 impl Iterator for DictValuesIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.items.is_empty() {

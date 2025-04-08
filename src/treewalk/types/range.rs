@@ -1,18 +1,12 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    domain::Dunder,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
-};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 const DEFAULT_START: i64 = 0;
@@ -63,7 +57,7 @@ impl Default for Range {
 }
 
 impl IntoIterator for Range {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
     type IntoIter = RangeIterator;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -91,7 +85,7 @@ impl RangeIterator {
 }
 
 impl Iterator for RangeIterator {
-    type Item = ExprResult;
+    type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.start < self.0.stop {
@@ -99,7 +93,7 @@ impl Iterator for RangeIterator {
             // Modify the start value in the range itself to prep the state for the next time
             // `next` is called.
             self.0.start += self.0.step;
-            Some(ExprResult::Integer(result))
+            Some(TreewalkValue::Integer(result))
         } else {
             None
         }
@@ -109,12 +103,8 @@ impl Iterator for RangeIterator {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
         let range = match args.len() {
             2 => {
@@ -135,7 +125,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::Range(range))
+        Ok(TreewalkValue::Range(range))
     }
 
     fn name(&self) -> String {

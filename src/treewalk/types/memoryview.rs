@@ -1,15 +1,10 @@
 use crate::{
-    domain::Dunder,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
-};
-
-use super::{
-    domain::{
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 /// A mutable version of a byte string.
@@ -31,11 +26,7 @@ impl MethodProvider for Memoryview {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        _interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 

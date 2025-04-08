@@ -1,18 +1,12 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
-    domain::Dunder,
-    treewalk::{Interpreter, Scope},
-};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
+        types::{Class, MappingProxy, Tuple},
+        utils::{check_args, Arguments},
+        Interpreter, Scope, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    Class, ExprResult, MappingProxy, Tuple,
 };
 
 /// This represents the callable class `type` in Python. For an enum of all the builtin types, see
@@ -47,15 +41,15 @@ impl NonDataDescriptor for DictAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
             Some(instance) => instance.as_class().unwrap().borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
 
-        Ok(ExprResult::MappingProxy(MappingProxy::new(
+        Ok(TreewalkValue::MappingProxy(MappingProxy::new(
             scope.as_dict(interpreter),
         )))
     }
@@ -69,9 +63,9 @@ impl NonDataDescriptor for MroAttribute {
     fn get_attr(
         &self,
         _interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let mro = match instance {
             Some(instance) => instance
                 .as_class()
@@ -79,11 +73,16 @@ impl NonDataDescriptor for MroAttribute {
                 .mro()
                 .iter()
                 .cloned()
-                .map(ExprResult::Class)
+                .map(TreewalkValue::Class)
                 .collect(),
-            None => owner.mro().iter().cloned().map(ExprResult::Class).collect(),
+            None => owner
+                .mro()
+                .iter()
+                .cloned()
+                .map(TreewalkValue::Class)
+                .collect(),
         };
-        Ok(ExprResult::Tuple(Tuple::new(mro)))
+        Ok(TreewalkValue::Tuple(Tuple::new(mro)))
     }
 
     fn name(&self) -> String {
@@ -94,15 +93,11 @@ impl NonDataDescriptor for MroAttribute {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }
-        utils::validate_args(&args, |len| len == 4, interpreter)?;
+        check_args(&args, |len| len == 4, interpreter)?;
 
         let mcls = args.get_arg(0).expect_class(interpreter)?;
         let name = args.get_arg(1).expect_string(interpreter)?;
@@ -125,7 +120,7 @@ impl Callable for NewBuiltin {
         let scope = Scope::try_from(namespace.clone().borrow().clone())
             .map_err(|_| interpreter.type_error("Expected a dict"))?;
 
-        Ok(ExprResult::Class(Class::new_base(
+        Ok(TreewalkValue::Class(Class::new_base(
             name,
             parent_classes,
             Some(mcls),

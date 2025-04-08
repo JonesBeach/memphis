@@ -1,13 +1,10 @@
-use crate::treewalk::interpreter::TreewalkResult;
-use crate::{domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 pub struct Bool;
@@ -27,16 +24,12 @@ impl MethodProvider for Bool {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         if args.len() == 1 {
-            Ok(ExprResult::Boolean(false))
+            Ok(TreewalkValue::Boolean(false))
         } else if args.len() == 2 {
             let input = args.get_arg(1).as_boolean();
-            Ok(ExprResult::Boolean(input))
+            Ok(TreewalkValue::Boolean(input))
         } else {
             Err(interpreter.type_error(format!("Expected {} found {} args", 1, args.len())))
         }

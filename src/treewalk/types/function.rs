@@ -4,26 +4,22 @@ use std::{
 };
 
 use crate::{
+    args,
     core::{log, Container, LogLevel},
-    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
+    domain::{DebugStackFrame, Dunder, ToDebugStackFrame, Type},
     parser::{
         static_analysis::{FunctionAnalysisVisitor, YieldDetector},
         types::{Ast, Closure, Expr, Params},
     },
-    resolved_args,
-    treewalk::{interpreter::TreewalkResult, Interpreter, Scope, TreewalkState},
-};
-
-use super::{
-    domain::{
-        traits::{
+    treewalk::{
+        protocols::{
             Callable, DataDescriptor, DescriptorProvider, MemberReader, MemberWriter,
             NonDataDescriptor, Typed,
         },
-        Type,
+        types::{Cell, Class, Dict, Module, Str, Tuple},
+        utils::{Arguments, EnvironmentFrame},
+        Interpreter, Scope, TreewalkResult, TreewalkState, TreewalkValue,
     },
-    utils::{EnvironmentFrame, ResolvedArguments},
-    Cell, Class, Dict, ExprResult, Module, Str, Tuple,
 };
 
 /// How we evaluate a [`Function`] depends on whether it is async or a generator or a
@@ -158,28 +154,28 @@ impl Function {
         detector.found_yield
     }
 
-    fn get_globals(&self) -> ExprResult {
-        ExprResult::Dict(Container::new(Dict::default()))
+    fn get_globals(&self) -> TreewalkValue {
+        TreewalkValue::Dict(Container::new(Dict::default()))
     }
 
-    fn get_code(&self) -> ExprResult {
-        ExprResult::Code(Container::new(Code))
+    fn get_code(&self) -> TreewalkValue {
+        TreewalkValue::Code(Container::new(Code))
     }
 
-    fn get_closure(&self) -> ExprResult {
+    fn get_closure(&self) -> TreewalkValue {
         let free_vars = self.closure.free_vars();
 
         if free_vars.is_empty() {
-            return ExprResult::None;
+            return TreewalkValue::None;
         }
 
         let mut items = vec![];
         for key in free_vars {
             let value = self.captured_env.borrow().read(key.as_str()).unwrap();
-            items.push(ExprResult::Cell(Container::new(Cell::new(value))));
+            items.push(TreewalkValue::Cell(Container::new(Cell::new(value))));
         }
 
-        ExprResult::Tuple(Tuple::new(items))
+        TreewalkValue::Tuple(Tuple::new(items))
     }
 }
 
@@ -190,7 +186,7 @@ impl MemberReader for Container<Function> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}.{}", self, name)
         });
@@ -204,7 +200,7 @@ impl MemberReader for Container<Function> {
 
         if let Some(attr) = class.get_from_class(name) {
             log(LogLevel::Debug, || format!("Found: {}::{}", class, name));
-            let instance = ExprResult::Function(self.clone());
+            let instance = TreewalkValue::Function(self.clone());
             let owner = instance.get_class(interpreter);
             return Ok(Some(attr.resolve_nondata_descriptor(
                 interpreter,
@@ -222,7 +218,7 @@ impl MemberWriter for Container<Function> {
         &mut self,
         _interpreter: &Interpreter,
         name: &str,
-        value: ExprResult,
+        value: TreewalkValue,
     ) -> TreewalkResult<()> {
         self.borrow_mut().scope.insert(name, value);
         Ok(())
@@ -235,8 +231,8 @@ impl MemberWriter for Container<Function> {
 }
 
 impl Container<Function> {
-    pub fn apply_decorators(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
-        let mut result = ExprResult::Function(self.clone());
+    pub fn apply_decorators(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
+        let mut result = TreewalkValue::Function(self.clone());
         if self.borrow().decorators.is_empty() {
             return Ok(result);
         }
@@ -246,7 +242,7 @@ impl Container<Function> {
             let function = interpreter
                 .evaluate_expr(decorator)?
                 .expect_callable(interpreter)?;
-            result = interpreter.call(function, &resolved_args![result])?;
+            result = interpreter.call(function, &args![result])?;
         }
 
         Ok(result)
@@ -254,11 +250,7 @@ impl Container<Function> {
 }
 
 impl Callable for Container<Function> {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         let scope = Scope::new(interpreter, self, &args)?;
         interpreter.invoke_function(self.clone(), scope)
     }
@@ -297,15 +289,15 @@ impl NonDataDescriptor for ClosureAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance
                 .expect_function(interpreter)?
                 .borrow()
                 .get_closure(),
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -321,12 +313,12 @@ impl NonDataDescriptor for CodeAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance.expect_function(interpreter)?.borrow().get_code(),
-            None => ExprResult::DataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::DataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -339,13 +331,17 @@ impl DataDescriptor for CodeAttribute {
     fn set_attr(
         &self,
         _interpreter: &Interpreter,
-        _instance: ExprResult,
-        _value: ExprResult,
+        _instance: TreewalkValue,
+        _value: TreewalkValue,
     ) -> TreewalkResult<()> {
         todo!();
     }
 
-    fn delete_attr(&self, _interpreter: &Interpreter, _instance: ExprResult) -> TreewalkResult<()> {
+    fn delete_attr(
+        &self,
+        _interpreter: &Interpreter,
+        _instance: TreewalkValue,
+    ) -> TreewalkResult<()> {
         todo!();
     }
 }
@@ -357,15 +353,15 @@ impl NonDataDescriptor for GlobalsAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance
                 .expect_function(interpreter)?
                 .borrow()
                 .get_globals(),
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -381,9 +377,9 @@ impl NonDataDescriptor for ModuleAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
@@ -393,9 +389,9 @@ impl NonDataDescriptor for ModuleAttribute {
                     .borrow()
                     .name()
                     .to_string();
-                ExprResult::String(Str::new(name))
+                TreewalkValue::String(Str::new(name))
             }
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -411,13 +407,13 @@ impl NonDataDescriptor for DocAttribute {
     fn get_attr(
         &self,
         _interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             // TODO store doc strings
-            Some(_) => ExprResult::String(Str::new("".into())),
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            Some(_) => TreewalkValue::String(Str::new("".into())),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -433,15 +429,15 @@ impl NonDataDescriptor for NameAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
-                ExprResult::String(Str::new(name))
+                TreewalkValue::String(Str::new(name))
             }
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -457,15 +453,15 @@ impl NonDataDescriptor for QualnameAttribute {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
-                ExprResult::String(Str::new(name))
+                TreewalkValue::String(Str::new(name))
             }
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -481,12 +477,12 @@ impl NonDataDescriptor for AnnotationsAttribute {
     fn get_attr(
         &self,
         _interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
-            Some(_) => ExprResult::Dict(Container::new(Dict::default())),
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            Some(_) => TreewalkValue::Dict(Container::new(Dict::default())),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -502,12 +498,12 @@ impl NonDataDescriptor for TypeParamsAttribute {
     fn get_attr(
         &self,
         _interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
-            Some(_) => ExprResult::Tuple(Tuple::default()),
-            None => ExprResult::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            Some(_) => TreewalkValue::Tuple(Tuple::default()),
+            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
         })
     }
 
@@ -525,14 +521,14 @@ impl NonDataDescriptor for DictDescriptor {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
             Some(i) => i.expect_function(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
-        Ok(ExprResult::Dict(scope.as_dict(interpreter)))
+        Ok(TreewalkValue::Dict(scope.as_dict(interpreter)))
     }
 
     fn name(&self) -> String {

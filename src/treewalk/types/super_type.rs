@@ -1,21 +1,15 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::{log, Container, LogLevel},
-    domain::Dunder,
-    treewalk::Interpreter,
-};
-
-use super::{
-    domain::{
-        traits::{Callable, MemberReader, MethodProvider, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MemberReader, MethodProvider, Typed},
+        utils::Arguments,
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 #[derive(Debug, Clone)]
-pub struct Super(ExprResult);
+pub struct Super(TreewalkValue);
 
 impl Typed for Super {
     fn get_type() -> Type {
@@ -30,11 +24,11 @@ impl MethodProvider for Super {
 }
 
 impl Super {
-    pub fn new(receiver: ExprResult) -> Self {
+    pub fn new(receiver: TreewalkValue) -> Self {
         Self(receiver)
     }
 
-    pub fn receiver(&self) -> ExprResult {
+    pub fn receiver(&self) -> TreewalkValue {
         self.0.clone()
     }
 }
@@ -44,7 +38,7 @@ impl MemberReader for Container<Super> {
         &self,
         interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         let instance = self.borrow().receiver();
         let class = instance.get_class(interpreter);
 
@@ -72,11 +66,7 @@ impl MemberReader for Container<Super> {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        _args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
         match interpreter.state.current_receiver() {
             None => {
                 // If we are evaluating a static function, `super()` should just return the class the
@@ -86,11 +76,11 @@ impl Callable for NewBuiltin {
                 assert_eq!(function.borrow().name(), String::from(Dunder::New));
 
                 let class = function.borrow().clone().class_context.unwrap();
-                Ok(ExprResult::Super(Container::new(Super::new(
-                    ExprResult::Class(class),
+                Ok(TreewalkValue::Super(Container::new(Super::new(
+                    TreewalkValue::Class(class),
                 ))))
             }
-            Some(receiver) => Ok(ExprResult::Super(Container::new(Super::new(receiver)))),
+            Some(receiver) => Ok(TreewalkValue::Super(Container::new(Super::new(receiver)))),
         }
     }
 

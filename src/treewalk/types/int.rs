@@ -1,14 +1,10 @@
-use crate::treewalk::interpreter::TreewalkResult;
-use crate::{domain::Dunder, treewalk::Interpreter};
-
-use super::domain::builtins::utils;
-use super::{
-    domain::{
-        traits::{Callable, MethodProvider, Typed},
-        Type,
+use crate::{
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, Typed},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    ExprResult,
 };
 
 pub struct Int;
@@ -28,12 +24,8 @@ impl MethodProvider for Int {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
-        utils::validate_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let int = match args.len() {
             1 => 0,
@@ -41,7 +33,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(ExprResult::Integer(int))
+        Ok(TreewalkValue::Integer(int))
     }
 
     fn name(&self) -> String {

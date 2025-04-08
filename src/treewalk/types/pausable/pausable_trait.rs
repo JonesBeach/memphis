@@ -1,11 +1,7 @@
-use crate::treewalk::interpreter::TreewalkResult;
 use crate::{
     core::Container,
     parser::types::{Statement, StatementKind},
-    treewalk::{
-        types::{ExprResult, List},
-        Interpreter, Scope,
-    },
+    treewalk::{types::List, Interpreter, Scope, TreewalkResult, TreewalkValue},
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -13,8 +9,8 @@ use super::{Frame, PausableContext, PausableState, PausableToken};
 /// This instructs [`Pausable::run_until_pause`] what action should happen next.
 pub enum PausableStepResult {
     NoOp,
-    BreakAndReturn(ExprResult),
-    Return(ExprResult),
+    BreakAndReturn(TreewalkValue),
+    Return(TreewalkValue),
     Break,
 }
 
@@ -31,7 +27,11 @@ pub trait Pausable {
 
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
-    fn finish(&self, interpreter: &Interpreter, result: ExprResult) -> TreewalkResult<ExprResult>;
+    fn finish(
+        &self,
+        interpreter: &Interpreter,
+        result: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue>;
 
     /// A handle to invoke the discrete operation of evaluating an individual statement and
     /// producing a [`PausableStepResult`] based on the control flow instructions and or the
@@ -164,10 +164,10 @@ pub trait Pausable {
     }
 
     /// Run this [`Pausable`] until it reaches a pause event.
-    fn run_until_pause(&self, interpreter: &Interpreter) -> TreewalkResult<ExprResult> {
+    fn run_until_pause(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
         self.on_entry(interpreter);
 
-        let mut result = ExprResult::None;
+        let mut result = TreewalkValue::None;
         loop {
             match self.context().current_state() {
                 PausableState::Created => {
@@ -189,7 +189,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::None);
+                            break Ok(TreewalkValue::None);
                         }
                     };
                 }
@@ -214,7 +214,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::None);
+                            break Ok(TreewalkValue::None);
                         }
                     };
                 }
@@ -233,7 +233,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::None);
+                            break Ok(TreewalkValue::None);
                         }
                     };
                 }
@@ -252,7 +252,7 @@ pub trait Pausable {
                             result = val;
                         }
                         PausableStepResult::Break => {
-                            break Ok(ExprResult::None);
+                            break Ok(TreewalkValue::None);
                         }
                     };
 

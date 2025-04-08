@@ -1,6 +1,6 @@
 use memphis::{
-    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter},
-    domain::test_utils,
+    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TreewalkAdapter},
+    domain::{test_utils, MemphisValue},
     MemphisError,
 };
 
@@ -16,7 +16,7 @@ def foo(a, b):
 a = foo(2, 9)
 "#;
     let _ = adapter.evaluate(input);
-    assert_eq!(adapter.read("a"), Some(TestValue::Integer(11)));
+    assert_eq!(adapter.read("a"), Some(MemphisValue::Integer(11)));
 
     let input = r#"
 def foo(a, b):
@@ -26,7 +26,7 @@ def foo(a, b):
 a = foo(2, 9)
 "#;
     let _ = adapter.evaluate(input);
-    assert_eq!(adapter.read("a"), Some(TestValue::Integer(20)));
+    assert_eq!(adapter.read("a"), Some(MemphisValue::Integer(20)));
 
     let input = r#"
 def middle_call():

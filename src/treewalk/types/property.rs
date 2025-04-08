@@ -1,18 +1,13 @@
 use crate::{
+    args,
     core::Container,
-    domain::Dunder,
-    resolved_args,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
-};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
-        Type,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        types::Class,
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    Class, ExprResult,
 };
 
 #[derive(Clone)]
@@ -39,15 +34,11 @@ impl Property {
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, |len| len == 2, interpreter)?;
+        check_args(&args, |len| len == 2, interpreter)?;
         let function = args.get_arg(1).expect_callable(interpreter)?;
-        Ok(ExprResult::Property(Property::new(function)))
+        Ok(TreewalkValue::Property(Property::new(function)))
     }
 
     fn name(&self) -> String {
@@ -59,14 +50,14 @@ impl NonDataDescriptor for Property {
     fn get_attr(
         &self,
         interpreter: &Interpreter,
-        instance: Option<ExprResult>,
+        instance: Option<TreewalkValue>,
         _owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
+    ) -> TreewalkResult<TreewalkValue> {
         let Some(instance) = instance else {
             panic!("No instance for descriptor!");
         };
 
-        interpreter.call(self.0.clone(), &resolved_args![instance])
+        interpreter.call(self.0.clone(), &args![instance])
     }
 
     fn name(&self) -> String {

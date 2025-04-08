@@ -1,4 +1,7 @@
-use memphis::crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TestValue, TreewalkAdapter};
+use memphis::{
+    crosscheck_utils::{BytecodeVmAdapter, InterpreterTest, TreewalkAdapter},
+    domain::MemphisValue,
+};
 
 fn run_test<T: InterpreterTest>(mut interpreter: T) {
     let input = r#"
@@ -10,7 +13,7 @@ f = Foo()
 b = f.bar()
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(4)));
+    assert_eq!(interpreter.read("b"), Some(MemphisValue::Integer(4)));
 
     let input = r#"
 class Foo:
@@ -24,7 +27,7 @@ f = Foo(10)
 b = f.bar()
 "#;
     let _ = interpreter.evaluate(input);
-    assert_eq!(interpreter.read("b"), Some(TestValue::Integer(10)));
+    assert_eq!(interpreter.read("b"), Some(MemphisValue::Integer(10)));
 }
 
 #[test]

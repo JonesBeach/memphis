@@ -1,14 +1,12 @@
-use crate::treewalk::interpreter::TreewalkResult;
-use crate::{core::Container, domain::Dunder, treewalk::Interpreter};
-
-use super::{
-    domain::{
-        builtins::utils,
-        traits::{Callable, MethodProvider, NonDataDescriptor, Typed},
-        Type,
+use crate::{
+    core::Container,
+    domain::{Dunder, Type},
+    treewalk::{
+        protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        types::{Class, Method},
+        utils::{check_args, Arguments},
+        Interpreter, TreewalkResult, TreewalkValue,
     },
-    utils::ResolvedArguments,
-    Class, ExprResult, Method,
 };
 
 #[derive(Clone)]
@@ -35,13 +33,9 @@ impl Classmethod {
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        args: ResolvedArguments,
-    ) -> TreewalkResult<ExprResult> {
+    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
-        utils::validate_args(&args, |len| len == 2, interpreter)?;
+        check_args(&args, |len| len == 2, interpreter)?;
 
         // This is a workaround for Generic type behavior found in _collections_abc.py.
         // _weakrefset.py also uses this.
@@ -51,11 +45,11 @@ impl Callable for NewBuiltin {
         // __class_getitem__ = classmethod(GenericAlias)
         // ```
         if args.get_arg(1).as_class().is_some() {
-            return Ok(ExprResult::None);
+            return Ok(TreewalkValue::None);
         }
 
         let function = args.get_arg(1).expect_callable(interpreter)?;
-        Ok(ExprResult::Classmethod(Classmethod::new(function)))
+        Ok(TreewalkValue::Classmethod(Classmethod::new(function)))
     }
 
     fn name(&self) -> String {
@@ -67,11 +61,11 @@ impl NonDataDescriptor for Classmethod {
     fn get_attr(
         &self,
         _interpreter: &Interpreter,
-        _instance: Option<ExprResult>,
+        _instance: Option<TreewalkValue>,
         owner: Container<Class>,
-    ) -> TreewalkResult<ExprResult> {
-        Ok(ExprResult::Method(Container::new(Method::new(
-            ExprResult::Class(owner),
+    ) -> TreewalkResult<TreewalkValue> {
+        Ok(TreewalkValue::Method(Container::new(Method::new(
+            TreewalkValue::Class(owner),
             self.0.clone(),
         ))))
     }

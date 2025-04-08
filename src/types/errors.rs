@@ -1,6 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{bytecode_vm::types::CompilerError, domain::ExecutionError, lexer::types::Token};
+use crate::{bytecode_vm::CompilerError, domain::ExecutionError, lexer::Token};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum MemphisError {

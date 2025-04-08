@@ -1,6 +1,4 @@
-use crate::treewalk::{interpreter::TreewalkResult, Interpreter, Scope};
-
-use super::{domain::traits::MemberReader, ExprResult};
+use crate::treewalk::{protocols::MemberReader, Interpreter, Scope, TreewalkResult, TreewalkValue};
 
 /// This corresponds to the Python internal `Cell` class, which is returned for values captured in
 /// a closure.
@@ -10,7 +8,7 @@ pub struct Cell {
 }
 
 impl Cell {
-    pub fn new(value: ExprResult) -> Self {
+    pub fn new(value: TreewalkValue) -> Self {
         let mut scope = Scope::default();
         scope.insert("cell_contents", value);
         Self {
@@ -24,7 +22,7 @@ impl MemberReader for Cell {
         &self,
         _interpreter: &Interpreter,
         name: &str,
-    ) -> TreewalkResult<Option<ExprResult>> {
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(self.scope.get(name))
     }
 }

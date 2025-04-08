@@ -2,10 +2,8 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::Container,
-    treewalk::{interpreter::TreewalkResult, Interpreter},
+    treewalk::{protocols::IndexRead, types::Dict, Interpreter, TreewalkResult, TreewalkValue},
 };
-
-use super::{domain::traits::IndexRead, Dict, ExprResult};
 
 /// A read-only view into a `Dict`. This is used by Python for things like `Dunder::Dict`.
 #[derive(Clone, PartialEq)]
@@ -21,8 +19,8 @@ impl IndexRead for MappingProxy {
     fn getitem(
         &self,
         interpreter: &Interpreter,
-        index: ExprResult,
-    ) -> TreewalkResult<Option<ExprResult>> {
+        index: TreewalkValue,
+    ) -> TreewalkResult<Option<TreewalkValue>> {
         self.0.getitem(interpreter, index)
     }
 }
