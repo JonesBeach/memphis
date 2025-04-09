@@ -14,7 +14,6 @@ use crate::{
     },
 };
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
     SyntaxError(String),
@@ -27,15 +26,19 @@ impl Display for CompilerError {
     }
 }
 
+/// A Python bytecode compiler.
 pub struct Compiler {
+    /// This will likely need to become a stack once we support module imports.
     source: Source,
 
     /// Keep a reference to the code object being constructed so we can associate things with it,
-    /// (i.e. variable names).
+    /// (variable names, constants, etc.).
     code_stack: Vec<CodeObject>,
 
+    /// Whether we are in a Local or Global context.
     context_stack: Vec<Context>,
 
+    /// The most recent line number seen from the Ast.
     line_number: usize,
 }
 
@@ -145,10 +148,7 @@ impl Compiler {
     }
 
     fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
-        for stmt in ast.iter() {
-            self.compile_stmt(stmt)?;
-        }
-        Ok(())
+        ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
     }
 
     fn generate_load(&mut self, name: &str) -> Opcode {
