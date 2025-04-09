@@ -1,6 +1,6 @@
 mod frame;
-pub mod types;
-#[allow(clippy::module_inception)]
+mod types;
 mod vm;
 
+pub use types::{Class, FunctionObject, Method, Object, Reference};
 pub use vm::VirtualMachine;

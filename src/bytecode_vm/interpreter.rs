@@ -54,7 +54,7 @@ mod vm_interpreter_tests {
     use super::*;
 
     use crate::{
-        bytecode_vm::runtime::types::Object,
+        bytecode_vm::runtime::Object,
         domain::{test_utils, ExecutionError, ExecutionErrorKind},
         init::MemphisContext,
     };

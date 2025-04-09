@@ -3,7 +3,7 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
-        runtime::types::{Class, FunctionObject, Method, Object, Reference},
+        runtime::{Class, FunctionObject, Method, Object, Reference},
     },
     core::Voidable,
     domain::MemphisValue,
