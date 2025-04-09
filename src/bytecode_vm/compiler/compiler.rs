@@ -571,7 +571,7 @@ mod bytecode_tests {
 
     use crate::{
         ast, bin_op, bytecode_vm::compiler::types::Bytecode, call_args, func_call, int,
-        member_access, parser::test_utils::*, stmt_assign, str, unary_op, var,
+        member_access, method_call, parser::test_utils::*, stmt_assign, str, unary_op, var,
     };
 
     fn init() -> Compiler {
@@ -800,11 +800,7 @@ mod bytecode_tests {
 
     #[test]
     fn method_call() {
-        let expr = Expr::MethodCall {
-            object: Box::new(var!("foo")),
-            name: "bar".to_string(),
-            args: call_args![int!(88), int!(99)],
-        };
+        let expr = method_call!(var!("foo"), "bar", call_args![int!(88), int!(99)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -826,8 +822,9 @@ mod compiler_state_tests {
     use crate::init::MemphisContext;
 
     fn compile(text: &str) -> CodeObject {
-        let mut context = MemphisContext::from_text(text);
-        context.compile().expect("Failed to compile test program!")
+        MemphisContext::from_text(text)
+            .compile()
+            .expect("Failed to compile test program!")
     }
 
     macro_rules! assert_code_eq {
