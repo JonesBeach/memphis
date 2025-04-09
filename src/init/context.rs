@@ -2,7 +2,7 @@ use std::{fmt::Display, path::Path, process};
 
 use crate::{
     ast,
-    bytecode_vm::{compiler::types::CompiledProgram, VmInterpreter, VmValue},
+    bytecode_vm::{compiler::types::CodeObject, VmInterpreter, VmValue},
     core::{Container, InterpreterEntrypoint},
     domain::{MemphisValue, Source},
     lexer::Lexer,
@@ -135,7 +135,7 @@ impl MemphisContext {
         interpreter.run(&mut parser)
     }
 
-    pub fn compile(&mut self) -> Result<CompiledProgram, MemphisError> {
+    pub fn compile(&mut self) -> Result<CodeObject, MemphisError> {
         self.ensure_vm_initialized();
 
         // Destructure to break the borrow into disjoint pieces

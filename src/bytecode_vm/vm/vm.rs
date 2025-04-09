@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::{CompiledProgram, Constant},
+        compiler::types::CodeObject,
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
         Opcode, VmResult, VmValue,
@@ -22,9 +22,6 @@ pub struct VirtualMachine {
 
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
-
-    /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
-    constant_pool: Vec<Constant>,
 
     /// The runtime mapping of global variables to their values.
     global_store: HashMap<String, Reference>,
@@ -47,18 +44,15 @@ impl VirtualMachine {
         Self {
             state,
             call_stack: vec![],
-            constant_pool: vec![],
             global_store: HashMap::new(),
             object_table: vec![],
             class_stack: vec![],
         }
     }
 
-    pub fn load(&mut self, program: CompiledProgram) {
-        log(LogLevel::Debug, || format!("{}", program));
-        self.constant_pool = program.constant_pool;
-
-        let function = FunctionObject::new(program.code);
+    pub fn load(&mut self, code: CodeObject) {
+        log(LogLevel::Debug, || format!("{}", code));
+        let function = FunctionObject::new(code);
         let frame = Frame::new(function, vec![]);
 
         // We used to do this, but we no longer need to because the MemphisState handles it (kind
@@ -85,7 +79,13 @@ impl VirtualMachine {
     }
 
     pub fn read_constant(&self, index: ConstantIndex) -> Option<VmValue> {
-        self.constant_pool.get(*index).map(|c| c.into())
+        self.current_frame()
+            .ok()?
+            .function
+            .code_object
+            .constants
+            .get(*index)
+            .map(|c| c.into())
     }
 
     fn error(&self, error_kind: ExecutionErrorKind) -> ExecutionError {

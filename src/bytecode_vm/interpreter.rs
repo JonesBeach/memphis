@@ -1,13 +1,11 @@
 use crate::{
-    bytecode_vm::{Compiler, VirtualMachine, VmValue},
+    bytecode_vm::{compiler::types::CodeObject, Compiler, VirtualMachine, VmValue},
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     domain::Source,
     parser::Parser,
     runtime::MemphisState,
     types::errors::MemphisError,
 };
-
-use super::compiler::types::CompiledProgram;
 
 pub struct VmInterpreter {
     compiler: Compiler,
@@ -28,7 +26,7 @@ impl VmInterpreter {
         Some(self.vm.take(reference))
     }
 
-    pub fn compile(&mut self, parser: &mut Parser) -> Result<CompiledProgram, MemphisError> {
+    pub fn compile(&mut self, parser: &mut Parser) -> Result<CodeObject, MemphisError> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
@@ -44,9 +42,9 @@ impl InterpreterEntrypoint for VmInterpreter {
     type Return = VmValue;
 
     fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
-        let program = self.compile(parser)?;
-        log(LogLevel::Trace, || format!("{}", program));
-        self.vm.load(program);
+        let code = self.compile(parser)?;
+        log(LogLevel::Trace, || format!("{}", code));
+        self.vm.load(code);
         self.vm.run_loop().map_err(MemphisError::Execution)
     }
 }
