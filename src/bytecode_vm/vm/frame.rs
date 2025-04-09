@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode_vm::opcode::Opcode,
+    bytecode_vm::compiler::Opcode,
     domain::{DebugStackFrame, ToDebugStackFrame},
 };
 

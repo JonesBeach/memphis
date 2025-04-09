@@ -1,5 +1,5 @@
 use crate::{
-    bytecode_vm::{compiler::types::CodeObject, Compiler, VirtualMachine, VmValue},
+    bytecode_vm::{compiler::CodeObject, Compiler, VirtualMachine, VmValue},
     core::{log, Container, InterpreterEntrypoint, LogLevel},
     domain::Source,
     parser::Parser,

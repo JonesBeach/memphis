@@ -2,7 +2,7 @@ use std::{fmt::Display, path::Path, process};
 
 use crate::{
     ast,
-    bytecode_vm::{compiler::types::CodeObject, VmInterpreter, VmValue},
+    bytecode_vm::{compiler::CodeObject, VmInterpreter, VmValue},
     core::{Container, InterpreterEntrypoint},
     domain::{MemphisValue, Source},
     lexer::Lexer,

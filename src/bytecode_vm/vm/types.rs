@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::bytecode_vm::{
-    compiler::types::CodeObject,
+    compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
     VmValue,
 };

@@ -4,31 +4,9 @@ use std::{
 };
 
 use crate::{
-    bytecode_vm::opcode::Opcode,
+    bytecode_vm::compiler::{Bytecode, Constant},
     domain::{Dunder, Source},
 };
-
-pub type Bytecode = Vec<Opcode>;
-
-/// The values which are passed to the VM are a subset of the types of [`Value`].
-#[derive(Debug, PartialEq, Clone)]
-pub enum Constant {
-    None,
-    Boolean(bool),
-    String(String),
-    Code(CodeObject),
-}
-
-impl Display for Constant {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self {
-            Constant::None => write!(f, "None"),
-            Constant::Boolean(i) => write!(f, "{}", i),
-            Constant::String(i) => write!(f, "{}", i),
-            Constant::Code(i) => write!(f, "{}", i),
-        }
-    }
-}
 
 /// Represents the bytecode and associated metadata for a block of Python code. It's a compiled
 /// version of the source code, containing instructions that the VM can execute. This is immutable

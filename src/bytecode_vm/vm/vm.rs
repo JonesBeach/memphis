@@ -2,10 +2,10 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::CodeObject,
+        compiler::{CodeObject, Opcode},
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
-        Opcode, VmResult, VmValue,
+        VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
     domain::{Dunder, ExecutionError, ExecutionErrorKind},

@@ -2,9 +2,10 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     bytecode_vm::{
+        compiler::{CodeObject, Constant, Opcode},
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex},
-        CompilerResult, Opcode,
+        CompilerResult,
     },
     core::{log, LogLevel},
     domain::{Context, Source},
@@ -12,8 +13,6 @@ use crate::{
         Ast, BinOp, CallArgs, ConditionalBlock, Expr, Params, Statement, StatementKind, UnaryOp,
     },
 };
-
-use super::types::{CodeObject, Constant};
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Clone, PartialEq, Debug)]
@@ -570,8 +569,8 @@ mod bytecode_tests {
     use super::*;
 
     use crate::{
-        ast, bin_op, bytecode_vm::compiler::types::Bytecode, call_args, func_call, int,
-        member_access, method_call, parser::test_utils::*, stmt_assign, str, unary_op, var,
+        ast, bin_op, bytecode_vm::compiler::Bytecode, call_args, func_call, int, member_access,
+        method_call, parser::test_utils::*, stmt_assign, str, unary_op, var,
     };
 
     fn init() -> Compiler {
