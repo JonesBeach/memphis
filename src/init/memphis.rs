@@ -1,13 +1,11 @@
 #[cfg(feature = "llvm_backend")]
 use crate::llvm_backend::compile_ast_to_llvm;
-use crate::{core::memphis_utils, Engine};
-
-use super::MemphisContext;
+use crate::{core::memphis_utils, init::MemphisContext, Engine};
 
 pub struct Memphis;
 
 impl Memphis {
-    pub fn start(filepath: &str, engine: Engine) {
+    pub fn run_script(filepath: &str, engine: Engine) {
         match engine {
             Engine::Treewalk => {
                 let mut context = MemphisContext::from_path(filepath);

@@ -16,7 +16,7 @@ fn main() {
             eprintln!("Must enable 'repl' feature flag!");
             process::exit(1);
         }
-        2 => Memphis::start(&args[1], engine),
+        2 => Memphis::run_script(&args[1], engine),
         _ => {
             eprintln!("Usage: memphis [<filename>]");
             process::exit(1);
