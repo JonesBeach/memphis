@@ -54,11 +54,14 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CodeObject> {
-        self.compile_ast(ast)?;
-        self.emit(Opcode::Halt);
+    pub fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
+        ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
+    }
 
-        self.code_stack.pop().ok_or(CompilerError::StackUnderflow)
+    pub fn finalize(&self) -> CodeObject {
+        let mut code = self.ensure_code_object().clone();
+        code.bytecode.push(Opcode::Halt);
+        code
     }
 
     fn current_offset(&self) -> usize {
@@ -145,10 +148,6 @@ impl Compiler {
         };
 
         Ok(())
-    }
-
-    fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
-        ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
     }
 
     fn generate_load(&mut self, name: &str) -> Opcode {
