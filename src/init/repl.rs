@@ -9,7 +9,7 @@ use crossterm::{
 
 use crate::{
     core::Voidable,
-    init::{MemphisContext, TerminalIO},
+    init::{CrosstermIO, MemphisContext, TerminalIO},
     types::errors::MemphisError,
     Engine,
 };
@@ -78,9 +78,10 @@ pub struct Repl {
 }
 
 impl Repl {
-    /// The primary entrypoint to the REPL.
-    pub fn run<T: TerminalIO>(&mut self, terminal_io: &mut T) {
-        let engine = Engine::from_env();
+    /// The primary entrypoint to the REPL, which uses a real terminal in raw mode and will exit
+    /// loudly when terminated. For virtual terminals, use `run_inner`.
+    pub fn run(&mut self, engine: Engine) {
+        let terminal_io = &mut CrosstermIO;
         let _ = terminal_io.writeln(format!(
             "memphis {} REPL (engine: {}) (Type 'exit()' to quit)",
             env!("CARGO_PKG_VERSION"),
@@ -101,7 +102,7 @@ impl Repl {
         process::exit(exit_code);
     }
 
-    pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T, engine: Engine) -> ExitCode {
+    fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T, engine: Engine) -> ExitCode {
         let mut context = MemphisContext::default();
 
         loop {

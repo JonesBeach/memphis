@@ -1,7 +1,10 @@
+#[cfg(feature = "repl")]
+use crate::init::Repl;
 #[cfg(feature = "llvm_backend")]
 use crate::llvm_backend::compile_ast_to_llvm;
 use crate::{core::memphis_utils, init::MemphisContext, Engine};
 
+/// The entrypoint to the Memphis executable. Supports script mode or REPL mode.
 pub struct Memphis;
 
 impl Memphis {
@@ -28,5 +31,10 @@ impl Memphis {
                 compile_ast_to_llvm();
             }
         }
+    }
+
+    #[cfg(feature = "repl")]
+    pub fn run_repl(engine: Engine) {
+        Repl::default().run(engine);
     }
 }

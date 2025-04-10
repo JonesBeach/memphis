@@ -7,6 +7,7 @@ pub mod init;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
 mod llvm_backend;
+mod memphis;
 mod parser;
 mod runtime;
 mod treewalk;
@@ -14,6 +15,7 @@ mod types;
 
 // We need these public for crosscheck
 pub use engine::Engine;
+pub use memphis::Memphis;
 pub use types::errors::MemphisError;
 
 #[cfg(feature = "wasm")]

@@ -186,12 +186,6 @@ impl MemphisContext {
             .expect("Failed to initialize Interpreter")
     }
 
-    pub fn ensure_treewalk_mut(&mut self) -> &mut Interpreter {
-        self.interpreter
-            .as_mut()
-            .expect("Failed to initialize Interpreter")
-    }
-
     pub fn ensure_vm(&mut self) -> &mut VmInterpreter {
         self.vm_interpreter
             .as_mut()
