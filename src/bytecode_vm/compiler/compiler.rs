@@ -576,7 +576,7 @@ fn internal_error(msg: &str) -> CompilerError {
 }
 
 #[cfg(test)]
-mod bytecode_tests {
+mod tests_bytecode {
     use super::*;
 
     use crate::{
@@ -828,7 +828,7 @@ mod bytecode_tests {
 }
 
 #[cfg(test)]
-mod compiler_state_tests {
+mod tests_compiler {
     use super::*;
 
     use crate::init::MemphisContext;
@@ -843,6 +843,16 @@ mod compiler_state_tests {
         ($actual:expr, $expected:expr) => {
             assert_code_eq(&$actual, &$expected)
         };
+    }
+
+    macro_rules! compile_incremental {
+        ( $( $line:expr ),* ) => {{
+            let mut context = MemphisContext::default();
+            $(
+                context.add_line($line);
+            )*
+            context.compile().expect("Failed to compile")
+        }};
     }
 
     /// This is designed to confirm everything in a CodeObject matches besides the Source and
@@ -1315,10 +1325,7 @@ def foo():
         let second = r#"
 a = foo()
 "#;
-        let mut context = MemphisContext::from_text(first);
-        context.compile().expect("Failed to compile");
-        context.add_line(second);
-        let code = context.compile().expect("Failed to compile");
+        let code = compile_incremental![first, second];
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),

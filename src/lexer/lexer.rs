@@ -542,28 +542,36 @@ fn consume_delimited(chars: &mut Peekable<Chars>, end_delim: char) -> String {
 mod tests {
     use super::*;
 
-    fn lex(input: &str) -> Vec<Token> {
+    fn tokenize(input: &str) -> Vec<Token> {
         let trimmed = input.trim_matches('\n');
 
         let mut lexer = Lexer::default();
-        lexer.add_line(trimmed).expect("Failed to add input line");
+        lexer
+            .add_line(trimmed)
+            .expect("Failed to add input line to Lexer.");
         lexer.collect()
+    }
+
+    macro_rules! tokenize_incremental {
+        ( $( $line:expr ),* ) => {{
+            let mut lexer = Lexer::default();
+            $(
+                lexer.add_line($line).expect("Failed to add input line to Lexer.");
+            )*
+            lexer.collect::<Vec<Token>>()
+        }};
     }
 
     #[test]
     fn incremental_tokenizing() {
-        let first_input = r#"
+        let first = r#"
 def add(x, y):
 "#;
-        let second_input = r#"
+        let second = r#"
     return x + y
 "#;
 
-        // TODO this test is still messy
-        let mut lexer = Lexer::default();
-        let _ = lexer.add_line(first_input);
-        let _ = lexer.add_line(second_input);
-        let tokens: Vec<_> = lexer.collect();
+        let tokens = tokenize_incremental![first, second];
 
         assert_eq!(
             tokens,
@@ -596,7 +604,7 @@ def add(x, y):
 def add(x, y):
     return x + y
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
 
         assert_eq!(
             tokens,
@@ -624,7 +632,7 @@ def add(x, y):
     #[test]
     fn invalid_character() {
         let input = "2 + $";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Integer(2), Token::Plus, Token::InvalidCharacter('$'),]
@@ -634,7 +642,7 @@ def add(x, y):
     #[test]
     fn comparison_operators() {
         let input = "a > b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -646,7 +654,7 @@ def add(x, y):
         );
 
         let input = "a < b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -658,7 +666,7 @@ def add(x, y):
         );
 
         let input = "a == b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -670,7 +678,7 @@ def add(x, y):
         );
 
         let input = "a != b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -682,7 +690,7 @@ def add(x, y):
         );
 
         let input = "a >= b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -694,7 +702,7 @@ def add(x, y):
         );
 
         let input = "a <= b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -709,7 +717,7 @@ def add(x, y):
     #[test]
     fn boolean_expressions() {
         let input = "a and b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -721,7 +729,7 @@ def add(x, y):
         );
 
         let input = "a or b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -733,7 +741,7 @@ def add(x, y):
         );
 
         let input = "a in b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -745,7 +753,7 @@ def add(x, y):
         );
 
         let input = "a is None";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -757,7 +765,7 @@ def add(x, y):
         );
 
         let input = "not b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -768,7 +776,7 @@ def add(x, y):
         );
 
         let input = "not (b or c)";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -786,7 +794,7 @@ def add(x, y):
     #[test]
     fn boolean_literals() {
         let input = "x = True";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -798,7 +806,7 @@ def add(x, y):
         );
 
         let input = "x = False";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -810,7 +818,7 @@ def add(x, y):
         );
 
         let input = "x = None";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -822,7 +830,7 @@ def add(x, y):
         );
 
         let input = "return None";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(tokens, vec![Token::Return, Token::None, Token::Newline,]);
     }
 
@@ -836,7 +844,7 @@ elif x > -10:
 else:
     print("Less")
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -887,7 +895,7 @@ else:
 while True:
     print("busy loop")
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -916,7 +924,7 @@ class Foo:
     def bar(self):
         return self.x
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -963,7 +971,7 @@ class Foo:
     #[test]
     fn class_instantiation() {
         let input = "foo = Foo()";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -983,7 +991,7 @@ class Foo:
 foo = Foo()
 foo.bar()
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1006,7 +1014,7 @@ foo.bar()
     #[test]
     fn regular_import() {
         let input = "import other";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1020,7 +1028,7 @@ foo.bar()
     #[test]
     fn selective_import() {
         let input = "from other import something";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1033,7 +1041,7 @@ foo.bar()
         );
 
         let input = "from other import something as something_else";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1048,7 +1056,7 @@ foo.bar()
         );
 
         let input = "from other import *";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1061,7 +1069,7 @@ foo.bar()
         );
 
         let input = "from other import something, something_else";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1083,7 +1091,7 @@ foo = Foo(3) # new instance
 # x = foo.baz()
 foo.bar()
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1108,7 +1116,7 @@ foo.bar()
     #[test]
     fn floating_point() {
         let input = "x = 3.14";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1120,7 +1128,7 @@ foo.bar()
         );
 
         let input = "x = 2.5e-3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1132,7 +1140,7 @@ foo.bar()
         );
 
         let input = "x = 2.5E-3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1144,7 +1152,7 @@ foo.bar()
         );
 
         let input = "x = 2E-3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1156,7 +1164,7 @@ foo.bar()
         );
 
         let input = "x = 2E3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1171,21 +1179,21 @@ foo.bar()
     #[test]
     fn negative_numbers() {
         let input = "-3.14";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Minus, Token::FloatingPoint(3.14), Token::Newline,]
         );
 
         let input = "-3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Minus, Token::Integer(3), Token::Newline,]
         );
 
         let input = "2 - 3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1197,14 +1205,14 @@ foo.bar()
         );
 
         let input = "-2e-3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Minus, Token::FloatingPoint(2e-3), Token::Newline,]
         );
 
         let input = "3-i";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1216,7 +1224,7 @@ foo.bar()
         );
 
         let input = "2 + -3";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1229,7 +1237,7 @@ foo.bar()
         );
 
         let input = "-(3)";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1242,7 +1250,7 @@ foo.bar()
         );
 
         let input = "-(2 + 3)";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1260,7 +1268,7 @@ foo.bar()
     #[test]
     fn lists() {
         let input = "[1,2,3]";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1276,7 +1284,7 @@ foo.bar()
         );
 
         let input = "[1, 2, 3]";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1292,7 +1300,7 @@ foo.bar()
         );
 
         let input = "a = [1, 2, 3]";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1310,7 +1318,7 @@ foo.bar()
         );
 
         let input = "list([1, 2, 3])";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1332,7 +1340,7 @@ foo.bar()
     #[test]
     fn sets() {
         let input = "{1,2,3}";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1348,7 +1356,7 @@ foo.bar()
         );
 
         let input = "{1, 2, 3}";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1364,7 +1372,7 @@ foo.bar()
         );
 
         let input = "a = {1, 2, 3}";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1382,7 +1390,7 @@ foo.bar()
         );
 
         let input = "set({1, 2, 3})";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1404,7 +1412,7 @@ foo.bar()
     #[test]
     fn index_access() {
         let input = "a[0]";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1417,7 +1425,7 @@ foo.bar()
         );
 
         let input = "[0,1][1]";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1440,7 +1448,7 @@ foo.bar()
 for i in a:
     print(a)
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1466,7 +1474,7 @@ for i in a:
         let input = r#"
 b = [ i * 2 for i in a ]
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1492,7 +1500,7 @@ b = [ i * 2 for i in a ]
 (1,2)
 print((1,2))
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1523,7 +1531,7 @@ def countdown(n):
         yield n
         n = n - 1
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1564,7 +1572,7 @@ class Foo(Parent):
     def __init__(self):
         self.x = 0
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1601,7 +1609,7 @@ class Foo(Parent):
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1628,7 +1636,7 @@ async def main():
     task_1 = asyncio.create_task(task1())
     await task_1
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1667,7 +1675,7 @@ async def main():
 """
 a = 1
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1686,7 +1694,7 @@ a = 1
 '''
 a = 1
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1703,7 +1711,7 @@ a = 1
     #[test]
     fn assert() {
         let input = "assert True";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Assert, Token::BooleanLiteral(true), Token::Newline,]
@@ -1720,7 +1728,7 @@ except:
 finally:
     a = 3
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1761,7 +1769,7 @@ finally:
 a = 0x0010
 b
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1778,7 +1786,7 @@ b
     #[test]
     fn octal_literal() {
         let input = "a = 0o0010";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1793,7 +1801,7 @@ b
     #[test]
     fn binary_literal() {
         let input = "a = 0b0010";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1811,7 +1819,7 @@ b
 def add(*args, **kwargs):
     pass
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1841,7 +1849,7 @@ def add(*args, **kwargs):
 def get_val():
     return 2
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1866,7 +1874,7 @@ def get_val():
     #[test]
     fn raise() {
         let input = "raise Exception";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1883,7 +1891,7 @@ def get_val():
 with open('test.txt') as f:
     f.read()
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1911,7 +1919,7 @@ with open('test.txt') as f:
     #[test]
     fn ellipsis() {
         let input = "type(...)";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1924,7 +1932,7 @@ with open('test.txt') as f:
         );
 
         let input = "type(Ellipsis)";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1940,7 +1948,7 @@ with open('test.txt') as f:
     #[test]
     fn delete() {
         let input = r#"del a"#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::Del, Token::Identifier("a".into()), Token::Newline,]
@@ -1950,7 +1958,7 @@ with open('test.txt') as f:
     #[test]
     fn byte_string() {
         let input = r#"b'hello'"#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::ByteStringLiteral("hello".into()), Token::Newline,]
@@ -1960,7 +1968,7 @@ with open('test.txt') as f:
     #[test]
     fn compound_assignment() {
         let input = "a += 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1972,7 +1980,7 @@ with open('test.txt') as f:
         );
 
         let input = "a -= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1984,7 +1992,7 @@ with open('test.txt') as f:
         );
 
         let input = "a *= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -1996,7 +2004,7 @@ with open('test.txt') as f:
         );
 
         let input = "a /= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2008,7 +2016,7 @@ with open('test.txt') as f:
         );
 
         let input = "a &= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2020,7 +2028,7 @@ with open('test.txt') as f:
         );
 
         let input = "a ^= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2032,7 +2040,7 @@ with open('test.txt') as f:
         );
 
         let input = "a |= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2044,7 +2052,7 @@ with open('test.txt') as f:
         );
 
         let input = "a //= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2056,7 +2064,7 @@ with open('test.txt') as f:
         );
 
         let input = "a <<= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2068,7 +2076,7 @@ with open('test.txt') as f:
         );
 
         let input = "a %= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2080,7 +2088,7 @@ with open('test.txt') as f:
         );
 
         let input = "a @= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2092,7 +2100,7 @@ with open('test.txt') as f:
         );
 
         let input = "a **= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2104,7 +2112,7 @@ with open('test.txt') as f:
         );
 
         let input = "a >>= 1";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2121,7 +2129,7 @@ with open('test.txt') as f:
         let input = r#"
 f"Hello {name}"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2138,7 +2146,7 @@ f"Hello {name}"
         let input = r#"
 f'Hello {name}'
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2155,7 +2163,7 @@ f'Hello {name}'
         let input = r#"
 f"Hello"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2169,7 +2177,7 @@ f"Hello"
         let input = r#"
 f"Hello {name} goodbye {other}."
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2191,7 +2199,7 @@ f"Hello {name} goodbye {other}."
         let input = r#"
 f"{first}{last}"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2210,7 +2218,7 @@ f"{first}{last}"
         let input = r#"
 f"environ({{{formatted_items}}})"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2228,7 +2236,7 @@ f"environ({{{formatted_items}}})"
         let input = r#"
 f"environ({{{formatted_items}after}})"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2250,7 +2258,7 @@ f"environ({{{formatted_items}after}})"
       def copy():
           pass
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2288,7 +2296,7 @@ f"environ({{{formatted_items}after}})"
         );
 
         let input = r#"f"{first}{last!r}""#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2312,7 +2320,7 @@ f"environ({{{formatted_items}after}})"
         let input = r#"
 r"hello"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::RawStringLiteral("hello".into()), Token::Newline,]
@@ -2321,7 +2329,7 @@ r"hello"
         let input = r#"
 R"hello"
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::RawStringLiteral("hello".into()), Token::Newline,]
@@ -2333,7 +2341,7 @@ r"""OS routines for NT or Posix depending on what system we're on.
 This exports:
 """
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![Token::RawStringLiteral(
@@ -2348,7 +2356,7 @@ This exports:
     #[test]
     fn binary_operators() {
         let input = "a // b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2360,7 +2368,7 @@ This exports:
         );
 
         let input = "a & b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2372,7 +2380,7 @@ This exports:
         );
 
         let input = "a | b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2384,7 +2392,7 @@ This exports:
         );
 
         let input = "a ^ b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2396,7 +2404,7 @@ This exports:
         );
 
         let input = "a % b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2408,7 +2416,7 @@ This exports:
         );
 
         let input = "~a";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2419,7 +2427,7 @@ This exports:
         );
 
         let input = "a << b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2431,7 +2439,7 @@ This exports:
         );
 
         let input = "a >> b";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2449,7 +2457,7 @@ This exports:
 for i in a:
     continue
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2470,7 +2478,7 @@ for i in a:
 for i in a:
     break
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2491,7 +2499,7 @@ for i in a:
     #[test]
     fn lambda() {
         let input = "lambda: 4";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2509,7 +2517,7 @@ for i in a:
 def add(a: str, b: str) -> int:
     pass
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2539,7 +2547,7 @@ def add(a: str, b: str) -> int:
     #[test]
     fn scope_modifiers() {
         let input = "nonlocal var";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2550,7 +2558,7 @@ def add(a: str, b: str) -> int:
         );
 
         let input = "global var";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![
@@ -2564,7 +2572,7 @@ def add(a: str, b: str) -> int:
     #[test]
     fn not_implemented() {
         let input = "NotImplemented";
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(tokens, vec![Token::NotImplemented, Token::Newline,]);
     }
 
@@ -2576,7 +2584,7 @@ for i in a:
 
 
 "#;
-        let tokens = lex(input);
+        let tokens = tokenize(input);
         assert_eq!(
             tokens,
             vec![

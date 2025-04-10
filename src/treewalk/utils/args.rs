@@ -145,11 +145,12 @@ impl Arguments {
 /// When kwargs are needed, you can use `ResolvedArguments::new`.
 #[macro_export]
 macro_rules! args {
+    () => {{
+        Arguments::default()
+    }};
     // Double curly braces ensure that the entire macro expands into a single expression, which is
     // necessary since we are returning a value from this macro.
     ( $( $arg:expr ),* ) => {{
-        // When no args are pass, this gives an unused mut warning
-        #[allow(unused_mut)]
         let mut args = Arguments::default();
         $(
             args = args.add_arg($arg);
