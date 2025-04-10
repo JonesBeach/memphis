@@ -159,7 +159,7 @@ impl Function {
     }
 
     fn get_code(&self) -> TreewalkValue {
-        TreewalkValue::Code(Container::new(Code))
+        TreewalkValue::Code(Code)
     }
 
     fn get_closure(&self) -> TreewalkValue {

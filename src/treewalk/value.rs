@@ -52,7 +52,7 @@ pub enum TreewalkValue {
     BuiltinMethod(Container<Box<dyn Callable>>),
     Generator(Container<GeneratorIterator>),
     Coroutine(Container<Coroutine>),
-    Code(Container<Code>),
+    Code(Code),
     Cell(Container<Cell>),
     Bytes(Vec<u8>),
     ByteArray(Container<ByteArray>),
