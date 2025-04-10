@@ -28,11 +28,7 @@ impl VmInterpreter {
 
     pub fn compile(&mut self, parser: &mut Parser) -> Result<CodeObject, MemphisError> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
-        self.compiler
-            .compile_ast(&ast)
-            .map_err(MemphisError::Compiler)?;
-        let code = self.compiler.finalize();
-        Ok(code)
+        self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
 }
 

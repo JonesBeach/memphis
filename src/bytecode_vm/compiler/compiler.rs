@@ -17,7 +17,7 @@ use crate::{
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
     SyntaxError(String),
-    StackUnderflow,
+    Internal(String),
 }
 
 impl Display for CompilerError {
@@ -54,33 +54,42 @@ impl Compiler {
         }
     }
 
-    pub fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
+    /// Compile the provided `Ast` and return a `CodeObject` which can be executed. This is not
+    /// destructive, meaning multiple calls will build upon the same `CodeObject`.
+    pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CodeObject> {
+        self.compile_ast(ast)?;
+        self.finalize()
+    }
+
+    fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
         ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
     }
 
-    pub fn finalize(&self) -> CodeObject {
-        let mut code = self.ensure_code_object().clone();
+    fn finalize(&self) -> CompilerResult<CodeObject> {
+        let mut code = self.ensure_code_object()?.clone();
         code.bytecode.push(Opcode::Halt);
-        code
+        Ok(code)
     }
 
-    fn current_offset(&self) -> usize {
-        let code = self.ensure_code_object();
-        code.bytecode.len()
+    fn current_offset(&self) -> CompilerResult<usize> {
+        let code = self.ensure_code_object()?;
+        Ok(code.bytecode.len())
     }
 
-    fn emit(&mut self, opcode: Opcode) {
+    fn emit(&mut self, opcode: Opcode) -> CompilerResult<()> {
         let line_number = self.line_number;
-        let offset = self.current_offset();
+        let offset = self.current_offset()?;
 
-        let code = self.ensure_code_object_mut();
+        let code = self.ensure_code_object_mut()?;
         code.bytecode.push(opcode);
         code.line_map.push((offset, line_number));
+        Ok(())
     }
 
-    fn emit_at(&mut self, offset: usize, opcode: Opcode) {
-        let code = self.ensure_code_object_mut();
+    fn emit_at(&mut self, offset: usize, opcode: Opcode) -> CompilerResult<()> {
+        let code = self.ensure_code_object_mut()?;
         code.bytecode[offset] = opcode;
+        Ok(())
     }
 
     fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
@@ -120,56 +129,46 @@ impl Compiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> CompilerResult<()> {
         match expr {
-            Expr::None => {
-                self.compile_none();
-            }
-            Expr::Boolean(value) => {
-                self.compile_bool(*value);
-            }
-            Expr::Integer(value) => {
-                self.emit(Opcode::Push(*value));
-            }
-            Expr::StringLiteral(value) => {
-                self.compile_string_literal(value);
-            }
+            Expr::None => self.compile_none(),
+            Expr::Boolean(value) => self.compile_bool(*value),
+            Expr::Integer(value) => self.emit(Opcode::Push(*value)),
+            Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
-            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right)?,
+            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
-                self.compile_binary_operation(left, op, right)?
+                self.compile_binary_operation(left, op, right)
             }
-            Expr::MemberAccess { object, field } => self.compile_member_access(object, field)?,
+            Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { name, args, callee } => {
-                self.compile_function_call(name, args, callee)?
+                self.compile_function_call(name, args, callee)
             }
-            Expr::MethodCall { object, name, args } => {
-                self.compile_method_call(object, name, args)?
-            }
+            Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
             _ => unimplemented!("Expression type {:?} not implemented for bytecode VM", expr),
-        };
-
-        Ok(())
+        }
     }
 
-    fn generate_load(&mut self, name: &str) -> Opcode {
-        match self.ensure_context() {
-            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)),
+    fn generate_load(&mut self, name: &str) -> CompilerResult<Opcode> {
+        let opcode = match self.ensure_context()? {
+            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?),
             Context::Local => {
                 // Check locals first
-                if let Some(index) = self.get_local_index(name) {
-                    return Opcode::LoadFast(index);
+                if let Some(index) = self.get_local_index(name)? {
+                    Opcode::LoadFast(index)
+                } else {
+                    // If not found locally, fall back to globals
+                    Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?)
                 }
-
-                // If not found locally, fall back to globals
-                Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name))
             }
-        }
+        };
+        Ok(opcode)
     }
 
-    fn generate_store(&mut self, name: &str) -> Opcode {
-        match self.ensure_context() {
-            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)),
-            Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)),
-        }
+    fn generate_store(&mut self, name: &str) -> CompilerResult<Opcode> {
+        let opcode = match self.ensure_context()? {
+            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)?),
+            Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)?),
+        };
+        Ok(opcode)
     }
 
     fn compile_return(&mut self, expr: &[Expr]) -> CompilerResult<()> {
@@ -178,7 +177,7 @@ impl Compiler {
         }
 
         self.compile_expr(&expr[0])?;
-        self.emit(Opcode::ReturnValue);
+        self.emit(Opcode::ReturnValue)?;
         Ok(())
     }
 
@@ -186,15 +185,15 @@ impl Compiler {
         match left {
             Expr::Variable(name) => {
                 self.compile_expr(right)?;
-                self.compile_store(name);
+                self.compile_store(name)?;
             }
             Expr::MemberAccess { object, field } => {
                 // Push the object onto the stack
                 self.compile_expr(object)?;
                 // Push the value to be assigned onto the stack
                 self.compile_expr(right)?;
-                let attr_index = self.get_or_set_nonlocal_index(field);
-                self.emit(Opcode::SetAttr(attr_index));
+                let attr_index = self.get_or_set_nonlocal_index(field)?;
+                self.emit(Opcode::SetAttr(attr_index))?;
             }
             Expr::IndexAccess { .. } => {
                 unimplemented!("Index access assignment not yet supported in bytecode VM.");
@@ -210,27 +209,27 @@ impl Compiler {
     }
 
     fn compile_while_loop(&mut self, condition: &Expr, body: &Ast) -> CompilerResult<()> {
-        let condition_start = self.current_offset();
+        let condition_start = self.current_offset()?;
         self.compile_expr(condition)?;
 
         // Temporary offset, we will change this once we know the length of the loop body
-        let jump_if_false_placeholder = self.current_offset();
-        self.emit(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset()?;
+        self.emit(Opcode::Placeholder)?;
 
         self.compile_ast(body)?;
 
         // Unconditional jump back to the start of the condition
         // We must mark these as isize because we are doing subtraction with potential overflow
-        let jump_back_offset = condition_start as isize - self.current_offset() as isize - 1;
-        self.emit(Opcode::Jump(jump_back_offset));
+        let jump_back_offset = condition_start as isize - self.current_offset()? as isize - 1;
+        self.emit(Opcode::Jump(jump_back_offset))?;
 
         // Update the JUMP_IF_FALSE offset now that we know the length of the loop body
         let jump_if_false_offset =
-            self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+            self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
         self.emit_at(
             jump_if_false_placeholder,
             Opcode::JumpIfFalse(jump_if_false_offset),
-        );
+        )?;
 
         Ok(())
     }
@@ -248,34 +247,34 @@ impl Compiler {
         self.compile_expr(&if_part.condition)?;
 
         // Temporary offset, we will change this once we know the length of the if condition body
-        let jump_if_false_placeholder = self.current_offset();
-        self.emit(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset()?;
+        self.emit(Opcode::Placeholder)?;
 
         self.compile_ast(&if_part.block)?;
 
         if let Some(else_part) = else_part {
-            let jump_else_placeholder = self.current_offset();
-            self.emit(Opcode::Placeholder);
+            let jump_else_placeholder = self.current_offset()?;
+            self.emit(Opcode::Placeholder)?;
 
             let jump_if_false_offset =
-                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
             self.emit_at(
                 jump_if_false_placeholder,
                 Opcode::JumpIfFalse(jump_if_false_offset),
-            );
+            )?;
 
             self.compile_ast(else_part)?;
 
             let jump_else_offset =
-                self.current_offset() as isize - jump_else_placeholder as isize - 1;
-            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset));
+                self.current_offset()? as isize - jump_else_placeholder as isize - 1;
+            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset))?;
         } else {
             let jump_if_false_offset =
-                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
             self.emit_at(
                 jump_if_false_placeholder,
                 Opcode::JumpIfFalse(jump_if_false_offset),
-            );
+            )?;
         }
 
         Ok(())
@@ -306,12 +305,15 @@ impl Compiler {
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
         self.compile_ast(body)?;
-        let code = self.code_stack.pop().expect("Internal Compiler Error");
+        let code = self
+            .code_stack
+            .pop()
+            .ok_or_else(|| internal_error("Code stack underflow."))?;
         self.context_stack.pop();
 
-        self.compile_code(code);
-        self.emit(Opcode::MakeFunction);
-        self.compile_store(name);
+        self.compile_code(code)?;
+        self.emit(Opcode::MakeFunction)?;
+        self.compile_store(name)?;
         Ok(())
     }
 
@@ -335,51 +337,55 @@ impl Compiler {
         self.code_stack.push(code_object);
 
         self.compile_ast(body)?;
-        self.emit(Opcode::EndClass);
+        self.emit(Opcode::EndClass)?;
 
-        let code = self.code_stack.pop().expect("Internal Compiler Error");
+        let code = self
+            .code_stack
+            .pop()
+            .ok_or_else(|| internal_error("Code stack underflow."))?;
         self.context_stack.pop();
 
-        self.emit(Opcode::LoadBuildClass);
-        self.compile_code(code);
+        self.emit(Opcode::LoadBuildClass)?;
+        self.compile_code(code)?;
 
         // subtract one to ignore Opcode::LoadBuildClass
         let num_args = 1;
-        self.emit(Opcode::Call(num_args));
+        self.emit(Opcode::Call(num_args))?;
 
-        self.compile_store(name);
+        self.compile_store(name)?;
         Ok(())
     }
 
-    fn compile_string_literal(&mut self, value: &str) {
+    fn compile_string_literal(&mut self, value: &str) -> CompilerResult<()> {
         self.compile_constant(Constant::String(value.to_string()))
     }
 
-    fn compile_none(&mut self) {
+    fn compile_none(&mut self) -> CompilerResult<()> {
         self.compile_constant(Constant::None)
     }
 
-    fn compile_bool(&mut self, bool: bool) {
+    fn compile_bool(&mut self, bool: bool) -> CompilerResult<()> {
         self.compile_constant(Constant::Boolean(bool))
     }
 
-    fn compile_code(&mut self, code: CodeObject) {
+    fn compile_code(&mut self, code: CodeObject) -> CompilerResult<()> {
         self.compile_constant(Constant::Code(code))
     }
 
-    fn compile_constant(&mut self, constant: Constant) {
-        let index = self.get_or_set_constant_index(constant);
-        self.emit(Opcode::LoadConst(index))
+    fn compile_constant(&mut self, constant: Constant) -> CompilerResult<()> {
+        let index = self.get_or_set_constant_index(constant)?;
+        self.emit(Opcode::LoadConst(index))?;
+        Ok(())
     }
 
-    fn compile_load(&mut self, name: &str) {
-        let load = self.generate_load(name);
-        self.emit(load);
+    fn compile_load(&mut self, name: &str) -> CompilerResult<()> {
+        let load = self.generate_load(name)?;
+        self.emit(load)
     }
 
-    fn compile_store(&mut self, name: &str) {
-        let store = self.generate_store(name);
-        self.emit(store);
+    fn compile_store(&mut self, name: &str) -> CompilerResult<()> {
+        let store = self.generate_store(name)?;
+        self.emit(store)
     }
 
     fn compile_unary_operation(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
@@ -400,7 +406,7 @@ impl Compiler {
             ),
         };
         if let Some(opcode) = opcode {
-            self.emit(opcode);
+            self.emit(opcode)?;
         }
         Ok(())
     }
@@ -430,7 +436,7 @@ impl Compiler {
             ),
         };
 
-        self.emit(opcode);
+        self.emit(opcode)?;
         Ok(())
     }
 
@@ -451,13 +457,13 @@ impl Compiler {
             if args.args.len() > 1 {
                 unimplemented!("More than 1 arg not yet supported for print in the bytecode VM.")
             }
-            let index =
-                self.get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()));
-            self.emit(Opcode::PrintConst(index));
+            let index = self
+                .get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()))?;
+            self.emit(Opcode::PrintConst(index))?;
             return Ok(());
         }
 
-        self.compile_load(name);
+        self.compile_load(name)?;
 
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
@@ -465,7 +471,7 @@ impl Compiler {
             self.compile_expr(arg)?;
         }
 
-        self.emit(Opcode::Call(args.args.len()));
+        self.emit(Opcode::Call(args.args.len()))?;
         Ok(())
     }
 
@@ -485,82 +491,88 @@ impl Compiler {
         for arg in args.args.iter().rev() {
             self.compile_expr(arg)?;
         }
-        self.emit(Opcode::CallMethod(args.args.len()));
+        self.emit(Opcode::CallMethod(args.args.len()))?;
         Ok(())
     }
 
     fn compile_member_access(&mut self, object: &Expr, field: &str) -> CompilerResult<()> {
         self.compile_expr(object)?;
-        let attr_index = self.get_or_set_nonlocal_index(field);
-        self.emit(Opcode::LoadAttr(attr_index));
+        let attr_index = self.get_or_set_nonlocal_index(field)?;
+        self.emit(Opcode::LoadAttr(attr_index))?;
         Ok(())
     }
 
-    fn get_or_set_local_index(&mut self, name: &str) -> LocalIndex {
+    fn get_or_set_local_index(&mut self, name: &str) -> CompilerResult<LocalIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in locals", name)
         });
-        if let Some(index) = self.get_local_index(name) {
-            index
+        if let Some(index) = self.get_local_index(name)? {
+            Ok(index)
         } else {
-            let code = self.ensure_code_object_mut();
+            let code = self.ensure_code_object_mut()?;
             let new_index = code.varnames.len();
             code.varnames.push(name.to_string());
-            Index::new(new_index)
+            Ok(Index::new(new_index))
         }
     }
 
-    fn get_local_index(&self, name: &str) -> Option<LocalIndex> {
-        let code = self.ensure_code_object();
-        find_index(&code.varnames, name).map(Index::new)
+    fn get_local_index(&self, name: &str) -> CompilerResult<Option<LocalIndex>> {
+        let code = self.ensure_code_object()?;
+        Ok(find_index(&code.varnames, name).map(Index::new))
     }
 
-    fn get_or_set_nonlocal_index(&mut self, name: &str) -> NonlocalIndex {
+    fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in globals", name)
         });
-        let code = self.ensure_code_object_mut();
-        if let Some(index) = find_index(&code.names, name) {
-            Index::new(index)
+        let code = self.ensure_code_object_mut()?;
+        let index = if let Some(index) = find_index(&code.names, name) {
+            index
         } else {
             let new_index = code.names.len();
             code.names.push(name.to_string());
-            Index::new(new_index)
-        }
+            new_index
+        };
+        Ok(Index::new(index))
     }
 
-    fn get_or_set_constant_index(&mut self, value: Constant) -> ConstantIndex {
+    fn get_or_set_constant_index(&mut self, value: Constant) -> CompilerResult<ConstantIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in constants", value)
         });
-        let code = self.ensure_code_object_mut();
-        if let Some(index) = find_index(&code.constants, &value) {
-            Index::new(index)
+        let code = self.ensure_code_object_mut()?;
+        let index = if let Some(index) = find_index(&code.constants, &value) {
+            index
         } else {
             let next_index = code.constants.len();
             code.constants.push(value);
-            Index::new(next_index)
-        }
+            next_index
+        };
+        Ok(Index::new(index))
     }
 
     /// This assumes we always have a context stack.
-    fn ensure_context(&self) -> &Context {
+    fn ensure_context(&self) -> CompilerResult<&Context> {
         self.context_stack
             .last()
-            .expect("Internal Compiler Error: failed to find context.")
+            .ok_or_else(|| internal_error("Failed to find current context."))
     }
 
-    fn ensure_code_object_mut(&mut self) -> &mut CodeObject {
+    fn ensure_code_object_mut(&mut self) -> CompilerResult<&mut CodeObject> {
         self.code_stack
             .last_mut()
-            .expect("Internal Compiler Error: failed to find current code object.")
+            .ok_or_else(|| internal_error("Failed to find current code object."))
     }
 
-    fn ensure_code_object(&self) -> &CodeObject {
+    fn ensure_code_object(&self) -> CompilerResult<&CodeObject> {
         self.code_stack
             .last()
-            .expect("Internal Compiler Error: failed to find current code object.")
+            .ok_or_else(|| internal_error("Failed to find current code object."))
     }
+}
+
+fn internal_error(msg: &str) -> CompilerError {
+    CompilerError::Internal(msg.to_string())
 }
 
 #[cfg(test)]
@@ -585,7 +597,9 @@ mod bytecode_tests {
         compiler
             .compile_stmt(&stmt)
             .expect("Failed to compile test Statement!");
-        let code = compiler.ensure_code_object();
+        let code = compiler
+            .ensure_code_object()
+            .expect("Failed to fetch code object");
         code.bytecode.clone()
     }
 
