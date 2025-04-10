@@ -1560,6 +1560,14 @@ mod tests {
         };
     }
 
+    macro_rules! frozenset {
+        ($($expr:expr),* $(,)?) => {
+            TreewalkValue::FrozenSet(FrozenSet::new(HashSet::from([
+                $($expr),*
+            ])))
+        };
+    }
+
     macro_rules! dict {
         ($interp:expr, { $($key:expr => $value:expr),* $(,)? }) => {
             TreewalkValue::Dict(Container::new(Dict::new(
@@ -5529,14 +5537,8 @@ e = frozenset().__contains__
         let mut context = init(input);
         let interpreter = run(&mut context);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            TreewalkValue::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
-        );
-        assert_eq!(
-            read(interpreter, "b"),
-            TreewalkValue::FrozenSet(FrozenSet::default())
-        );
+        assert_eq!(read(interpreter, "a"), frozenset![int!(1), int!(2),]);
+        assert_eq!(read(interpreter, "b"), frozenset![]);
         assert_type_class(interpreter, "c", Type::FrozenSet);
         assert_eq!(read(interpreter, "d"), list![int!(1), int!(2),]);
         assert_eq!(read_type(interpreter, "e"), Type::Method);
