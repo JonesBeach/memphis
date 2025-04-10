@@ -11,7 +11,7 @@ use crate::{
         protocols::{Callable, IndexRead, IndexWrite, MethodProvider, Typed},
         types::{iterators::GeneratorIterator, Range, Set, Slice, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue, TreewalkValueIterator,
+        Interpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -45,7 +45,7 @@ impl List {
         self.items.push(item)
     }
 
-    pub fn extend(&mut self, items: TreewalkValueIterator) {
+    pub fn extend(&mut self, items: TreewalkIterator) {
         self.items.extend(items)
     }
 

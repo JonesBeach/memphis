@@ -276,36 +276,20 @@ impl TreewalkValue {
         }
     }
 
-    pub fn try_into_iter(self) -> Option<TreewalkValueIterator> {
+    pub fn try_into_iter(self) -> Option<TreewalkIterator> {
         match self {
-            TreewalkValue::List(list) => {
-                Some(TreewalkValueIterator::List(list.clone().into_iter()))
-            }
-            TreewalkValue::ListIterator(list_iterator) => {
-                Some(TreewalkValueIterator::List(list_iterator))
-            }
-            TreewalkValue::ReversedIterator(list_iterator) => {
-                Some(TreewalkValueIterator::Reversed(list_iterator))
-            }
-            TreewalkValue::Set(set) => Some(TreewalkValueIterator::List(set.clone().into_iter())),
-            TreewalkValue::FrozenSet(set) => {
-                Some(TreewalkValueIterator::List(set.clone().into_iter()))
-            }
-            TreewalkValue::Zip(zip) => Some(TreewalkValueIterator::Zip(Box::new(zip))),
-            TreewalkValue::Tuple(list) => Some(TreewalkValueIterator::List(list.into_iter())),
-            TreewalkValue::Dict(dict) => Some(TreewalkValueIterator::Dict(dict.into_iter())),
-            TreewalkValue::DictItems(dict) => {
-                Some(TreewalkValueIterator::DictItems(dict.into_iter()))
-            }
-            TreewalkValue::Generator(generator) => {
-                Some(TreewalkValueIterator::Generator(generator.into_iter()))
-            }
-            TreewalkValue::Range(range) => {
-                Some(TreewalkValueIterator::Range(range.clone().into_iter()))
-            }
-            TreewalkValue::StringIterator(string_iterator) => {
-                Some(TreewalkValueIterator::String(string_iterator))
-            }
+            TreewalkValue::List(list) => Some(TreewalkIterator::List(list.into_iter())),
+            TreewalkValue::ListIterator(l) => Some(TreewalkIterator::List(l)),
+            TreewalkValue::ReversedIterator(l) => Some(TreewalkIterator::Reversed(l)),
+            TreewalkValue::Set(set) => Some(TreewalkIterator::List(set.into_iter())),
+            TreewalkValue::FrozenSet(set) => Some(TreewalkIterator::List(set.into_iter())),
+            TreewalkValue::Zip(zip) => Some(TreewalkIterator::Zip(zip)),
+            TreewalkValue::Tuple(list) => Some(TreewalkIterator::List(list.into_iter())),
+            TreewalkValue::Dict(dict) => Some(TreewalkIterator::Dict(dict.into_iter())),
+            TreewalkValue::DictItems(dict) => Some(TreewalkIterator::DictItems(dict.into_iter())),
+            TreewalkValue::Generator(g) => Some(TreewalkIterator::Generator(g.into_iter())),
+            TreewalkValue::Range(range) => Some(TreewalkIterator::Range(range.into_iter())),
+            TreewalkValue::StringIterator(s) => Some(TreewalkIterator::String(s)),
             _ => None,
         }
     }
@@ -809,9 +793,9 @@ impl fmt::Debug for TreewalkValue {
 }
 
 #[derive(Clone)]
-pub enum TreewalkValueIterator {
+pub enum TreewalkIterator {
     List(ListIterator),
-    Zip(Box<ZipIterator>),
+    Zip(ZipIterator),
     Reversed(ReversedIterator),
     Dict(DictKeysIterator),
     DictItems(DictItemsIterator),
@@ -820,7 +804,7 @@ pub enum TreewalkValueIterator {
     String(StringIterator),
 }
 
-impl TreewalkValueIterator {
+impl TreewalkIterator {
     pub fn contains(&mut self, item: TreewalkValue) -> bool {
         for next_item in self.by_ref() {
             if next_item == item {
@@ -832,26 +816,26 @@ impl TreewalkValueIterator {
     }
 }
 
-impl Iterator for TreewalkValueIterator {
+impl Iterator for TreewalkIterator {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            TreewalkValueIterator::List(i) => i.next(),
-            TreewalkValueIterator::Zip(i) => i.next(),
-            TreewalkValueIterator::Reversed(i) => i.next(),
-            TreewalkValueIterator::Dict(i) => i.next(),
-            TreewalkValueIterator::DictItems(i) => i.next(),
-            TreewalkValueIterator::Generator(i) => i.next(),
-            TreewalkValueIterator::Range(i) => i.next(),
-            TreewalkValueIterator::String(i) => i.next(),
+            TreewalkIterator::List(i) => i.next(),
+            TreewalkIterator::Zip(i) => i.next(),
+            TreewalkIterator::Reversed(i) => i.next(),
+            TreewalkIterator::Dict(i) => i.next(),
+            TreewalkIterator::DictItems(i) => i.next(),
+            TreewalkIterator::Generator(i) => i.next(),
+            TreewalkIterator::Range(i) => i.next(),
+            TreewalkIterator::String(i) => i.next(),
         }
     }
 }
 
 impl IntoIterator for TreewalkValue {
     type Item = TreewalkValue;
-    type IntoIter = TreewalkValueIterator;
+    type IntoIter = TreewalkIterator;
 
     fn into_iter(self) -> Self::IntoIter {
         let type_ = &self.get_type();

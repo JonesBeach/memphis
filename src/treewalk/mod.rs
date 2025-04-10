@@ -25,4 +25,4 @@ pub use scope::Scope;
 pub use scope_manager::ScopeManager;
 pub use state::TreewalkState;
 pub use type_registry::TypeRegistry;
-pub use value::{TreewalkValue, TreewalkValueIterator};
+pub use value::{TreewalkIterator, TreewalkValue};

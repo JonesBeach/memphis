@@ -5,12 +5,12 @@ use crate::{
         protocols::{Callable, MethodProvider, Typed},
         types::{iterators::ListIterator, List, Str, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue, TreewalkValueIterator,
+        Interpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Clone)]
-pub struct ZipIterator(Vec<TreewalkValueIterator>);
+pub struct ZipIterator(Vec<TreewalkIterator>);
 
 impl Typed for ZipIterator {
     fn get_type() -> Type {
@@ -25,14 +25,14 @@ impl MethodProvider for ZipIterator {
 }
 
 impl ZipIterator {
-    pub fn new(items: Vec<TreewalkValueIterator>) -> Self {
+    pub fn new(items: Vec<TreewalkIterator>) -> Self {
         Self(items)
     }
 }
 
 impl Default for ZipIterator {
     fn default() -> Self {
-        Self(vec![TreewalkValueIterator::List(ListIterator::new(
+        Self(vec![TreewalkIterator::List(ListIterator::new(
             Container::new(List::new(vec![])),
         ))])
     }
@@ -84,7 +84,7 @@ impl Callable for NewBuiltin {
 
                 let iters = iter
                     .map(|a| a.clone().into_iter())
-                    .collect::<Vec<TreewalkValueIterator>>();
+                    .collect::<Vec<TreewalkIterator>>();
 
                 if args
                     .get_kwarg(&TreewalkValue::String(Str::new("strict".to_string())))
