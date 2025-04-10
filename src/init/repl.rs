@@ -318,8 +318,8 @@ mod tests {
 
     use super::*;
 
-    fn run_inner(terminal: &mut MockTerminalIO) -> (ExitCode, String) {
-        let exit_code = Repl::default().run_inner(terminal, Engine::Treewalk);
+    fn run_inner(terminal: &mut MockTerminalIO, engine: Engine) -> (ExitCode, String) {
+        let exit_code = Repl::default().run_inner(terminal, engine);
         (exit_code, terminal.return_val())
     }
 
@@ -327,19 +327,25 @@ mod tests {
     /// modifiers, do not use this!
     fn run(input: &str) -> String {
         let mut terminal = MockTerminalIO::from_str(input);
-        let (_, return_val) = run_inner(&mut terminal);
+        let (_, return_val) = run_inner(&mut terminal, Engine::Treewalk);
+        return_val
+    }
+
+    fn run_vm(input: &str) -> String {
+        let mut terminal = MockTerminalIO::from_str(input);
+        let (_, return_val) = run_inner(&mut terminal, Engine::BytecodeVm);
         return_val
     }
 
     fn run_events(events: Vec<Event>) -> String {
         let mut terminal = MockTerminalIO::new(events);
-        let (_, return_val) = run_inner(&mut terminal);
+        let (_, return_val) = run_inner(&mut terminal, Engine::Treewalk);
         return_val
     }
 
     fn run_and_exit_code(events: Vec<Event>) -> ExitCode {
         let mut terminal = MockTerminalIO::new(events);
-        let (exit_code, _) = run_inner(&mut terminal);
+        let (exit_code, _) = run_inner(&mut terminal, Engine::Treewalk);
         exit_code
     }
 
@@ -455,6 +461,21 @@ def foo():
 foo()
 "#;
         let return_val = run(code);
+        assert_eq!(return_val, "20");
+    }
+
+    #[test]
+    fn test_repl_function_vm() {
+        let code = r#"
+def foo():
+    a = 10
+    return 2 * a
+
+foo()
+"#;
+        // TODO should we test all of these through both engines? Not sure yet, that may be too
+        // deep of a test for this file.
+        let return_val = run_vm(code);
         assert_eq!(return_val, "20");
     }
 

@@ -1305,4 +1305,51 @@ b = f.bar()
 
         assert_code_eq!(code, expected);
     }
+
+    #[test]
+    fn incremental_compilation() {
+        let first = r#"
+def foo():
+    return 10
+"#;
+        let second = r#"
+a = foo()
+"#;
+        let mut context = MemphisContext::from_text(first);
+        context.compile().expect("Failed to compile");
+        context.add_line(second);
+        let code = context.compile().expect("Failed to compile");
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![Opcode::Push(10), Opcode::ReturnValue],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::Call(0),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".into(), "a".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
+    }
 }
