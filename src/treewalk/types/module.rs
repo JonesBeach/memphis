@@ -11,7 +11,7 @@ use crate::{
     init::MemphisContext,
     parser::types::ImportPath,
     treewalk::{
-        protocols::MemberReader, types::Dict, Interpreter, Scope, TreewalkDisruption,
+        protocols::MemberReader, types::Dict, Scope, TreewalkDisruption, TreewalkInterpreter,
         TreewalkResult, TreewalkValue,
     },
     types::errors::MemphisError,
@@ -25,7 +25,7 @@ pub struct Module {
 
 impl Module {
     pub fn import(
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         import_path: &ImportPath,
     ) -> TreewalkResult<Container<Self>> {
         log(LogLevel::Debug, || format!("Reading {}", import_path));
@@ -113,7 +113,7 @@ impl Module {
         self.scope.into_iter()
     }
 
-    pub fn as_dict(&self, interpreter: &Interpreter) -> Container<Dict> {
+    pub fn as_dict(&self, interpreter: &TreewalkInterpreter) -> Container<Dict> {
         self.scope.as_dict(interpreter)
     }
 }
@@ -121,7 +121,7 @@ impl Module {
 impl MemberReader for Module {
     fn get_member(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(self.scope.get(name))

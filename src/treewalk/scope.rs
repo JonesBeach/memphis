@@ -5,7 +5,7 @@ use crate::{
     treewalk::{
         types::{Dict, DictItems, Function, Str, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -23,7 +23,7 @@ pub struct Scope {
 
 impl Scope {
     pub fn new(
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         function: &Container<Function>,
         args: &Arguments,
     ) -> TreewalkResult<Container<Self>> {
@@ -142,7 +142,7 @@ impl Scope {
         self.nonlocal_vars.contains(name)
     }
 
-    pub fn as_dict(&self, interpreter: &Interpreter) -> Container<Dict> {
+    pub fn as_dict(&self, interpreter: &TreewalkInterpreter) -> Container<Dict> {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {

@@ -9,12 +9,16 @@ use crate::{
     treewalk::{
         types::{function::FunctionType, Class},
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 pub trait Callable {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue>;
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue>;
 
     fn name(&self) -> String;
 
@@ -51,7 +55,7 @@ pub trait MemberReader {
     /// calls for descriptors.
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>>;
 
@@ -64,18 +68,22 @@ pub trait MemberReader {
 pub trait MemberWriter {
     fn set_member(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
         value: TreewalkValue,
     ) -> TreewalkResult<()>;
-    fn delete_member(&mut self, interpreter: &Interpreter, name: &str) -> TreewalkResult<()>;
+    fn delete_member(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        name: &str,
+    ) -> TreewalkResult<()>;
 }
 
 pub trait NonDataDescriptor {
     fn name(&self) -> String;
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue>;
@@ -86,18 +94,21 @@ pub trait NonDataDescriptor {
 pub trait DataDescriptor: NonDataDescriptor {
     fn set_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()>;
-    fn delete_attr(&self, interpreter: &Interpreter, instance: TreewalkValue)
-        -> TreewalkResult<()>;
+    fn delete_attr(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        instance: TreewalkValue,
+    ) -> TreewalkResult<()>;
 }
 
 pub trait IndexRead {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>>;
 }
@@ -105,11 +116,15 @@ pub trait IndexRead {
 pub trait IndexWrite {
     fn setitem(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()>;
-    fn delitem(&mut self, interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()>;
+    fn delitem(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        index: TreewalkValue,
+    ) -> TreewalkResult<()>;
 }
 
 // pub trait IndexAccessor: IndexRead + IndexWrite {}

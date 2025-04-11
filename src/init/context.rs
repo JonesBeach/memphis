@@ -5,7 +5,7 @@ use crate::{
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
-    treewalk::{Interpreter, TreewalkState, TreewalkValue},
+    treewalk::{TreewalkInterpreter, TreewalkState, TreewalkValue},
     types::errors::MemphisError,
 };
 
@@ -16,7 +16,7 @@ pub struct MemphisContext {
     source: Source,
     state: Container<MemphisState>,
     lexer: Lexer,
-    interpreter: Option<Interpreter>,
+    treewalk_interpreter: Option<TreewalkInterpreter>,
     vm_interpreter: Option<VmInterpreter>,
 }
 
@@ -36,7 +36,7 @@ impl MemphisContext {
             source,
             state,
             lexer,
-            interpreter: None,
+            treewalk_interpreter: None,
             vm_interpreter: None,
         }
     }
@@ -53,7 +53,7 @@ impl MemphisContext {
             source,
             state: memphis_state,
             lexer,
-            interpreter: Some(Interpreter::new(treewalk_state)),
+            treewalk_interpreter: Some(TreewalkInterpreter::new(treewalk_state)),
             vm_interpreter: None,
         }
     }
@@ -76,7 +76,9 @@ impl MemphisContext {
 
         // Destructure to break the borrow into disjoint pieces
         let MemphisContext {
-            lexer, interpreter, ..
+            lexer,
+            treewalk_interpreter: interpreter,
+            ..
         } = self;
 
         let interpreter = interpreter
@@ -107,8 +109,8 @@ impl MemphisContext {
         interpreter.run(&mut parser)
     }
 
-    pub fn ensure_treewalk(&self) -> &Interpreter {
-        self.interpreter
+    pub fn ensure_treewalk(&self) -> &TreewalkInterpreter {
+        self.treewalk_interpreter
             .as_ref()
             .expect("Failed to initialize Interpreter")
     }
@@ -120,10 +122,10 @@ impl MemphisContext {
     }
 
     fn ensure_treewalk_initialized(&mut self) {
-        if self.interpreter.is_none() {
+        if self.treewalk_interpreter.is_none() {
             let treewalk_state =
                 TreewalkState::from_source_state(self.state.clone(), self.source.clone());
-            self.interpreter = Some(Interpreter::new(treewalk_state));
+            self.treewalk_interpreter = Some(TreewalkInterpreter::new(treewalk_state));
         }
     }
 

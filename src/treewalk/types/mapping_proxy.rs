@@ -2,7 +2,9 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::Container,
-    treewalk::{protocols::IndexRead, types::Dict, Interpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        protocols::IndexRead, types::Dict, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 /// A read-only view into a `Dict`. This is used by Python for things like `Dunder::Dict`.
@@ -18,7 +20,7 @@ impl MappingProxy {
 impl IndexRead for MappingProxy {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         self.0.getitem(interpreter, index)

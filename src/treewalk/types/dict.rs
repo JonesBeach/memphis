@@ -13,7 +13,7 @@ use crate::{
             DictValues,
         },
         utils::{check_args, Arguments, Contextual},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -49,7 +49,10 @@ impl Dict {
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn new(interpreter: &Interpreter, items: HashMap<TreewalkValue, TreewalkValue>) -> Self {
+    pub fn new(
+        interpreter: &TreewalkInterpreter,
+        items: HashMap<TreewalkValue, TreewalkValue>,
+    ) -> Self {
         let mut new_hash = HashMap::default();
         for (key, value) in items {
             let new_key = Contextual::new(key, interpreter.clone());
@@ -65,7 +68,7 @@ impl Dict {
 
     fn get(
         &self,
-        interpreter: Interpreter,
+        interpreter: TreewalkInterpreter,
         key: TreewalkValue,
         default: Option<TreewalkValue>,
     ) -> TreewalkValue {
@@ -74,7 +77,7 @@ impl Dict {
         self.items.get(&key).unwrap_or(&default).clone()
     }
 
-    pub fn has(&self, interpreter: Interpreter, key: &TreewalkValue) -> bool {
+    pub fn has(&self, interpreter: TreewalkInterpreter, key: &TreewalkValue) -> bool {
         let key = Contextual::new(key.clone(), interpreter);
         self.items.contains_key(&key)
     }
@@ -89,7 +92,7 @@ impl From<Dict> for HashMap<Contextual<TreewalkValue>, TreewalkValue> {
 impl IndexRead for Container<Dict> {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         if self.borrow().has(interpreter.clone(), &index) {
@@ -103,7 +106,7 @@ impl IndexRead for Container<Dict> {
 impl IndexWrite for Container<Dict> {
     fn setitem(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -112,7 +115,11 @@ impl IndexWrite for Container<Dict> {
         Ok(())
     }
 
-    fn delitem(&mut self, interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()> {
+    fn delitem(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        index: TreewalkValue,
+    ) -> TreewalkResult<()> {
         let index = Contextual::new(index, interpreter.clone());
         self.borrow_mut().items.remove(&index);
         Ok(())
@@ -164,7 +171,11 @@ struct DictValuesBuiltin;
 struct FromKeysBuiltin;
 
 impl Callable for DictItemsBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
@@ -180,7 +191,11 @@ impl Callable for DictItemsBuiltin {
 }
 
 impl Callable for DictKeysBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
         Ok(TreewalkValue::DictKeys(
@@ -194,7 +209,11 @@ impl Callable for DictKeysBuiltin {
 }
 
 impl Callable for DictValuesBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
@@ -210,7 +229,11 @@ impl Callable for DictValuesBuiltin {
 }
 
 impl Callable for FromKeysBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 
@@ -220,7 +243,11 @@ impl Callable for FromKeysBuiltin {
 }
 
 impl Callable for NewBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(TreewalkValue::Dict(Container::new(Dict::default())))
     }
 
@@ -230,7 +257,11 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for InitBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
@@ -248,7 +279,11 @@ impl Callable for InitBuiltin {
 }
 
 impl Callable for GetBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;

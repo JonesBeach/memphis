@@ -20,7 +20,7 @@ mod value;
 
 pub use execution_context::ExecutionContextManager;
 pub use executor::Executor;
-pub use interpreter::Interpreter;
+pub use interpreter::TreewalkInterpreter;
 pub use iterator::TreewalkIterator;
 pub use module::EvaluatedModuleCache;
 pub use resolver::resolve;

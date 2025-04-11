@@ -4,7 +4,7 @@ use crate::{
         protocols::Callable,
         types::{pausable::Pausable, Coroutine},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
+        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
 };
 
@@ -51,7 +51,7 @@ impl Executor {
     /// see if it was put to sleep and handle it accordingly.
     fn call(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
     ) -> TreewalkResult<TreewalkValue> {
         self.set_current_coroutine(coroutine.clone());
@@ -71,7 +71,7 @@ impl Executor {
     /// coroutine has resolved.
     pub fn run(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
     ) -> TreewalkResult<TreewalkValue> {
         let executor = Container::new(self);
@@ -137,7 +137,11 @@ pub struct AsyncioSleepBuiltin;
 pub struct AsyncioCreateTaskBuiltin;
 
 impl Callable for AsyncioRunBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
@@ -154,7 +158,11 @@ impl Callable for AsyncioRunBuiltin {
 }
 
 impl Callable for AsyncioSleepBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let duration = args.get_arg(0).expect_fp(interpreter)?;
         interpreter.state.get_executor().borrow().sleep(duration)
@@ -166,7 +174,11 @@ impl Callable for AsyncioSleepBuiltin {
 }
 
 impl Callable for AsyncioCreateTaskBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;

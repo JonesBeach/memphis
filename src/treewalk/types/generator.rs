@@ -7,7 +7,8 @@ use crate::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
             Function,
         },
-        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkState, TreewalkValue,
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkState,
+        TreewalkValue,
     },
 };
 
@@ -88,7 +89,7 @@ impl Pausable for Container<Generator> {
 
     fn finish(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         _result: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         Err(interpreter.stop_iteration())
@@ -96,7 +97,7 @@ impl Pausable for Container<Generator> {
 
     fn handle_step(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<PausableStepResult> {
@@ -118,7 +119,7 @@ impl Container<Generator> {
     /// `None`.
     fn execute_statement(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<Option<TreewalkValue>> {
@@ -144,11 +145,11 @@ impl Container<Generator> {
 #[derive(Clone)]
 pub struct GeneratorIterator {
     pub generator: Container<Generator>,
-    pub interpreter: Interpreter,
+    pub interpreter: TreewalkInterpreter,
 }
 
 impl GeneratorIterator {
-    pub fn new(generator: Generator, interpreter: Interpreter) -> Self {
+    pub fn new(generator: Generator, interpreter: TreewalkInterpreter) -> Self {
         Self {
             generator: Container::new(generator),
             interpreter,

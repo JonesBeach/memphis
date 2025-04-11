@@ -11,7 +11,8 @@ use crate::{
             Function,
         },
         utils::{check_args, Arguments},
-        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
+        TreewalkValue,
     },
 };
 
@@ -101,7 +102,7 @@ impl Pausable for Container<Coroutine> {
 
     fn finish(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         result: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         self.borrow_mut().set_return_val(result.clone());
@@ -110,7 +111,7 @@ impl Pausable for Container<Coroutine> {
 
     fn handle_step(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<PausableStepResult> {
@@ -134,7 +135,7 @@ impl Container<Coroutine> {
     /// the coroutine state is updated to reflect this.
     fn execute_statement(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<Poll> {
@@ -167,7 +168,11 @@ struct CloseBuiltin;
 // ResourceWarning, but I'm not doing anything when I invoke a coroutine right now that would lead
 // to this.
 impl Callable for CloseBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         Ok(TreewalkValue::None)
     }

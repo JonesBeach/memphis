@@ -9,7 +9,7 @@ use crate::{
         protocols::{Callable, IndexRead, MethodProvider, Typed},
         types::Slice,
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -62,7 +62,7 @@ impl Deref for Str {
 impl IndexRead for Str {
     fn getitem(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         key: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(match key {
@@ -82,7 +82,11 @@ impl IndexRead for Str {
 struct JoinBuiltin;
 
 impl Callable for JoinBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 
@@ -94,7 +98,11 @@ impl Callable for JoinBuiltin {
 struct MaketransBuiltin;
 
 impl Callable for MaketransBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 

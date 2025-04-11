@@ -8,8 +8,8 @@ use crate::{
     treewalk::{
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
-        EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, Scope, ScopeManager,
-        TreewalkResult, TreewalkValue, TypeRegistry,
+        EvaluatedModuleCache, ExecutionContextManager, Executor, Scope, ScopeManager,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -113,7 +113,7 @@ impl Container<TreewalkState> {
     pub fn read_or_disrupt(
         &self,
         name: &str,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<TreewalkValue> {
         self.read(name).ok_or_else(|| interpreter.name_error(name))
     }
@@ -202,7 +202,7 @@ impl Container<TreewalkState> {
         self.borrow().scope_manager.read_captured_env()
     }
 
-    pub fn read_globals(&self, interpreter: &Interpreter) -> Container<Dict> {
+    pub fn read_globals(&self, interpreter: &TreewalkInterpreter) -> Container<Dict> {
         let scope = self.borrow().scope_manager.read_module().borrow().clone();
 
         // This will make another function call to hash the keys so we do this in a separate

@@ -1,7 +1,7 @@
 use crate::{
     core::Container,
     parser::types::{Statement, StatementKind},
-    treewalk::{types::List, Interpreter, Scope, TreewalkResult, TreewalkValue},
+    treewalk::{types::List, Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue},
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -29,7 +29,7 @@ pub trait Pausable {
     /// return value.
     fn finish(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         result: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue>;
 
@@ -38,7 +38,7 @@ pub trait Pausable {
     /// expression return values encountered.
     fn handle_step(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         statement: Statement,
         control_flow: bool,
     ) -> TreewalkResult<PausableStepResult>;
@@ -46,7 +46,7 @@ pub trait Pausable {
     /// The default behavior which selects the next [`Statement`] and manually evaluates any
     /// control flow statements. This then calls [`Pausable::handle_step`] to set up any return
     /// values based on whether a control flow structure was encountered.
-    fn step(&self, interpreter: &Interpreter) -> TreewalkResult<PausableStepResult> {
+    fn step(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<PausableStepResult> {
         let statement = self.context().next_statement();
 
         // Delegate to the common function for control flow
@@ -60,13 +60,13 @@ pub trait Pausable {
     /// pausable function.
     /// TODO we used to push a new stack frame here, perhaps we need do to that for each statement
     /// now?
-    fn on_entry(&self, interpreter: &Interpreter) {
+    fn on_entry(&self, interpreter: &TreewalkInterpreter) {
         interpreter.state.push_local(self.scope());
     }
 
     /// The default behavior required to perform the necessary context switching when exiting a
     /// pausable function.
-    fn on_exit(&self, interpreter: &Interpreter) {
+    fn on_exit(&self, interpreter: &TreewalkInterpreter) {
         if let Some(scope) = interpreter.state.pop_local() {
             self.set_scope(scope);
         }
@@ -83,7 +83,7 @@ pub trait Pausable {
     fn execute_control_flow_statement(
         &self,
         stmt: &Statement,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<bool> {
         match &stmt.kind {
             StatementKind::WhileLoop { body, condition } => {
@@ -164,7 +164,7 @@ pub trait Pausable {
     }
 
     /// Run this [`Pausable`] until it reaches a pause event.
-    fn run_until_pause(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
+    fn run_until_pause(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<TreewalkValue> {
         self.on_entry(interpreter);
 
         let mut result = TreewalkValue::None;

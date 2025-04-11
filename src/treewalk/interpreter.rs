@@ -32,13 +32,13 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct Interpreter {
+pub struct TreewalkInterpreter {
     pub state: Container<TreewalkState>,
 }
 
-impl Interpreter {
+impl TreewalkInterpreter {
     pub fn new(state: Container<TreewalkState>) -> Self {
-        Interpreter { state }
+        TreewalkInterpreter { state }
     }
 
     pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
@@ -1381,7 +1381,7 @@ impl Interpreter {
     }
 }
 
-impl InterpreterEntrypoint for Interpreter {
+impl InterpreterEntrypoint for TreewalkInterpreter {
     type Return = TreewalkValue;
 
     fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
@@ -1434,7 +1434,7 @@ mod tests {
     }
 
     /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
-    fn run<'a>(context: &'a mut MemphisContext) -> &'a Interpreter {
+    fn run<'a>(context: &'a mut MemphisContext) -> &'a TreewalkInterpreter {
         context.run_treewalk().expect("Treewalk evaluation failed!");
         context.ensure_treewalk()
     }
@@ -1451,19 +1451,19 @@ mod tests {
         Statement::new(1, kind)
     }
 
-    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<TreewalkValue> {
+    fn read_optional(interpreter: &TreewalkInterpreter, name: &str) -> Option<TreewalkValue> {
         interpreter.state.read(name)
     }
 
-    fn read(interpreter: &Interpreter, name: &str) -> TreewalkValue {
+    fn read(interpreter: &TreewalkInterpreter, name: &str) -> TreewalkValue {
         read_optional(interpreter, name).expect("Failed to read var")
     }
 
-    fn read_type(interpreter: &Interpreter, name: &str) -> Type {
+    fn read_type(interpreter: &TreewalkInterpreter, name: &str) -> Type {
         read(interpreter, name).get_type()
     }
 
-    fn assert_type_class(interpreter: &Interpreter, name: &str, type_: Type) {
+    fn assert_type_class(interpreter: &TreewalkInterpreter, name: &str, type_: Type) {
         assert_eq!(
             read(interpreter, name).as_class().unwrap(),
             interpreter.state.get_type_class(type_)

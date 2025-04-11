@@ -28,7 +28,7 @@ struct TracebackAttribute;
 impl NonDataDescriptor for TracebackAttribute {
     fn get_attr(
         &self,
-        _interpreter: &crate::treewalk::Interpreter,
+        _interpreter: &crate::treewalk::TreewalkInterpreter,
         _instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -60,7 +60,7 @@ struct FrameAttribute;
 impl NonDataDescriptor for FrameAttribute {
     fn get_attr(
         &self,
-        _interpreter: &crate::treewalk::Interpreter,
+        _interpreter: &crate::treewalk::TreewalkInterpreter,
         _instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {

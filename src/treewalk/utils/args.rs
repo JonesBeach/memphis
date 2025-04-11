@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     parser::types::{CallArgs, KwargsOperation},
-    treewalk::{types::Str, Interpreter, TreewalkResult, TreewalkValue},
+    treewalk::{types::Str, TreewalkInterpreter, TreewalkResult, TreewalkValue},
 };
 
 /// Represents the fully resolved parameter state for all positional and keyword arguments.
@@ -16,7 +16,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn from(interpreter: &Interpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
+    pub fn from(interpreter: &TreewalkInterpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
         let mut arg_values = arguments
             .args
             .iter()
@@ -86,7 +86,7 @@ impl Arguments {
         self.bound_val.clone()
     }
 
-    pub fn expect_self(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
+    pub fn expect_self(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<TreewalkValue> {
         self.get_self()
             .ok_or_else(|| interpreter.type_error("Unbound call!"))
     }
@@ -162,7 +162,7 @@ macro_rules! args {
 pub fn check_args<F>(
     args: &Arguments,
     condition: F,
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<()>
 where
     F: Fn(usize) -> bool,

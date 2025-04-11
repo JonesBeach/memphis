@@ -10,7 +10,7 @@ use crate::{
         protocols::{Callable, MethodProvider, Typed},
         types::{iterators::ListIterator, Set},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -69,7 +69,11 @@ struct NewBuiltin;
 struct ContainsBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let frozen_set = match args.len() {
@@ -93,7 +97,11 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for ContainsBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!();
     }
 

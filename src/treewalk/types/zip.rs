@@ -5,7 +5,7 @@ use crate::{
         protocols::{Callable, MethodProvider, Typed},
         types::{iterators::ListIterator, List, Str, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -66,7 +66,11 @@ impl Iterator for ZipIterator {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         // This function cannot be called with 2 args (1 unbound arg) because there would be
         // nothing to zip.
         check_args(&args, |len| len == 1 || len >= 3, interpreter)?;

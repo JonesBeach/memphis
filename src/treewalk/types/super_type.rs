@@ -4,7 +4,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MemberReader, MethodProvider, Typed},
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -36,7 +36,7 @@ impl Super {
 impl MemberReader for Container<Super> {
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         let instance = self.borrow().receiver();
@@ -66,7 +66,11 @@ impl MemberReader for Container<Super> {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         match interpreter.state.current_receiver() {
             None => {
                 // If we are evaluating a static function, `super()` should just return the class the

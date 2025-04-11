@@ -3,7 +3,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MethodProvider, Typed},
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -24,7 +24,11 @@ impl MethodProvider for Bool {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         if args.len() == 1 {
             Ok(TreewalkValue::Boolean(false))
         } else if args.len() == 2 {

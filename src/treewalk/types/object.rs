@@ -11,7 +11,7 @@ use crate::{
         },
         types::{Class, Str},
         utils::{check_args, Arguments},
-        Interpreter, Scope, TreewalkResult, TreewalkValue,
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -66,7 +66,7 @@ impl Object {
 impl IndexWrite for Container<Object> {
     fn setitem(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -79,7 +79,11 @@ impl IndexWrite for Container<Object> {
         Ok(())
     }
 
-    fn delitem(&mut self, interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()> {
+    fn delitem(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        index: TreewalkValue,
+    ) -> TreewalkResult<()> {
         let _ = interpreter.invoke_method(
             TreewalkValue::Object(self.clone()),
             Dunder::DelItem,
@@ -93,7 +97,7 @@ impl IndexWrite for Container<Object> {
 impl IndexRead for Container<Object> {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         let result = interpreter.invoke_method(
@@ -111,7 +115,7 @@ impl MemberReader for Container<Object> {
     /// itself and its class (following its MRO), but NOT its class' metaclasses.
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         log(LogLevel::Debug, || {
@@ -155,7 +159,7 @@ impl MemberReader for Container<Object> {
 impl MemberWriter for Container<Object> {
     fn set_member(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -184,7 +188,11 @@ impl MemberWriter for Container<Object> {
         Ok(())
     }
 
-    fn delete_member(&mut self, interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
+    fn delete_member(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        name: &str,
+    ) -> TreewalkResult<()> {
         if let Some(attr) = self.borrow().class.get_from_class(name) {
             log(LogLevel::Debug, || {
                 format!(
@@ -231,7 +239,7 @@ impl MemberWriter for Container<Object> {
 impl NonDataDescriptor for Container<Object> {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -256,7 +264,7 @@ impl NonDataDescriptor for Container<Object> {
 impl DataDescriptor for Container<Object> {
     fn set_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -271,7 +279,7 @@ impl DataDescriptor for Container<Object> {
 
     fn delete_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: TreewalkValue,
     ) -> TreewalkResult<()> {
         interpreter.invoke_method(
@@ -298,7 +306,11 @@ impl Display for Container<Object> {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
         let class = args.get_arg(0).expect_class(interpreter)?;
@@ -313,7 +325,11 @@ impl Callable for NewBuiltin {
 struct InitBuiltin;
 
 impl Callable for InitBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         Ok(TreewalkValue::None)
     }
 
@@ -327,7 +343,11 @@ impl Callable for InitBuiltin {
 struct EqBuiltin;
 
 impl Callable for EqBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let a = args.expect_self(interpreter)?;
@@ -344,7 +364,11 @@ impl Callable for EqBuiltin {
 struct HashBuiltin;
 
 impl Callable for HashBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         let object = args.expect_self(interpreter)?;
         Ok(TreewalkValue::Integer(object.hash() as i64))
@@ -360,7 +384,11 @@ impl Callable for HashBuiltin {
 struct NeBuiltin;
 
 impl Callable for NeBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         let receiver = args.expect_self(interpreter)?;
         let result = interpreter.invoke_method(receiver, Dunder::Eq, &args![args.get_arg(0)])?;
 
@@ -375,7 +403,11 @@ impl Callable for NeBuiltin {
 struct StrBuiltin;
 
 impl Callable for StrBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 
@@ -390,7 +422,7 @@ struct DictDescriptor;
 impl NonDataDescriptor for DictDescriptor {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -409,7 +441,7 @@ impl NonDataDescriptor for DictDescriptor {
 impl DataDescriptor for DictDescriptor {
     fn set_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         _instance: TreewalkValue,
         _value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -418,7 +450,7 @@ impl DataDescriptor for DictDescriptor {
 
     fn delete_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         _instance: TreewalkValue,
     ) -> TreewalkResult<()> {
         todo!();

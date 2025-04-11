@@ -5,7 +5,7 @@ use crate::{
         protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
         types::{Class, Method},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -33,7 +33,11 @@ impl Classmethod {
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
         check_args(&args, |len| len == 2, interpreter)?;
 
@@ -60,7 +64,7 @@ impl Callable for NewBuiltin {
 impl NonDataDescriptor for Classmethod {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         _instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
