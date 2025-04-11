@@ -4,6 +4,9 @@ use memphis::{
 };
 
 fn run_binary_expression_test<T: InterpreterTest>(mut interpreter: T) {
+    // let input = "2 + 2";
+    // assert_crosscheck_return!(input, MemphisValue::Integer(4));
+
     let input = "2 + 2";
     match interpreter.evaluate(input) {
         Err(e) => panic!("Interpreter error: {:?}", e),

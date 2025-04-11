@@ -4,6 +4,10 @@ use memphis::{
 };
 
 fn run_test<T: InterpreterTest>(mut interpreter: T) {
+    //     let session = crosscheck_eval!(r#"
+    // a = 5 - 3
+    // "#);
+    //     assert_crosscheck_eq!(session, "a", MemphisValue::Integer(2));
     let input = r#"
 a = 5 - 3
 "#;
@@ -18,6 +22,15 @@ a = "Hello World"
         interpreter.read("a"),
         Some(MemphisValue::String("Hello World".into()))
     );
+
+    //     let input = crosscheck_eval!(r#"
+    // a = 5 - 3
+    // b = 10
+    // c = None
+    // "#);
+    //     assert_crosscheck_eq!(session, "a", MemphisValue::Integer(2));
+    //     assert_crosscheck_eq!(session, "b", MemphisValue::Integer(10));
+    //     assert_crosscheck_eq!(session, "c", MemphisValue::None);
 
     let input = r#"
 a = 5 - 3

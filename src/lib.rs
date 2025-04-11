@@ -3,7 +3,7 @@ mod core;
 pub mod crosscheck_utils;
 pub mod domain;
 mod engine;
-pub mod init;
+mod init;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
 mod llvm_backend;
