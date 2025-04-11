@@ -27,6 +27,20 @@ impl Default for MemphisContext {
 }
 
 impl MemphisContext {
+    /// Given a [`Source`], setup a context which can be used for any execution engines.
+    pub fn new(source: Source) -> Self {
+        let lexer = Self::init_lexer(&source);
+        let state = MemphisState::from_source(&source);
+
+        Self {
+            source,
+            state,
+            lexer,
+            interpreter: None,
+            vm_interpreter: None,
+        }
+    }
+
     /// Initialize a context from a [`Source`] and existing treewalk state.
     pub fn from_treewalk(
         source: Source,
@@ -44,20 +58,6 @@ impl MemphisContext {
         }
     }
 
-    /// Given a [`Source`], setup a context which can be used for any execution engines.
-    pub fn new(source: Source) -> Self {
-        let lexer = Self::init_lexer(&source);
-        let state = MemphisState::from_source(&source);
-
-        Self {
-            source,
-            state,
-            lexer,
-            interpreter: None,
-            vm_interpreter: None,
-        }
-    }
-
     fn init_lexer(source: &Source) -> Lexer {
         let mut lexer = Lexer::default();
 
@@ -69,23 +69,6 @@ impl MemphisContext {
         }
 
         lexer
-    }
-
-    #[cfg(any(test, feature = "repl"))]
-    pub fn add_line(&mut self, line: &str) {
-        self.lexer
-            .add_line(line)
-            .expect("Failed to add line to lexer");
-    }
-
-    #[cfg(feature = "repl")]
-    pub fn run(&mut self, engine: Engine) -> Result<MemphisValue, MemphisError> {
-        match engine {
-            Engine::Treewalk => Ok(self.run_treewalk()?.into()),
-            Engine::BytecodeVm => Ok(self.run_vm()?.into()),
-            #[cfg(feature = "llvm_backend")]
-            _ => unimplemented!(),
-        }
     }
 
     pub fn run_treewalk(&mut self) -> Result<TreewalkValue, MemphisError> {
@@ -147,6 +130,23 @@ impl MemphisContext {
     fn ensure_vm_initialized(&mut self) {
         if self.vm_interpreter.is_none() {
             self.vm_interpreter = Some(VmInterpreter::new(self.state.clone(), self.source.clone()))
+        }
+    }
+
+    #[cfg(any(test, feature = "repl"))]
+    pub fn add_line(&mut self, line: &str) {
+        self.lexer
+            .add_line(line)
+            .expect("Failed to add line to lexer");
+    }
+
+    #[cfg(feature = "repl")]
+    pub fn run(&mut self, engine: Engine) -> Result<MemphisValue, MemphisError> {
+        match engine {
+            Engine::Treewalk => Ok(self.run_treewalk()?.into()),
+            Engine::BytecodeVm => Ok(self.run_vm()?.into()),
+            #[cfg(feature = "llvm_backend")]
+            _ => unimplemented!(),
         }
     }
 }

@@ -70,22 +70,6 @@ impl Source {
         }
     }
 
-    fn with_named_path(name: &str, path: PathBuf, text: String) -> Self {
-        Self {
-            name: Some(name.to_string()),
-            path: Some(path),
-            text: Some(text),
-        }
-    }
-
-    fn with_path(path: PathBuf, text: String) -> Self {
-        Self {
-            name: None,
-            path: Some(path),
-            text: Some(text),
-        }
-    }
-
     pub fn path(&self) -> Option<&PathBuf> {
         self.path.as_ref()
     }
@@ -110,6 +94,22 @@ impl Source {
 
     pub fn text(&self) -> &str {
         self.text.as_deref().unwrap_or(Self::DEFAULT_TEXT)
+    }
+
+    fn with_named_path(name: &str, path: PathBuf, text: String) -> Self {
+        Self {
+            name: Some(name.to_string()),
+            path: Some(path),
+            text: Some(text),
+        }
+    }
+
+    fn with_path(path: PathBuf, text: String) -> Self {
+        Self {
+            name: None,
+            path: Some(path),
+            text: Some(text),
+        }
     }
 }
 
