@@ -2,7 +2,7 @@
 use crate::init::Repl;
 #[cfg(feature = "llvm_backend")]
 use crate::llvm_backend::compile_ast_to_llvm;
-use crate::{core::memphis_utils, init::MemphisContext, Engine};
+use crate::{core::memphis_utils, domain::Source, init::MemphisContext, Engine};
 
 /// The entrypoint to the Memphis executable. Supports script mode or REPL mode.
 pub struct Memphis;
@@ -11,7 +11,7 @@ impl Memphis {
     pub fn run_script(filepath: &str, engine: Engine) {
         match engine {
             Engine::Treewalk => {
-                let mut context = MemphisContext::from_path(filepath);
+                let mut context = MemphisContext::new(Source::from_path(filepath));
 
                 match context.run_treewalk() {
                     Ok(_) => {}
@@ -19,7 +19,7 @@ impl Memphis {
                 }
             }
             Engine::BytecodeVm => {
-                let mut context = MemphisContext::from_path(filepath);
+                let mut context = MemphisContext::new(Source::from_path(filepath));
 
                 match context.run_vm() {
                     Ok(_) => {}

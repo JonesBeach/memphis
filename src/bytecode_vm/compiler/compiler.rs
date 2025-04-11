@@ -834,7 +834,7 @@ mod tests_compiler {
     use crate::init::MemphisContext;
 
     fn compile(text: &str) -> CodeObject {
-        MemphisContext::from_text(text)
+        MemphisContext::new(Source::from_text(text))
             .compile()
             .expect("Failed to compile test program!")
     }

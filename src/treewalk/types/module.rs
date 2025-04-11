@@ -52,7 +52,7 @@ impl Module {
             .state
             .push_module(Container::new(Module::new(source.clone())));
 
-        let mut context = MemphisContext::from_module_from_treewalk(
+        let mut context = MemphisContext::from_treewalk(
             source,
             interpreter.state.memphis_state(),
             interpreter.state.clone(),

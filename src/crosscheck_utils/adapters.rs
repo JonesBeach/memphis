@@ -1,4 +1,8 @@
-use crate::{domain::MemphisValue, init::MemphisContext, types::errors::MemphisError};
+use crate::{
+    domain::{MemphisValue, Source},
+    init::MemphisContext,
+    types::errors::MemphisError,
+};
 
 use super::traits::InterpreterTest;
 
@@ -32,7 +36,7 @@ impl Default for BytecodeVmAdapter {
 
 impl InterpreterTest for BytecodeVmAdapter {
     fn evaluate(&mut self, code: &str) -> Result<MemphisValue, MemphisError> {
-        let mut context = MemphisContext::from_text(code);
+        let mut context = MemphisContext::new(Source::from_text(code));
 
         let result = context.run_vm()?;
         self.context = Some(context);
@@ -64,7 +68,7 @@ impl Default for TreewalkAdapter {
 
 impl InterpreterTest for TreewalkAdapter {
     fn evaluate(&mut self, code: &str) -> Result<MemphisValue, MemphisError> {
-        let mut context = MemphisContext::from_text(code);
+        let mut context = MemphisContext::new(Source::from_text(code));
 
         let result = context.run_treewalk()?;
         self.context = Some(context);

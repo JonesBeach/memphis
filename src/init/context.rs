@@ -1,5 +1,3 @@
-use std::{fmt::Display, path::Path, process};
-
 use crate::{
     bytecode_vm::{VmInterpreter, VmValue},
     core::{Container, InterpreterEntrypoint},
@@ -7,9 +5,10 @@ use crate::{
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
-    treewalk::{module_loader, Interpreter, TreewalkState, TreewalkValue},
+    treewalk::{Interpreter, TreewalkState, TreewalkValue},
     types::errors::MemphisError,
 };
+
 #[cfg(feature = "repl")]
 use crate::{domain::MemphisValue, Engine};
 
@@ -23,29 +22,13 @@ pub struct MemphisContext {
 
 impl Default for MemphisContext {
     fn default() -> Self {
-        Self::from_module(Source::default())
+        Self::new(Source::default())
     }
 }
 
 impl MemphisContext {
-    pub fn from_path<P>(filepath: P) -> Self
-    where
-        P: AsRef<Path> + Display,
-    {
-        let source = module_loader::load_root_source(filepath.as_ref()).unwrap_or_else(|| {
-            eprintln!("Error reading file: {}", filepath);
-            process::exit(1);
-        });
-        Self::from_module(source)
-    }
-
-    pub fn from_text(text: &str) -> Self {
-        let source = Source::from_text(text);
-        Self::from_module(source)
-    }
-
     /// Initialize a context from a [`Source`] and existing treewalk state.
-    pub fn from_module_from_treewalk(
+    pub fn from_treewalk(
         source: Source,
         memphis_state: Container<MemphisState>,
         treewalk_state: Container<TreewalkState>,
@@ -62,7 +45,7 @@ impl MemphisContext {
     }
 
     /// Given a [`Source`], setup a context which can be used for any execution engines.
-    fn from_module(source: Source) -> Self {
+    pub fn new(source: Source) -> Self {
         let lexer = Self::init_lexer(&source);
         let state = MemphisState::from_source(&source);
 

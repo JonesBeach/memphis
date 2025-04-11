@@ -50,7 +50,7 @@ impl InterpreterEntrypoint for VmInterpreter {
 }
 
 #[cfg(test)]
-mod vm_interpreter_tests {
+mod tests_vm_interpreter {
     use super::*;
 
     use crate::{
@@ -60,11 +60,11 @@ mod vm_interpreter_tests {
     };
 
     fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text.trim())
+        MemphisContext::new(Source::from_text(text.trim()))
     }
 
     fn init_path(path: &str) -> MemphisContext {
-        MemphisContext::from_path(path)
+        MemphisContext::new(Source::from_path(path))
     }
 
     fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> VmValue {

@@ -6,7 +6,6 @@ use crate::{
     parser::types::ImportPath,
     runtime::MemphisState,
     treewalk::{
-        module_loader,
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
         EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, Scope, ScopeManager,
@@ -238,7 +237,7 @@ impl Container<TreewalkState> {
     pub fn load_source(&self, import_path: &ImportPath) -> Option<Source> {
         let current_path = self.current_path();
         let search_paths = self.borrow().memphis_state.search_paths();
-        module_loader::load_source(import_path, &current_path, &search_paths)
+        Source::from_import_path(import_path, &current_path, &search_paths)
     }
 
     #[cfg(feature = "c_stdlib")]

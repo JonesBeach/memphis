@@ -541,10 +541,10 @@ impl Default for VirtualMachine {
 mod tests {
     use super::*;
 
-    use crate::init::MemphisContext;
+    use crate::{domain::Source, init::MemphisContext};
 
     fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
+        MemphisContext::new(Source::from_text(text))
     }
 
     #[test]

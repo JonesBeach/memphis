@@ -1811,10 +1811,10 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{init::MemphisContext, parser::test_utils::stmt};
+    use crate::{domain::Source, init::MemphisContext, parser::test_utils::stmt};
 
     fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
+        MemphisContext::new(Source::from_text(text))
     }
 
     fn parse_all(input: &str) -> Ast {

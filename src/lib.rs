@@ -23,7 +23,7 @@ mod wasm {
     use console_error_panic_hook::set_once;
     use wasm_bindgen::prelude::wasm_bindgen;
 
-    use super::init::MemphisContext;
+    use crate::{domain::Source, init::MemphisContext};
 
     // Export a function to JavaScript
     #[wasm_bindgen]
@@ -36,7 +36,7 @@ mod wasm {
         // Set the panic hook for better error messages in the browser console
         set_once();
 
-        let mut context = MemphisContext::from_text(&code);
+        let mut context = MemphisContext::new(Source::from_text(&code));
         let result = context.run_treewalk().expect("Failed to evaluate.");
         format!("{}", result)
     }

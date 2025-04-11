@@ -1404,17 +1404,17 @@ mod tests {
     use super::*;
     use crate::{
         ast,
-        domain::{test_utils, Type},
+        domain::{test_utils, Source, Type},
         init::MemphisContext,
         treewalk::types::{ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet},
     };
 
-    fn init_path(path: &str) -> MemphisContext {
-        MemphisContext::from_path(path)
+    fn init(text: &str) -> MemphisContext {
+        MemphisContext::new(Source::from_text(text))
     }
 
-    fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
+    fn init_path(path: &str) -> MemphisContext {
+        MemphisContext::new(Source::from_path(path))
     }
 
     fn eval_inner(text: &str) -> Result<TreewalkValue, MemphisError> {
