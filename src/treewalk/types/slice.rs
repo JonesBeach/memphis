@@ -9,7 +9,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MethodProvider, Typed},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -37,7 +37,10 @@ impl Slice {
         Self { start, stop, step }
     }
 
-    pub fn resolve(interpreter: &Interpreter, params: &SliceParams) -> TreewalkResult<Self> {
+    pub fn resolve(
+        interpreter: &TreewalkInterpreter,
+        params: &SliceParams,
+    ) -> TreewalkResult<Self> {
         let evaluate_to_integer = |expr_option: &Option<Box<Expr>>| -> TreewalkResult<Option<i64>> {
             match expr_option {
                 Some(expr) => {
@@ -119,7 +122,11 @@ impl Display for Slice {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
         let slice = match args.len() {

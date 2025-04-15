@@ -1,4 +1,6 @@
-use crate::treewalk::{protocols::MemberReader, Interpreter, Scope, TreewalkResult, TreewalkValue};
+use crate::treewalk::{
+    protocols::MemberReader, Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+};
 
 /// This corresponds to the Python internal `Cell` class, which is returned for values captured in
 /// a closure.
@@ -20,7 +22,7 @@ impl Cell {
 impl MemberReader for Cell {
     fn get_member(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(self.scope.get(name))

@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{self, Display, Error, Formatter},
+    fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
 };
 
@@ -25,7 +25,7 @@ use crate::{
         },
         typing::TypeExpr,
         utils::{Arguments, BuiltinObject},
-        Interpreter, TreewalkResult,
+        TreewalkInterpreter, TreewalkIterator, TreewalkResult,
     },
 };
 
@@ -50,9 +50,9 @@ pub enum TreewalkValue {
     Method(Container<Method>),
     BuiltinFunction(Container<Box<dyn Callable>>),
     BuiltinMethod(Container<Box<dyn Callable>>),
-    Generator(Container<GeneratorIterator>),
+    Generator(GeneratorIterator),
     Coroutine(Container<Coroutine>),
-    Code(Container<Code>),
+    Code(Code),
     Cell(Container<Cell>),
     Bytes(Vec<u8>),
     ByteArray(Container<ByteArray>),
@@ -170,7 +170,7 @@ impl PartialOrd for TreewalkValue {
 
 impl TreewalkValue {
     pub fn new(
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         class: Container<Class>,
         arguments: Arguments,
     ) -> TreewalkResult<Self> {
@@ -276,36 +276,20 @@ impl TreewalkValue {
         }
     }
 
-    pub fn try_into_iter(self) -> Option<TreewalkValueIterator> {
+    pub fn try_into_iter(self) -> Option<TreewalkIterator> {
         match self {
-            TreewalkValue::List(list) => {
-                Some(TreewalkValueIterator::List(list.clone().into_iter()))
-            }
-            TreewalkValue::ListIterator(list_iterator) => {
-                Some(TreewalkValueIterator::List(list_iterator))
-            }
-            TreewalkValue::ReversedIterator(list_iterator) => {
-                Some(TreewalkValueIterator::Reversed(list_iterator))
-            }
-            TreewalkValue::Set(set) => Some(TreewalkValueIterator::List(set.clone().into_iter())),
-            TreewalkValue::FrozenSet(set) => {
-                Some(TreewalkValueIterator::List(set.clone().into_iter()))
-            }
-            TreewalkValue::Zip(zip) => Some(TreewalkValueIterator::Zip(Box::new(zip))),
-            TreewalkValue::Tuple(list) => Some(TreewalkValueIterator::List(list.into_iter())),
-            TreewalkValue::Dict(dict) => Some(TreewalkValueIterator::Dict(dict.into_iter())),
-            TreewalkValue::DictItems(dict) => {
-                Some(TreewalkValueIterator::DictItems(dict.into_iter()))
-            }
-            TreewalkValue::Generator(generator) => {
-                Some(TreewalkValueIterator::Generator(generator.into_iter()))
-            }
-            TreewalkValue::Range(range) => {
-                Some(TreewalkValueIterator::Range(range.clone().into_iter()))
-            }
-            TreewalkValue::StringIterator(string_iterator) => {
-                Some(TreewalkValueIterator::String(string_iterator))
-            }
+            TreewalkValue::List(list) => Some(TreewalkIterator::List(list.into_iter())),
+            TreewalkValue::ListIterator(l) => Some(TreewalkIterator::List(l)),
+            TreewalkValue::ReversedIterator(l) => Some(TreewalkIterator::Reversed(l)),
+            TreewalkValue::Set(set) => Some(TreewalkIterator::List(set.into_iter())),
+            TreewalkValue::FrozenSet(set) => Some(TreewalkIterator::List(set.into_iter())),
+            TreewalkValue::Zip(zip) => Some(TreewalkIterator::Zip(zip)),
+            TreewalkValue::Tuple(list) => Some(TreewalkIterator::List(list.into_iter())),
+            TreewalkValue::Dict(dict) => Some(TreewalkIterator::Dict(dict.into_iter())),
+            TreewalkValue::DictItems(dict) => Some(TreewalkIterator::DictItems(dict.into_iter())),
+            TreewalkValue::Generator(g) => Some(TreewalkIterator::Generator(g.into_iter())),
+            TreewalkValue::Range(range) => Some(TreewalkIterator::Range(range.into_iter())),
+            TreewalkValue::StringIterator(s) => Some(TreewalkIterator::String(s)),
             _ => None,
         }
     }
@@ -385,7 +369,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn get_class(&self, interpreter: &Interpreter) -> Container<Class> {
+    pub fn get_class(&self, interpreter: &TreewalkInterpreter) -> Container<Class> {
         match self {
             TreewalkValue::Object(o) => o.borrow().class.clone(),
             TreewalkValue::Class(o) => o.clone(),
@@ -402,7 +386,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_integer(&self, interpreter: &Interpreter) -> TreewalkResult<i64> {
+    pub fn expect_integer(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<i64> {
         self.as_integer()
             .ok_or_else(|| interpreter.type_error("Expected an integer"))
     }
@@ -415,7 +399,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_fp(&self, interpreter: &Interpreter) -> TreewalkResult<f64> {
+    pub fn expect_fp(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<f64> {
         self.as_fp()
             .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
@@ -430,7 +414,10 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_class(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Class>> {
+    pub fn expect_class(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Container<Class>> {
         self.as_class()
             .ok_or_else(|| interpreter.type_error("Expected a class"))
     }
@@ -444,7 +431,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_member_reader(&self, interpreter: &Interpreter) -> Box<dyn MemberReader> {
+    pub fn as_member_reader(&self, interpreter: &TreewalkInterpreter) -> Box<dyn MemberReader> {
         match self {
             TreewalkValue::Object(i) => Box::new(i.clone()),
             TreewalkValue::Class(i) => Box::new(i.clone()),
@@ -476,21 +463,25 @@ impl TreewalkValue {
         }
     }
 
-    fn hasattr(&self, interpreter: &Interpreter, attr: Dunder) -> bool {
+    fn hasattr(&self, interpreter: &TreewalkInterpreter, attr: Dunder) -> bool {
         self.as_member_reader(interpreter)
             .get_member(interpreter, &attr)
             .unwrap()
             .is_some()
     }
 
-    fn map_hasattr(&self, interpreter: &Interpreter, attr: Dunder) -> Option<TreewalkValue> {
+    fn map_hasattr(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        attr: Dunder,
+    ) -> Option<TreewalkValue> {
         match self.hasattr(interpreter, attr) {
             true => Some(self.clone()),
             false => None,
         }
     }
 
-    pub fn as_index_read(&self, interpreter: &Interpreter) -> Option<Box<dyn IndexRead>> {
+    pub fn as_index_read(&self, interpreter: &TreewalkInterpreter) -> Option<Box<dyn IndexRead>> {
         match self {
             TreewalkValue::List(list) => Some(Box::new(list.clone())),
             TreewalkValue::Tuple(tuple) => Some(Box::new(tuple.clone())),
@@ -509,7 +500,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_index_write(&self, interpreter: &Interpreter) -> Option<Box<dyn IndexWrite>> {
+    pub fn as_index_write(&self, interpreter: &TreewalkInterpreter) -> Option<Box<dyn IndexWrite>> {
         match self {
             TreewalkValue::List(list) => Some(Box::new(list.clone())),
             TreewalkValue::Dict(dict) => Some(Box::new(dict.clone())),
@@ -527,7 +518,7 @@ impl TreewalkValue {
 
     fn as_nondata_descriptor(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Option<Container<Box<dyn NonDataDescriptor>>>> {
         Ok(match self {
             TreewalkValue::NonDataDescriptor(i) => Some(i.clone()),
@@ -543,7 +534,7 @@ impl TreewalkValue {
 
     pub fn as_data_descriptor(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Option<Container<Box<dyn DataDescriptor>>>> {
         Ok(match self {
             TreewalkValue::Object(i) => self
@@ -558,7 +549,7 @@ impl TreewalkValue {
 
     pub fn resolve_nondata_descriptor(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -607,7 +598,7 @@ impl TreewalkValue {
 
     pub fn expect_callable(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Container<Box<dyn Callable>>> {
         self.as_callable()
             .ok_or_else(|| interpreter.type_error("Expected a callable"))
@@ -622,13 +613,13 @@ impl TreewalkValue {
 
     pub fn expect_function(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Container<Function>> {
         self.as_function()
             .ok_or_else(|| interpreter.type_error("Expected a function"))
     }
 
-    pub fn as_generator(&self) -> Option<Container<GeneratorIterator>> {
+    pub fn as_generator(&self) -> Option<GeneratorIterator> {
         match self {
             TreewalkValue::Generator(i) => Some(i.clone()),
             _ => None,
@@ -644,7 +635,7 @@ impl TreewalkValue {
 
     pub fn expect_coroutine(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Container<Coroutine>> {
         self.as_coroutine()
             .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
@@ -668,7 +659,10 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_object(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Object>> {
+    pub fn expect_object(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Container<Object>> {
         self.as_object()
             .ok_or_else(|| interpreter.type_error("Expected an object"))
     }
@@ -682,7 +676,10 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_list(&self, interpreter: &Interpreter) -> TreewalkResult<Container<List>> {
+    pub fn expect_list(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Container<List>> {
         self.as_list()
             .ok_or_else(|| interpreter.type_error("Expected a list"))
     }
@@ -696,12 +693,12 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_set(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Set>> {
+    pub fn expect_set(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Container<Set>> {
         self.as_set()
             .ok_or_else(|| interpreter.type_error("Expected a set"))
     }
 
-    pub fn as_dict(&self, interpreter: &Interpreter) -> Option<Container<Dict>> {
+    pub fn as_dict(&self, interpreter: &TreewalkInterpreter) -> Option<Container<Dict>> {
         match self {
             TreewalkValue::Dict(i) => Some(i.clone()),
             TreewalkValue::List(list) => {
@@ -710,15 +707,16 @@ impl TreewalkValue {
                     let tuple = item.as_tuple()?;
                     pairs.push((tuple.first(), tuple.second()));
                 }
-                Some(Container::new(
-                    DictItems::new(interpreter.clone(), pairs).into(),
-                ))
+                Some(Container::new(DictItems::new(interpreter, pairs).into()))
             }
             _ => None,
         }
     }
 
-    pub fn expect_dict(&self, interpreter: &Interpreter) -> TreewalkResult<Container<Dict>> {
+    pub fn expect_dict(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Container<Dict>> {
         self.as_dict(interpreter)
             .ok_or_else(|| interpreter.type_error("Expected a dict"))
     }
@@ -740,7 +738,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_tuple(&self, interpreter: &Interpreter) -> TreewalkResult<Tuple> {
+    pub fn expect_tuple(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Tuple> {
         self.as_tuple()
             .ok_or_else(|| interpreter.type_error("Expected a tuple"))
     }
@@ -753,7 +751,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_string(&self, interpreter: &Interpreter) -> TreewalkResult<String> {
+    pub fn expect_string(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<String> {
         self.as_string()
             .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
@@ -802,61 +800,9 @@ impl Display for TreewalkValue {
     }
 }
 
-impl fmt::Debug for TreewalkValue {
+impl Debug for TreewalkValue {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         self.minimized_display(f)
-    }
-}
-
-#[derive(Clone)]
-pub enum TreewalkValueIterator {
-    List(ListIterator),
-    Zip(Box<ZipIterator>),
-    Reversed(ReversedIterator),
-    Dict(DictKeysIterator),
-    DictItems(DictItemsIterator),
-    Generator(GeneratorIterator),
-    Range(RangeIterator),
-    String(StringIterator),
-}
-
-impl TreewalkValueIterator {
-    pub fn contains(&mut self, item: TreewalkValue) -> bool {
-        for next_item in self.by_ref() {
-            if next_item == item {
-                return true;
-            }
-        }
-
-        false
-    }
-}
-
-impl Iterator for TreewalkValueIterator {
-    type Item = TreewalkValue;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            TreewalkValueIterator::List(i) => i.next(),
-            TreewalkValueIterator::Zip(i) => i.next(),
-            TreewalkValueIterator::Reversed(i) => i.next(),
-            TreewalkValueIterator::Dict(i) => i.next(),
-            TreewalkValueIterator::DictItems(i) => i.next(),
-            TreewalkValueIterator::Generator(i) => i.next(),
-            TreewalkValueIterator::Range(i) => i.next(),
-            TreewalkValueIterator::String(i) => i.next(),
-        }
-    }
-}
-
-impl IntoIterator for TreewalkValue {
-    type Item = TreewalkValue;
-    type IntoIter = TreewalkValueIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let type_ = &self.get_type();
-        self.try_into_iter()
-            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", type_))
     }
 }
 
@@ -878,10 +824,8 @@ impl From<TreewalkValue> for MemphisValue {
                     .collect::<Vec<MemphisValue>>();
                 MemphisValue::List(items)
             }
-            _ => unimplemented!(
-                "Conversion to TestValue not implemented for type '{}'",
-                value.get_type()
-            ),
+            TreewalkValue::Coroutine(_) => MemphisValue::Unimplemented("coroutine"),
+            _ => unimplemented!("Conversion not implemented for type '{}'", value.get_type()),
         }
     }
 }

@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 
 use crate::{
-    ast,
     core::{log, LogLevel},
     domain::ExceptionLiteral,
     lexer::{Lexer, Token},
     parser::{
         types::{
-            Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalBlock,
+            ast, Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalBlock,
             DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart,
             ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp,
             LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
@@ -1811,16 +1810,54 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{init::MemphisContext, parser::test_utils::stmt};
+    use crate::{
+        domain::Source,
+        parser::{test_utils::*, types::ParseNode},
+    };
 
-    fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
+    struct ParseContext {
+        lexer: Lexer,
+    }
+
+    impl ParseContext {
+        fn new(source: Source) -> Self {
+            Self {
+                lexer: Lexer::new(&source),
+            }
+        }
+
+        /// Parse a single [`ParseNode`]. This cannot be used for multiple parse calls.
+        fn parse_oneshot<T>(&mut self) -> Result<T, ParserError>
+        where
+            T: ParseNode,
+        {
+            let parser = self.init_parser();
+            T::parse_oneshot(parser)
+        }
+
+        fn parse_all(&mut self) -> Result<Ast, ParserError> {
+            let mut parser = self.init_parser();
+            let mut statements = ast![];
+
+            while !parser.is_finished() {
+                statements.push(parser.parse_statement()?);
+            }
+
+            Ok(statements)
+        }
+
+        fn init_parser(&mut self) -> Parser {
+            Parser::new(&mut self.lexer)
+        }
+    }
+
+    fn init(text: &str) -> ParseContext {
+        ParseContext::new(Source::from_text(text))
     }
 
     fn parse_all(input: &str) -> Ast {
-        let mut context = init(input);
-        context
-            .parse_all_statements()
+        init(input)
+            .parse_all()
             .expect("Failed to parse all statements!")
     }
 
@@ -2225,7 +2262,7 @@ mod tests {
         assert_ast_eq!(input, expected_ast);
 
         let input = "a, b = (1, 2)";
-        let expected_ast = stmt(StatementKind::UnpackingAssignment {
+        let expected_ast = stmt!(StatementKind::UnpackingAssignment {
             left: vec![var!("a"), var!("b")],
             right: tuple![int!(1), int!(2)],
         });
@@ -2262,7 +2299,7 @@ mod tests {
 def add(x, y):
     return x + y
 ";
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "add".to_string(),
             args: params![param!("x"), param!("y")],
             body: ast![stmt_return![bin_op!(var!("x"), Add, var!("y"))]],
@@ -2273,10 +2310,10 @@ def add(x, y):
         assert_ast_eq!(input, expected_ast);
 
         let input = "def _f(): pass";
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "_f".to_string(),
             args: params![],
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -2318,10 +2355,10 @@ def __init__(
 ):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "__init__".into(),
             args: params![param!("self"), param!("indent", Expr::None)],
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -2361,10 +2398,10 @@ if (a
     or b):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: logic_op!(var!("a"), Or, var!("b")),
-                block: ast![stmt(StatementKind::Pass)],
+                block: ast![stmt!(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2459,22 +2496,22 @@ elif x > -10:
 else:
     print("Less")
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt(StatementKind::Expression(func_call!(
+                block: ast![stmt!(StatementKind::Expression(func_call!(
                     "print",
                     call_args![str!("Greater")]
                 )))],
             },
             elif_parts: vec![ConditionalBlock {
                 condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
-                block: ast![stmt(StatementKind::Expression(func_call!(
+                block: ast![stmt!(StatementKind::Expression(func_call!(
                     "print",
                     call_args![str!("Medium")]
                 )))],
             }],
-            else_part: Some(ast![stmt(StatementKind::Expression(func_call!(
+            else_part: Some(ast![stmt!(StatementKind::Expression(func_call!(
                 "print",
                 call_args![str!("Less")]
             )))]),
@@ -2490,10 +2527,10 @@ elif x > -10:
 elif x > -20:
     print("Less")
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt(StatementKind::Expression(func_call!(
+                block: ast![stmt!(StatementKind::Expression(func_call!(
                     "print",
                     call_args![str!("Greater")]
                 )))],
@@ -2501,14 +2538,14 @@ elif x > -20:
             elif_parts: vec![
                 ConditionalBlock {
                     condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
-                    block: ast![stmt(StatementKind::Expression(func_call!(
+                    block: ast![stmt!(StatementKind::Expression(func_call!(
                         "print",
                         call_args![str!("Medium")]
                     )))],
                 },
                 ConditionalBlock {
                     condition: bin_op!(var!("x"), GreaterThan, int!(-20)),
-                    block: ast![stmt(StatementKind::Expression(func_call!(
+                    block: ast![stmt!(StatementKind::Expression(func_call!(
                         "print",
                         call_args![str!("Less")]
                     )))],
@@ -2523,10 +2560,10 @@ elif x > -20:
 if x > 0:
     print("Greater")
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt(StatementKind::Expression(func_call!(
+                block: ast![stmt!(StatementKind::Expression(func_call!(
                     "print",
                     call_args![str!("Greater")]
                 )))],
@@ -2540,7 +2577,7 @@ if x > 0:
         let input = r#"
 if True: return False
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bool!(true),
                 block: ast![stmt_return![bool!(false)]],
@@ -2557,14 +2594,14 @@ if (a == 1
         and c):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: logic_op!(
                     logic_op!(bin_op!(var!("a"), Equals, int!(1)), And, var!("b")),
                     And,
                     var!("c")
                 ),
-                block: ast![stmt(StatementKind::Pass)],
+                block: ast![stmt!(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2579,9 +2616,9 @@ if (a == 1
 while True:
     print(\"busy loop\")
 ";
-        let expected_ast = stmt(StatementKind::WhileLoop {
+        let expected_ast = stmt!(StatementKind::WhileLoop {
             condition: bool!(true),
-            body: ast![stmt(StatementKind::Expression(func_call!(
+            body: ast![stmt!(StatementKind::Expression(func_call!(
                 "print",
                 call_args![str!("busy loop")]
             )))],
@@ -2600,22 +2637,22 @@ class Foo:
     def bar(self):
         print(self.x)
 "#;
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: None,
             body: ast![
-                stmt(StatementKind::FunctionDef {
+                stmt!(StatementKind::FunctionDef {
                     name: "__init__".to_string(),
                     args: params![param!("self")],
                     body: ast![stmt_assign!(member_access!(var!("self"), "x"), int!(0))],
                     decorators: vec![],
                     is_async: false,
                 }),
-                stmt(StatementKind::FunctionDef {
+                stmt!(StatementKind::FunctionDef {
                     name: "bar".to_string(),
                     args: params![param!("self")],
-                    body: ast![stmt(StatementKind::Expression(func_call!(
+                    body: ast![stmt!(StatementKind::Expression(func_call!(
                         "print",
                         call_args![member_access!(var!("self"), "x")]
                     )))],
@@ -2628,21 +2665,21 @@ class Foo:
         assert_ast_eq!(input, expected_ast);
 
         let input = "class Foo(Bar, Baz): pass";
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![var!("Bar"), var!("Baz")],
             metaclass: None,
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "class Foo(module.Bar): pass";
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![member_access!(var!("module"), "Bar")],
             metaclass: None,
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2667,7 +2704,7 @@ class Foo:
     #[test]
     fn regular_import() {
         let input = "import other";
-        let expected_ast = stmt(StatementKind::RegularImport(vec![RegularImport {
+        let expected_ast = stmt!(StatementKind::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: None,
         }]));
@@ -2678,10 +2715,10 @@ class Foo:
 def foo():
     import other, second as third
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "foo".to_string(),
             args: params![],
-            body: ast![stmt(StatementKind::RegularImport(vec![
+            body: ast![stmt!(StatementKind::RegularImport(vec![
                 RegularImport {
                     import_path: ImportPath::Absolute(vec!["other".into()]),
                     alias: None,
@@ -2703,7 +2740,7 @@ def foo():
 import other as b
 pass
 "#;
-        let expected_ast = stmt(StatementKind::RegularImport(vec![RegularImport {
+        let expected_ast = stmt!(StatementKind::RegularImport(vec![RegularImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             alias: Some("b".into()),
         }]));
@@ -2714,7 +2751,7 @@ pass
         let asts = parse_all(input);
         assert_eq!(asts.len(), 2);
         assert_stmt_eq!(asts.get(0).unwrap(), expected_ast);
-        assert_stmt_eq!(asts.get(1).unwrap(), stmt(StatementKind::Pass));
+        assert_stmt_eq!(asts.get(1).unwrap(), stmt!(StatementKind::Pass));
 
         let input = "mypackage.myothermodule.add('1', '1')";
         let expected_ast = method_call!(
@@ -2738,7 +2775,7 @@ pass
     #[test]
     fn selective_import() {
         let input = "from other import something";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![ImportedItem::Direct("something".to_string())],
             wildcard: false,
@@ -2747,7 +2784,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from other import something, something_else";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2759,7 +2796,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from other import *";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![],
             wildcard: true,
@@ -2768,7 +2805,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from other import something, something_else as imported_name";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2783,7 +2820,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from other.module import something, something_else as imported_name";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Absolute(vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2798,7 +2835,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from . import something";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(0, vec![]),
             items: vec![ImportedItem::Direct("something".to_string())],
             wildcard: false,
@@ -2807,7 +2844,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from .other.module import something, something_else as imported_name";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(0, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2822,7 +2859,7 @@ pass
         assert_ast_eq!(input, expected_ast);
 
         let input = "from ..other.module import something, something_else as imported_name";
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2840,7 +2877,7 @@ pass
 from ..other.module import (something,
                             something_else as imported_name)
 "#;
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Direct("something".to_string()),
@@ -2858,7 +2895,7 @@ from ..other.module import (something,
 from ..other.module import (something as imported_name,
                             something_else)
 "#;
-        let expected_ast = stmt(StatementKind::SelectiveImport {
+        let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
             items: vec![
                 ImportedItem::Alias(Alias {
@@ -2992,7 +3029,7 @@ a = [1,
     2,
     3
 }"#;
-        let expected_ast = stmt(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
+        let expected_ast = stmt!(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
 
         assert_ast_eq!(input, expected_ast);
 
@@ -3002,7 +3039,7 @@ a = [1,
     2,
     3,
 }"#;
-        let expected_ast = stmt(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
+        let expected_ast = stmt!(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3049,7 +3086,7 @@ tuple((1,
        2,
        3))
 "#;
-        let expected_ast = stmt(StatementKind::Expression(func_call!(
+        let expected_ast = stmt!(StatementKind::Expression(func_call!(
             "tuple",
             call_args![tuple![int!(1), int!(2), int!(3)]]
         )));
@@ -3093,10 +3130,10 @@ tuple((1,
 for i in a:
     print(i)
 "#;
-        let expected_ast = stmt(StatementKind::ForInLoop {
+        let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: var!("a"),
-            body: ast![stmt(StatementKind::Expression(func_call!(
+            body: ast![stmt!(StatementKind::Expression(func_call!(
                 "print",
                 call_args![var!("i")]
             )))],
@@ -3109,10 +3146,10 @@ for i in a:
 for k, v in a.items():
     print(v)
 "#;
-        let expected_ast = stmt(StatementKind::ForInLoop {
+        let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
             iterable: method_call!(var!("a"), "items"),
-            body: ast![stmt(StatementKind::Expression(func_call!(
+            body: ast![stmt!(StatementKind::Expression(func_call!(
                 "print",
                 call_args![var!("v")]
             )))],
@@ -3157,13 +3194,13 @@ def countdown(n):
         yield n
         n = n - 1
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "countdown".to_string(),
             args: params![param!("n")],
-            body: ast![stmt(StatementKind::WhileLoop {
+            body: ast![stmt!(StatementKind::WhileLoop {
                 condition: bin_op!(var!("n"), GreaterThan, int!(0)),
                 body: ast![
-                    stmt(StatementKind::Expression(Expr::Yield(Some(Box::new(
+                    stmt!(StatementKind::Expression(Expr::Yield(Some(Box::new(
                         var!("n")
                     ))))),
                     stmt_assign!(var!("n"), bin_op!(var!("n"), Sub, int!(1))),
@@ -3200,11 +3237,11 @@ class Foo(Parent):
 class Foo(metaclass=Parent):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![],
             metaclass: Some("Parent".to_string()),
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -3213,11 +3250,11 @@ class Foo(metaclass=Parent):
 class Foo(Bar, metaclass=Parent):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "Foo".to_string(),
             parents: vec![var!("Bar")],
             metaclass: Some("Parent".to_string()),
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -3226,11 +3263,11 @@ class Foo(Bar, metaclass=Parent):
 class InterfaceMeta(type):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ClassDef {
+        let expected_ast = stmt!(StatementKind::ClassDef {
             name: "InterfaceMeta".to_string(),
             parents: vec![var!("type")],
             metaclass: None,
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -3319,7 +3356,7 @@ async def main():
     task_1 = asyncio.create_task(task1())
     return await task_1
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "main".to_string(),
             args: params![],
             body: ast![
@@ -3345,7 +3382,7 @@ async def main():
         let input = r#"
 assert True
 "#;
-        let expected_ast = stmt(StatementKind::Assert(bool!(true)));
+        let expected_ast = stmt!(StatementKind::Assert(bool!(true)));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3360,8 +3397,8 @@ except:
 finally:
     a = 3
 "#;
-        let expected_ast = stmt(StatementKind::TryExcept {
-            try_block: ast![stmt(StatementKind::Expression(bin_op!(
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
                 int!(4),
                 Div,
                 int!(0)
@@ -3385,8 +3422,8 @@ except ZeroDivisionError as e:
 finally:
     a = 3
 "#;
-        let expected_ast = stmt(StatementKind::TryExcept {
-            try_block: ast![stmt(StatementKind::Expression(bin_op!(
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
                 int!(4),
                 Div,
                 int!(0)
@@ -3408,8 +3445,8 @@ try:
 except (ZeroDivisionError, IOError) as e:
     a = 2
 "#;
-        let expected_ast = stmt(StatementKind::TryExcept {
-            try_block: ast![stmt(StatementKind::Expression(bin_op!(
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
                 int!(4),
                 Div,
                 int!(0)
@@ -3438,8 +3475,8 @@ else:
 finally:
     a = 3
 "#;
-        let expected_ast = stmt(StatementKind::TryExcept {
-            try_block: ast![stmt(StatementKind::Expression(bin_op!(
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
                 int!(4),
                 Div,
                 int!(0)
@@ -3462,8 +3499,8 @@ except:
     return
 a = 1
 "#;
-        let expected_ast = stmt(StatementKind::TryExcept {
-            try_block: ast![stmt(StatementKind::Pass)],
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt!(StatementKind::Pass)],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
@@ -3506,14 +3543,14 @@ a = 1
 def test_args(*args):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "test_args".into(),
             args: Params {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: None,
             },
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -3524,14 +3561,14 @@ def test_args(*args):
 def test_args(*args, **kwargs):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "test_args".into(),
             args: Params {
                 args: vec![],
                 args_var: Some("args".into()),
                 kwargs_var: Some("kwargs".into()),
             },
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -3557,10 +3594,10 @@ def test_kwargs(**kwargs):
 def test_default(file=None):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "test_default".into(),
             args: params![param!("file", Expr::None)],
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -3670,7 +3707,7 @@ deprecated("collections.abc.ByteString",
 "#;
         // TODO we have to use StatementKind::Expression here because it is on multiple lines, I
         // don't think this should technically be required
-        let expected_ast = stmt(StatementKind::Expression(func_call!(
+        let expected_ast = stmt!(StatementKind::Expression(func_call!(
             "deprecated",
             call_args![str!("collections.abc.ByteString")]
         )));
@@ -3685,7 +3722,7 @@ deprecated("collections.abc.ByteString",
 def get_val():
     return 2
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "get_val".into(),
             args: params![],
             body: ast![stmt_return![int!(2)]],
@@ -3708,7 +3745,7 @@ def get_val():
     #[test]
     fn raise() {
         let input = "raise Exception";
-        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: call_args![],
         })));
@@ -3716,7 +3753,7 @@ def get_val():
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"raise Exception("message")"#;
-        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: call_args![str!("message")],
         })));
@@ -3724,12 +3761,12 @@ def get_val():
         assert_ast_eq!(input, expected_ast);
 
         let input = "raise";
-        let expected_ast = stmt(StatementKind::Raise(None));
+        let expected_ast = stmt!(StatementKind::Raise(None));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"raise Exception("message") from None"#;
-        let expected_ast = stmt(StatementKind::Raise(Some(ExceptionInstance {
+        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
             literal: ExceptionLiteral::Exception,
             args: call_args![str!("message")],
         })));
@@ -3743,10 +3780,10 @@ def get_val():
 with open('test.txt') as f:
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ContextManager {
+        let expected_ast = stmt!(StatementKind::ContextManager {
             expr: func_call!("open", call_args![str!("test.txt")]),
             variable: Some("f".into()),
-            block: ast![stmt(StatementKind::Pass)],
+            block: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -3755,10 +3792,10 @@ with open('test.txt') as f:
 with open('test.txt'):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ContextManager {
+        let expected_ast = stmt!(StatementKind::ContextManager {
             expr: func_call!("open", call_args![str!("test.txt")]),
             variable: None,
-            block: ast![stmt(StatementKind::Pass)],
+            block: ast![stmt!(StatementKind::Pass)],
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -3792,12 +3829,12 @@ with open('test.txt'):
     #[test]
     fn delete() {
         let input = "del a";
-        let expected_ast = stmt(StatementKind::Delete(vec![var!("a")]));
+        let expected_ast = stmt!(StatementKind::Delete(vec![var!("a")]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "del a, b, c";
-        let expected_ast = stmt(StatementKind::Delete(vec![var!("a"), var!("b"), var!("c")]));
+        let expected_ast = stmt!(StatementKind::Delete(vec![var!("a"), var!("b"), var!("c")]));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3813,7 +3850,7 @@ with open('test.txt'):
     #[test]
     fn compound_operator() {
         let input = "a += 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Add,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3822,7 +3859,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a -= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Subtract,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3831,7 +3868,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a *= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Multiply,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3840,7 +3877,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a /= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Divide,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3848,7 +3885,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a &= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseAnd,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3857,7 +3894,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a |= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseOr,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3866,7 +3903,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a ^= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::BitwiseXor,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3875,7 +3912,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a //= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::IntegerDiv,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3884,7 +3921,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a <<= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::LeftShift,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3893,7 +3930,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a >>= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::RightShift,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3902,7 +3939,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a %= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Mod,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3911,7 +3948,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a @= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::MatMul,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -3920,7 +3957,7 @@ with open('test.txt'):
         assert_ast_eq!(input, expected_ast);
 
         let input = "a **= 1";
-        let expected_ast = stmt(StatementKind::CompoundAssignment {
+        let expected_ast = stmt!(StatementKind::CompoundAssignment {
             operator: CompoundOperator::Expo,
             target: Box::new(var!("a")),
             value: Box::new(int!(1)),
@@ -4085,10 +4122,10 @@ with open('test.txt'):
 for i in a:
     break
 "#;
-        let expected_ast = stmt(StatementKind::ForInLoop {
+        let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: var!("a"),
-            body: ast![stmt(StatementKind::Break)],
+            body: ast![stmt!(StatementKind::Break)],
             else_block: None,
         });
 
@@ -4098,10 +4135,10 @@ for i in a:
 for i in a:
     continue
 "#;
-        let expected_ast = stmt(StatementKind::ForInLoop {
+        let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: var!("a"),
-            body: ast![stmt(StatementKind::Continue)],
+            body: ast![stmt!(StatementKind::Continue)],
             else_block: None,
         });
 
@@ -4113,11 +4150,11 @@ for i in a:
 else:
     pass
 "#;
-        let expected_ast = stmt(StatementKind::ForInLoop {
+        let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: var!("a"),
-            body: ast![stmt(StatementKind::Break)],
-            else_block: Some(ast![stmt(StatementKind::Pass)]),
+            body: ast![stmt!(StatementKind::Break)],
+            else_block: Some(ast![stmt!(StatementKind::Pass)]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -4236,18 +4273,18 @@ def outer():
         b = 3
         print(a)
 ";
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "outer".into(),
             args: params![],
             body: ast![
                 stmt_assign!(var!("a"), int!(1)),
                 stmt_assign!(var!("b"), int!(2)),
-                stmt(StatementKind::FunctionDef {
+                stmt!(StatementKind::FunctionDef {
                     name: "inner".into(),
                     args: params![],
                     body: ast![
                         stmt_assign!(var!("b"), int!(3)),
-                        stmt(StatementKind::Expression(func_call!(
+                        stmt!(StatementKind::Expression(func_call!(
                             "print",
                             call_args![var!("a")]
                         ))),
@@ -4266,22 +4303,22 @@ def outer():
     #[test]
     fn scope_modifiers() {
         let input = "nonlocal var";
-        let expected_ast = stmt(StatementKind::Nonlocal(vec!["var".into()]));
+        let expected_ast = stmt!(StatementKind::Nonlocal(vec!["var".into()]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "nonlocal var, var2";
-        let expected_ast = stmt(StatementKind::Nonlocal(vec!["var".into(), "var2".into()]));
+        let expected_ast = stmt!(StatementKind::Nonlocal(vec!["var".into(), "var2".into()]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "global var";
-        let expected_ast = stmt(StatementKind::Global(vec!["var".into()]));
+        let expected_ast = stmt!(StatementKind::Global(vec!["var".into()]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "global var, var2";
-        let expected_ast = stmt(StatementKind::Global(vec!["var".into(), "var2".into()]));
+        let expected_ast = stmt!(StatementKind::Global(vec!["var".into(), "var2".into()]));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -4360,10 +4397,10 @@ def outer():
 def foo(data=None):
     pass
 "#;
-        let expected_ast = stmt(StatementKind::FunctionDef {
+        let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "foo".into(),
             args: params![param!("data", Expr::None)],
-            body: ast![stmt(StatementKind::Pass)],
+            body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
         });
@@ -4401,10 +4438,10 @@ def foo(data=None):
 if True:
     a, b = b, a
 "#;
-        let expected_ast = stmt(StatementKind::IfElse {
+        let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bool!(true),
-                block: ast![stmt(StatementKind::UnpackingAssignment {
+                block: ast![stmt!(StatementKind::UnpackingAssignment {
                     left: vec![var!("a"), var!("b")],
                     right: tuple![var!("b"), var!("a"),],
                 })],
@@ -4416,7 +4453,7 @@ if True:
         assert_ast_eq!(input, expected_ast);
 
         let input = "a, = b,";
-        let expected_ast = stmt(StatementKind::UnpackingAssignment {
+        let expected_ast = stmt!(StatementKind::UnpackingAssignment {
             left: vec![var!("a")],
             right: tuple![var!("b")],
         });
@@ -4427,7 +4464,7 @@ if True:
     #[test]
     fn multiple_assignment() {
         let input = "a = b = True";
-        let expected_ast = stmt(StatementKind::MultipleAssignment {
+        let expected_ast = stmt!(StatementKind::MultipleAssignment {
             left: vec![var!("a"), var!("b")],
             right: bool!(true),
         });

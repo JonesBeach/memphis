@@ -1,14 +1,13 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    args,
     core::{log, Container, LogLevel},
     domain::{Dunder, Type},
     treewalk::{
         protocols::{Callable, MemberReader, MemberWriter},
         types::{Str, Tuple},
-        utils::Arguments,
-        Interpreter, Scope, TreewalkResult, TreewalkValue,
+        utils::{args, Arguments},
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -30,7 +29,7 @@ impl Class {
     /// The primary public interface to create a class. A metaclass will be used if one is found to
     /// have a `Dunder::New` method, falling back to the `Type::Type` metaclass.
     pub fn new(
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
         parent_classes: Vec<Container<Class>>,
         metaclass: Option<Container<Class>>,
@@ -262,7 +261,7 @@ impl MemberReader for Container<Class> {
     /// 4. metclass MRO
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         if let Some(attr) = self.get_from_class(name) {
@@ -292,7 +291,11 @@ impl MemberReader for Container<Class> {
 }
 
 impl MemberWriter for Container<Class> {
-    fn delete_member(&mut self, _interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
+    fn delete_member(
+        &mut self,
+        _interpreter: &TreewalkInterpreter,
+        name: &str,
+    ) -> TreewalkResult<()> {
         self.borrow_mut().scope.delete(name);
 
         // TODO support delete attributes from parent classes?
@@ -301,7 +304,7 @@ impl MemberWriter for Container<Class> {
 
     fn set_member(
         &mut self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         name: &str,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -317,7 +320,11 @@ impl Display for Container<Class> {
 }
 
 impl Callable for Container<Class> {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         TreewalkValue::new(interpreter, self.clone(), args)
     }
 

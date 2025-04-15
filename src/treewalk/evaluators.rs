@@ -4,7 +4,7 @@ use crate::{
     parser::types::{BinOp, LogicalOp, UnaryOp},
     treewalk::{
         types::{List, Set},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -23,7 +23,7 @@ pub fn evaluate_integer_operation(
     left: i64,
     op: &BinOp,
     right: i64,
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<TreewalkValue> {
     match op {
         BinOp::Add => Ok(TreewalkValue::Integer(left + right)),
@@ -88,7 +88,7 @@ pub fn evaluate_floating_point_operation(
     left: f64,
     op: &BinOp,
     right: f64,
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<TreewalkValue> {
     match op {
         BinOp::Add => Ok(TreewalkValue::FloatingPoint(left + right)),
@@ -130,7 +130,7 @@ pub fn evaluate_object_comparison(
 pub fn evaluate_unary_operation(
     op: &UnaryOp,
     right: TreewalkValue,
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<TreewalkValue> {
     match op {
         UnaryOp::Minus => Ok(right.negated()),

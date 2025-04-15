@@ -11,7 +11,8 @@ use crate::{
             Function,
         },
         utils::{check_args, Arguments},
-        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
+        TreewalkValue,
     },
 };
 
@@ -20,11 +21,11 @@ pub enum Poll {
     Ready(TreewalkValue),
 }
 
-/// Stateful encapsulation of a pausable `Function` with a `Scope`. This struct needs a
-/// `CoroutineExecutor` to be run.
+/// Stateful encapsulation of a pausable `Function` with a `Scope`. This struct needs an
+/// `Executor` to be run.
 pub struct Coroutine {
     scope: Container<Scope>,
-    context: Container<PausableContext>,
+    context: PausableContext,
     wait_on: Option<Container<Coroutine>>,
     wake_at: Option<Instant>,
     return_val: Option<TreewalkValue>,
@@ -84,47 +85,7 @@ impl Coroutine {
     pub fn set_return_val(&mut self, return_val: TreewalkValue) {
         self.return_val = Some(return_val);
     }
-}
 
-impl Pausable for Container<Coroutine> {
-    fn context(&self) -> Container<PausableContext> {
-        self.borrow().context.clone()
-    }
-
-    fn scope(&self) -> Container<Scope> {
-        self.borrow().scope.clone()
-    }
-
-    fn set_scope(&self, scope: Container<Scope>) {
-        self.borrow_mut().scope = scope;
-    }
-
-    fn finish(
-        &self,
-        _interpreter: &Interpreter,
-        result: TreewalkValue,
-    ) -> TreewalkResult<TreewalkValue> {
-        self.borrow_mut().set_return_val(result.clone());
-        Ok(TreewalkValue::None)
-    }
-
-    fn handle_step(
-        &self,
-        interpreter: &Interpreter,
-        stmt: Statement,
-        control_flow: bool,
-    ) -> TreewalkResult<PausableStepResult> {
-        match self.execute_statement(interpreter, stmt, control_flow)? {
-            Poll::Ready(val) => Ok(PausableStepResult::Return(val)),
-            Poll::Waiting => {
-                self.on_exit(interpreter);
-                Ok(PausableStepResult::Break)
-            }
-        }
-    }
-}
-
-impl Container<Coroutine> {
     pub fn has_started(&self) -> bool {
         self.context().current_state() != PausableState::Created
     }
@@ -133,8 +94,8 @@ impl Container<Coroutine> {
     /// the next instruction is a control flow statement which leads the execution into a block,
     /// the coroutine state is updated to reflect this.
     fn execute_statement(
-        &self,
-        interpreter: &Interpreter,
+        &mut self,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<Poll> {
@@ -145,7 +106,7 @@ impl Container<Coroutine> {
                 Ok(result) => Ok(Poll::Ready(result)),
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep)) => Ok(Poll::Waiting),
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Await)) => {
-                    self.context().step_back();
+                    self.context_mut().step_back();
                     Ok(Poll::Waiting)
                 }
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => {
@@ -161,13 +122,59 @@ impl Container<Coroutine> {
     }
 }
 
+impl Pausable for Coroutine {
+    fn context(&self) -> &PausableContext {
+        &self.context
+    }
+
+    fn context_mut(&mut self) -> &mut PausableContext {
+        &mut self.context
+    }
+
+    fn scope(&self) -> Container<Scope> {
+        self.scope.clone()
+    }
+
+    fn set_scope(&mut self, scope: Container<Scope>) {
+        self.scope = scope;
+    }
+
+    fn finish(
+        &mut self,
+        _interpreter: &TreewalkInterpreter,
+        result: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
+        self.set_return_val(result.clone());
+        Ok(TreewalkValue::None)
+    }
+
+    fn handle_step(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        stmt: Statement,
+        control_flow: bool,
+    ) -> TreewalkResult<PausableStepResult> {
+        match self.execute_statement(interpreter, stmt, control_flow)? {
+            Poll::Ready(val) => Ok(PausableStepResult::Return(val)),
+            Poll::Waiting => {
+                self.on_exit(interpreter);
+                Ok(PausableStepResult::Break)
+            }
+        }
+    }
+}
+
 struct CloseBuiltin;
 
 // I'm not sure what coroutine.close() should do. The stdlib says this is used to prevent a
 // ResourceWarning, but I'm not doing anything when I invoke a coroutine right now that would lead
 // to this.
 impl Callable for CloseBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         Ok(TreewalkValue::None)
     }

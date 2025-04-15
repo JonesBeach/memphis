@@ -1,39 +1,27 @@
-use super::types::{Statement, StatementKind};
-
-#[allow(unused)]
-pub fn stmt(kind: StatementKind) -> Statement {
-    Statement::new(1, kind)
-}
-
-#[macro_export]
 macro_rules! var {
     ($name:expr) => {
         Expr::Variable($name.to_string())
     };
 }
 
-#[macro_export]
 macro_rules! str {
     ($name:expr) => {
         Expr::StringLiteral($name.to_string())
     };
 }
 
-#[macro_export]
 macro_rules! int {
     ($val:expr) => {
         Expr::Integer($val)
     };
 }
 
-#[macro_export]
 macro_rules! bool {
     ($val:expr) => {
         Expr::Boolean($val)
     };
 }
 
-#[macro_export]
 macro_rules! list {
     ($($expr:expr),* $(,)?) => {
         Expr::List(vec![
@@ -42,7 +30,6 @@ macro_rules! list {
     };
 }
 
-#[macro_export]
 macro_rules! tuple {
     ($($expr:expr),* $(,)?) => {
         Expr::Tuple(vec![
@@ -51,7 +38,6 @@ macro_rules! tuple {
     };
 }
 
-#[macro_export]
 macro_rules! set {
     ($($expr:expr),* $(,)?) => {
         Expr::Set(HashSet::from([
@@ -60,26 +46,29 @@ macro_rules! set {
     };
 }
 
-#[macro_export]
+macro_rules! stmt {
+    ($variant:expr) => {
+        crate::parser::types::Statement::new(1, $variant)
+    };
+}
+
 macro_rules! stmt_assign {
     ($left:expr, $right:expr) => {
-        stmt(StatementKind::Assignment {
+        stmt!(StatementKind::Assignment {
             left: $left,
             right: $right,
         })
     };
 }
 
-#[macro_export]
 macro_rules! stmt_return {
     ($($expr:expr),* $(,)?) => {
-        stmt(StatementKind::Return(vec![
+        stmt!(StatementKind::Return(vec![
             $($expr),*
         ]))
     };
 }
 
-#[macro_export]
 macro_rules! bin_op {
     ($left:expr, $op:ident, $right:expr) => {
         Expr::BinaryOperation {
@@ -90,7 +79,6 @@ macro_rules! bin_op {
     };
 }
 
-#[macro_export]
 macro_rules! logic_op {
     ($left:expr, $op:ident, $right:expr) => {
         Expr::LogicalOperation {
@@ -101,7 +89,6 @@ macro_rules! logic_op {
     };
 }
 
-#[macro_export]
 macro_rules! unary_op {
     ($op:ident, $right:expr) => {
         Expr::UnaryOperation {
@@ -111,7 +98,6 @@ macro_rules! unary_op {
     };
 }
 
-#[macro_export]
 macro_rules! param {
     ($name:expr) => {
         Param {
@@ -128,7 +114,6 @@ macro_rules! param {
     };
 }
 
-#[macro_export]
 macro_rules! params {
     ($($expr:expr),* $(,)?) => {
         Params {
@@ -139,7 +124,6 @@ macro_rules! params {
     };
 }
 
-#[macro_export]
 macro_rules! call_args {
     ($($positional:expr),* $(,)?) => {
         CallArgs {
@@ -150,7 +134,6 @@ macro_rules! call_args {
     };
 }
 
-#[macro_export]
 macro_rules! member_access {
     ($object:expr, $field:expr) => {
         Expr::MemberAccess {
@@ -160,7 +143,6 @@ macro_rules! member_access {
     };
 }
 
-#[macro_export]
 macro_rules! lambda {
     ($args:expr, $expr:expr) => {
         Expr::Lambda {
@@ -170,7 +152,6 @@ macro_rules! lambda {
     };
 }
 
-#[macro_export]
 macro_rules! func_call {
     ($name:expr) => {
         Expr::FunctionCall {
@@ -197,7 +178,6 @@ macro_rules! func_call {
     };
 }
 
-#[macro_export]
 macro_rules! method_call {
     ($object:expr, $name:expr) => {
         Expr::MethodCall {
@@ -215,3 +195,24 @@ macro_rules! method_call {
         }
     };
 }
+
+pub(crate) use bin_op;
+pub(crate) use bool;
+pub(crate) use call_args;
+pub(crate) use func_call;
+pub(crate) use int;
+pub(crate) use lambda;
+pub(crate) use list;
+pub(crate) use logic_op;
+pub(crate) use member_access;
+pub(crate) use method_call;
+pub(crate) use param;
+pub(crate) use params;
+pub(crate) use set;
+pub(crate) use stmt;
+pub(crate) use stmt_assign;
+pub(crate) use stmt_return;
+pub(crate) use str;
+pub(crate) use tuple;
+pub(crate) use unary_op;
+pub(crate) use var;

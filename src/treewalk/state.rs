@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{cell::UnsafeCell, path::PathBuf};
 
 use crate::{
     core::Container,
@@ -6,11 +6,10 @@ use crate::{
     parser::types::ImportPath,
     runtime::MemphisState,
     treewalk::{
-        module_loader,
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
-        EvaluatedModuleCache, ExecutionContextManager, Executor, Interpreter, Scope, ScopeManager,
-        TreewalkResult, TreewalkValue, TypeRegistry,
+        EvaluatedModuleCache, ExecutionContextManager, Executor, Scope, ScopeManager,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -23,7 +22,7 @@ pub struct TreewalkState {
     type_registry: TypeRegistry,
     scope_manager: ScopeManager,
     execution_context: ExecutionContextManager,
-    executor: Container<Executor>,
+    pub executor: UnsafeCell<Executor>,
     #[cfg(feature = "c_stdlib")]
     builtin_module_cache: BuiltinModuleCache,
 }
@@ -49,7 +48,7 @@ impl TreewalkState {
             type_registry,
             scope_manager,
             execution_context: ExecutionContextManager::new(),
-            executor: Container::new(Executor::new()),
+            executor: Executor::new().into(),
             #[cfg(feature = "c_stdlib")]
             builtin_module_cache: BuiltinModuleCache::new(),
         }
@@ -114,7 +113,7 @@ impl Container<TreewalkState> {
     pub fn read_or_disrupt(
         &self,
         name: &str,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<TreewalkValue> {
         self.read(name).ok_or_else(|| interpreter.name_error(name))
     }
@@ -122,10 +121,6 @@ impl Container<TreewalkState> {
     /// Attempt to delete an `TreewalkValue`, adhering to Python scoping rules.
     pub fn delete(&self, name: &str) -> Option<TreewalkValue> {
         self.borrow_mut().scope_manager.delete(name)
-    }
-
-    pub fn get_executor(&self) -> Container<Executor> {
-        self.borrow_mut().executor.clone()
     }
 
     pub fn push_captured_env(&self, frame: Container<EnvironmentFrame>) {
@@ -203,7 +198,7 @@ impl Container<TreewalkState> {
         self.borrow().scope_manager.read_captured_env()
     }
 
-    pub fn read_globals(&self, interpreter: &Interpreter) -> Container<Dict> {
+    pub fn read_globals(&self, interpreter: &TreewalkInterpreter) -> Container<Dict> {
         let scope = self.borrow().scope_manager.read_module().borrow().clone();
 
         // This will make another function call to hash the keys so we do this in a separate
@@ -238,7 +233,7 @@ impl Container<TreewalkState> {
     pub fn load_source(&self, import_path: &ImportPath) -> Option<Source> {
         let current_path = self.current_path();
         let search_paths = self.borrow().memphis_state.search_paths();
-        module_loader::load_source(import_path, &current_path, &search_paths)
+        Source::from_import_path(import_path, &current_path, &search_paths)
     }
 
     #[cfg(feature = "c_stdlib")]

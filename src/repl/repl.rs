@@ -9,8 +9,9 @@ use crossterm::{
 
 use crate::{
     core::Voidable,
-    init::{MemphisContext, TerminalIO},
+    repl::{CrosstermIO, IncrementalContext, TerminalIO},
     types::errors::MemphisError,
+    Engine,
 };
 
 type ExitCode = i32;
@@ -77,11 +78,14 @@ pub struct Repl {
 }
 
 impl Repl {
-    /// The primary entrypoint to the REPL.
-    pub fn run<T: TerminalIO>(&mut self, terminal_io: &mut T) {
+    /// The primary entrypoint to the REPL, which uses a real terminal in raw mode and will exit
+    /// loudly when terminated. For virtual terminals, use `run_inner`.
+    pub fn run(&mut self, engine: Engine) {
+        let terminal_io = &mut CrosstermIO;
         let _ = terminal_io.writeln(format!(
-            "memphis {} REPL (Type 'exit()' to quit)",
-            env!("CARGO_PKG_VERSION")
+            "memphis {} REPL (engine: {}) (Type 'exit()' to quit)",
+            env!("CARGO_PKG_VERSION"),
+            engine
         ));
 
         // Enable raw mode to handle individual keypresses. This must be disabled during all
@@ -90,7 +94,8 @@ impl Repl {
         let _ = terminal::enable_raw_mode();
         self.initialize_prompt(terminal_io);
 
-        let exit_code = self.run_inner(terminal_io);
+        let mut context = IncrementalContext::new(engine);
+        let exit_code = self.run_inner(terminal_io, &mut context);
 
         let _ = terminal::disable_raw_mode();
         let _ = panic::take_hook();
@@ -98,17 +103,17 @@ impl Repl {
         process::exit(exit_code);
     }
 
-    pub fn run_inner<T: TerminalIO>(&mut self, terminal_io: &mut T) -> ExitCode {
-        let mut context = MemphisContext::default();
-
+    fn run_inner<T: TerminalIO>(
+        &mut self,
+        terminal_io: &mut T,
+        context: &mut IncrementalContext,
+    ) -> ExitCode {
         loop {
             match terminal_io.read_event() {
-                Ok(Event::Key(event)) => {
-                    match self.handle_key_event(terminal_io, &mut context, event) {
-                        ReplControl::Continue => {}
-                        ReplControl::Exit(code) => break code,
-                    }
-                }
+                Ok(Event::Key(event)) => match self.handle_key_event(terminal_io, context, event) {
+                    ReplControl::Continue => {}
+                    ReplControl::Exit(code) => break code,
+                },
                 Ok(_) => {}
                 Err(_) => break 1,
             }
@@ -119,7 +124,7 @@ impl Repl {
     fn handle_key_event<T: TerminalIO>(
         &mut self,
         terminal_io: &mut T,
-        context: &mut MemphisContext,
+        context: &mut IncrementalContext,
         event: KeyEvent,
     ) -> ReplControl {
         match (event.code, event.modifiers) {
@@ -269,7 +274,7 @@ impl Repl {
     fn process_line<T: TerminalIO>(
         &mut self,
         terminal_io: &mut T,
-        context: &mut MemphisContext,
+        context: &mut IncrementalContext,
         line: &str,
     ) -> ReplControl {
         if line.trim_end() == "exit()" {
@@ -281,7 +286,7 @@ impl Repl {
 
         if self.end_of_statement(line) {
             context.add_line(&self.input);
-            match context.evaluate() {
+            match context.run() {
                 Ok(result) => {
                     if !result.is_none() {
                         let _ = terminal_io.writeln(&result);
@@ -313,28 +318,45 @@ mod tests {
 
     use super::*;
 
-    fn run_inner(terminal: &mut MockTerminalIO) -> (ExitCode, String) {
-        let exit_code = Repl::default().run_inner(terminal);
+    fn run_inner(
+        terminal: &mut MockTerminalIO,
+        context: &mut IncrementalContext,
+    ) -> (ExitCode, String) {
+        let exit_code = Repl::default().run_inner(terminal, context);
         (exit_code, terminal.return_val())
+    }
+
+    fn tw() -> IncrementalContext {
+        IncrementalContext::new(Engine::Treewalk)
+    }
+
+    fn vm() -> IncrementalContext {
+        IncrementalContext::new(Engine::BytecodeVm)
     }
 
     /// Run the complete flow, from input code string to return value string. If you need any Ctrl
     /// modifiers, do not use this!
     fn run(input: &str) -> String {
         let mut terminal = MockTerminalIO::from_str(input);
-        let (_, return_val) = run_inner(&mut terminal);
+        let (_, return_val) = run_inner(&mut terminal, &mut tw());
+        return_val
+    }
+
+    fn run_vm(input: &str) -> String {
+        let mut terminal = MockTerminalIO::from_str(input);
+        let (_, return_val) = run_inner(&mut terminal, &mut vm());
         return_val
     }
 
     fn run_events(events: Vec<Event>) -> String {
         let mut terminal = MockTerminalIO::new(events);
-        let (_, return_val) = run_inner(&mut terminal);
+        let (_, return_val) = run_inner(&mut terminal, &mut tw());
         return_val
     }
 
     fn run_and_exit_code(events: Vec<Event>) -> ExitCode {
         let mut terminal = MockTerminalIO::new(events);
-        let (exit_code, _) = run_inner(&mut terminal);
+        let (exit_code, _) = run_inner(&mut terminal, &mut tw());
         exit_code
     }
 
@@ -450,6 +472,21 @@ def foo():
 foo()
 "#;
         let return_val = run(code);
+        assert_eq!(return_val, "20");
+    }
+
+    #[test]
+    fn test_repl_function_vm() {
+        let code = r#"
+def foo():
+    a = 10
+    return 2 * a
+
+foo()
+"#;
+        // TODO should we test all of these through both engines? Not sure yet, that may be too
+        // deep of a test for this file.
+        let return_val = run_vm(code);
         assert_eq!(return_val, "20");
     }
 

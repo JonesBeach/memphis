@@ -1,10 +1,12 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{core::Voidable, domain::MemphisValue};
-
-use super::{
-    compiler::types::{CodeObject, Constant},
-    vm::types::{Class, FunctionObject, Method, Object, Reference},
+use crate::{
+    bytecode_vm::{
+        compiler::{CodeObject, Constant},
+        runtime::{Class, FunctionObject, Method, Object, Reference},
+    },
+    core::Voidable,
+    domain::MemphisValue,
 };
 
 #[derive(Clone, PartialEq, Debug)]
@@ -133,10 +135,7 @@ impl From<VmValue> for MemphisValue {
             VmValue::Integer(val) => MemphisValue::Integer(val),
             VmValue::String(val) => MemphisValue::String(val),
             VmValue::Boolean(val) => MemphisValue::Boolean(val),
-            _ => unimplemented!(
-                "Conversion to TestValue not implemented for type {:?}",
-                value
-            ),
+            _ => unimplemented!("Conversion not implemented for type {:?}", value),
         }
     }
 }

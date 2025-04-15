@@ -5,7 +5,7 @@ use crate::{
         protocols::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
         types::{Class, MappingProxy, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, Scope, TreewalkResult, TreewalkValue,
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -40,7 +40,7 @@ struct MroAttribute;
 impl NonDataDescriptor for DictAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -62,7 +62,7 @@ impl NonDataDescriptor for DictAttribute {
 impl NonDataDescriptor for MroAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -93,7 +93,11 @@ impl NonDataDescriptor for MroAttribute {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }

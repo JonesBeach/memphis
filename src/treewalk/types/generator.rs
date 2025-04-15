@@ -7,13 +7,14 @@ use crate::{
             pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
             Function,
         },
-        Interpreter, Scope, TreewalkDisruption, TreewalkResult, TreewalkState, TreewalkValue,
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkState,
+        TreewalkValue,
     },
 };
 
 pub struct Generator {
     scope: Container<Scope>,
-    context: Container<PausableContext>,
+    context: PausableContext,
 }
 
 impl Generator {
@@ -34,6 +35,35 @@ impl Generator {
         let generator_body = Self::build_nested_loops(body, clauses);
         let function = Container::new(Function::new_anonymous_generator(state, generator_body));
         Self::new(Container::new(Scope::default()), function)
+    }
+
+    /// By this point, all control flow statements have already been handled manually. Evaluate all
+    /// other statements unless we encounter a yield.
+    ///
+    /// Only yield statements will cause a value to be returned, everything else will return
+    /// `None`.
+    fn execute_statement(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        stmt: Statement,
+        control_flow: bool,
+    ) -> TreewalkResult<Option<TreewalkValue>> {
+        if !control_flow {
+            match &stmt.kind {
+                StatementKind::Expression(Expr::Yield(None)) => Ok(None),
+                StatementKind::Expression(Expr::Yield(Some(expr))) => {
+                    Ok(Some(interpreter.evaluate_expr(expr)?))
+                }
+                StatementKind::Expression(Expr::YieldFrom(_)) => unimplemented!(),
+                _ => {
+                    // would we ever need to support a return statement here?
+                    let _ = interpreter.evaluate_statement(&stmt)?;
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     // This is a utility which takes the parsed elements found in a generator comprehension and
@@ -73,30 +103,34 @@ impl Generator {
     }
 }
 
-impl Pausable for Container<Generator> {
-    fn context(&self) -> Container<PausableContext> {
-        self.borrow().context.clone()
+impl Pausable for Generator {
+    fn context(&self) -> &PausableContext {
+        &self.context
+    }
+
+    fn context_mut(&mut self) -> &mut PausableContext {
+        &mut self.context
     }
 
     fn scope(&self) -> Container<Scope> {
-        self.borrow().scope.clone()
+        self.scope.clone()
     }
 
-    fn set_scope(&self, scope: Container<Scope>) {
-        self.borrow_mut().scope = scope;
+    fn set_scope(&mut self, scope: Container<Scope>) {
+        self.scope = scope;
     }
 
     fn finish(
-        &self,
-        interpreter: &Interpreter,
+        &mut self,
+        interpreter: &TreewalkInterpreter,
         _result: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         Err(interpreter.stop_iteration())
     }
 
     fn handle_step(
-        &self,
-        interpreter: &Interpreter,
+        &mut self,
+        interpreter: &TreewalkInterpreter,
         stmt: Statement,
         control_flow: bool,
     ) -> TreewalkResult<PausableStepResult> {
@@ -110,45 +144,14 @@ impl Pausable for Container<Generator> {
     }
 }
 
-impl Container<Generator> {
-    /// By this point, all control flow statements have already been handled manually. Evaluate all
-    /// other statements unless we encounter a yield.
-    ///
-    /// Only yield statements will cause a value to be returned, everything else will return
-    /// `None`.
-    fn execute_statement(
-        &self,
-        interpreter: &Interpreter,
-        stmt: Statement,
-        control_flow: bool,
-    ) -> TreewalkResult<Option<TreewalkValue>> {
-        if !control_flow {
-            match &stmt.kind {
-                StatementKind::Expression(Expr::Yield(None)) => Ok(None),
-                StatementKind::Expression(Expr::Yield(Some(expr))) => {
-                    Ok(Some(interpreter.evaluate_expr(expr)?))
-                }
-                StatementKind::Expression(Expr::YieldFrom(_)) => unimplemented!(),
-                _ => {
-                    // would we ever need to support a return statement here?
-                    let _ = interpreter.evaluate_statement(&stmt)?;
-                    Ok(None)
-                }
-            }
-        } else {
-            Ok(None)
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct GeneratorIterator {
     pub generator: Container<Generator>,
-    pub interpreter: Interpreter,
+    pub interpreter: TreewalkInterpreter,
 }
 
 impl GeneratorIterator {
-    pub fn new(generator: Generator, interpreter: Interpreter) -> Self {
+    pub fn new(generator: Generator, interpreter: TreewalkInterpreter) -> Self {
         Self {
             generator: Container::new(generator),
             interpreter,
@@ -160,12 +163,16 @@ impl Iterator for GeneratorIterator {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.generator.context().current_state() == PausableState::Finished {
+        if self.generator.borrow().context().current_state() == PausableState::Finished {
             return None;
         }
 
         // we need a better way to surface error during a generator run
-        match self.generator.run_until_pause(&self.interpreter) {
+        match self
+            .generator
+            .borrow_mut()
+            .run_until_pause(&self.interpreter)
+        {
             Ok(result) => Some(result),
             Err(TreewalkDisruption::Error(e))
                 if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration) =>
@@ -174,14 +181,5 @@ impl Iterator for GeneratorIterator {
             }
             _ => panic!("Unexpected error during generator run."),
         }
-    }
-}
-
-impl IntoIterator for Container<GeneratorIterator> {
-    type Item = TreewalkValue;
-    type IntoIter = GeneratorIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.borrow().clone()
     }
 }

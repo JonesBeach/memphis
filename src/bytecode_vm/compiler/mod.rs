@@ -1,5 +1,10 @@
+mod code;
 #[allow(clippy::module_inception)]
 mod compiler;
-pub mod types;
+mod constant;
+mod opcode;
 
+pub use code::CodeObject;
 pub use compiler::{Compiler, CompilerError};
+pub use constant::Constant;
+pub use opcode::{Bytecode, Opcode};

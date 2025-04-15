@@ -2,9 +2,10 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     bytecode_vm::{
+        compiler::{CodeObject, Constant, Opcode},
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex},
-        CompilerResult, Opcode,
+        CompilerResult,
     },
     core::{log, LogLevel},
     domain::{Context, Source},
@@ -13,13 +14,10 @@ use crate::{
     },
 };
 
-use super::types::{CodeObject, CompiledProgram, Constant};
-
-#[allow(clippy::enum_variant_names)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
     SyntaxError(String),
-    StackUnderflow,
+    Internal(String),
 }
 
 impl Display for CompilerError {
@@ -28,19 +26,19 @@ impl Display for CompilerError {
     }
 }
 
+/// A Python bytecode compiler.
 pub struct Compiler {
+    /// This will likely need to become a stack once we support module imports.
     source: Source,
 
-    /// Constants discovered during compilation. These will be compiled into the
-    /// [`CompiledProgram`] which is handed off to the VM.
-    constant_pool: Vec<Constant>,
-
     /// Keep a reference to the code object being constructed so we can associate things with it,
-    /// (i.e. variable names).
+    /// (variable names, constants, etc.).
     code_stack: Vec<CodeObject>,
 
+    /// Whether we are in a Local or Global context.
     context_stack: Vec<Context>,
 
+    /// The most recent line number seen from the Ast.
     line_number: usize,
 }
 
@@ -50,40 +48,48 @@ impl Compiler {
 
         Self {
             source,
-            constant_pool: vec![],
             code_stack: vec![code],
             context_stack: vec![Context::Global],
             line_number: 0,
         }
     }
 
-    // We previously used this when we compiled the entire AST at once, before we switched to an
-    // AST-walking approach to make line numbers work. We may bring this back.
-    pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CompiledProgram> {
+    /// Compile the provided `Ast` and return a `CodeObject` which can be executed. This is not
+    /// destructive, meaning multiple calls will build upon the same `CodeObject`.
+    pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CodeObject> {
         self.compile_ast(ast)?;
-        self.emit(Opcode::Halt);
-
-        let code = self.code_stack.pop().ok_or(CompilerError::StackUnderflow)?;
-        Ok(CompiledProgram::new(code, self.constant_pool.clone()))
+        self.finalize()
     }
 
-    fn current_offset(&self) -> usize {
-        let code = self.ensure_code_object();
-        code.bytecode.len()
+    fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
+        ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
     }
 
-    fn emit(&mut self, opcode: Opcode) {
+    fn finalize(&self) -> CompilerResult<CodeObject> {
+        let mut code = self.ensure_code_object()?.clone();
+        code.bytecode.push(Opcode::Halt);
+        Ok(code)
+    }
+
+    fn current_offset(&self) -> CompilerResult<usize> {
+        let code = self.ensure_code_object()?;
+        Ok(code.bytecode.len())
+    }
+
+    fn emit(&mut self, opcode: Opcode) -> CompilerResult<()> {
         let line_number = self.line_number;
-        let offset = self.current_offset();
+        let offset = self.current_offset()?;
 
-        let code = self.ensure_code_object_mut();
+        let code = self.ensure_code_object_mut()?;
         code.bytecode.push(opcode);
         code.line_map.push((offset, line_number));
+        Ok(())
     }
 
-    fn emit_at(&mut self, offset: usize, opcode: Opcode) {
-        let code = self.ensure_code_object_mut();
+    fn emit_at(&mut self, offset: usize, opcode: Opcode) -> CompilerResult<()> {
+        let code = self.ensure_code_object_mut()?;
         code.bytecode[offset] = opcode;
+        Ok(())
     }
 
     fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
@@ -123,63 +129,46 @@ impl Compiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> CompilerResult<()> {
         match expr {
-            Expr::None => {
-                self.compile_none();
-            }
-            Expr::Boolean(value) => {
-                self.compile_bool(*value);
-            }
-            Expr::Integer(value) => {
-                self.emit(Opcode::Push(*value));
-            }
-            Expr::StringLiteral(value) => {
-                self.compile_string_literal(value);
-            }
+            Expr::None => self.compile_none(),
+            Expr::Boolean(value) => self.compile_bool(*value),
+            Expr::Integer(value) => self.emit(Opcode::Push(*value)),
+            Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
-            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right)?,
+            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
-                self.compile_binary_operation(left, op, right)?
+                self.compile_binary_operation(left, op, right)
             }
-            Expr::MemberAccess { object, field } => self.compile_member_access(object, field)?,
+            Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { name, args, callee } => {
-                self.compile_function_call(name, args, callee)?
+                self.compile_function_call(name, args, callee)
             }
-            Expr::MethodCall { object, name, args } => {
-                self.compile_method_call(object, name, args)?
-            }
+            Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
             _ => unimplemented!("Expression type {:?} not implemented for bytecode VM", expr),
-        };
-
-        Ok(())
-    }
-
-    fn compile_ast(&mut self, ast: &Ast) -> CompilerResult<()> {
-        for stmt in ast.iter() {
-            self.compile_stmt(stmt)?;
         }
-        Ok(())
     }
 
-    fn generate_load(&mut self, name: &str) -> Opcode {
-        match self.ensure_context() {
-            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)),
+    fn generate_load(&mut self, name: &str) -> CompilerResult<Opcode> {
+        let opcode = match self.ensure_context()? {
+            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?),
             Context::Local => {
                 // Check locals first
-                if let Some(index) = self.get_local_index(name) {
-                    return Opcode::LoadFast(index);
+                if let Some(index) = self.get_local_index(name)? {
+                    Opcode::LoadFast(index)
+                } else {
+                    // If not found locally, fall back to globals
+                    Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?)
                 }
-
-                // If not found locally, fall back to globals
-                Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name))
             }
-        }
+        };
+        Ok(opcode)
     }
 
-    fn generate_store(&mut self, name: &str) -> Opcode {
-        match self.ensure_context() {
-            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)),
-            Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)),
-        }
+    fn generate_store(&mut self, name: &str) -> CompilerResult<Opcode> {
+        let opcode = match self.ensure_context()? {
+            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)?),
+            Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)?),
+        };
+        Ok(opcode)
     }
 
     fn compile_return(&mut self, expr: &[Expr]) -> CompilerResult<()> {
@@ -188,7 +177,7 @@ impl Compiler {
         }
 
         self.compile_expr(&expr[0])?;
-        self.emit(Opcode::ReturnValue);
+        self.emit(Opcode::ReturnValue)?;
         Ok(())
     }
 
@@ -196,15 +185,15 @@ impl Compiler {
         match left {
             Expr::Variable(name) => {
                 self.compile_expr(right)?;
-                self.compile_store(name);
+                self.compile_store(name)?;
             }
             Expr::MemberAccess { object, field } => {
                 // Push the object onto the stack
                 self.compile_expr(object)?;
                 // Push the value to be assigned onto the stack
                 self.compile_expr(right)?;
-                let attr_index = self.get_or_set_nonlocal_index(field);
-                self.emit(Opcode::SetAttr(attr_index));
+                let attr_index = self.get_or_set_nonlocal_index(field)?;
+                self.emit(Opcode::SetAttr(attr_index))?;
             }
             Expr::IndexAccess { .. } => {
                 unimplemented!("Index access assignment not yet supported in bytecode VM.");
@@ -220,27 +209,27 @@ impl Compiler {
     }
 
     fn compile_while_loop(&mut self, condition: &Expr, body: &Ast) -> CompilerResult<()> {
-        let condition_start = self.current_offset();
+        let condition_start = self.current_offset()?;
         self.compile_expr(condition)?;
 
         // Temporary offset, we will change this once we know the length of the loop body
-        let jump_if_false_placeholder = self.current_offset();
-        self.emit(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset()?;
+        self.emit(Opcode::Placeholder)?;
 
         self.compile_ast(body)?;
 
         // Unconditional jump back to the start of the condition
         // We must mark these as isize because we are doing subtraction with potential overflow
-        let jump_back_offset = condition_start as isize - self.current_offset() as isize - 1;
-        self.emit(Opcode::Jump(jump_back_offset));
+        let jump_back_offset = condition_start as isize - self.current_offset()? as isize - 1;
+        self.emit(Opcode::Jump(jump_back_offset))?;
 
         // Update the JUMP_IF_FALSE offset now that we know the length of the loop body
         let jump_if_false_offset =
-            self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+            self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
         self.emit_at(
             jump_if_false_placeholder,
             Opcode::JumpIfFalse(jump_if_false_offset),
-        );
+        )?;
 
         Ok(())
     }
@@ -258,34 +247,34 @@ impl Compiler {
         self.compile_expr(&if_part.condition)?;
 
         // Temporary offset, we will change this once we know the length of the if condition body
-        let jump_if_false_placeholder = self.current_offset();
-        self.emit(Opcode::Placeholder);
+        let jump_if_false_placeholder = self.current_offset()?;
+        self.emit(Opcode::Placeholder)?;
 
         self.compile_ast(&if_part.block)?;
 
         if let Some(else_part) = else_part {
-            let jump_else_placeholder = self.current_offset();
-            self.emit(Opcode::Placeholder);
+            let jump_else_placeholder = self.current_offset()?;
+            self.emit(Opcode::Placeholder)?;
 
             let jump_if_false_offset =
-                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
             self.emit_at(
                 jump_if_false_placeholder,
                 Opcode::JumpIfFalse(jump_if_false_offset),
-            );
+            )?;
 
             self.compile_ast(else_part)?;
 
             let jump_else_offset =
-                self.current_offset() as isize - jump_else_placeholder as isize - 1;
-            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset));
+                self.current_offset()? as isize - jump_else_placeholder as isize - 1;
+            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset))?;
         } else {
             let jump_if_false_offset =
-                self.current_offset() as isize - jump_if_false_placeholder as isize - 1;
+                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
             self.emit_at(
                 jump_if_false_placeholder,
                 Opcode::JumpIfFalse(jump_if_false_offset),
-            );
+            )?;
         }
 
         Ok(())
@@ -316,12 +305,15 @@ impl Compiler {
         self.context_stack.push(Context::Local);
         self.code_stack.push(code_object);
         self.compile_ast(body)?;
-        let code = self.code_stack.pop().expect("Internal Compiler Error");
+        let code = self
+            .code_stack
+            .pop()
+            .ok_or_else(|| internal_error("Code stack underflow."))?;
         self.context_stack.pop();
 
-        self.compile_code(code);
-        self.emit(Opcode::MakeFunction);
-        self.compile_store(name);
+        self.compile_code(code)?;
+        self.emit(Opcode::MakeFunction)?;
+        self.compile_store(name)?;
         Ok(())
     }
 
@@ -345,51 +337,55 @@ impl Compiler {
         self.code_stack.push(code_object);
 
         self.compile_ast(body)?;
-        self.emit(Opcode::EndClass);
+        self.emit(Opcode::EndClass)?;
 
-        let code = self.code_stack.pop().expect("Internal Compiler Error");
+        let code = self
+            .code_stack
+            .pop()
+            .ok_or_else(|| internal_error("Code stack underflow."))?;
         self.context_stack.pop();
 
-        self.emit(Opcode::LoadBuildClass);
-        self.compile_code(code);
+        self.emit(Opcode::LoadBuildClass)?;
+        self.compile_code(code)?;
 
         // subtract one to ignore Opcode::LoadBuildClass
         let num_args = 1;
-        self.emit(Opcode::Call(num_args));
+        self.emit(Opcode::Call(num_args))?;
 
-        self.compile_store(name);
+        self.compile_store(name)?;
         Ok(())
     }
 
-    fn compile_string_literal(&mut self, value: &str) {
+    fn compile_string_literal(&mut self, value: &str) -> CompilerResult<()> {
         self.compile_constant(Constant::String(value.to_string()))
     }
 
-    fn compile_none(&mut self) {
+    fn compile_none(&mut self) -> CompilerResult<()> {
         self.compile_constant(Constant::None)
     }
 
-    fn compile_bool(&mut self, bool: bool) {
+    fn compile_bool(&mut self, bool: bool) -> CompilerResult<()> {
         self.compile_constant(Constant::Boolean(bool))
     }
 
-    fn compile_code(&mut self, code: CodeObject) {
+    fn compile_code(&mut self, code: CodeObject) -> CompilerResult<()> {
         self.compile_constant(Constant::Code(code))
     }
 
-    fn compile_constant(&mut self, constant: Constant) {
-        let index = self.get_or_set_constant_index(constant);
-        self.emit(Opcode::LoadConst(index))
+    fn compile_constant(&mut self, constant: Constant) -> CompilerResult<()> {
+        let index = self.get_or_set_constant_index(constant)?;
+        self.emit(Opcode::LoadConst(index))?;
+        Ok(())
     }
 
-    fn compile_load(&mut self, name: &str) {
-        let load = self.generate_load(name);
-        self.emit(load);
+    fn compile_load(&mut self, name: &str) -> CompilerResult<()> {
+        let load = self.generate_load(name)?;
+        self.emit(load)
     }
 
-    fn compile_store(&mut self, name: &str) {
-        let store = self.generate_store(name);
-        self.emit(store);
+    fn compile_store(&mut self, name: &str) -> CompilerResult<()> {
+        let store = self.generate_store(name)?;
+        self.emit(store)
     }
 
     fn compile_unary_operation(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
@@ -410,7 +406,7 @@ impl Compiler {
             ),
         };
         if let Some(opcode) = opcode {
-            self.emit(opcode);
+            self.emit(opcode)?;
         }
         Ok(())
     }
@@ -440,7 +436,7 @@ impl Compiler {
             ),
         };
 
-        self.emit(opcode);
+        self.emit(opcode)?;
         Ok(())
     }
 
@@ -461,13 +457,13 @@ impl Compiler {
             if args.args.len() > 1 {
                 unimplemented!("More than 1 arg not yet supported for print in the bytecode VM.")
             }
-            let index =
-                self.get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()));
-            self.emit(Opcode::PrintConst(index));
+            let index = self
+                .get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()))?;
+            self.emit(Opcode::PrintConst(index))?;
             return Ok(());
         }
 
-        self.compile_load(name);
+        self.compile_load(name)?;
 
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
@@ -475,7 +471,7 @@ impl Compiler {
             self.compile_expr(arg)?;
         }
 
-        self.emit(Opcode::Call(args.args.len()));
+        self.emit(Opcode::Call(args.args.len()))?;
         Ok(())
     }
 
@@ -495,90 +491,97 @@ impl Compiler {
         for arg in args.args.iter().rev() {
             self.compile_expr(arg)?;
         }
-        self.emit(Opcode::CallMethod(args.args.len()));
+        self.emit(Opcode::CallMethod(args.args.len()))?;
         Ok(())
     }
 
     fn compile_member_access(&mut self, object: &Expr, field: &str) -> CompilerResult<()> {
         self.compile_expr(object)?;
-        let attr_index = self.get_or_set_nonlocal_index(field);
-        self.emit(Opcode::LoadAttr(attr_index));
+        let attr_index = self.get_or_set_nonlocal_index(field)?;
+        self.emit(Opcode::LoadAttr(attr_index))?;
         Ok(())
     }
 
-    fn get_or_set_local_index(&mut self, name: &str) -> LocalIndex {
+    fn get_or_set_local_index(&mut self, name: &str) -> CompilerResult<LocalIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in locals", name)
         });
-        if let Some(index) = self.get_local_index(name) {
-            index
+        if let Some(index) = self.get_local_index(name)? {
+            Ok(index)
         } else {
-            let code = self.ensure_code_object_mut();
+            let code = self.ensure_code_object_mut()?;
             let new_index = code.varnames.len();
             code.varnames.push(name.to_string());
-            Index::new(new_index)
+            Ok(Index::new(new_index))
         }
     }
 
-    fn get_local_index(&self, name: &str) -> Option<LocalIndex> {
-        let code = self.ensure_code_object();
-        find_index(&code.varnames, name).map(Index::new)
+    fn get_local_index(&self, name: &str) -> CompilerResult<Option<LocalIndex>> {
+        let code = self.ensure_code_object()?;
+        Ok(find_index(&code.varnames, name).map(Index::new))
     }
 
-    fn get_or_set_nonlocal_index(&mut self, name: &str) -> NonlocalIndex {
+    fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in globals", name)
         });
-        let code = self.ensure_code_object_mut();
-        if let Some(index) = find_index(&code.names, name) {
-            Index::new(index)
+        let code = self.ensure_code_object_mut()?;
+        let index = if let Some(index) = find_index(&code.names, name) {
+            index
         } else {
             let new_index = code.names.len();
             code.names.push(name.to_string());
-            Index::new(new_index)
-        }
+            new_index
+        };
+        Ok(Index::new(index))
     }
 
-    fn get_or_set_constant_index(&mut self, value: Constant) -> ConstantIndex {
+    fn get_or_set_constant_index(&mut self, value: Constant) -> CompilerResult<ConstantIndex> {
         log(LogLevel::Debug, || {
             format!("Looking for '{}' in constants", value)
         });
-        if let Some(index) = find_index(&self.constant_pool, &value) {
-            Index::new(index)
+        let code = self.ensure_code_object_mut()?;
+        let index = if let Some(index) = find_index(&code.constants, &value) {
+            index
         } else {
-            let next_index = self.constant_pool.len();
-            self.constant_pool.push(value);
-            Index::new(next_index)
-        }
+            let next_index = code.constants.len();
+            code.constants.push(value);
+            next_index
+        };
+        Ok(Index::new(index))
     }
 
     /// This assumes we always have a context stack.
-    fn ensure_context(&self) -> &Context {
+    fn ensure_context(&self) -> CompilerResult<&Context> {
         self.context_stack
             .last()
-            .expect("Internal Compiler Error: failed to find context.")
+            .ok_or_else(|| internal_error("Failed to find current context."))
     }
 
-    fn ensure_code_object_mut(&mut self) -> &mut CodeObject {
+    fn ensure_code_object_mut(&mut self) -> CompilerResult<&mut CodeObject> {
         self.code_stack
             .last_mut()
-            .expect("Internal Compiler Error: failed to find current code object.")
+            .ok_or_else(|| internal_error("Failed to find current code object."))
     }
 
-    fn ensure_code_object(&self) -> &CodeObject {
+    fn ensure_code_object(&self) -> CompilerResult<&CodeObject> {
         self.code_stack
             .last()
-            .expect("Internal Compiler Error: failed to find current code object.")
+            .ok_or_else(|| internal_error("Failed to find current code object."))
     }
 }
 
+fn internal_error(msg: &str) -> CompilerError {
+    CompilerError::Internal(msg.to_string())
+}
+
 #[cfg(test)]
-mod bytecode_tests {
+mod tests_bytecode {
     use super::*;
 
     use crate::{
-        ast, bin_op, bytecode_vm::compiler::types::Bytecode, call_args, func_call, int,
-        member_access, parser::test_utils::*, stmt_assign, str, unary_op, var,
+        bytecode_vm::compiler::Bytecode,
+        parser::{test_utils::*, types::ast},
     };
 
     fn init() -> Compiler {
@@ -586,7 +589,7 @@ mod bytecode_tests {
     }
 
     fn compile_expr(expr: Expr) -> Bytecode {
-        compile_stmt(stmt(StatementKind::Expression(expr)))
+        compile_stmt(stmt!(StatementKind::Expression(expr)))
     }
 
     fn compile_stmt(stmt: Statement) -> Bytecode {
@@ -594,7 +597,9 @@ mod bytecode_tests {
         compiler
             .compile_stmt(&stmt)
             .expect("Failed to compile test Statement!");
-        let code = compiler.ensure_code_object();
+        let code = compiler
+            .ensure_code_object()
+            .expect("Failed to fetch code object");
         code.bytecode.clone()
     }
 
@@ -725,7 +730,7 @@ mod bytecode_tests {
 
     #[test]
     fn while_loop() {
-        let s = stmt(StatementKind::WhileLoop {
+        let s = stmt!(StatementKind::WhileLoop {
             condition: bin_op!(int!(4), LessThan, int!(5)),
             body: ast![],
         });
@@ -744,7 +749,7 @@ mod bytecode_tests {
 
     #[test]
     fn if_else() {
-        let s = stmt(StatementKind::IfElse {
+        let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bin_op!(int!(4), LessThan, int!(5)),
                 block: ast![stmt_assign!(var!("a"), int!(-1))],
@@ -765,7 +770,7 @@ mod bytecode_tests {
             ]
         );
 
-        let s = stmt(StatementKind::IfElse {
+        let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalBlock {
                 condition: bin_op!(int!(4), LessThan, int!(5)),
                 block: ast![stmt_assign!(var!("a"), int!(-3))],
@@ -807,11 +812,7 @@ mod bytecode_tests {
 
     #[test]
     fn method_call() {
-        let expr = Expr::MethodCall {
-            object: Box::new(var!("foo")),
-            name: "bar".to_string(),
-            args: call_args![int!(88), int!(99)],
-        };
+        let expr = method_call!(var!("foo"), "bar", call_args![int!(88), int!(99)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -827,56 +828,79 @@ mod bytecode_tests {
 }
 
 #[cfg(test)]
-mod compiler_state_tests {
+mod tests_compiler {
+    use crate::bytecode_vm::VmContext;
+
     use super::*;
 
-    use crate::init::MemphisContext;
-
-    fn compile(text: &str) -> CompiledProgram {
-        let mut context = MemphisContext::from_text(text);
-        context.compile().expect("Failed to compile test program!")
+    fn compile(text: &str) -> CodeObject {
+        VmContext::new(Source::from_text(text))
+            .compile()
+            .expect("Failed to compile test program!")
     }
 
-    fn get_names_index(program: &CompiledProgram, name: &str) -> usize {
-        find_index(&program.code.names, name).unwrap_or_else(|| panic!("Name '{}' not found", name))
-    }
-
-    fn get_varnames_index(code: &CodeObject, name: &str) -> usize {
-        find_index(&code.varnames, name).unwrap_or_else(|| panic!("Varname '{}' not found", name))
-    }
-
-    fn get_code_at_index(program: &CompiledProgram, index: usize) -> &CodeObject {
-        let Some(Constant::Code(code)) = program.constant_pool.get(index) else {
-            panic!("Code at index {} not found!", index)
+    macro_rules! assert_code_eq {
+        ($actual:expr, $expected:expr) => {
+            assert_code_eq(&$actual, &$expected)
         };
-        code
+    }
+
+    macro_rules! compile_incremental {
+        ( $( $line:expr ),* ) => {{
+            let mut context = VmContext::default();
+            $(
+                context.add_line($line);
+            )*
+            context.compile().expect("Failed to compile")
+        }};
     }
 
     /// This is designed to confirm everything in a CodeObject matches besides the Source and
     /// the line number mappings.
-    macro_rules! assert_code_eq {
-        ($actual:expr, $expected:expr) => {
-            assert_eq!(
-                $actual.name, $expected.name,
-                "Code object names do not match"
-            );
-            assert_eq!(
-                $actual.bytecode, $expected.bytecode,
-                "Code object bytecode does not match"
-            );
-            assert_eq!(
-                $actual.arg_count, $expected.arg_count,
-                "Code object arg_count does not match"
-            );
-            assert_eq!(
-                $actual.varnames, $expected.varnames,
-                "Code object varnames do not match"
-            );
-            assert_eq!(
-                $actual.names, $expected.names,
-                "Code object names do not match"
-            );
-        };
+    fn assert_code_eq(actual: &CodeObject, expected: &CodeObject) {
+        assert_eq!(actual.name, expected.name, "Code object names do not match");
+        assert_eq!(
+            actual.bytecode, expected.bytecode,
+            "Code object bytecode does not match"
+        );
+        assert_eq!(
+            actual.arg_count, expected.arg_count,
+            "Code object arg_count does not match"
+        );
+        assert_eq!(
+            actual.varnames, expected.varnames,
+            "Code object varnames do not match"
+        );
+        assert_eq!(
+            actual.names, expected.names,
+            "Code object names do not match"
+        );
+
+        assert_eq!(
+            actual.constants.len(),
+            expected.constants.len(),
+            "Code object constants do not match"
+        );
+
+        for (i, (a_const, e_const)) in actual
+            .constants
+            .iter()
+            .zip(expected.constants.iter())
+            .enumerate()
+        {
+            match (a_const, e_const) {
+                (Constant::Code(a_code), Constant::Code(e_code)) => {
+                    assert_code_eq!(a_code, e_code);
+                }
+                _ => {
+                    assert_eq!(
+                        a_const, e_const,
+                        "Code object constant at index {} does not match",
+                        i
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -885,36 +909,40 @@ mod compiler_state_tests {
 def foo(a, b):
     a + b
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::LoadFast(Index::new(1)),
+                Opcode::Iadd,
+            ],
+            arg_count: 2,
+            varnames: vec!["a".into(), "b".into()],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.constant_pool.len(), 1);
-        let foo = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            foo,
-            &CodeObject {
-                name: Some("foo".into()),
-                bytecode: vec![
-                    Opcode::LoadFast(Index::new(0)),
-                    Opcode::LoadFast(Index::new(1)),
-                    Opcode::Iadd,
-                ],
-                arg_count: 2,
-                varnames: vec!["a".into(), "b".into()],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -925,52 +953,54 @@ def foo(a, b):
         return 10
     a + b
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
-                Opcode::LoadConst(Index::new(1)),
+        let code = compile(text);
+
+        let fn_inner = CodeObject {
+            name: Some("inner".into()),
+            bytecode: vec![Opcode::Push(10), Opcode::ReturnValue],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::StoreFast(Index::new(2)),
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::LoadFast(Index::new(1)),
+                Opcode::Iadd,
+            ],
+            arg_count: 2,
+            varnames: vec!["a".into(), "b".into(), "inner".into()],
+            names: vec![],
+            constants: vec![Constant::Code(fn_inner)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.constant_pool.len(), 2);
-        let inner = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            inner,
-            &CodeObject {
-                name: Some("inner".into()),
-                bytecode: vec![Opcode::Push(10), Opcode::ReturnValue,],
-                arg_count: 0,
-                varnames: vec![],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        let foo = get_code_at_index(&program, 1);
-        assert_code_eq!(
-            foo,
-            &CodeObject {
-                name: Some("foo".into()),
-                bytecode: vec![
-                    Opcode::LoadConst(Index::new(0)),
-                    Opcode::MakeFunction,
-                    Opcode::StoreFast(Index::new(2)),
-                    Opcode::LoadFast(Index::new(0)),
-                    Opcode::LoadFast(Index::new(1)),
-                    Opcode::Iadd,
-                ],
-                arg_count: 2,
-                varnames: vec!["a".into(), "b".into(), "inner".into()],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".to_string()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -979,32 +1009,36 @@ def foo(a, b):
 def foo():
     c = 10
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![Opcode::Push(10), Opcode::StoreFast(Index::new(0))],
+            arg_count: 0,
+            varnames: vec!["c".into()],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.constant_pool.len(), 1);
-        let foo = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            foo,
-            &CodeObject {
-                name: Some("foo".into()),
-                bytecode: vec![Opcode::Push(10), Opcode::StoreFast(Index::new(0))],
-                arg_count: 0,
-                varnames: vec!["c".into()],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -1014,37 +1048,41 @@ def foo():
     c = 10
     return c
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![
+                Opcode::Push(10),
+                Opcode::StoreFast(Index::new(0)),
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::ReturnValue,
+            ],
+            arg_count: 0,
+            varnames: vec!["c".into()],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.constant_pool.len(), 1);
-        let foo = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            foo,
-            &CodeObject {
-                name: Some("foo".into()),
-                bytecode: vec![
-                    Opcode::Push(10),
-                    Opcode::StoreFast(Index::new(0)),
-                    Opcode::LoadFast(Index::new(0)),
-                    Opcode::ReturnValue
-                ],
-                arg_count: 0,
-                varnames: vec!["c".into()],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -1059,14 +1097,37 @@ def world():
 hello()
 world()
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
-                Opcode::LoadConst(Index::new(1)),
+        let code = compile(text);
+
+        let fn_hello = CodeObject {
+            name: Some("hello".into()),
+            bytecode: vec![Opcode::PrintConst(Index::new(0))],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec![],
+            constants: vec![Constant::String("Hello".into())],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let fn_world = CodeObject {
+            name: Some("world".into()),
+            bytecode: vec![Opcode::PrintConst(Index::new(0))],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec![],
+            constants: vec![Constant::String("World".into())],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
-                Opcode::LoadConst(Index::new(3)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::LoadGlobal(Index::new(0)),
@@ -1074,40 +1135,16 @@ world()
                 Opcode::LoadGlobal(Index::new(1)),
                 Opcode::Call(0),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.constant_pool.len(), 4);
-        assert_eq!(program.constant_pool[0], Constant::String("Hello".into()));
-        let hello = get_code_at_index(&program, 1);
-        assert_code_eq!(
-            hello,
-            &CodeObject {
-                name: Some("hello".into()),
-                bytecode: vec![Opcode::PrintConst(Index::new(0)),],
-                arg_count: 0,
-                varnames: vec![],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.constant_pool[2], Constant::String("World".into()));
-        let world = get_code_at_index(&program, 3);
-        assert_code_eq!(
-            world,
-            &CodeObject {
-                name: Some("world".into()),
-                bytecode: vec![Opcode::PrintConst(Index::new(2)),],
-                arg_count: 0,
-                varnames: vec![],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        assert_eq!(program.code.names.len(), 2);
-        assert_eq!(get_names_index(&program, "hello"), 0);
-        assert_eq!(get_names_index(&program, "world"), 1);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["hello".into(), "world".into()],
+            constants: vec![Constant::Code(fn_hello), Constant::Code(fn_world)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -1117,45 +1154,53 @@ class Foo:
     def bar(self):
         return 99
 "#;
-        let program = compile(text);
-        assert_eq!(program.constant_pool.len(), 2);
-        let bar = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            bar,
-            &CodeObject {
-                name: Some("bar".into()),
-                bytecode: vec![Opcode::Push(99), Opcode::ReturnValue,],
-                arg_count: 1,
-                varnames: vec!["self".into()],
-                names: vec![],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        let foo = get_code_at_index(&program, 1);
-        assert_eq!(
-            foo.bytecode,
-            vec![
+        let code = compile(text);
+
+        let fn_bar = CodeObject {
+            name: Some("bar".into()),
+            bytecode: vec![Opcode::Push(99), Opcode::ReturnValue],
+            arg_count: 1,
+            varnames: vec!["self".into()],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let cls_foo = CodeObject {
+            name: Some("Foo".into()),
+            bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreFast(Index::new(0)),
                 Opcode::EndClass,
-            ]
-        );
-        assert_eq!(foo.varnames.len(), 1);
-        assert_eq!(get_varnames_index(foo, "bar"), 0);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
+            ],
+            arg_count: 0,
+            varnames: vec!["bar".into()],
+            names: vec![],
+            constants: vec![Constant::Code(fn_bar)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(1)),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::Call(1),
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "Foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["Foo".into()],
+            constants: vec![Constant::Code(cls_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
@@ -1165,120 +1210,153 @@ class Foo:
     def bar(self):
         return self.val
 "#;
-        let program = compile(text);
-        assert_eq!(program.constant_pool.len(), 2);
-        let bar = get_code_at_index(&program, 0);
-        assert_code_eq!(
-            bar,
-            &CodeObject {
-                name: Some("bar".into()),
-                bytecode: vec![
-                    Opcode::LoadFast(Index::new(0)),
-                    Opcode::LoadAttr(Index::new(0)),
-                    Opcode::ReturnValue,
-                ],
-                arg_count: 1,
-                varnames: vec!["self".into()],
-                names: vec!["val".into()],
-                source: Source::default(),
-                line_map: vec![],
-            }
-        );
-        let foo = get_code_at_index(&program, 1);
-        assert_eq!(
-            foo.bytecode,
-            vec![
+        let code = compile(text);
+
+        let fn_bar = CodeObject {
+            name: Some("bar".into()),
+            bytecode: vec![
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::LoadAttr(Index::new(0)),
+                Opcode::ReturnValue,
+            ],
+            arg_count: 1,
+            varnames: vec!["self".into()],
+            names: vec!["val".into()],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let cls_foo = CodeObject {
+            name: Some("Foo".to_string()),
+            bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
                 Opcode::StoreFast(Index::new(0)),
                 Opcode::EndClass,
-            ]
-        );
-        assert_eq!(foo.varnames.len(), 1);
-        assert_eq!(get_varnames_index(&foo, "bar"), 0);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
+            ],
+            arg_count: 0,
+            varnames: vec!["bar".into()],
+            names: vec![],
+            constants: vec![Constant::Code(fn_bar)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(1)),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::Call(1),
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.code.names.len(), 1);
-        assert_eq!(get_names_index(&program, "Foo"), 0);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["Foo".to_string()],
+            constants: vec![Constant::Code(cls_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
     fn class_instantiation() {
         let text = r#"
-class Foo:
-    def bar():
-        return 99
-
 f = Foo()
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
-                Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(1)),
-                Opcode::Call(1),
-                Opcode::StoreGlobal(Index::new(0)),
+        let code = compile(text);
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Call(0),
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.code.names.len(), 2);
-        assert_eq!(get_names_index(&program, "Foo"), 0);
-        assert_eq!(get_names_index(&program, "f"), 1);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["Foo".into(), "f".into()],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
     }
 
     #[test]
     fn class_instantiation_and_method_call() {
         let text = r#"
-class Foo:
-    def bar(self):
-        return 99
-
-f = Foo()
 b = f.bar()
 "#;
-        let program = compile(text);
-        assert_eq!(
-            program.code.bytecode,
-            vec![
-                Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(1)),
-                Opcode::Call(1),
+        let code = compile(text);
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::CallMethod(0),
+                Opcode::StoreGlobal(Index::new(2)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["f".into(), "bar".into(), "b".into()],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn incremental_compilation() {
+        let first = r#"
+def foo():
+    return 10
+"#;
+        let second = r#"
+a = foo()
+"#;
+        let code = compile_incremental![first, second];
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![Opcode::Push(10), Opcode::ReturnValue],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Call(0),
                 Opcode::StoreGlobal(Index::new(1)),
-                Opcode::LoadGlobal(Index::new(1)),
-                Opcode::LoadAttr(Index::new(2)),
-                Opcode::CallMethod(0),
-                Opcode::StoreGlobal(Index::new(3)),
                 Opcode::Halt,
-            ]
-        );
-        assert_eq!(program.code.names.len(), 4);
-        assert_eq!(get_names_index(&program, "Foo"), 0);
-        assert_eq!(get_names_index(&program, "f"), 1);
-        assert_eq!(get_names_index(&program, "bar"), 2);
-        assert_eq!(get_names_index(&program, "b"), 3);
-        assert_eq!(program.constant_pool.len(), 2);
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            names: vec!["foo".into(), "a".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
 
-        // this should be the code for the bar method
-        let bar = get_code_at_index(&program, 0);
-        assert_eq!(bar.bytecode, vec![Opcode::Push(99), Opcode::ReturnValue,]);
-
-        // this should be the code for the class definition
-        let class = get_code_at_index(&program, 1);
-        assert_eq!(class.name(), "Foo");
+        assert_code_eq!(code, expected);
     }
 }

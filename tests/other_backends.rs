@@ -4,7 +4,7 @@ use std::process::Command;
 fn run_script_and_compare(script: &'static str) {
     let output = Command::new("target/debug/memphis")
         .arg(script)
-        .env("MEMPHIS_ENGINE", "vm")
+        .env("MEMPHIS_ENGINE", "bytecode_vm")
         .output()
         .expect("Failed to run test script");
 
@@ -54,7 +54,7 @@ mod llvm_backend_tests {
     fn run_script(script: &'static str) {
         let output = Command::new("target/debug/memphis")
             .arg(script)
-            .env("MEMPHIS_ENGINE", "llvm")
+            .env("MEMPHIS_ENGINE", "llvm_backend")
             .output()
             .expect("Failed to run test script");
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     parser::types::{CallArgs, KwargsOperation},
-    treewalk::{types::Str, Interpreter, TreewalkResult, TreewalkValue},
+    treewalk::{types::Str, TreewalkInterpreter, TreewalkResult, TreewalkValue},
 };
 
 /// Represents the fully resolved parameter state for all positional and keyword arguments.
@@ -16,7 +16,7 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn from(interpreter: &Interpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
+    pub fn from(interpreter: &TreewalkInterpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
         let mut arg_values = arguments
             .args
             .iter()
@@ -86,7 +86,7 @@ impl Arguments {
         self.bound_val.clone()
     }
 
-    pub fn expect_self(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
+    pub fn expect_self(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<TreewalkValue> {
         self.get_self()
             .ok_or_else(|| interpreter.type_error("Unbound call!"))
     }
@@ -143,13 +143,13 @@ impl Arguments {
 
 /// This macro is useful to create `ResolvedArguments` when you only need positional arguments.
 /// When kwargs are needed, you can use `ResolvedArguments::new`.
-#[macro_export]
 macro_rules! args {
+    () => {{
+        Arguments::default()
+    }};
     // Double curly braces ensure that the entire macro expands into a single expression, which is
     // necessary since we are returning a value from this macro.
     ( $( $arg:expr ),* ) => {{
-        // When no args are pass, this gives an unused mut warning
-        #[allow(unused_mut)]
         let mut args = Arguments::default();
         $(
             args = args.add_arg($arg);
@@ -158,10 +158,12 @@ macro_rules! args {
     }};
 }
 
+pub(crate) use args;
+
 pub fn check_args<F>(
     args: &Arguments,
     condition: F,
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<()>
 where
     F: Fn(usize) -> bool,

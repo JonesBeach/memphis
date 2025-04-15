@@ -6,9 +6,8 @@ use std::{
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
 use crate::{
-    args,
-    core::{log, Container, InterpreterEntrypoint, LogLevel},
-    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind},
+    core::{log, Container, Interpreter, LogLevel},
+    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, MemphisValue},
     parser::{
         types::{
             Ast, BinOp, CallArgs, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
@@ -25,20 +24,21 @@ use crate::{
             function::FunctionType, iterators::GeneratorIterator, Class, Coroutine, Dict, Function,
             Generator, List, Module, Set, Slice, Str, Tuple,
         },
-        utils::Arguments,
-        Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState, TreewalkValue,
+        utils::{args, Arguments},
+        Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
+        TreewalkValue,
     },
     types::errors::MemphisError,
 };
 
 #[derive(Clone)]
-pub struct Interpreter {
+pub struct TreewalkInterpreter {
     pub state: Container<TreewalkState>,
 }
 
-impl Interpreter {
+impl TreewalkInterpreter {
     pub fn new(state: Container<TreewalkState>) -> Self {
-        Interpreter { state }
+        TreewalkInterpreter { state }
     }
 
     pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
@@ -94,6 +94,12 @@ impl Interpreter {
             object.get_class(self).borrow().name().to_string(),
             attr.into(),
         ))
+    }
+
+    pub fn with_executor<R>(&self, f: impl FnOnce(&mut Executor) -> R) -> R {
+        // SAFETY: We promise this is only ever called once at a time
+        let executor = unsafe { &mut *self.state.borrow().executor.get() };
+        f(executor)
     }
 
     pub fn call(
@@ -227,7 +233,7 @@ impl Interpreter {
                 let scope = Scope::new(self, &function, arguments)?;
                 let generator_function = Generator::new(scope, function);
                 let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
-                Ok(TreewalkValue::Generator(Container::new(generator_iterator)))
+                Ok(TreewalkValue::Generator(generator_iterator))
             }
             FunctionType::Async => {
                 let function = function
@@ -508,18 +514,12 @@ impl Interpreter {
 
         if let Some(result) = coroutine_to_await.clone().borrow().is_finished() {
             Ok(result)
-        } else if let Some(current_coroutine) = self
-            .state
-            .get_executor()
-            .borrow()
-            .current_coroutine
-            .borrow()
-            .clone()
+        } else if let Some(ref current_coroutine) =
+            self.with_executor(|exec| exec.current_coroutine().clone())
         {
-            self.state
-                .get_executor()
-                .borrow()
-                .set_wait_on(current_coroutine, coroutine_to_await);
+            self.with_executor(|exec| {
+                exec.set_wait_on(current_coroutine.clone(), coroutine_to_await)
+            });
             Err(TreewalkDisruption::Signal(TreewalkSignal::Await))
         } else {
             Err(self.type_error("Expected a coroutine"))
@@ -888,7 +888,7 @@ impl Interpreter {
     ) -> TreewalkResult<TreewalkValue> {
         let generator = Generator::new_from_comprehension(self.state.clone(), body, clauses);
         let iterator = GeneratorIterator::new(generator, self.clone());
-        Ok(TreewalkValue::Generator(Container::new(iterator)))
+        Ok(TreewalkValue::Generator(iterator))
     }
 
     fn evaluate_list_comprehension(
@@ -1379,12 +1379,8 @@ impl Interpreter {
 
         Ok(TreewalkValue::None)
     }
-}
 
-impl InterpreterEntrypoint for Interpreter {
-    type Return = TreewalkValue;
-
-    fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
+    pub fn run_treewalk(&mut self, parser: &mut Parser) -> Result<TreewalkValue, MemphisError> {
         let mut result = TreewalkValue::None;
         while !parser.is_finished() {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
@@ -1397,221 +1393,107 @@ impl InterpreterEntrypoint for Interpreter {
 
         Ok(result)
     }
+
+    pub fn read_treewalk(&self, name: &str) -> Option<TreewalkValue> {
+        self.state.read(name)
+    }
+}
+
+impl Interpreter for TreewalkInterpreter {
+    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
+        self.run_treewalk(parser).map(Into::into)
+    }
+
+    fn read(&mut self, name: &str) -> Option<MemphisValue> {
+        self.read_treewalk(name).map(Into::into)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
-        ast,
-        domain::{test_utils, Type},
-        init::MemphisContext,
-        treewalk::types::{ByteArray, Complex, DictItems, DictKeys, DictValues, FrozenSet},
+        domain::{test_utils::*, ExecutionErrorKind, Type},
+        parser::{
+            test_utils::stmt,
+            types::{ast, Expr, Params, StatementKind},
+        },
+        treewalk::{protocols::*, test_utils::*, types::Function, TreewalkValue},
     };
-
-    fn init_path(path: &str) -> MemphisContext {
-        MemphisContext::from_path(path)
-    }
-
-    fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
-    }
-
-    fn eval_inner(text: &str) -> Result<TreewalkValue, MemphisError> {
-        init(text).evaluate()
-    }
-
-    fn evaluate(text: &str) -> TreewalkValue {
-        eval_inner(text).expect("Failed to evaluate test string!")
-    }
-
-    fn eval_expect_error(text: &str) -> ExecutionError {
-        match eval_inner(text) {
-            Ok(_) => panic!("Expected an error!"),
-            Err(MemphisError::Execution(e)) => return e,
-            Err(_) => panic!("Expected an execution error!"),
-        };
-    }
-
-    /// Run the treewalk interpreter to completion and return a reference to the [`Interpreter`].
-    fn run<'a>(context: &'a mut MemphisContext) -> &'a Interpreter {
-        context.evaluate().expect("Treewalk evaluation failed!");
-        context.ensure_treewalk()
-    }
-
-    fn run_expect_error(context: &mut MemphisContext) -> ExecutionError {
-        match context.evaluate() {
-            Ok(_) => panic!("Expected an error!"),
-            Err(MemphisError::Execution(e)) => return e,
-            Err(_) => panic!("Expected an execution error!"),
-        };
-    }
-
-    fn stmt(kind: StatementKind) -> Statement {
-        Statement::new(1, kind)
-    }
-
-    fn read_optional(interpreter: &Interpreter, name: &str) -> Option<TreewalkValue> {
-        interpreter.state.read(name)
-    }
-
-    fn read(interpreter: &Interpreter, name: &str) -> TreewalkValue {
-        read_optional(interpreter, name).expect("Failed to read var")
-    }
-
-    fn read_type(interpreter: &Interpreter, name: &str) -> Type {
-        read(interpreter, name).get_type()
-    }
-
-    fn assert_type_class(interpreter: &Interpreter, name: &str, type_: Type) {
-        assert_eq!(
-            read(interpreter, name).as_class().unwrap(),
-            interpreter.state.get_type_class(type_)
-        );
-    }
-
-    macro_rules! assert_type_is {
-        ($interp:expr, $input:expr, $pattern:ident) => {
-            assert!(matches!(read($interp, $input), TreewalkValue::$pattern(_)));
-        };
-    }
-
-    macro_rules! assert_member_eq {
-        ($interp:expr, $input:expr, $field:expr, $expected:expr) => {
-            assert_eq!(extract_member!($interp, $input, $field), $expected);
-        };
-    }
-
-    macro_rules! extract {
-        ($interp:expr, $input:expr, $variant:ident) => {{
-            match read($interp, $input) {
-                TreewalkValue::$variant(v) => v,
-                _ => panic!("Expected {}: {}", stringify!($variant), $input),
-            }
-        }};
-    }
-
-    macro_rules! extract_member {
-        ($interp:expr, $input:expr, $field:expr) => {
-            extract!($interp, $input, Object)
-                .get_member($interp, $field)
-                .expect(&format!("Failed to get field: {}", $field))
-                .expect(&format!("Failed to get field: {}", $field))
-        };
-        ($interp:expr, $input:expr, $field:expr, $pattern:ident) => {
-            extract!($interp, $input, $pattern)
-                .get_member($interp, $field)
-                .expect(&format!("Failed to get field: {}", $field))
-                .expect(&format!("Failed to get field: {}", $field))
-        };
-    }
-
-    macro_rules! str {
-        ($input:expr) => {
-            TreewalkValue::String(Str::new($input.to_string()))
-        };
-    }
-
-    macro_rules! int {
-        ($val:expr) => {
-            TreewalkValue::Integer($val)
-        };
-    }
-
-    macro_rules! float {
-        ($val:expr) => {
-            TreewalkValue::FloatingPoint($val)
-        };
-    }
-
-    macro_rules! complex {
-        ($real:expr, $imag:expr) => {
-            TreewalkValue::Complex(Complex::new($real, $imag))
-        };
-    }
-
-    macro_rules! bool {
-        ($val:expr) => {
-            TreewalkValue::Boolean($val)
-        };
-    }
-
-    macro_rules! list {
-        ($($expr:expr),* $(,)?) => {
-            TreewalkValue::List(Container::new(List::new(vec![
-                $($expr),*
-            ])))
-        };
-    }
-
-    macro_rules! tuple {
-        ($($expr:expr),* $(,)?) => {
-            TreewalkValue::Tuple(Tuple::new(vec![
-                $($expr),*
-            ]))
-        };
-    }
-
-    macro_rules! set {
-        ($($expr:expr),* $(,)?) => {
-            TreewalkValue::Set(Container::new(Set::new(HashSet::from([
-                $($expr),*
-            ]))))
-        };
-    }
-
-    macro_rules! dict {
-        ($interp:expr, { $($key:expr => $value:expr),* $(,)? }) => {
-            TreewalkValue::Dict(Container::new(Dict::new(
-                $interp,
-                vec![
-                    $(($key, $value)),*
-                ].into_iter().collect()
-            )))
-        };
-    }
 
     #[test]
     fn undefined_variable() {
         let input = "x + 1";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_name_error(&e, "x");
+        assert_name_error!(e, "x");
     }
 
     #[test]
     fn division_by_zero() {
         let input = "1 / 0";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(
-            &e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string()),
+        assert_error_eq!(
+            e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string())
         );
     }
 
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
-        assert_eq!(evaluate(input), int!(11));
+        assert_eval_eq!(input, int!(11));
     }
 
     #[test]
     fn integer_division() {
         let input = "2 // 3";
-        assert_eq!(evaluate(input), int!(0));
+        assert_eval_eq!(input, int!(0));
 
         let input = "5 // 3";
-        assert_eq!(evaluate(input), int!(1));
+        assert_eval_eq!(input, int!(1));
 
         let input = "5 // 0";
         let e = eval_expect_error(input);
-        test_utils::assert_error_kind(
-            &e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string()),
+        assert_error_eq!(
+            e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string())
         );
+    }
+
+    #[test]
+    fn binary_operators() {
+        let input = "0x1010 & 0x0011";
+        assert_eval_eq!(input, int!(0x0010));
+
+        let input = "0o1010 | 0o0011";
+        assert_eval_eq!(input, int!(0o1011));
+
+        let input = "0b1010 ^ 0b0011";
+        assert_eval_eq!(input, int!(0b1001));
+
+        let input = "23 % 5";
+        assert_eval_eq!(input, int!(3));
+
+        let input = "0b0010 << 1";
+        assert_eval_eq!(input, int!(0b0100));
+
+        let input = "2 * 3 << 2 + 4 & 205";
+        assert_eval_eq!(input, int!(128));
+
+        let input = "~0b1010";
+        assert_eval_eq!(input, int!(-11));
+
+        // This tests the right-associativity of exponentiation.
+        // right-associativity gives 2 ** (3 ** 2) == 512
+        // NOT
+        // left-associativity which gives (2 ** 3) ** 2 == 64
+        let input = "2 ** 3 ** 2";
+        assert_eval_eq!(input, int!(512));
+
+        let input = "~5.5";
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "bad operand type for unary ~: 'float'");
     }
 
     #[test]
@@ -1621,12 +1503,11 @@ a = 2 + 3 * 4
 b = a + 5
 c = None
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(14));
-        assert_eq!(read(interpreter, "b"), int!(19));
-        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
+        assert_read_eq!(ctx, "a", int!(14));
+        assert_read_eq!(ctx, "b", int!(19));
+        assert_read_eq!(ctx, "c", none!());
     }
 
     #[test]
@@ -1639,80 +1520,79 @@ b = type(str.join)
 c = type(a.join)
 d = type(str.maketrans)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), str!("foo"));
-        assert_type_class(interpreter, "b", Type::BuiltinMethod);
-        assert_type_class(interpreter, "c", Type::Method);
-        assert_type_class(interpreter, "d", Type::BuiltinMethod);
+        assert_read_eq!(ctx, "a", str!("foo"));
+        assert_type_eq!(ctx, "b", Type::BuiltinMethod);
+        assert_type_eq!(ctx, "c", Type::Method);
+        assert_type_eq!(ctx, "d", Type::BuiltinMethod);
     }
 
     #[test]
     fn boolean_operators() {
         let input = "True and False";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "True or False";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not (True or False)";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "True and not False";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not False";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not True";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
     #[test]
     fn comparison_operators() {
         let input = "2 == 1";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "2 == 2";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "2 != 1";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "2 != 2";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "2 > 1";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "2 < 1";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "1 <= 1";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "1 >= 1";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "4 in range(5)";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "4 in range(3)";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "4 not in range(5)";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "4 not in range(3)";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "4 is None";
-        assert_eq!(evaluate(input), bool!(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "4 is not None";
-        assert_eq!(evaluate(input), bool!(true));
+        assert_eval_eq!(input, bool!(true));
     }
 
     #[test]
@@ -1723,10 +1603,9 @@ d = type(str.maketrans)
 print(3)
 a = type(print)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::BuiltinFunction);
+        assert_type_eq!(ctx, "a", Type::BuiltinFunction);
     }
 
     #[test]
@@ -1740,11 +1619,10 @@ b = type(iter(""))
 for i in iter("abcde"):
     print(i)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", StringIterator);
-        assert_type_class(interpreter, "b", Type::StringIterator);
+        assert_variant!(ctx, "a", StringIterator);
+        assert_type_eq!(ctx, "b", Type::StringIterator);
     }
 
     #[test]
@@ -1755,10 +1633,9 @@ def foo(a, b):
 
 foo(2, 3)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "foo", Function);
+        assert_variant!(ctx, "foo", Function);
 
         let input = r#"
 def add(x, y):
@@ -1799,64 +1676,49 @@ w = _f.__qualname__
 x = _f.__annotations__
 y = _f.__type_params__
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        let b = interpreter
-            .state
-            .read("b")
-            .unwrap()
-            .as_function()
-            .unwrap()
-            .borrow()
-            .clone();
+        assert_read_eq!(ctx, "a", int!(5));
+        let b = extract!(ctx, "b", Function).borrow().clone();
         let Function { ref body, .. } = b;
         assert_eq!(
             body,
-            &Ast::new(vec![stmt(StatementKind::Expression(Expr::Integer(4)))])
+            &ast![stmt!(StatementKind::Expression(Expr::Integer(4)))]
         );
-        assert_eq!(read(interpreter, "c"), int!(4));
-        let d = interpreter
-            .state
-            .read("d")
-            .unwrap()
-            .as_function()
-            .unwrap()
-            .borrow()
-            .clone();
+        assert_read_eq!(ctx, "c", int!(4));
+        let d = extract!(ctx, "d", Function).borrow().clone();
         let Function { ref body, .. } = d;
         assert_eq!(
             body,
-            &ast![stmt(StatementKind::Expression(Expr::Yield(None)))]
+            &ast![stmt!(StatementKind::Expression(Expr::Yield(None)))]
         );
-        assert_type_is!(interpreter, "e", Generator);
-        assert_type_class(interpreter, "f", Type::Generator);
-        assert_type_is!(interpreter, "h", Coroutine);
+        assert_variant!(ctx, "e", Generator);
+        assert_type_eq!(ctx, "f", Type::Generator);
+        assert_variant!(ctx, "h", Coroutine);
         // I commented this out when we removed Clone from Class.
         //assert!(matches!(
         //    read(interpreter, "i").as_class().unwrap().borrow(),
         //    Class { name, .. } if name == "coroutine"
         //));
         // TODO add support for async generators, which will change the next two assertions
-        assert_type_is!(interpreter, "k", Coroutine);
+        assert_variant!(ctx, "k", Coroutine);
         //assert!(matches!(
         //    read_and_expect(interpreter, "l").as_class().unwrap().borrow().clone(),
         //    Class { name, .. } if name == "coroutine"
         //));
-        assert_type_is!(interpreter, "m", Code);
-        assert_type_class(interpreter, "n", Type::Code);
-        assert_type_class(interpreter, "o", Type::GetSetDescriptor);
-        assert_type_class(interpreter, "p", Type::Dict);
-        assert_type_class(interpreter, "q", Type::MemberDescriptor);
-        assert_type_class(interpreter, "r", Type::None);
-        assert_type_class(interpreter, "s", Type::MemberDescriptor);
-        assert_eq!(read(interpreter, "t"), str!("__main__"));
-        assert_eq!(read(interpreter, "u"), str!(""));
-        assert_eq!(read(interpreter, "v"), str!("_f"));
-        assert_eq!(read(interpreter, "w"), str!("_f"));
-        assert_eq!(read(interpreter, "x"), dict!(interpreter, {}));
-        assert_eq!(read(interpreter, "y"), tuple![]);
+        assert_variant!(ctx, "m", Code);
+        assert_type_eq!(ctx, "n", Type::Code);
+        assert_type_eq!(ctx, "o", Type::GetSetDescriptor);
+        assert_type_eq!(ctx, "p", Type::Dict);
+        assert_type_eq!(ctx, "q", Type::MemberDescriptor);
+        assert_type_eq!(ctx, "r", Type::None);
+        assert_type_eq!(ctx, "s", Type::MemberDescriptor);
+        assert_read_eq!(ctx, "t", str!("__main__"));
+        assert_read_eq!(ctx, "u", str!(""));
+        assert_read_eq!(ctx, "v", str!("_f"));
+        assert_read_eq!(ctx, "w", str!("_f"));
+        assert_read_eq!(ctx, "x", dict!(ctx.interpreter(), {}));
+        assert_read_eq!(ctx, "y", tuple![]);
 
         // Test early return
         let input = r#"
@@ -1867,10 +1729,9 @@ def foo():
 a = foo()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_read_eq!(ctx, "a", int!(4));
     }
 
     #[test]
@@ -1885,10 +1746,9 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), str!("Greater than 0"));
+        assert_read_eq!(ctx, "z", str!("Greater than 0"));
 
         let input = r#"
 z = "Empty"
@@ -1900,10 +1760,9 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), str!("Greater than -10"));
+        assert_read_eq!(ctx, "z", str!("Greater than -10"));
 
         let input = r#"
 z = "Empty"
@@ -1915,10 +1774,9 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), str!("Greater than -20"));
+        assert_read_eq!(ctx, "z", str!("Greater than -20"));
 
         let input = r#"
 z = "Empty"
@@ -1930,10 +1788,9 @@ elif y > -10:
 elif y > -20:
     z = "Greater than -20"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), str!("Empty"));
+        assert_read_eq!(ctx, "z", str!("Empty"));
 
         let input = r#"
 z = "Empty"
@@ -1947,10 +1804,9 @@ elif y > -20:
 else:
     z = "Else"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), str!("Else"));
+        assert_read_eq!(ctx, "z", str!("Else"));
 
         let input = r#"
 z = 0
@@ -1959,10 +1815,9 @@ if 4 in range(5):
 else:
     z = 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), int!(1));
+        assert_read_eq!(ctx, "z", int!(1));
     }
 
     #[test]
@@ -1973,10 +1828,9 @@ while z < 10:
     z = z + 1
     print("done")
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), int!(10));
+        assert_read_eq!(ctx, "z", int!(10));
     }
 
     #[test]
@@ -1990,10 +1844,9 @@ class Foo:
         print(self.x)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert!(interpreter.state.is_class("Foo"));
+        assert!(ctx.interpreter().state.is_class("Foo"));
     }
 
     #[test]
@@ -2007,14 +1860,13 @@ class Foo:
 foo = Foo(3)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert!(interpreter.state.is_class("Foo"));
-        assert!(!interpreter.state.is_class("foo"));
+        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert!(!ctx.interpreter().state.is_class("foo"));
 
-        assert_member_eq!(interpreter, "foo", "y", int!(3));
-        assert_member_eq!(interpreter, "foo", "x", int!(0));
+        assert_member_eq!(ctx, "foo", "y", int!(3));
+        assert_member_eq!(ctx, "foo", "x", int!(0));
 
         let input = r#"
 class Foo:
@@ -2029,16 +1881,15 @@ class Foo:
 foo = Foo(3)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert!(interpreter.state.is_class("Foo"));
-        assert!(!interpreter.state.is_class("foo"));
+        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert!(!ctx.interpreter().state.is_class("foo"));
 
         // This should be an object with foo.y == 3 and foo.x == 0 even
         // when the last line of the constructor did not touch self.
-        assert_member_eq!(interpreter, "foo", "y", int!(3));
-        assert_member_eq!(interpreter, "foo", "x", int!(0));
+        assert_member_eq!(ctx, "foo", "y", int!(3));
+        assert_member_eq!(ctx, "foo", "x", int!(0));
     }
 
     #[test]
@@ -2060,10 +1911,9 @@ foo = Foo(3)
 x = foo.bar()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "x"), int!(3));
+        assert_read_eq!(ctx, "x", int!(3));
 
         // Try the same test but with no constructor
         let input = r#"
@@ -2077,88 +1927,77 @@ foo = Foo()
 foo.bar()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert!(interpreter.state.is_class("Foo"));
-        assert!(!interpreter.state.is_class("foo"));
+        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert!(!ctx.interpreter().state.is_class("foo"));
 
         // These should be set even when it's not a constructor
-        assert_member_eq!(interpreter, "foo", "y", int!(3));
-        assert_member_eq!(interpreter, "foo", "x", int!(0));
+        assert_member_eq!(ctx, "foo", "y", int!(3));
+        assert_member_eq!(ctx, "foo", "x", int!(0));
     }
 
     #[test]
     fn regular_import() {
-        let mut context = init_path("src/fixtures/imports/regular_import.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/regular_import.py");
 
-        assert_eq!(read(interpreter, "x"), int!(5));
-        assert_eq!(read(interpreter, "y"), int!(6));
+        assert_read_eq!(ctx, "x", int!(5));
+        assert_read_eq!(ctx, "y", int!(6));
         // This previously returned [`Type::Method`], which was an issue with binding
         // classes (as callables) to their module.
-        assert_eq!(read(interpreter, "z").get_type(), Type::Type);
+        assert_variant!(ctx, "z", Class);
 
-        let mut context = init_path("src/fixtures/imports/regular_import_b.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/regular_import_b.py");
 
-        assert_eq!(read(interpreter, "y"), int!(7));
+        assert_read_eq!(ctx, "y", int!(7));
     }
 
     #[test]
     fn regular_import_relative() {
-        let mut context = init_path("src/fixtures/imports/relative/main_b.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/relative/main_b.py");
 
-        assert_eq!(read(interpreter, "x"), int!(2));
+        assert_read_eq!(ctx, "x", int!(2));
 
-        let mut context = init_path("src/fixtures/imports/relative/main_c.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/relative/main_c.py");
 
-        assert_eq!(read(interpreter, "x"), int!(2));
+        assert_read_eq!(ctx, "x", int!(2));
     }
 
     #[test]
     fn selective_import() {
-        let mut context = init_path("src/fixtures/imports/selective_import_a.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/selective_import_a.py");
 
-        assert_eq!(read(interpreter, "x"), int!(5));
+        assert_read_eq!(ctx, "x", int!(5));
 
-        let mut context = init_path("src/fixtures/imports/selective_import_b.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/selective_import_b.py");
 
-        assert_eq!(read(interpreter, "y"), int!(6));
-        assert_eq!(read(interpreter, "z"), int!(6));
+        assert_read_eq!(ctx, "y", int!(6));
+        assert_read_eq!(ctx, "z", int!(6));
 
-        let mut context = init_path("src/fixtures/imports/selective_import_c.py");
-        let e = run_expect_error(&mut context);
+        let mut ctx = init_path("src/fixtures/imports/selective_import_c.py");
+        let e = run_expect_error(&mut ctx);
 
-        test_utils::assert_name_error(&e, "something_third");
+        assert_name_error!(e, "something_third");
 
-        let mut context = init_path("src/fixtures/imports/selective_import_d.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/selective_import_d.py");
 
-        assert_eq!(read(interpreter, "z"), int!(8));
+        assert_read_eq!(ctx, "z", int!(8));
 
-        let mut context = init_path("src/fixtures/imports/selective_import_e.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/selective_import_e.py");
 
-        assert_eq!(read(interpreter, "x"), int!(8));
+        assert_read_eq!(ctx, "x", int!(8));
 
-        let mut context = init_path("src/fixtures/imports/selective_import_f.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/selective_import_f.py");
 
-        assert_eq!(read(interpreter, "y"), int!(6));
-        assert_eq!(read(interpreter, "z"), int!(6));
+        assert_read_eq!(ctx, "y", int!(6));
+        assert_read_eq!(ctx, "z", int!(6));
     }
 
     #[test]
     fn selective_import_relative() {
-        let mut context = init_path("src/fixtures/imports/relative/main_a.py");
-        let interpreter = run(&mut context);
+        let ctx = run_path("src/fixtures/imports/relative/main_a.py");
 
-        assert_eq!(read(interpreter, "x"), int!(2));
+        assert_read_eq!(ctx, "x", int!(2));
     }
 
     #[test]
@@ -2171,15 +2010,14 @@ d = 1.9 + 4
 e = d == 5.9
 f = d != 5.9
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), float!(3.14));
-        assert_eq!(read(interpreter, "b"), float!(3.1425));
-        assert_eq!(read(interpreter, "c"), float!(6.1));
-        assert_eq!(read(interpreter, "d"), float!(5.9));
-        assert_eq!(read(interpreter, "e"), bool!(true));
-        assert_eq!(read(interpreter, "f"), bool!(false));
+        assert_read_eq!(ctx, "a", float!(3.14));
+        assert_read_eq!(ctx, "b", float!(3.1425));
+        assert_read_eq!(ctx, "c", float!(6.1));
+        assert_read_eq!(ctx, "d", float!(5.9));
+        assert_read_eq!(ctx, "e", bool!(true));
+        assert_read_eq!(ctx, "f", bool!(false));
 
         let input = r#"
 def add(x, y):
@@ -2187,10 +2025,9 @@ def add(x, y):
 
 z = add(2.1, 3)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), float!(5.1));
+        assert_read_eq!(ctx, "z", float!(5.1));
     }
 
     #[test]
@@ -2207,28 +2044,27 @@ h = -(2+3)
 i = +3
 j = +(-3)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), float!(-3.14));
-        assert_eq!(read(interpreter, "b"), int!(-3));
-        assert_eq!(read(interpreter, "c"), int!(-1));
-        assert_eq!(read(interpreter, "d"), float!(-2e-3));
-        assert_eq!(read(interpreter, "e"), int!(-1));
-        assert_eq!(read(interpreter, "f"), int!(-1));
-        assert_eq!(read(interpreter, "g"), int!(-3));
-        assert_eq!(read(interpreter, "h"), int!(-5));
-        assert_eq!(read(interpreter, "i"), int!(3));
-        assert_eq!(read(interpreter, "j"), int!(-3));
+        assert_read_eq!(ctx, "a", float!(-3.14));
+        assert_read_eq!(ctx, "b", int!(-3));
+        assert_read_eq!(ctx, "c", int!(-1));
+        assert_read_eq!(ctx, "d", float!(-2e-3));
+        assert_read_eq!(ctx, "e", int!(-1));
+        assert_read_eq!(ctx, "f", int!(-1));
+        assert_read_eq!(ctx, "g", int!(-3));
+        assert_read_eq!(ctx, "h", int!(-5));
+        assert_read_eq!(ctx, "i", int!(3));
+        assert_read_eq!(ctx, "j", int!(-3));
     }
 
     #[test]
     fn call_stack() {
-        let mut context = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = run_expect_error(&mut context);
+        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
+        let e = run_expect_error(&mut ctx);
 
-        let call_stack = context.ensure_treewalk().state.debug_call_stack();
-        test_utils::assert_name_error(&e, "unknown");
+        let call_stack = ctx.interpreter().state.debug_call_stack();
+        assert_name_error!(e, "unknown");
 
         assert_eq!(call_stack.len(), 3);
         assert!(call_stack
@@ -2251,11 +2087,11 @@ j = +(-3)
         assert_eq!(call_stack.get(1).line_number(), 2);
         assert_eq!(call_stack.get(2).line_number(), 5);
 
-        let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut context);
+        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+        let e = run_expect_error(&mut ctx);
 
-        let call_stack = context.ensure_treewalk().state.debug_call_stack();
-        test_utils::assert_name_error(&e, "unknown");
+        let call_stack = ctx.interpreter().state.debug_call_stack();
+        assert_name_error!(e, "unknown");
 
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
@@ -2292,11 +2128,11 @@ a = 4
 b = 10
 c = foo()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let mut ctx = init(&input);
+        let e = run_expect_error(&mut ctx);
 
-        let call_stack = context.ensure_treewalk().state.debug_call_stack();
-        test_utils::assert_name_error(&e, "foo");
+        let call_stack = ctx.interpreter().state.debug_call_stack();
+        assert_name_error!(e, "foo");
 
         assert_eq!(call_stack.len(), 1);
         assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
@@ -2339,44 +2175,33 @@ s(5)
 t = [1,2]
 t.extend([3,4])
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![int!(1), int!(2), int!(3),]);
-        assert_eq!(
-            read(interpreter, "b"),
-            list![int!(1), TreewalkValue::FloatingPoint(2.1)]
-        );
-        assert_eq!(read(interpreter, "c"), list![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "e"), list![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "f"), list![int!(0), int!(1)]);
-        assert_eq!(read(interpreter, "g"), list![int!(1), int!(2)]);
-        assert_eq!(
-            read(interpreter, "h"),
-            list![int!(1), int!(2), int!(1), int!(2)]
-        );
-        assert_eq!(read(interpreter, "i"), list![]);
-        assert_type_is!(interpreter, "j", ListIterator);
-        assert_type_class(interpreter, "k", Type::ListIterator);
-        assert_eq!(read(interpreter, "l"), int!(1));
-        assert_eq!(read(interpreter, "m"), int!(5));
-        assert_eq!(read(interpreter, "n"), int!(0));
-        assert_type_is!(interpreter, "o", Method);
-        assert_type_class(interpreter, "p", Type::Method);
-        assert_eq!(read(interpreter, "q"), list![int!(1), int!(2), int!(3),]);
-        assert_type_is!(interpreter, "s", Method);
-        assert_eq!(read(interpreter, "r"), list![int!(3), int!(4), int!(5),]);
-        assert_eq!(
-            read(interpreter, "t"),
-            list![int!(1), int!(2), int!(3), int!(4)]
-        );
+        assert_read_eq!(ctx, "a", list![int!(1), int!(2), int!(3),]);
+        assert_read_eq!(ctx, "b", list![int!(1), float!(2.1)]);
+        assert_read_eq!(ctx, "c", list![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "d", list![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "e", list![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "f", list![int!(0), int!(1)]);
+        assert_read_eq!(ctx, "g", list![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "h", list![int!(1), int!(2), int!(1), int!(2)]);
+        assert_read_eq!(ctx, "i", list![]);
+        assert_variant!(ctx, "j", ListIterator);
+        assert_type_eq!(ctx, "k", Type::ListIterator);
+        assert_read_eq!(ctx, "l", int!(1));
+        assert_read_eq!(ctx, "m", int!(5));
+        assert_read_eq!(ctx, "n", int!(0));
+        assert_variant!(ctx, "o", Method);
+        assert_type_eq!(ctx, "p", Type::Method);
+        assert_read_eq!(ctx, "q", list![int!(1), int!(2), int!(3),]);
+        assert_variant!(ctx, "s", Method);
+        assert_read_eq!(ctx, "r", list![int!(3), int!(4), int!(5),]);
+        assert_read_eq!(ctx, "t", list![int!(1), int!(2), int!(3), int!(4)]);
 
         let input = "list([1,2,3], [1,2])";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "Found 3 args");
+        assert_type_error!(e, "Found 3 args");
     }
 
     #[test]
@@ -2400,31 +2225,26 @@ new_set.add("five")
 k = {1} <= {1,2}
 l = {1} <= {2}
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), set![int!(1), int!(2), int!(3),]);
-        assert_eq!(
-            read(interpreter, "b"),
-            set![TreewalkValue::FloatingPoint(2.1), int!(1),]
-        );
-        assert_eq!(read(interpreter, "c"), set![int!(1), int!(2),]);
-        assert_eq!(read(interpreter, "d"), set![int!(1), int!(2),]);
-        assert_eq!(read(interpreter, "e"), set![int!(1), int!(2),]);
-        assert_eq!(read(interpreter, "f"), set![int!(1), int!(2),]);
-        assert_eq!(read(interpreter, "g"), set![int!(0), int!(1),]);
-        assert_eq!(read(interpreter, "h"), set![]);
-        assert_type_is!(interpreter, "i", SetIterator);
-        assert_type_class(interpreter, "j", Type::SetIterator);
-        assert_eq!(read(interpreter, "new_set"), set![str!("five")]);
-        assert_eq!(read(interpreter, "k"), bool!(true));
-        assert_eq!(read(interpreter, "l"), bool!(false));
+        assert_read_eq!(ctx, "a", set![int!(1), int!(2), int!(3),]);
+        assert_read_eq!(ctx, "b", set![float!(2.1), int!(1),]);
+        assert_read_eq!(ctx, "c", set![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "d", set![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "e", set![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "f", set![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "g", set![int!(0), int!(1),]);
+        assert_read_eq!(ctx, "h", set![]);
+        assert_variant!(ctx, "i", SetIterator);
+        assert_type_eq!(ctx, "j", Type::SetIterator);
+        assert_read_eq!(ctx, "new_set", set![str!("five")]);
+        assert_read_eq!(ctx, "k", bool!(true));
+        assert_read_eq!(ctx, "l", bool!(false));
 
         let input = "set({1,2,3}, {1,2})";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "Found 3 args");
+        assert_type_error!(e, "Found 3 args");
     }
 
     #[test]
@@ -2442,28 +2262,23 @@ h = type(iter(()))
 i = (4,)
 j = 9, 10
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2), int!(3),]);
-        assert_eq!(
-            read(interpreter, "b"),
-            tuple![int!(1), TreewalkValue::FloatingPoint(2.1)]
-        );
-        assert_eq!(read(interpreter, "c"), tuple![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "d"), tuple![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "e"), tuple![int!(1), int!(2)]);
-        assert_eq!(read(interpreter, "f"), tuple![int!(0), int!(1)]);
-        assert_type_is!(interpreter, "g", TupleIterator);
-        assert_type_class(interpreter, "h", Type::TupleIterator);
-        assert_eq!(read(interpreter, "i"), tuple![int!(4),]);
-        assert_eq!(read(interpreter, "j"), tuple![int!(9), int!(10),]);
+        assert_read_eq!(ctx, "a", tuple![int!(1), int!(2), int!(3),]);
+        assert_read_eq!(ctx, "b", tuple![int!(1), float!(2.1)]);
+        assert_read_eq!(ctx, "c", tuple![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "d", tuple![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "e", tuple![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "f", tuple![int!(0), int!(1)]);
+        assert_variant!(ctx, "g", TupleIterator);
+        assert_type_eq!(ctx, "h", Type::TupleIterator);
+        assert_read_eq!(ctx, "i", tuple![int!(4),]);
+        assert_read_eq!(ctx, "j", tuple![int!(9), int!(10),]);
 
         let input = "tuple([1,2,3], [1,2])";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "Found 3 args");
+        assert_type_error!(e, "Found 3 args");
     }
 
     #[test]
@@ -2478,40 +2293,36 @@ d = (1,2,3)
 e = d[0]
 f = (1,2,3)[1]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![int!(10), int!(2), int!(3),]);
-        assert_eq!(read(interpreter, "b"), int!(1));
-        assert_eq!(read(interpreter, "c"), int!(2));
-        assert_eq!(read(interpreter, "e"), int!(1));
-        assert_eq!(read(interpreter, "f"), int!(2));
+        assert_read_eq!(ctx, "a", list![int!(10), int!(2), int!(3),]);
+        assert_read_eq!(ctx, "b", int!(1));
+        assert_read_eq!(ctx, "c", int!(2));
+        assert_read_eq!(ctx, "e", int!(1));
+        assert_read_eq!(ctx, "f", int!(2));
 
         let input = r#"
 d = (1,2,3)
 d[0] = 10
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "'tuple' object does not support item assignment");
+        assert_type_error!(e, "'tuple' object does not support item assignment");
 
         let input = r#"
 d = (1,2,3)
 del d[0]
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "'tuple' object does not support item deletion");
+        assert_type_error!(e, "'tuple' object does not support item deletion");
 
         let input = r#"
 4[1]
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "'int' object is not subscriptable");
+        assert_type_error!(e, "'int' object is not subscriptable");
     }
 
     #[test]
@@ -2526,12 +2337,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(20));
-        assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_read_eq!(ctx, "b", int!(20));
+        assert_read_eq!(ctx, "i", int!(8));
+        assert_read_eq!(ctx, "c", bool!(false));
 
         let input = r#"
 a = {2,4,6,8}
@@ -2543,12 +2353,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(20));
-        assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_read_eq!(ctx, "b", int!(20));
+        assert_read_eq!(ctx, "i", int!(8));
+        assert_read_eq!(ctx, "c", bool!(false));
 
         let input = r#"
 a = (2,4,6,8)
@@ -2560,12 +2369,11 @@ for i in a:
     print(b)
 print(b)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(20));
-        assert_eq!(read(interpreter, "i"), int!(8));
-        assert_eq!(read(interpreter, "c"), bool!(false));
+        assert_read_eq!(ctx, "b", int!(20));
+        assert_read_eq!(ctx, "i", int!(8));
+        assert_read_eq!(ctx, "c", bool!(false));
 
         let input = r#"
 b = 0
@@ -2573,10 +2381,9 @@ for i in range(5):
     b = b + i
 print(b)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(10));
+        assert_read_eq!(ctx, "b", int!(10));
 
         let input = r#"
 a = {"a": 1,"b": 2}
@@ -2585,10 +2392,9 @@ for k, v in a.items():
     b = b + v
 print(b)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(3));
+        assert_read_eq!(ctx, "b", int!(3));
     }
 
     #[test]
@@ -2608,14 +2414,13 @@ for i in r:
 for i in r:
     e += i
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", RangeIterator);
-        assert_type_class(interpreter, "b", Type::RangeIterator);
-        assert_type_class(interpreter, "c", Type::Range);
-        assert_eq!(read(interpreter, "d"), int!(3));
-        assert_eq!(read(interpreter, "e"), int!(6));
+        assert_variant!(ctx, "a", RangeIterator);
+        assert_type_eq!(ctx, "b", Type::RangeIterator);
+        assert_type_eq!(ctx, "c", Type::Range);
+        assert_read_eq!(ctx, "d", int!(3));
+        assert_read_eq!(ctx, "e", int!(6));
     }
 
     #[test]
@@ -2652,45 +2457,26 @@ s = type(NotImplemented)
 
 t = type(slice)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
+        assert_eq!(extract!(ctx, "b", Class).borrow().name(), "Foo");
         assert_eq!(
-            interpreter
-                .state
-                .read("b")
-                .unwrap()
-                .as_class()
-                .unwrap()
-                .borrow()
-                .name(),
+            extract!(ctx, "c", Object).borrow().class.borrow().name(),
             "Foo"
         );
-        assert_eq!(
-            interpreter
-                .state
-                .read("c")
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .borrow()
-                .class
-                .borrow()
-                .name(),
-            "Foo"
+        assert_read_eq!(ctx, "f", list![int!(1), int!(2), int!(3),]);
+        assert_read_eq!(ctx, "g", list![int!(4), int!(5),]);
+        assert_read_eq!(ctx, "j", set![int!(6), int!(7),]);
+        assert_read_eq!(ctx, "m", tuple![int!(8), int!(9),]);
+        assert_read_eq!(
+            ctx,
+            "p",
+            dict!(ctx.interpreter(), { str!("c") => int!(3), str!("d") => int!(4) })
         );
-        assert_eq!(read(interpreter, "f"), list![int!(1), int!(2), int!(3),]);
-        assert_eq!(read(interpreter, "g"), list![int!(4), int!(5),]);
-        assert_eq!(read(interpreter, "j"), set![int!(6), int!(7),]);
-        assert_eq!(read(interpreter, "m"), tuple![int!(8), int!(9),]);
-        assert_eq!(
-            read(interpreter, "p"),
-            dict!(interpreter, { str!("c") => int!(3), str!("d") => int!(4) })
-        );
-        assert_type_class(interpreter, "q", Type::None);
-        assert_type_class(interpreter, "r", Type::Ellipsis);
-        assert_type_class(interpreter, "s", Type::NotImplemented);
-        assert_type_class(interpreter, "t", Type::Type);
+        assert_type_eq!(ctx, "q", Type::None);
+        assert_type_eq!(ctx, "r", Type::Ellipsis);
+        assert_type_eq!(ctx, "s", Type::NotImplemented);
+        assert_type_eq!(ctx, "t", Type::Type);
     }
 
     #[test]
@@ -2702,16 +2488,12 @@ c = [ i * 2 for i in a if False ]
 d = [ j * 2 for j in a if j > 2 ]
 e = [x * y for x in range(1,3) for y in range(1,3)]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), list![int!(2), int!(4), int!(6),]);
-        assert_eq!(read(interpreter, "c"), list![]);
-        assert_eq!(read(interpreter, "d"), list![int!(6),]);
-        assert_eq!(
-            read(interpreter, "e"),
-            list![int!(1), int!(2), int!(2), int!(4),]
-        );
+        assert_read_eq!(ctx, "b", list![int!(2), int!(4), int!(6),]);
+        assert_read_eq!(ctx, "c", list![]);
+        assert_read_eq!(ctx, "d", list![int!(6),]);
+        assert_read_eq!(ctx, "e", list![int!(1), int!(2), int!(2), int!(4),]);
     }
 
     #[test]
@@ -2720,10 +2502,9 @@ e = [x * y for x in range(1,3) for y in range(1,3)]
 a = [1,2,3]
 b = { i * 2 for i in a }
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), set![int!(2), int!(4), int!(6),]);
+        assert_read_eq!(ctx, "b", set![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -2738,15 +2519,14 @@ f = a != [8,9]
 g = a != [8,10,9]
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), bool!(true));
-        assert_eq!(read(interpreter, "c"), bool!(false));
-        assert_eq!(read(interpreter, "d"), bool!(false));
-        assert_eq!(read(interpreter, "e"), bool!(true));
-        assert_eq!(read(interpreter, "f"), bool!(true));
-        assert_eq!(read(interpreter, "g"), bool!(true));
+        assert_read_eq!(ctx, "b", bool!(true));
+        assert_read_eq!(ctx, "c", bool!(false));
+        assert_read_eq!(ctx, "d", bool!(false));
+        assert_read_eq!(ctx, "e", bool!(true));
+        assert_read_eq!(ctx, "f", bool!(true));
+        assert_read_eq!(ctx, "g", bool!(true));
     }
 
     #[test]
@@ -2763,12 +2543,11 @@ c = next(a)
 d = next(a)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(5));
-        assert_eq!(read(interpreter, "c"), int!(4));
-        assert_eq!(read(interpreter, "d"), int!(3));
+        assert_read_eq!(ctx, "b", int!(5));
+        assert_read_eq!(ctx, "c", int!(4));
+        assert_read_eq!(ctx, "d", int!(3));
 
         let input = r#"
 def countdown(n):
@@ -2779,10 +2558,9 @@ b = next(a)
 c = next(a)
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::StopIteration);
+        assert_error_eq!(e, ExecutionErrorKind::StopIteration);
     }
 
     #[test]
@@ -2798,10 +2576,9 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), int!(12));
+        assert_read_eq!(ctx, "z", int!(12));
 
         let input = r#"
 def countdown(n):
@@ -2812,10 +2589,9 @@ def countdown(n):
 z = [ i for i in countdown(5) ]
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), list![int!(5), int!(4), int!(3)]);
+        assert_read_eq!(ctx, "z", list![int!(5), int!(4), int!(3)]);
     }
 
     #[test]
@@ -2831,10 +2607,9 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), int!(15));
+        assert_read_eq!(ctx, "z", int!(15));
 
         let input = r#"
 def countdown(n):
@@ -2846,10 +2621,9 @@ for i in countdown(5):
     z = z + i
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "z"), int!(10));
+        assert_read_eq!(ctx, "z", int!(10));
 
         let input = r#"
 def countdown():
@@ -2859,10 +2633,9 @@ def countdown():
 a = list(countdown())
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![int!(2), int!(4),]);
+        assert_read_eq!(ctx, "a", list![int!(2), int!(4),]);
 
         let input = r#"
 def countdown(n):
@@ -2884,12 +2657,11 @@ b = [ i for i in countdown(3) ]
 c = [ i for i in countdown(7) ]
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![int!(4), int!(6),]);
-        assert_eq!(read(interpreter, "b"), list![int!(3), int!(2), int!(1)]);
-        assert_eq!(read(interpreter, "c"), list![int!(7), int!(8), int!(9)]);
+        assert_read_eq!(ctx, "a", list![int!(4), int!(6),]);
+        assert_read_eq!(ctx, "b", list![int!(3), int!(2), int!(1)]);
+        assert_read_eq!(ctx, "c", list![int!(7), int!(8), int!(9)]);
     }
 
     #[test]
@@ -2908,13 +2680,12 @@ a = f.baz()
 b = f.x
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert!(interpreter.state.is_class("Foo"));
-        assert!(interpreter.state.is_class("Parent"));
-        assert_eq!(read(interpreter, "a"), int!(4));
-        assert_eq!(read(interpreter, "b"), int!(12));
+        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert!(ctx.interpreter().state.is_class("Parent"));
+        assert_read_eq!(ctx, "a", int!(4));
+        assert_read_eq!(ctx, "b", int!(12));
 
         let input = r#"
 class Parent:
@@ -2934,30 +2705,23 @@ a = f.baz()
 b = f.bar()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
-        assert_eq!(read(interpreter, "b"), int!(11));
+        assert_read_eq!(ctx, "a", int!(4));
+        assert_read_eq!(ctx, "b", int!(11));
 
         let input = r#"
 class abstractclassmethod(classmethod):
     pass
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
         // This used to throw an error based on classmethod not yet being a class. This is
         // found in abc.py in the Python standard lib.
-        assert_type_is!(interpreter, "abstractclassmethod", Class);
+        assert_variant!(ctx, "abstractclassmethod", Class);
         assert_eq!(
-            interpreter
-                .state
-                .read("abstractclassmethod")
-                .unwrap()
-                .as_class()
-                .unwrap()
+            extract!(ctx, "abstractclassmethod", Class)
                 .super_mro()
                 .first()
                 .unwrap()
@@ -2991,10 +2755,9 @@ class ChildTwo(Parent):
 d = ChildTwo().three()
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "ChildTwo", "x");
+        assert_attribute_error!(e, "ChildTwo", "x");
 
         // Test that multiple levels of a hierarchy can be traversed.
         let input = r#"
@@ -3020,11 +2783,10 @@ d = child_three.three()
 e = child_three.one()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "d"), int!(3));
-        assert_eq!(read(interpreter, "e"), int!(1));
+        assert_read_eq!(ctx, "d", int!(3));
+        assert_read_eq!(ctx, "e", int!(1));
 
         // Test that an attribute defined in a parent's constructor is stored in the child.
         let input = r#"
@@ -3040,10 +2802,9 @@ child = Child()
 c = child.three()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "c"), int!(3));
+        assert_read_eq!(ctx, "c", int!(3));
 
         // Check that calls to `super()` return a `Type::Super`.
         let input = r#"
@@ -3067,15 +2828,14 @@ e = type(b)
 f = type(c)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Super);
-        assert_type_is!(interpreter, "b", Super);
-        assert_type_is!(interpreter, "c", Super);
-        assert_type_class(interpreter, "d", Type::Super);
-        assert_type_class(interpreter, "e", Type::Super);
-        assert_type_class(interpreter, "f", Type::Super);
+        assert_variant!(ctx, "a", Super);
+        assert_variant!(ctx, "b", Super);
+        assert_variant!(ctx, "c", Super);
+        assert_type_eq!(ctx, "d", Type::Super);
+        assert_type_eq!(ctx, "e", Type::Super);
+        assert_type_eq!(ctx, "f", Type::Super);
 
         // Check that calls to `super()` works in an instance method.
         let input = r#"
@@ -3091,10 +2851,9 @@ child = Child()
 a = child.one()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_read_eq!(ctx, "a", int!(1));
 
         // Check that calls to `super()` works in an instance method including references to `self`.
         let input = r#"
@@ -3120,11 +2879,10 @@ a = child.one()
 b = child.two()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
 
         // Check that calls to `super()` works in a class method.
         let input = r#"
@@ -3142,10 +2900,9 @@ child = Child()
 b = child.two()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(2));
+        assert_read_eq!(ctx, "b", int!(2));
 
         // Check that calls to `super()` works in a class method included references to `cls`.
         let input = r#"
@@ -3165,10 +2922,9 @@ child = Child()
 b = child.two()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(12));
+        assert_read_eq!(ctx, "b", int!(12));
     }
 
     #[test]
@@ -3181,12 +2937,9 @@ class Foo(Bar, Baz): pass
 a = Foo.__mro__
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        let mro = read(interpreter, "a")
-            .as_tuple()
-            .expect("Expected a tuple")
+        let mro = extract!(ctx, "a", Tuple)
             .into_iter()
             .map(|i| i.as_class().unwrap().borrow().name().to_string())
             .collect::<Vec<String>>();
@@ -3206,12 +2959,12 @@ a = Foo.__mro__
         let input = r#"
 a = { "b": 4, 'c': 5 }
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        assert_read_eq!(
+            ctx,
+            "a",
+            dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
         );
 
         let input = r#"
@@ -3243,65 +2996,54 @@ u = type({}.items())
 v = [ val for val in a ]
 w = { key for key, value in a.items() }
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        assert_read_eq!(
+            ctx,
+            "a",
+            dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
         );
-        assert_eq!(
-            read(interpreter, "b"),
-            TreewalkValue::DictItems(DictItems::new(
-                interpreter.clone(),
+        assert_read_eq!(
+            ctx,
+            "b",
+            dict_items!(
+                ctx.interpreter(),
                 vec![(str!("b"), int!(4)), (str!("c"), int!(5)),]
-            ))
+            )
         );
-        assert_eq!(
-            read(interpreter, "c"),
-            dict!(interpreter, { str!("b") => int!(8), str!("c") => int!(10) })
+        assert_read_eq!(
+            ctx,
+            "c",
+            dict!(ctx.interpreter(), { str!("b") => int!(8), str!("c") => int!(10) })
         );
-        assert_eq!(
-            read(interpreter, "d"),
-            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        assert_read_eq!(
+            ctx,
+            "d",
+            dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
         );
-        assert_eq!(
-            read(interpreter, "e"),
-            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        assert_read_eq!(
+            ctx,
+            "e",
+            dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
         );
-        assert_eq!(read(interpreter, "f"), int!(4));
-        assert_eq!(read(interpreter, "g"), dict!(interpreter, {}));
-        assert_eq!(
-            read(interpreter, "h"),
-            TreewalkValue::DictItems(DictItems::default())
-        );
-        assert_type_is!(interpreter, "q", DictItemsIterator);
-        assert_type_class(interpreter, "r", Type::DictItemIterator);
-        assert_eq!(
-            read(interpreter, "i"),
-            TreewalkValue::DictKeys(DictKeys::new(vec![]))
-        );
-        assert_eq!(
-            read(interpreter, "j"),
-            TreewalkValue::DictKeys(DictKeys::new(vec![str!("b"), str!("c"),]))
-        );
-        assert_type_is!(interpreter, "k", DictKeysIterator);
-        assert_type_class(interpreter, "l", Type::DictKeyIterator);
-        assert_eq!(
-            read(interpreter, "m"),
-            TreewalkValue::DictValues(DictValues::new(vec![]))
-        );
-        assert_eq!(
-            read(interpreter, "n"),
-            TreewalkValue::DictValues(DictValues::new(vec![int!(4), int!(5),]))
-        );
-        assert_type_is!(interpreter, "o", DictValuesIterator);
-        assert_type_class(interpreter, "p", Type::DictValueIterator);
-        assert_type_class(interpreter, "s", Type::DictKeys);
-        assert_type_class(interpreter, "t", Type::DictValues);
-        assert_type_class(interpreter, "u", Type::DictItems);
-        assert_eq!(read(interpreter, "v"), list![str!("b"), str!("c"),]);
-        assert_eq!(read(interpreter, "w"), set![str!("b"), str!("c"),]);
+        assert_read_eq!(ctx, "f", int!(4));
+        assert_read_eq!(ctx, "g", dict!(ctx.interpreter(), {}));
+        assert_read_eq!(ctx, "h", dict_items![]);
+        assert_variant!(ctx, "q", DictItemsIterator);
+        assert_type_eq!(ctx, "r", Type::DictItemIterator);
+        assert_read_eq!(ctx, "i", dict_keys![]);
+        assert_read_eq!(ctx, "j", dict_keys![str!("b"), str!("c"),]);
+        assert_variant!(ctx, "k", DictKeysIterator);
+        assert_type_eq!(ctx, "l", Type::DictKeyIterator);
+        assert_read_eq!(ctx, "m", dict_values![]);
+        assert_read_eq!(ctx, "n", dict_values![int!(4), int!(5),]);
+        assert_variant!(ctx, "o", DictValuesIterator);
+        assert_type_eq!(ctx, "p", Type::DictValueIterator);
+        assert_type_eq!(ctx, "s", Type::DictKeys);
+        assert_type_eq!(ctx, "t", Type::DictValues);
+        assert_type_eq!(ctx, "u", Type::DictItems);
+        assert_read_eq!(ctx, "v", list![str!("b"), str!("c"),]);
+        assert_read_eq!(ctx, "w", set![str!("b"), str!("c"),]);
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
@@ -3309,23 +3051,22 @@ b = a.get("b")
 c = a.get("d")
 d = a.get("d", 99)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(4));
-        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
-        assert_eq!(read(interpreter, "d"), int!(99));
+        assert_read_eq!(ctx, "b", int!(4));
+        assert_read_eq!(ctx, "c", none!());
+        assert_read_eq!(ctx, "d", int!(99));
 
         let input = r#"
 a = { "b": 4, 'c': 5 }
 b = { **a }
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            dict!(interpreter, { str!("b") => int!(4), str!("c") => int!(5) })
+        assert_read_eq!(
+            ctx,
+            "b",
+            dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
         );
 
         let input = r#"
@@ -3333,16 +3074,17 @@ inner = { 'key': 'inner' }
 b = { 'key': 'outer', **inner }
 c = { **inner, 'key': 'outer' }
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(
-            read(interpreter, "b"),
-            dict!(interpreter, { str!("key") => str!("inner") })
+        assert_read_eq!(
+            ctx,
+            "b",
+            dict!(ctx.interpreter(), { str!("key") => str!("inner") })
         );
-        assert_eq!(
-            read(interpreter, "c"),
-            dict!(interpreter, { str!("key") => str!("outer") })
+        assert_read_eq!(
+            ctx,
+            "c",
+            dict!(ctx.interpreter(), { str!("key") => str!("outer") })
         );
     }
 
@@ -3351,16 +3093,14 @@ c = { **inner, 'key': 'outer' }
         let input = r#"
 assert True
 "#;
-        let mut context = init(input);
-        let _ = run(&mut context);
+        let _ = run(input);
 
         let input = r#"
 assert False
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::AssertionError);
+        assert_error_eq!(e, ExecutionErrorKind::AssertionError);
     }
 
     #[test]
@@ -3373,10 +3113,9 @@ except:
 finally:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
+        assert_read_eq!(ctx, "a", int!(3));
 
         let input = r#"
 try:
@@ -3384,10 +3123,9 @@ try:
 except:
     a = 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 try:
@@ -3395,10 +3133,9 @@ try:
 except:
     a = 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_read_eq!(ctx, "a", int!(4));
 
         let input = r#"
 try:
@@ -3408,10 +3145,9 @@ except:
 finally:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
+        assert_read_eq!(ctx, "a", int!(3));
 
         // TODO should this move to the parser?
         //
@@ -3434,10 +3170,9 @@ except ZeroDivisionError:
 except Exception:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 try:
@@ -3448,10 +3183,9 @@ except ZeroDivisionError:
 except Exception:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
+        assert_read_eq!(ctx, "a", int!(3));
 
         let input = r#"
 try:
@@ -3462,10 +3196,9 @@ except ZeroDivisionError:
 except:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
+        assert_read_eq!(ctx, "a", int!(3));
 
         let input = r#"
 try:
@@ -3476,12 +3209,11 @@ except ZeroDivisionError:
 except Exception as e:
     a = 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
-        let e = extract!(interpreter, "e", Exception);
-        test_utils::assert_name_error(&e, "b");
+        assert_read_eq!(ctx, "a", int!(3));
+        let e = extract!(ctx, "e", Exception);
+        assert_name_error!(e, "b");
 
         let input = r#"
 try:
@@ -3490,10 +3222,9 @@ try:
 except (ZeroDivisionError, Exception):
     a = 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 try:
@@ -3502,10 +3233,9 @@ try:
 except (Exception, ZeroDivisionError):
     a = 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 try:
@@ -3517,10 +3247,9 @@ except Exception as e:
 else:
     a = 4
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_read_eq!(ctx, "a", int!(4));
 
         let input = r#"
 try:
@@ -3534,10 +3263,9 @@ else:
 finally:
     a = 5
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_read_eq!(ctx, "a", int!(5));
 
         // Uncaught exception
         let input = r#"
@@ -3546,12 +3274,11 @@ try:
 except ValueError:
     a = 2
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(
-            &e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
+        assert_error_eq!(
+            e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into())
         );
 
         let input = r#"
@@ -3560,12 +3287,11 @@ try:
 except ZeroDivisionError:
     raise
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(
-            &e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into()),
+        assert_error_eq!(
+            e,
+            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into())
         );
     }
 
@@ -3575,15 +3301,14 @@ except ZeroDivisionError:
 def test_kwargs(**kwargs):
     print(kwargs['a'])
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
         let expected_args = Params {
             args: vec![],
             args_var: None,
             kwargs_var: Some("kwargs".into()),
         };
-        let f = extract!(interpreter, "test_kwargs", Function);
+        let f = extract!(ctx, "test_kwargs", Function);
         assert_eq!(f.borrow().args, expected_args);
 
         let input = r#"
@@ -3594,11 +3319,10 @@ a = test_kwargs(a=5, b=2)
 # A second test to ensure the value is not being set using b=2
 b = test_kwargs(a=5, b=2)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -3608,11 +3332,10 @@ a = test_kwargs(**{'a': 5, 'b': 2})
 c = {'a': 4, 'b': 3}
 b = test_kwargs(**c)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(4));
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(4));
 
         let input = r#"
 def test_kwargs(**kwargs):
@@ -3622,10 +3345,9 @@ first = {'a': 44 }
 second = {'b': 55 }
 b = test_kwargs(**first, **second)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), tuple![int!(44), int!(55),]);
+        assert_read_eq!(ctx, "b", tuple![int!(44), int!(55),]);
 
         let input = r#"
 def test_args(*args):
@@ -3634,10 +3356,9 @@ def test_args(*args):
 c = [0, 1]
 b = test_args(*c)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_read_eq!(ctx, "b", int!(1));
 
         let input = r#"
 def test_args(*args):
@@ -3646,10 +3367,9 @@ def test_args(*args):
 c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_read_eq!(ctx, "b", int!(1));
 
         let input = r#"
 def test_args(one, two, *args):
@@ -3658,10 +3378,9 @@ def test_args(one, two, *args):
 c = [2, 3]
 b = test_args(0, 1, *c)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(3));
+        assert_read_eq!(ctx, "b", int!(3));
 
         let input = r#"
 def test_args(one, two):
@@ -3669,12 +3388,11 @@ def test_args(one, two):
 
 b = test_args(0)
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(
-            &e,
-            "test_args() missing 1 required positional argument: 'two'",
+        assert_type_error!(
+            e,
+            "test_args() missing 1 required positional argument: 'two'"
         );
 
         let input = r#"
@@ -3683,12 +3401,11 @@ def test_args(one, two, three):
 
 b = test_args(0)
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(
-            &e,
-            "test_args() missing 2 required positional arguments: 'two' and 'three'",
+        assert_type_error!(
+            e,
+            "test_args() missing 2 required positional arguments: 'two' and 'three'"
         );
 
         let input = r#"
@@ -3697,10 +3414,9 @@ def test_args(one, two):
 
 b = test_args(1, 2, 3)
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "Found 3 args");
+        assert_type_error!(e, "Found 3 args");
 
         let input = r#"
 def test_args(one, two, *args):
@@ -3708,10 +3424,9 @@ def test_args(one, two, *args):
 
 b = test_args(1, 2)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), tuple![]);
+        assert_read_eq!(ctx, "b", tuple![]);
 
         let input = r#"
 class Foo:
@@ -3721,10 +3436,9 @@ class Foo:
 foo = Foo(a=5)
 a = foo.a
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_read_eq!(ctx, "a", int!(5));
     }
 
     #[test]
@@ -3739,11 +3453,10 @@ def _cell_factory():
 a = type(_cell_factory()[0])
 b = _cell_factory()[0].cell_contents
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Cell);
-        assert_eq!(read(interpreter, "b"), int!(1));
+        assert_type_eq!(ctx, "a", Type::Cell);
+        assert_read_eq!(ctx, "b", int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -3757,12 +3470,11 @@ a = type(_cell_factory()[0])
 b = _cell_factory()[0].cell_contents
 c = len(_cell_factory())
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Cell);
-        assert_eq!(read(interpreter, "b"), int!(1));
-        assert_eq!(read(interpreter, "c"), int!(1));
+        assert_type_eq!(ctx, "a", Type::Cell);
+        assert_read_eq!(ctx, "b", int!(1));
+        assert_read_eq!(ctx, "c", int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -3777,12 +3489,11 @@ a = _cell_factory()[0].cell_contents
 b = _cell_factory()[1].cell_contents
 c = len(_cell_factory())
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
-        assert_eq!(read(interpreter, "b"), int!(2));
-        assert_eq!(read(interpreter, "c"), int!(2));
+        assert_read_eq!(ctx, "a", int!(1));
+        assert_read_eq!(ctx, "b", int!(2));
+        assert_read_eq!(ctx, "c", int!(2));
 
         let input = r#"
 def _cell_factory():
@@ -3796,10 +3507,9 @@ def _cell_factory():
 
 c = len(_cell_factory())
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "c"), int!(1));
+        assert_read_eq!(ctx, "c", int!(1));
 
         let input = r#"
 def _cell_factory():
@@ -3811,10 +3521,9 @@ def _cell_factory():
 
 c = _cell_factory()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "c"), TreewalkValue::None);
+        assert_read_eq!(ctx, "c", none!());
     }
 
     #[test]
@@ -3841,12 +3550,11 @@ a = test_decorator(get_val_undecorated)()
 b = get_val_decorated()
 c = twice_decorated()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
-        assert_eq!(read(interpreter, "b"), int!(4));
-        assert_eq!(read(interpreter, "c"), int!(8));
+        assert_read_eq!(ctx, "a", int!(4));
+        assert_read_eq!(ctx, "b", int!(4));
+        assert_read_eq!(ctx, "c", int!(8));
 
         let input = r#"
 def multiply(factor):
@@ -3867,11 +3575,10 @@ def get_larger_val():
 a = get_val()
 b = get_larger_val()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
-        assert_eq!(read(interpreter, "b"), int!(8));
+        assert_read_eq!(ctx, "a", int!(6));
+        assert_read_eq!(ctx, "b", int!(8));
 
         let input = r#"
 def normalize(func):
@@ -3890,10 +3597,9 @@ class Foo:
 f = Foo(7)
 a = f.calculate(2)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(14));
+        assert_read_eq!(ctx, "a", int!(14));
 
         let input = r#"
 def normalize(base=3):
@@ -3914,10 +3620,9 @@ class Foo:
 f = Foo(7)
 a = f.calculate(2)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(42));
+        assert_read_eq!(ctx, "a", int!(42));
     }
 
     #[test]
@@ -3932,10 +3637,9 @@ class Foo:
 f = Foo()
 a = f.calculate(2)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(18));
+        assert_read_eq!(ctx, "a", int!(18));
     }
 
     #[test]
@@ -3943,18 +3647,16 @@ a = f.calculate(2)
         let input = r#"
 raise TypeError
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error_optional_message(&e, None);
+        assert_type_error!(e);
 
         let input = r#"
 raise TypeError('type is no good')
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "type is no good");
+        assert_type_error!(e, "type is no good");
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -3994,31 +3696,26 @@ l = type(errno)
 sys.modules['os.path'] = "os_path"
 m = sys.modules['os.path']
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Integer);
-        assert_type_is!(interpreter, "b", FloatingPoint);
-        assert_type_is!(interpreter, "c", String);
-        assert_type_is!(interpreter, "d", String);
-        let a = extract!(interpreter, "a", Integer);
-        assert!(a > 0);
-        let b = extract!(interpreter, "b", FloatingPoint);
-        assert!(b > 1701281981.0);
-        let c = extract!(interpreter, "c", String);
-        assert!(c.len() > 10);
-        let d = extract!(interpreter, "d", String);
-        assert!(d.len() > 10);
-        assert_type_is!(interpreter, "ref", CPythonObject);
-        assert_type_is!(interpreter, "e", CPythonClass);
-        assert_type_class(interpreter, "f", Type::Module);
-        assert_type_class(interpreter, "g", Type::Module);
-        assert_type_class(interpreter, "h", Type::Module);
-        assert_type_class(interpreter, "i", Type::Tuple);
-        assert_type_class(interpreter, "j", Type::Module);
-        assert_type_class(interpreter, "k", Type::Module);
-        assert_type_class(interpreter, "l", Type::Module);
-        assert_eq!(read(interpreter, "m"), str!("os_path"));
+        assert_variant!(ctx, "a", Integer);
+        assert_variant!(ctx, "b", FloatingPoint);
+        assert_variant!(ctx, "c", String);
+        assert_variant!(ctx, "d", String);
+        assert!(extract!(ctx, "a", Integer) > 0);
+        assert!(extract!(ctx, "b", FloatingPoint) > 1701281981.0);
+        assert!(extract!(ctx, "c", String).len() > 10);
+        assert!(extract!(ctx, "d", String).len() > 10);
+        assert_variant!(ctx, "ref", CPythonObject);
+        assert_variant!(ctx, "e", CPythonClass);
+        assert_type_eq!(ctx, "f", Type::Module);
+        assert_type_eq!(ctx, "g", Type::Module);
+        assert_type_eq!(ctx, "h", Type::Module);
+        assert_type_eq!(ctx, "i", Type::Tuple);
+        assert_type_eq!(ctx, "j", Type::Module);
+        assert_type_eq!(ctx, "k", Type::Module);
+        assert_type_eq!(ctx, "l", Type::Module);
+        assert_read_eq!(ctx, "m", str!("os_path"));
     }
 
     #[test]
@@ -4044,10 +3741,9 @@ with MyContextManager() as cm:
 
 a = cm.a
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(3));
+        assert_read_eq!(ctx, "a", int!(3));
 
         let input = r#"
 class MyContextManager:
@@ -4064,10 +3760,9 @@ class MyContextManager:
 with MyContextManager() as cm:
     cm.call()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
 
         let input = r#"
 class MyContextManager:
@@ -4084,10 +3779,9 @@ class MyContextManager:
 with MyContextManager() as cm:
     cm.call()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
     }
 
     #[test]
@@ -4096,29 +3790,26 @@ with MyContextManager() as cm:
 a = 4
 del a
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read_optional(interpreter, "a"), None);
+        assert_eq!(read_optional(&ctx, "a"), None);
 
         let input = r#"
 a = {'b': 1, 'c': 2}
 del a['b']
 c = a['b']
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_key_error(&e, "b");
+        assert_key_error!(e, "b");
 
         let input = r#"
 a = [0,1,2]
 del a[1]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![int!(0), int!(2)]);
+        assert_read_eq!(ctx, "a", list![int!(0), int!(2)]);
 
         let input = r#"
 class Foo:
@@ -4129,10 +3820,9 @@ f = Foo()
 del f.x
 a = f.x
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "Foo", "x");
+        assert_attribute_error!(e, "Foo", "x");
 
         let input = r#"
 class Foo:
@@ -4142,10 +3832,9 @@ class Foo:
 f = Foo()
 del f.bar
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "Foo", "bar");
+        assert_attribute_error!(e, "Foo", "bar");
 
         let input = r#"
 a = 4
@@ -4153,131 +3842,99 @@ b = 5
 c = 6
 del a, c
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read_optional(interpreter, "a"), None);
-        assert_eq!(read(interpreter, "b"), int!(5));
-        assert_eq!(read_optional(interpreter, "c"), None);
+        assert_eq!(read_optional(&ctx, "a"), None);
+        assert_read_eq!(ctx, "b", int!(5));
+        assert_eq!(read_optional(&ctx, "c"), None);
     }
 
     #[test]
     fn byte_string() {
         let input = r#"
-a = b'hello'
+b'hello'
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("hello".into()));
+        assert_eval_eq!(input, bytes!("hello"));
 
         let input = r#"
 a = iter(b'hello')
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", BytesIterator);
+        assert_variant!(ctx, "a", BytesIterator);
 
         let input = r#"
 a = type(iter(b'hello'))
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIterator);
     }
 
     #[test]
     fn byte_array() {
         let input = r#"
-a = bytearray()
+bytearray()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(
-            read(interpreter, "a"),
-            TreewalkValue::ByteArray(Container::new(ByteArray::new("".into())))
-        );
+        assert_eval_eq!(input, bytearray!());
 
         let input = r#"
-a = bytearray(b'hello')
+bytearray(b'hello')
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(
-            read(interpreter, "a"),
-            TreewalkValue::ByteArray(Container::new(ByteArray::new("hello".into())))
-        );
+        assert_eval_eq!(input, bytearray!("hello"));
 
         let input = r#"
-a = bytearray('hello')
+bytearray('hello')
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "string argument without an encoding");
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytearray())
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", ByteArrayIterator);
+        assert_variant!(ctx, "a", ByteArrayIterator);
 
         let input = r#"
 a = type(iter(bytearray()))
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::ByteArrayIterator);
+        assert_type_eq!(ctx, "a", Type::ByteArrayIterator);
     }
 
     #[test]
     fn bytes_builtin() {
         let input = r#"
-a = bytes()
+bytes()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("".into()));
+        assert_eval_eq!(input, bytes!());
 
         let input = r#"
-a = bytes(b'hello')
+bytes(b'hello')
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), TreewalkValue::Bytes("hello".into()));
+        assert_eval_eq!(input, bytes!("hello"));
 
         let input = r#"
-a = bytes('hello')
+bytes('hello')
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "string argument without an encoding");
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytes())
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", BytesIterator);
+        assert_variant!(ctx, "a", BytesIterator);
 
         let input = r#"
 a = type(iter(bytes()))
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIterator);
     }
 
     #[test]
@@ -4286,109 +3943,97 @@ a = type(iter(bytes()))
 a = 5
 a += 1
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_read_eq!(ctx, "a", int!(6));
 
         let input = r#"
 a = 5
 a -= 1
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_read_eq!(ctx, "a", int!(4));
 
         let input = r#"
 a = 5
 a *= 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(10));
+        assert_read_eq!(ctx, "a", int!(10));
 
         let input = r#"
 a = 5
 a /= 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 a = 0b0101
 a &= 0b0100
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(4));
+        assert_read_eq!(ctx, "a", int!(4));
 
         let input = r#"
 a = 0b0101
 a |= 0b1000
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(13));
+        assert_read_eq!(ctx, "a", int!(13));
 
         let input = r#"
 a = 0b0101
 a ^= 0b0100
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_read_eq!(ctx, "a", int!(1));
 
         let input = r#"
 a = 5
 a //= 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 a = 0b0101
 a <<= 1
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(10));
+        assert_read_eq!(ctx, "a", int!(10));
 
         let input = r#"
 a = 0b0101
 a >>= 1
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(2));
+        assert_read_eq!(ctx, "a", int!(2));
 
         let input = r#"
 a = 11
 a %= 2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
+        assert_read_eq!(ctx, "a", int!(1));
 
         let input = r#"
 a = 2
 a **= 3
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(8));
+        assert_read_eq!(ctx, "a", int!(8));
     }
 
     #[test]
@@ -4396,20 +4041,18 @@ a **= 3
         let input = r#"
 a = iter([1,2,3])
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", ListIterator);
+        assert_variant!(ctx, "a", ListIterator);
 
         let input = r#"
 b = 0
 for i in iter([1,2,3]):
     b += i
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(6));
+        assert_read_eq!(ctx, "b", int!(6));
     }
 
     #[test]
@@ -4418,10 +4061,9 @@ for i in iter([1,2,3]):
 name = "John"
 a = f"Hello {name}"
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), str!("Hello John"));
+        assert_read_eq!(ctx, "a", str!("Hello John"));
     }
 
     #[test]
@@ -4434,75 +4076,13 @@ d = type(iter(reversed([])))
 
 e = [ i for i in reversed([1,2,3]) ]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", ReversedIterator);
-        assert_type_is!(interpreter, "b", ReversedIterator);
-        assert_type_class(interpreter, "c", Type::ReversedIterator);
-        assert_type_class(interpreter, "d", Type::ReversedIterator);
-        assert_eq!(read(interpreter, "e"), list![int!(3), int!(2), int!(1),]);
-    }
-
-    #[test]
-    fn binary_operators() {
-        let input = "a = 0x1010 & 0x0011";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(0x0010));
-
-        let input = "a = 0o1010 | 0o0011";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(0o1011));
-
-        let input = "a = 0b1010 ^ 0b0011";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(0b1001));
-
-        let input = "a = 23 % 5";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(3));
-
-        let input = "a = 0b0010 << 1";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(0b0100));
-
-        let input = "a = 2 * 3 << 2 + 4 & 205";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(128));
-
-        let input = "a = ~0b1010";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(-11));
-
-        let input = "a = ~5.5";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "bad operand type for unary ~: 'float'");
-
-        // This tests the right-associativity of exponentiation.
-        // right-associativity gives 2 ** (3 ** 2) == 512
-        // NOT
-        // left-associativity which gives (2 ** 3) ** 2 == 64
-        let input = "a = 2 ** 3 ** 2";
-        let mut context = init(input);
-        let interpreter = run(&mut context);
-
-        assert_eq!(read(interpreter, "a"), int!(512));
+        assert_variant!(ctx, "a", ReversedIterator);
+        assert_variant!(ctx, "b", ReversedIterator);
+        assert_type_eq!(ctx, "c", Type::ReversedIterator);
+        assert_type_eq!(ctx, "d", Type::ReversedIterator);
+        assert_read_eq!(ctx, "e", list![int!(3), int!(2), int!(1),]);
     }
 
     #[test]
@@ -4514,10 +4094,9 @@ for i in [1,2,3,4,5,6]:
         break
     a += i
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_read_eq!(ctx, "a", int!(6));
 
         let input = r#"
 a = 0
@@ -4526,10 +4105,9 @@ for i in [1,2,3,4,5,6]:
         continue
     a += i
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(17));
+        assert_read_eq!(ctx, "a", int!(17));
 
         let input = r#"
 a = 0
@@ -4541,10 +4119,9 @@ while i < 6:
         break
     a += b[i-1]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_read_eq!(ctx, "a", int!(6));
 
         let input = r#"
 a = 0
@@ -4556,10 +4133,9 @@ while i < 6:
         continue
     a += b[i-1]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(17));
+        assert_read_eq!(ctx, "a", int!(17));
 
         let input = r#"
 a = 0
@@ -4570,10 +4146,9 @@ for i in [1,2,3,4,5,6]:
 else:
     a = 1024
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_read_eq!(ctx, "a", int!(6));
 
         let input = r#"
 a = 0
@@ -4582,10 +4157,9 @@ for i in [1,2,3,4,5,6]:
 else:
     a = 1024
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1024));
+        assert_read_eq!(ctx, "a", int!(1024));
     }
 
     #[test]
@@ -4603,30 +4177,32 @@ g = [ i for i in zip(range(5), range(4), range(3)) ]
 
 h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Zip);
-        assert_type_is!(interpreter, "b", Zip);
-        assert_type_class(interpreter, "c", Type::Zip);
-        assert_eq!(
-            read(interpreter, "d"),
+        assert_variant!(ctx, "a", Zip);
+        assert_variant!(ctx, "b", Zip);
+        assert_type_eq!(ctx, "c", Type::Zip);
+        assert_read_eq!(
+            ctx,
+            "d",
             list![
                 tuple![int!(1), int!(4),],
                 tuple![int!(2), int!(5),],
                 tuple![int!(3), int!(6),]
             ]
         );
-        assert_eq!(
-            read(interpreter, "e"),
+        assert_read_eq!(
+            ctx,
+            "e",
             list![
                 tuple![int!(1), int!(4),],
                 tuple![int!(2), int!(5),],
                 tuple![int!(3), int!(6),]
             ]
         );
-        assert_eq!(
-            read(interpreter, "f"),
+        assert_read_eq!(
+            ctx,
+            "f",
             list![
                 tuple![int!(0), int!(0),],
                 tuple![int!(1), int!(1),],
@@ -4634,16 +4210,18 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
                 tuple![int!(3), int!(3),]
             ]
         );
-        assert_eq!(
-            read(interpreter, "g"),
+        assert_read_eq!(
+            ctx,
+            "g",
             list![
                 tuple![int!(0), int!(0), int!(0),],
                 tuple![int!(1), int!(1), int!(1),],
                 tuple![int!(2), int!(2), int!(2),]
             ]
         );
-        assert_eq!(
-            read(interpreter, "h"),
+        assert_read_eq!(
+            ctx,
+            "h",
             list![
                 tuple![int!(1), int!(4),],
                 tuple![int!(2), int!(5),],
@@ -4652,12 +4230,10 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
         );
 
         let input = r#"
-f = [ i for i in zip(range(5), range(4), strict=True) ]
+[ i for i in zip(range(5), range(4), strict=True) ]
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::RuntimeError);
+        let e = eval_expect_error(input);
+        assert_error_eq!(e, ExecutionErrorKind::RuntimeError);
     }
 
     #[test]
@@ -4670,14 +4246,13 @@ d = type(dict.__dict__['fromkeys'])
 # TODO this should fail
 e = type(object().__dict__)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Type);
-        assert_type_is!(interpreter, "b", MappingProxy);
-        assert_type_class(interpreter, "c", Type::MappingProxy);
-        assert_type_class(interpreter, "d", Type::BuiltinMethod);
-        assert_type_class(interpreter, "e", Type::Dict);
+        assert_type_eq!(ctx, "a", Type::Type);
+        assert_variant!(ctx, "b", MappingProxy);
+        assert_type_eq!(ctx, "c", Type::MappingProxy);
+        assert_type_eq!(ctx, "d", Type::BuiltinMethod);
+        assert_type_eq!(ctx, "e", Type::Dict);
     }
 
     #[test]
@@ -4694,15 +4269,14 @@ f = int
 class MyClass:
     __class_getitem__ = classmethod(a)
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Class);
-        assert_type_class(interpreter, "b", Type::Type);
-        assert_type_is!(interpreter, "c", Class);
-        assert_type_is!(interpreter, "d", TypeNode);
-        assert_type_is!(interpreter, "e", TypeNode);
-        assert_type_is!(interpreter, "f", Class);
+        assert_variant!(ctx, "a", Class);
+        assert_type_eq!(ctx, "b", Type::Type);
+        assert_variant!(ctx, "c", Class);
+        assert_variant!(ctx, "d", TypeNode);
+        assert_variant!(ctx, "e", TypeNode);
+        assert_variant!(ctx, "f", Class);
     }
 
     #[test]
@@ -4715,11 +4289,10 @@ b = Foo.a
 Foo.a = 5
 c = Foo.a
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(6));
-        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_read_eq!(ctx, "b", int!(6));
+        assert_read_eq!(ctx, "c", int!(5));
 
         let input = r#"
 class Foo:
@@ -4732,12 +4305,11 @@ b = Foo.a
 c = Foo().a
 d = Foo.a
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(6));
-        assert_eq!(read(interpreter, "c"), int!(5));
-        assert_eq!(read(interpreter, "d"), int!(6));
+        assert_read_eq!(ctx, "b", int!(6));
+        assert_read_eq!(ctx, "c", int!(5));
+        assert_read_eq!(ctx, "d", int!(6));
     }
 
     #[test]
@@ -4751,13 +4323,12 @@ class Foo:
 
 b = Foo.make()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        let method = extract_member!(interpreter, "Foo", "make", Class);
+        let method = extract_member!(ctx, "Foo", "make", Class);
         assert!(matches!(method, TreewalkValue::Method(_)));
 
-        assert_eq!(read(interpreter, "b"), int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
 
         let input = r#"
 class Foo:
@@ -4768,11 +4339,10 @@ class Foo:
 b = Foo.make()
 c = Foo().make()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(5));
-        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
+        assert_read_eq!(ctx, "c", int!(5));
 
         let input = r#"
 class Foo:
@@ -4790,13 +4360,12 @@ c = Foo.val
 d = Foo().val
 e = Foo().make()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(10));
-        assert_eq!(read(interpreter, "c"), int!(10));
-        assert_eq!(read(interpreter, "d"), int!(9));
-        assert_eq!(read(interpreter, "e"), int!(10));
+        assert_read_eq!(ctx, "b", int!(10));
+        assert_read_eq!(ctx, "c", int!(10));
+        assert_read_eq!(ctx, "d", int!(9));
+        assert_read_eq!(ctx, "e", int!(10));
 
         let input = r#"
 class Foo:
@@ -4809,10 +4378,9 @@ class Foo:
 
 b = Foo.make()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "Foo", "val");
+        assert_attribute_error!(e, "Foo", "val");
 
         let input = r#"
 class Foo:
@@ -4825,10 +4393,9 @@ class Foo:
 
 b = Foo().make()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "Foo", "val");
+        assert_attribute_error!(e, "Foo", "val");
     }
 
     #[test]
@@ -4842,11 +4409,10 @@ class Foo:
 b = Foo.make()
 c = Foo().make()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(5));
-        assert_eq!(read(interpreter, "c"), int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
+        assert_read_eq!(ctx, "c", int!(5));
 
         // Before we explicitly supported static methods, this case used to work. Let's test it to
         // ensure we keep getting an error now.
@@ -4857,10 +4423,9 @@ class Foo:
 
 c = Foo().make()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "Found 0 args");
+        assert_type_error!(e, "Found 0 args");
     }
 
     #[test]
@@ -4887,12 +4452,11 @@ a = singleton1.data
 b = singleton2.data
 c = singleton1 is singleton2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), str!("First"));
-        assert_eq!(read(interpreter, "b"), str!("First"));
-        assert_eq!(read(interpreter, "c"), bool!(true));
+        assert_read_eq!(ctx, "a", str!("First"));
+        assert_read_eq!(ctx, "b", str!("First"));
+        assert_read_eq!(ctx, "c", bool!(true));
 
         let input = r#"
 class SingletonB:
@@ -4913,12 +4477,11 @@ a = singleton1.data
 b = singleton2.data
 c = singleton1 is singleton2
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), str!("Second"));
-        assert_eq!(read(interpreter, "b"), str!("Second"));
-        assert_eq!(read(interpreter, "c"), bool!(true));
+        assert_read_eq!(ctx, "a", str!("Second"));
+        assert_read_eq!(ctx, "b", str!("Second"));
+        assert_read_eq!(ctx, "c", bool!(true));
 
         let input = r#"
 class Foo:
@@ -4927,10 +4490,9 @@ class Foo:
 
 a = Foo()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), TreewalkValue::None);
+        assert_read_eq!(ctx, "a", none!());
     }
 
     #[test]
@@ -4958,13 +4520,12 @@ try:
 except Exception as e:
     d = e
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(5));
-        let e = extract!(interpreter, "d", Exception);
-        test_utils::assert_attribute_error(&e, "ConcreteImplementation", "run");
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(5));
+        let e = extract!(ctx, "d", Exception);
+        assert_attribute_error!(e, "ConcreteImplementation", "run");
 
         let input = r#"
 class InterfaceMeta(type):
@@ -4983,10 +4544,9 @@ class ConcreteImplementation(BaseInterface):
 # This should use the metaclass implementation.
 a = ConcreteImplementation.run()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
+        assert_read_eq!(ctx, "a", int!(5));
 
         let input = r#"
 class ABCMeta(type):
@@ -5004,10 +4564,9 @@ class Coroutine(metaclass=ABCMeta):
 
 a = Coroutine.register()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(33));
+        assert_read_eq!(ctx, "a", int!(33));
 
         // The test used to fail when we mistakenly were binding a metalcass call to __new__.
         let input = r#"
@@ -5030,10 +4589,9 @@ class Coroutine(metaclass=ChildMeta):
 
 a = Coroutine.register()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(33));
+        assert_read_eq!(ctx, "a", int!(33));
     }
 
     #[test]
@@ -5054,11 +4612,10 @@ global_modified()
 a = global_var_one
 b = global_var_two
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(10));
-        assert_eq!(read(interpreter, "b"), int!(9));
+        assert_read_eq!(ctx, "a", int!(10));
+        assert_read_eq!(ctx, "b", int!(9));
 
         let input = r#"
 def nonlocal_shadow():
@@ -5079,11 +4636,10 @@ def nonlocal_modified():
 a = nonlocal_shadow()
 b = nonlocal_modified()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(4));
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(4));
 
         let input = r#"
 def outer():
@@ -5102,10 +4658,9 @@ def outer():
 
 a = outer()
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(20));
+        assert_read_eq!(ctx, "a", int!(20));
 
         let input = r#"
 def foo():
@@ -5114,28 +4669,25 @@ def foo():
     inner()
 foo()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
 
         let input = r#"
 def foo():
     nonlocal a
 foo()
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
 
         let input = r#"
 nonlocal a
 "#;
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
     }
 
     #[test]
@@ -5145,12 +4697,11 @@ a = object
 b = object()
 c = object().__str__
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Object);
-        assert_type_is!(interpreter, "b", Object);
-        assert_type_is!(interpreter, "c", Method);
+        assert_type_eq!(ctx, "a", Type::Object);
+        assert_variant!(ctx, "b", Object);
+        assert_variant!(ctx, "c", Method);
     }
 
     #[test]
@@ -5161,13 +4712,12 @@ b = int()
 c = int(5)
 d = int('6')
 "#;
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Int);
-        assert_eq!(read(interpreter, "b"), int!(0));
-        assert_eq!(read(interpreter, "c"), int!(5));
-        assert_eq!(read(interpreter, "d"), int!(6));
+        assert_type_eq!(ctx, "a", Type::Int);
+        assert_read_eq!(ctx, "b", int!(0));
+        assert_read_eq!(ctx, "c", int!(5));
+        assert_read_eq!(ctx, "d", int!(6));
     }
 
     #[test]
@@ -5196,16 +4746,15 @@ f = Child.three
 g = type(a)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Method);
+        assert_variant!(ctx, "a", Method);
         //assert_type_is!(interpreter, "b", Function);
-        assert_type_is!(interpreter, "c", Method);
-        assert_type_is!(interpreter, "d", Method);
-        assert_type_is!(interpreter, "e", Function);
-        assert_type_is!(interpreter, "f", Function);
-        assert_type_class(interpreter, "g", Type::Method);
+        assert_variant!(ctx, "c", Method);
+        assert_variant!(ctx, "d", Method);
+        assert_variant!(ctx, "e", Function);
+        assert_variant!(ctx, "f", Function);
+        assert_type_eq!(ctx, "g", Type::Method);
 
         let input = r#"
 class Child:
@@ -5229,14 +4778,13 @@ e = child.three()
 f = Child.three()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
-        assert_eq!(read(interpreter, "c"), int!(2));
-        assert_eq!(read(interpreter, "d"), int!(2));
-        assert_eq!(read(interpreter, "e"), int!(3));
-        assert_eq!(read(interpreter, "f"), int!(3));
+        assert_read_eq!(ctx, "a", int!(1));
+        assert_read_eq!(ctx, "c", int!(2));
+        assert_read_eq!(ctx, "d", int!(2));
+        assert_read_eq!(ctx, "e", int!(3));
+        assert_read_eq!(ctx, "f", int!(3));
 
         let input = r#"
 class Child:
@@ -5246,10 +4794,9 @@ class Child:
 b = Child.one()
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(&e, "one() missing 1 required positional argument: 'self'");
+        assert_type_error!(e, "one() missing 1 required positional argument: 'self'");
 
         let input = r#"
 class Child:
@@ -5272,12 +4819,11 @@ c = child.two()
 d = Child.two()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(11));
-        assert_eq!(read(interpreter, "c"), int!(22));
-        assert_eq!(read(interpreter, "d"), int!(22));
+        assert_read_eq!(ctx, "a", int!(11));
+        assert_read_eq!(ctx, "c", int!(22));
+        assert_read_eq!(ctx, "d", int!(22));
     }
 
     #[test]
@@ -5290,30 +4836,27 @@ a = foo()
 b, c = foo()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), tuple![int!(2), int!(3)]);
-        assert_eq!(read(interpreter, "b"), int!(2));
-        assert_eq!(read(interpreter, "c"), int!(3));
+        assert_read_eq!(ctx, "a", tuple![int!(2), int!(3)]);
+        assert_read_eq!(ctx, "b", int!(2));
+        assert_read_eq!(ctx, "c", int!(3));
 
         let input = r#"
 b, c = [1, 2, 3]
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_value_error(&e, "too many values to unpack (expected 2)");
+        assert_value_error!(e, "too many values to unpack (expected 2)");
 
         let input = r#"
 a, b, c = [2, 3]
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_value_error(&e, "not enough values to unpack (expected 3, got 2)");
+        assert_value_error!(e, "not enough values to unpack (expected 3, got 2)");
 
         let input = r#"
 b, c = (1, 2)
@@ -5322,37 +4865,30 @@ f, g = {1, 2}
 h, i, j = range(1, 4)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(1));
-        assert_eq!(read(interpreter, "c"), int!(2));
-        assert_eq!(read(interpreter, "d"), int!(1));
-        assert_eq!(read(interpreter, "e"), int!(2));
-        assert_eq!(read(interpreter, "f"), int!(1));
-        assert_eq!(read(interpreter, "g"), int!(2));
-        assert_eq!(read(interpreter, "h"), int!(1));
-        assert_eq!(read(interpreter, "i"), int!(2));
-        assert_eq!(read(interpreter, "j"), int!(3));
+        assert_read_eq!(ctx, "b", int!(1));
+        assert_read_eq!(ctx, "c", int!(2));
+        assert_read_eq!(ctx, "d", int!(1));
+        assert_read_eq!(ctx, "e", int!(2));
+        assert_read_eq!(ctx, "f", int!(1));
+        assert_read_eq!(ctx, "g", int!(2));
+        assert_read_eq!(ctx, "h", int!(1));
+        assert_read_eq!(ctx, "i", int!(2));
+        assert_read_eq!(ctx, "j", int!(3));
 
         let input = r#"
 l = [1,2]
 a = (*l,)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), tuple![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "a", tuple![int!(1), int!(2)]);
 
-        let input = r#"
-a = (*5)
-"#;
-
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "Value after * must be an iterable, not int");
+        let input = r#"(*5)"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "Value after * must be an iterable, not int");
 
         // TODO not sure where to detect this, probably in semantic analysis
         //         let input = r#"
@@ -5381,11 +4917,10 @@ a = 5 if True else 6
 b = 7 if False else 8
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-        assert_eq!(read(interpreter, "b"), int!(8));
+        assert_read_eq!(ctx, "a", int!(5));
+        assert_read_eq!(ctx, "b", int!(8));
     }
 
     #[test]
@@ -5415,32 +4950,33 @@ p = word[:2]
 r = [2,4,6][:]
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), list![int!(1), int!(2),]);
-        assert_eq!(read(interpreter, "c"), list![int!(8), int!(9), int!(10),]);
-        assert_eq!(
-            read(interpreter, "d"),
+        assert_read_eq!(ctx, "b", list![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "c", list![int!(8), int!(9), int!(10),]);
+        assert_read_eq!(
+            ctx,
+            "d",
             list![int!(1), int!(3), int!(5), int!(7), int!(9),]
         );
-        assert_eq!(
-            read(interpreter, "e"),
+        assert_read_eq!(
+            ctx,
+            "e",
             list![int!(10), int!(8), int!(6), int!(4), int!(2),]
         );
-        assert_eq!(read(interpreter, "f"), list![int!(3), int!(4),]);
-        assert_eq!(read(interpreter, "g"), list![int!(10),]);
-        assert_eq!(read(interpreter, "h"), list![int!(1),]);
-        assert_eq!(read(interpreter, "i"), list![]);
-        assert_type_is!(interpreter, "j", Slice);
-        assert_type_is!(interpreter, "k", Slice);
-        assert_type_is!(interpreter, "l", Slice);
-        assert_type_class(interpreter, "m", Type::Slice);
-        assert_eq!(read(interpreter, "n"), str!("h"));
-        assert_eq!(read(interpreter, "o"), str!("h"));
-        assert_eq!(read(interpreter, "p"), str!("he"));
-        //assert_eq!(read(interpreter, "q"), str!("he"));
-        assert_eq!(read(interpreter, "r"), list![int!(2), int!(4), int!(6),]);
+        assert_read_eq!(ctx, "f", list![int!(3), int!(4),]);
+        assert_read_eq!(ctx, "g", list![int!(10),]);
+        assert_read_eq!(ctx, "h", list![int!(1),]);
+        assert_read_eq!(ctx, "i", list![]);
+        assert_variant!(ctx, "j", Slice);
+        assert_variant!(ctx, "k", Slice);
+        assert_variant!(ctx, "l", Slice);
+        assert_type_eq!(ctx, "m", Type::Slice);
+        assert_read_eq!(ctx, "n", str!("h"));
+        assert_read_eq!(ctx, "o", str!("h"));
+        assert_read_eq!(ctx, "p", str!("he"));
+        //assert_read_eq!(ctx, "q", str!("he"));
+        assert_read_eq!(ctx, "r", list![int!(2), int!(4), int!(6),]);
     }
 
     #[test]
@@ -5457,10 +4993,9 @@ class Foo:
 a = Foo().run
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(6));
+        assert_read_eq!(ctx, "a", int!(6));
     }
 
     #[test]
@@ -5470,10 +5005,9 @@ def foo(cls, /):
     pass
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "foo", Function);
+        assert_variant!(ctx, "foo", Function);
     }
 
     #[test]
@@ -5484,10 +5018,9 @@ b = globals()
 c = b['a']
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "c"), int!(4));
+        assert_read_eq!(ctx, "c", int!(4));
     }
 
     #[test]
@@ -5502,17 +5035,13 @@ e = type(d)
 f = list(d)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "b"), int!(2));
-        assert_eq!(read(interpreter, "c"), int!(4));
-        assert_type_is!(interpreter, "d", Generator);
-        assert_type_class(interpreter, "e", Type::Generator);
-        assert_eq!(
-            read(interpreter, "f"),
-            list![int!(6), int!(10), int!(12), int!(20),]
-        );
+        assert_read_eq!(ctx, "b", int!(2));
+        assert_read_eq!(ctx, "c", int!(4));
+        assert_variant!(ctx, "d", Generator);
+        assert_type_eq!(ctx, "e", Type::Generator);
+        assert_read_eq!(ctx, "f", list![int!(6), int!(10), int!(12), int!(20),]);
     }
 
     #[test]
@@ -5526,26 +5055,17 @@ d = [ i for i in a ]
 e = frozenset().__contains__
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(
-            read(interpreter, "a"),
-            TreewalkValue::FrozenSet(FrozenSet::new(HashSet::from([int!(1), int!(2),])))
-        );
-        assert_eq!(
-            read(interpreter, "b"),
-            TreewalkValue::FrozenSet(FrozenSet::default())
-        );
-        assert_type_class(interpreter, "c", Type::FrozenSet);
-        assert_eq!(read(interpreter, "d"), list![int!(1), int!(2),]);
-        assert_eq!(read_type(interpreter, "e"), Type::Method);
+        assert_read_eq!(ctx, "a", frozenset![int!(1), int!(2),]);
+        assert_read_eq!(ctx, "b", frozenset![]);
+        assert_type_eq!(ctx, "c", Type::FrozenSet);
+        assert_read_eq!(ctx, "d", list![int!(1), int!(2),]);
+        assert_variant!(ctx, "e", Method);
 
         let input = "frozenset([1,2,3], [1,2])";
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "Found 3 args");
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "Found 3 args");
     }
 
     #[test]
@@ -5558,11 +5078,10 @@ a = foo(88)
 b = foo()
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(88));
-        assert_eq!(read(interpreter, "b"), int!(99));
+        assert_read_eq!(ctx, "a", int!(88));
+        assert_read_eq!(ctx, "b", int!(99));
 
         let input = r#"
 def foo(data_one, data_two=None):
@@ -5571,12 +5090,11 @@ def foo(data_one, data_two=None):
 b = foo()
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_type_error(
-            &e,
-            "foo() missing 1 required positional argument: 'data_one'",
+        assert_type_error!(
+            e,
+            "foo() missing 1 required positional argument: 'data_one'"
         );
     }
 
@@ -5592,11 +5110,10 @@ a = getattr(f, 'val')
 b = getattr(f, 'val_two', 33)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(44));
-        assert_eq!(read(interpreter, "b"), int!(33));
+        assert_read_eq!(ctx, "a", int!(44));
+        assert_read_eq!(ctx, "b", int!(33));
 
         let input = r#"
 class Foo:
@@ -5606,10 +5123,9 @@ f = Foo()
 b = getattr(f, 'val_two')
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
+        let e = eval_expect_error(input);
 
-        test_utils::assert_attribute_error(&e, "Foo", "val_two");
+        assert_attribute_error!(e, "Foo", "val_two");
     }
 
     #[test]
@@ -5635,32 +5151,29 @@ k = isinstance([], (int, list))
 l = isinstance([], (int, Foo))
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(true));
-        assert_eq!(read(interpreter, "b"), bool!(false));
-        assert_eq!(read(interpreter, "c"), bool!(false));
-        assert_eq!(read(interpreter, "d"), bool!(false));
-        assert_eq!(read(interpreter, "e"), bool!(true));
-        assert_eq!(read(interpreter, "f"), bool!(false));
-        assert_eq!(read(interpreter, "g"), bool!(true));
-        assert_eq!(read(interpreter, "h"), bool!(false));
-        assert_eq!(read(interpreter, "i"), bool!(true));
-        assert_eq!(read(interpreter, "j"), bool!(false));
-        assert_eq!(read(interpreter, "k"), bool!(true));
-        assert_eq!(read(interpreter, "l"), bool!(false));
+        assert_read_eq!(ctx, "a", bool!(true));
+        assert_read_eq!(ctx, "b", bool!(false));
+        assert_read_eq!(ctx, "c", bool!(false));
+        assert_read_eq!(ctx, "d", bool!(false));
+        assert_read_eq!(ctx, "e", bool!(true));
+        assert_read_eq!(ctx, "f", bool!(false));
+        assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "h", bool!(false));
+        assert_read_eq!(ctx, "i", bool!(true));
+        assert_read_eq!(ctx, "j", bool!(false));
+        assert_read_eq!(ctx, "k", bool!(true));
+        assert_read_eq!(ctx, "l", bool!(false));
 
         let input = r#"
 isinstance([], (int, 5))
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(
-            &e,
-            "isinstance() arg 2 must be a type, a tuple of types, or a union",
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e,
+            "isinstance() arg 2 must be a type, a tuple of types, or a union"
         );
     }
 
@@ -5685,39 +5198,34 @@ i = issubclass(object, object)
 j = issubclass(type, type)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(false));
-        assert_eq!(read(interpreter, "b"), bool!(false));
-        assert_eq!(read(interpreter, "c"), bool!(true));
-        assert_eq!(read(interpreter, "d"), bool!(true));
-        assert_eq!(read(interpreter, "e"), bool!(false));
-        assert_eq!(read(interpreter, "f"), bool!(false));
-        assert_eq!(read(interpreter, "g"), bool!(true));
-        assert_eq!(read(interpreter, "h"), bool!(false));
-        assert_eq!(read(interpreter, "i"), bool!(true));
-        assert_eq!(read(interpreter, "j"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(false));
+        assert_read_eq!(ctx, "c", bool!(true));
+        assert_read_eq!(ctx, "d", bool!(true));
+        assert_read_eq!(ctx, "e", bool!(false));
+        assert_read_eq!(ctx, "f", bool!(false));
+        assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "h", bool!(false));
+        assert_read_eq!(ctx, "i", bool!(true));
+        assert_read_eq!(ctx, "j", bool!(true));
 
         let input = r#"
 issubclass([], type)
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(&e, "issubclass() arg 1 must be a class");
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "issubclass() arg 1 must be a class");
 
         let input = r#"
 issubclass(object, [])
 "#;
 
-        let mut context = init(input);
-        let e = run_expect_error(&mut context);
-
-        test_utils::assert_type_error(
-            &e,
-            "issubclass() arg 2 must be a type, a tuple of types, or a union",
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e,
+            "issubclass() arg 2 must be a type, a tuple of types, or a union"
         );
     }
 
@@ -5735,18 +5243,17 @@ h = bool(0)
 i = bool(5)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(false));
-        assert_eq!(read(interpreter, "b"), bool!(true));
-        assert_eq!(read(interpreter, "c"), bool!(false));
-        assert_eq!(read(interpreter, "d"), bool!(false));
-        assert_eq!(read(interpreter, "e"), bool!(true));
-        assert_eq!(read(interpreter, "f"), bool!(false));
-        assert_eq!(read(interpreter, "g"), bool!(true));
-        assert_eq!(read(interpreter, "h"), bool!(false));
-        assert_eq!(read(interpreter, "i"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(true));
+        assert_read_eq!(ctx, "c", bool!(false));
+        assert_read_eq!(ctx, "d", bool!(false));
+        assert_read_eq!(ctx, "e", bool!(true));
+        assert_read_eq!(ctx, "f", bool!(false));
+        assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "h", bool!(false));
+        assert_read_eq!(ctx, "i", bool!(true));
     }
 
     #[test]
@@ -5755,10 +5262,9 @@ i = bool(5)
 a = memoryview
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_is!(interpreter, "a", Class);
+        assert_variant!(ctx, "a", Class);
     }
 
     #[test]
@@ -5785,10 +5291,9 @@ for number in countdown_from(3, 2):
     sum += number
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "sum"), int!(9));
+        assert_read_eq!(ctx, "sum", int!(9));
     }
 
     #[test]
@@ -5801,11 +5306,10 @@ except TypeError as exc:
     b = type(exc.__traceback__.tb_frame)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_type_class(interpreter, "a", Type::Traceback);
-        assert_type_class(interpreter, "b", Type::Frame);
+        assert_type_eq!(ctx, "a", Type::Traceback);
+        assert_type_eq!(ctx, "b", Type::Frame);
     }
 
     #[test]
@@ -5816,14 +5320,13 @@ b = asyncio.sleep
 c = asyncio.create_task
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
         // these should probably just return Function, not BuiltinFunction
         // testing here to confirm they do not get bound to their module
-        assert_eq!(read_type(interpreter, "a"), Type::BuiltinFunction);
-        assert_eq!(read_type(interpreter, "b"), Type::BuiltinFunction);
-        assert_eq!(read_type(interpreter, "c"), Type::BuiltinFunction);
+        assert_variant!(ctx, "a", BuiltinFunction);
+        assert_variant!(ctx, "b", BuiltinFunction);
+        assert_variant!(ctx, "c", BuiltinFunction);
     }
 
     #[test]
@@ -5832,11 +5335,10 @@ c = asyncio.create_task
 a = b = True
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(true));
-        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(true));
+        assert_read_eq!(ctx, "b", bool!(true));
     }
 
     #[test]
@@ -5850,11 +5352,10 @@ a = f == g
 b = f != g
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(false));
-        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(true));
 
         let input = r#"
 class Foo:
@@ -5867,11 +5368,10 @@ a = f == g
 b = f != g
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(false));
-        assert_eq!(read(interpreter, "b"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(true));
 
         let input = r#"
 class Foo:
@@ -5889,16 +5389,13 @@ c = f.__ne__
 d = c(g)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(true));
-        assert_eq!(read(interpreter, "b"), bool!(false));
-        let TreewalkValue::Method(method) = read(interpreter, "c") else {
-            panic!("Expected a method!");
-        };
+        assert_read_eq!(ctx, "a", bool!(true));
+        assert_read_eq!(ctx, "b", bool!(false));
+        let method = extract!(ctx, "c", Method);
         assert!(matches!(method.receiver(), Some(TreewalkValue::Object(_))));
-        assert_eq!(read(interpreter, "d"), bool!(false));
+        assert_read_eq!(ctx, "d", bool!(false));
     }
 
     #[test]
@@ -5918,10 +5415,9 @@ obj = MyClass()
 a = obj.attribute
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(44));
+        assert_read_eq!(ctx, "a", int!(44));
 
         let input = r#"
 class Descriptor:
@@ -5966,21 +5462,17 @@ del obj.my_attr
 f = obj.my_attr
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), str!("default value"));
-        assert_eq!(read(interpreter, "b"), str!("new value"));
-        assert_eq!(read(interpreter, "c"), str!("default value"));
+        assert_read_eq!(ctx, "a", str!("default value"));
+        assert_read_eq!(ctx, "b", str!("new value"));
+        assert_read_eq!(ctx, "c", str!("default value"));
         assert_eq!(
-            read(interpreter, "d")
-                .get_class(interpreter)
-                .borrow()
-                .name(),
+            read(&ctx, "d").get_class(ctx.interpreter()).borrow().name(),
             "Descriptor"
         );
-        assert_eq!(read(interpreter, "e"), str!("custom value"));
-        assert_eq!(read(interpreter, "f"), str!("default value"));
+        assert_read_eq!(ctx, "e", str!("custom value"));
+        assert_read_eq!(ctx, "f", str!("default value"));
     }
 
     #[test]
@@ -5995,16 +5487,15 @@ f = complex("2.1+3.1j")
 g = complex(4.1, 5.1)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), complex!(4.0, 5.0));
-        assert_type_class(interpreter, "b", Type::Complex);
-        assert_eq!(read(interpreter, "c"), complex!(0.0, 0.0));
-        assert_eq!(read(interpreter, "d"), complex!(1.0, 0.0));
-        assert_eq!(read(interpreter, "e"), complex!(2.0, 3.0));
-        assert_eq!(read(interpreter, "f"), complex!(2.1, 3.1));
-        assert_eq!(read(interpreter, "g"), complex!(4.1, 5.1));
+        assert_read_eq!(ctx, "a", complex!(4.0, 5.0));
+        assert_type_eq!(ctx, "b", Type::Complex);
+        assert_read_eq!(ctx, "c", complex!(0.0, 0.0));
+        assert_read_eq!(ctx, "d", complex!(1.0, 0.0));
+        assert_read_eq!(ctx, "e", complex!(2.0, 3.0));
+        assert_read_eq!(ctx, "f", complex!(2.1, 3.1));
+        assert_read_eq!(ctx, "g", complex!(4.1, 5.1));
     }
 
     #[test]
@@ -6019,12 +5510,11 @@ b = callable(foo)
 c = callable(MyClass)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), bool!(false));
-        assert_eq!(read(interpreter, "b"), bool!(true));
-        assert_eq!(read(interpreter, "c"), bool!(true));
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(true));
+        assert_read_eq!(ctx, "c", bool!(true));
     }
 
     #[test]
@@ -6039,10 +5529,9 @@ my = MyClass()
 a = dir(my)
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), list![str!("a"), str!("b"),]);
+        assert_read_eq!(ctx, "a", list![str!("a"), str!("b"),]);
     }
 
     #[test]
@@ -6067,11 +5556,10 @@ a = my['one']
 del my['one']
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(1));
-        assert_member_eq!(interpreter, "my", "inner", dict!(interpreter, {}));
+        assert_read_eq!(ctx, "a", int!(1));
+        assert_member_eq!(ctx, "my", "inner", dict!(ctx.interpreter(), {}));
     }
 
     #[test]
@@ -6096,20 +5584,15 @@ except Exception as e:
     the_exp = e
 "#;
 
-        let mut context = init(input);
-        let interpreter = run(&mut context);
+        let ctx = run(input);
 
-        assert_eq!(read(interpreter, "a"), int!(5));
-
-        let b = extract!(interpreter, "c", Integer);
-        assert!(b != 0);
-
-        let c = extract!(interpreter, "c", Integer);
-        assert!(c != 0);
-
-        assert_eq!(read(interpreter, "d"), bool!(true));
-
-        let e = extract!(interpreter, "the_exp", Exception);
-        test_utils::assert_type_error(&e, "__hash__ method should return an integer");
+        assert_read_eq!(ctx, "a", int!(5));
+        assert!(extract!(ctx, "b", Integer) != 0);
+        assert!(extract!(ctx, "c", Integer) != 0);
+        assert_read_eq!(ctx, "d", bool!(true));
+        assert_type_error!(
+            extract!(ctx, "the_exp", Exception),
+            "__hash__ method should return an integer"
+        );
     }
 }

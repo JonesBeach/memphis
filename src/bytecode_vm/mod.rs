@@ -1,17 +1,20 @@
 pub mod compiler;
+#[cfg(test)]
+mod context;
 pub mod indices;
 mod interpreter;
-mod opcode;
 mod result;
+mod runtime;
+#[cfg(test)]
+pub mod test_utils;
 mod utils;
 mod value;
-#[allow(clippy::module_inception)]
-pub mod vm;
 
 pub use compiler::{Compiler, CompilerError};
+#[cfg(test)]
+pub use context::VmContext;
 pub use interpreter::VmInterpreter;
-use opcode::Opcode;
 pub use result::{CompilerResult, VmResult};
+pub use runtime::VirtualMachine;
 pub use utils::find_index;
 pub use value::VmValue;
-pub use vm::VirtualMachine;

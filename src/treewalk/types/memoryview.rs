@@ -3,7 +3,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MethodProvider, Typed},
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -26,7 +26,11 @@ impl MethodProvider for Memoryview {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, _interpreter: &Interpreter, _args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        _interpreter: &TreewalkInterpreter,
+        _args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
 

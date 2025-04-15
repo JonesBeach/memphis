@@ -5,12 +5,12 @@ use crate::{
         protocols::{Callable, MethodProvider, Typed},
         types::{iterators::ListIterator, List, Str, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue, TreewalkValueIterator,
+        TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Clone)]
-pub struct ZipIterator(Vec<TreewalkValueIterator>);
+pub struct ZipIterator(Vec<TreewalkIterator>);
 
 impl Typed for ZipIterator {
     fn get_type() -> Type {
@@ -25,14 +25,14 @@ impl MethodProvider for ZipIterator {
 }
 
 impl ZipIterator {
-    pub fn new(items: Vec<TreewalkValueIterator>) -> Self {
+    pub fn new(items: Vec<TreewalkIterator>) -> Self {
         Self(items)
     }
 }
 
 impl Default for ZipIterator {
     fn default() -> Self {
-        Self(vec![TreewalkValueIterator::List(ListIterator::new(
+        Self(vec![TreewalkIterator::List(ListIterator::new(
             Container::new(List::new(vec![])),
         ))])
     }
@@ -66,7 +66,11 @@ impl Iterator for ZipIterator {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         // This function cannot be called with 2 args (1 unbound arg) because there would be
         // nothing to zip.
         check_args(&args, |len| len == 1 || len >= 3, interpreter)?;
@@ -84,7 +88,7 @@ impl Callable for NewBuiltin {
 
                 let iters = iter
                     .map(|a| a.clone().into_iter())
-                    .collect::<Vec<TreewalkValueIterator>>();
+                    .collect::<Vec<TreewalkIterator>>();
 
                 if args
                     .get_kwarg(&TreewalkValue::String(Str::new("strict".to_string())))

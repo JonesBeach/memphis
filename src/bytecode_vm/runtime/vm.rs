@@ -2,10 +2,10 @@ use std::{borrow::Cow, collections::HashMap, mem};
 
 use crate::{
     bytecode_vm::{
-        compiler::types::{CompiledProgram, Constant},
+        compiler::{CodeObject, Opcode},
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex, ObjectTableIndex},
-        Opcode, VmResult, VmValue,
+        VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
@@ -22,9 +22,6 @@ pub struct VirtualMachine {
 
     /// All code which is executed lives inside a [`Frame`] on this call stack.
     call_stack: Vec<Frame>,
-
-    /// Constants handed to us by the compiler as part of the [`CompiledProgram`].
-    constant_pool: Vec<Constant>,
 
     /// The runtime mapping of global variables to their values.
     global_store: HashMap<String, Reference>,
@@ -47,24 +44,31 @@ impl VirtualMachine {
         Self {
             state,
             call_stack: vec![],
-            constant_pool: vec![],
             global_store: HashMap::new(),
             object_table: vec![],
             class_stack: vec![],
         }
     }
 
-    pub fn load(&mut self, program: CompiledProgram) {
-        log(LogLevel::Debug, || format!("{}", program));
-        self.constant_pool = program.constant_pool;
-
-        let function = FunctionObject::new(program.code);
+    pub fn load(&mut self, code: CodeObject) {
+        log(LogLevel::Debug, || format!("{}", code));
+        let function = FunctionObject::new(code);
         let frame = Frame::new(function, vec![]);
 
         // We used to do this, but we no longer need to because the MemphisState handles it (kind
         // of)
         // self.enter_context(frame);
         self.call_stack.push(frame);
+    }
+
+    // this should only be used by the tests and/or after the VM has run. we should probably move
+    // this somewhere else.
+    pub fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
+        let current_frame = self.current_frame()?;
+        let index = find_index(&current_frame.function.code_object.names, name)
+            .map(Index::new)
+            .ok_or_else(|| self.runtime_error())?;
+        self.load_global(index)
     }
 
     pub fn current_frame_index(&self) -> VmResult<usize> {
@@ -85,7 +89,13 @@ impl VirtualMachine {
     }
 
     pub fn read_constant(&self, index: ConstantIndex) -> Option<VmValue> {
-        self.constant_pool.get(*index).map(|c| c.into())
+        self.current_frame()
+            .ok()?
+            .function
+            .code_object
+            .constants
+            .get(*index)
+            .map(|c| c.into())
     }
 
     fn error(&self, error_kind: ExecutionErrorKind) -> ExecutionError {
@@ -124,16 +134,6 @@ impl VirtualMachine {
             current_frame.locals[*index] = value;
         }
         Ok(())
-    }
-
-    // this should only be used by the tests and/or after the VM has run. we should probably move
-    // this somewhere else.
-    pub fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
-        let current_frame = self.current_frame()?;
-        let index = find_index(&current_frame.function.code_object.names, name)
-            .map(Index::new)
-            .ok_or_else(|| self.runtime_error())?;
-        self.load_global(index)
     }
 
     fn lookup_global_name(&self, index: NonlocalIndex) -> VmResult<&str> {
@@ -228,7 +228,7 @@ impl VirtualMachine {
         self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
-    /// Extract primitives and resolve any references to a [`Value`]. A [`Cow`] is returned to make
+    /// Extract primitives and resolve any references to a [`VmValue`]. A [`Cow`] is returned to make
     /// it difficult to accidentally mutate an object. All modifications should occur through VM
     /// instructions.
     pub fn dereference(&self, reference: Reference) -> Cow<'_, VmValue> {
@@ -240,7 +240,7 @@ impl VirtualMachine {
         }
     }
 
-    /// Convert a [`Reference`] to a [`Value`] taking full ownership. This will remove any objects
+    /// Convert a [`Reference`] to a [`VmValue`] taking full ownership. This will remove any objects
     /// from the VM's management and should only be used at the end of execution (i.e. the final
     /// return value, in tests, etc).
     pub fn take(&mut self, reference: Reference) -> VmValue {
@@ -541,11 +541,7 @@ impl Default for VirtualMachine {
 mod tests {
     use super::*;
 
-    use crate::init::MemphisContext;
-
-    fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text)
-    }
+    use crate::bytecode_vm::test_utils::*;
 
     #[test]
     /// We're testing for basic memory-efficiency here. The original implementation created
@@ -558,21 +554,15 @@ class Foo:
 
 f = Foo()
 "#;
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                let objects: Vec<&VmValue> = interpreter
-                    .vm
-                    .object_table
-                    .iter()
-                    .filter(|object| matches!(object, VmValue::Object(_)))
-                    .collect();
-                assert_eq!(objects.len(), 1);
-            }
-        }
+        let ctx = run(text);
+        let objects: Vec<&VmValue> = ctx
+            .interpreter()
+            .vm
+            .object_table
+            .iter()
+            .filter(|object| matches!(object, VmValue::Object(_)))
+            .collect();
+        assert_eq!(objects.len(), 1);
     }
 
     #[test]
@@ -585,20 +575,14 @@ def foo(a, b):
 
 d = foo(2, 9)
 "#;
-        let mut context = init(text);
-
-        match context.run_vm() {
-            Err(e) => panic!("Interpreter error: {:?}", e),
-            Ok(_) => {
-                let interpreter = context.ensure_vm();
-                assert_eq!(interpreter.take("d"), Some(VmValue::Integer(20)));
-                let locals = &interpreter
-                    .vm
-                    .current_frame()
-                    .expect("Failed to get locals")
-                    .locals;
-                assert_eq!(locals.len(), 0);
-            }
-        }
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "d", VmValue::Integer(20));
+        let locals = &ctx
+            .interpreter()
+            .vm
+            .current_frame()
+            .expect("Failed to get locals")
+            .locals;
+        assert_eq!(locals.len(), 0);
     }
 }

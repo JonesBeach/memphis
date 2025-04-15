@@ -2,7 +2,9 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::Container,
-    treewalk::{protocols::Callable, utils::Arguments, Interpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        protocols::Callable, utils::Arguments, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -26,7 +28,11 @@ impl Method {
 }
 
 impl Callable for Container<Method> {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         interpreter
             .state
             .push_receiver(self.borrow().receiver.clone());

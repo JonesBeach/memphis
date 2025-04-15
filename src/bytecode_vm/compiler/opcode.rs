@@ -1,6 +1,8 @@
 use std::fmt::{Display, Error, Formatter};
 
-use super::indices::{ConstantIndex, LocalIndex, NonlocalIndex};
+use crate::bytecode_vm::indices::{ConstantIndex, LocalIndex, NonlocalIndex};
+
+pub type Bytecode = Vec<Opcode>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Opcode {

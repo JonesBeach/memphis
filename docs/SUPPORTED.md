@@ -8,14 +8,14 @@
 |Boolean operators|✅|✅|
 |Comparison operators|✅|🔄|
 |Variable assignment|✅|✅|
+|Comments|✅|✅|
+|REPL|✅|✅|
 |Error handling|✅||
 |Control flow statements|✅|🔄|
 |Function defintion and function calls|✅|✅|
 |Class definition, instatiation, and method calls|✅|✅|
 |Lexical scoping|✅|🔄|
 |Module imports|✅||
-|REPL|✅||
-|Comments|✅|✅|
 |Floating point|✅||
 |Negative numbers|✅||
 |Stack traces|✅|✅|

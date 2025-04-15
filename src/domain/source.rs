@@ -1,6 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+    process,
+};
 
-use crate::domain::{DebugStackFrame, Dunder, ToDebugStackFrame};
+use crate::{
+    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
+    parser::types::ImportPath,
+    treewalk::resolve,
+};
 
 /// Represents a Python source, whether it comes from a file, a string, or an embedded Rust module.
 ///
@@ -21,23 +29,39 @@ impl Source {
     const DEFAULT_PATH: &str = "<stdin>";
     const DEFAULT_TEXT: &str = "<module with no Python code>";
 
-    pub fn from_path(name: &str, path: PathBuf, text: String) -> Self {
-        Self {
-            name: Some(name.to_string()),
-            path: Some(path),
-            text: Some(text),
-        }
+    pub fn from_path<P>(filepath: P) -> Self
+    where
+        P: AsRef<Path> + Display,
+    {
+        let text = std::fs::read_to_string(&filepath).unwrap_or_else(|_| {
+            eprintln!("Error reading file: {}", filepath);
+            process::exit(1);
+        });
+
+        let absolute_path = filepath.as_ref().canonicalize().unwrap_or_else(|_| {
+            eprintln!("Error resolving path: {}", filepath);
+            process::exit(1);
+        });
+
+        Self::with_path(absolute_path, text)
     }
 
-    pub fn from_named_path(path: PathBuf, text: String) -> Self {
-        Self {
-            name: None,
-            path: Some(path),
-            text: Some(text),
-        }
+    pub fn from_import_path(
+        import_path: &ImportPath,
+        current_path: &Path,
+        search_paths: &[PathBuf],
+    ) -> Option<Self> {
+        let resolved_path = resolve(import_path, current_path, search_paths)?;
+
+        let text = std::fs::read_to_string(&resolved_path).ok()?;
+        Some(Self::with_named_path(
+            &import_path.as_str(),
+            resolved_path,
+            text,
+        ))
     }
 
-    /// When code is provided directly as a string without reading from the file system.
+    /// Provide code directly as a string without reading from the file system.
     pub fn from_text(text: &str) -> Self {
         Self {
             name: None,
@@ -70,6 +94,22 @@ impl Source {
 
     pub fn text(&self) -> &str {
         self.text.as_deref().unwrap_or(Self::DEFAULT_TEXT)
+    }
+
+    fn with_named_path(name: &str, path: PathBuf, text: String) -> Self {
+        Self {
+            name: Some(name.to_string()),
+            path: Some(path),
+            text: Some(text),
+        }
+    }
+
+    fn with_path(path: PathBuf, text: String) -> Self {
+        Self {
+            name: None,
+            path: Some(path),
+            text: Some(text),
+        }
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
         protocols::{Callable, IndexRead, IndexWrite, MethodProvider, Typed},
         types::{iterators::GeneratorIterator, Range, Set, Slice, Tuple},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue, TreewalkValueIterator,
+        TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -45,7 +45,7 @@ impl List {
         self.items.push(item)
     }
 
-    pub fn extend(&mut self, items: TreewalkValueIterator) {
+    pub fn extend(&mut self, items: TreewalkIterator) {
         self.items.extend(items)
     }
 
@@ -58,7 +58,7 @@ impl List {
         self.items.len()
     }
 
-    pub fn slice(&self, interpreter: &Interpreter, slice: &Slice) -> Self {
+    pub fn slice(&self, interpreter: &TreewalkInterpreter, slice: &Slice) -> Self {
         let len = self.items.len() as i64;
         let receiver = Container::new(self.clone());
 
@@ -75,7 +75,7 @@ impl List {
 impl IndexRead for Container<List> {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         key: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(match key {
@@ -91,7 +91,7 @@ impl IndexRead for Container<List> {
 impl IndexWrite for Container<List> {
     fn setitem(
         &mut self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -100,7 +100,11 @@ impl IndexWrite for Container<List> {
         Ok(())
     }
 
-    fn delitem(&mut self, interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()> {
+    fn delitem(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        index: TreewalkValue,
+    ) -> TreewalkResult<()> {
         let i = index.expect_integer(interpreter)?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
@@ -166,10 +170,9 @@ impl From<Tuple> for Container<List> {
     }
 }
 
-impl From<Container<GeneratorIterator>> for Container<List> {
-    fn from(g: Container<GeneratorIterator>) -> Container<List> {
-        let items = g.borrow().clone().collect::<Vec<TreewalkValue>>();
-        Container::new(List::new(items))
+impl From<GeneratorIterator> for Container<List> {
+    fn from(g: GeneratorIterator) -> Container<List> {
+        Container::new(List::new(g.collect()))
     }
 }
 
@@ -235,7 +238,11 @@ struct AppendBuiltin;
 struct ExtendBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let list = match args.len() {
@@ -256,7 +263,11 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for AppendBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
@@ -271,7 +282,11 @@ impl Callable for AppendBuiltin {
 }
 
 impl Callable for ExtendBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;

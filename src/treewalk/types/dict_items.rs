@@ -6,7 +6,7 @@ use crate::{
         protocols::IndexRead,
         types::{Dict, Tuple},
         utils::Contextual,
-        Interpreter, TreewalkValue,
+        TreewalkInterpreter, TreewalkValue,
     },
 };
 
@@ -49,7 +49,10 @@ pub struct DictItems {
 }
 
 impl DictItems {
-    pub fn new(interpreter: Interpreter, items: Vec<(TreewalkValue, TreewalkValue)>) -> Self {
+    pub fn new(
+        interpreter: &TreewalkInterpreter,
+        items: Vec<(TreewalkValue, TreewalkValue)>,
+    ) -> Self {
         let mut new_hash = Vec::new();
         for (key, value) in items {
             let new_key = Contextual::new(key, interpreter.clone());

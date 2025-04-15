@@ -1,13 +1,11 @@
 use crate::{
-    bytecode_vm::{Compiler, VirtualMachine, VmValue},
-    core::{log, Container, InterpreterEntrypoint, LogLevel},
-    domain::Source,
+    bytecode_vm::{compiler::CodeObject, Compiler, VirtualMachine, VmValue},
+    core::{log, Container, Interpreter, LogLevel},
+    domain::{MemphisValue, Source},
     parser::Parser,
     runtime::MemphisState,
     types::errors::MemphisError,
 };
-
-use super::compiler::types::CompiledProgram;
 
 pub struct VmInterpreter {
     compiler: Compiler,
@@ -23,14 +21,21 @@ impl VmInterpreter {
         }
     }
 
-    pub fn take(&mut self, name: &str) -> Option<VmValue> {
-        let reference = self.vm.load_global_by_name(name).ok()?;
-        Some(self.vm.take(reference))
-    }
-
-    pub fn compile(&mut self, parser: &mut Parser) -> Result<CompiledProgram, MemphisError> {
+    pub fn compile(&mut self, parser: &mut Parser) -> Result<CodeObject, MemphisError> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
+    }
+
+    pub fn run_vm(&mut self, parser: &mut Parser) -> Result<VmValue, MemphisError> {
+        let code = self.compile(parser)?;
+        log(LogLevel::Trace, || format!("{}", code));
+        self.vm.load(code);
+        self.vm.run_loop().map_err(MemphisError::Execution)
+    }
+
+    pub fn read_vm(&mut self, name: &str) -> Option<VmValue> {
+        let reference = self.vm.load_global_by_name(name).ok()?;
+        Some(self.vm.take(reference))
     }
 }
 
@@ -40,93 +45,43 @@ impl Default for VmInterpreter {
     }
 }
 
-impl InterpreterEntrypoint for VmInterpreter {
-    type Return = VmValue;
+impl Interpreter for VmInterpreter {
+    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
+        self.run_vm(parser).map(Into::into)
+    }
 
-    fn run(&mut self, parser: &mut Parser) -> Result<Self::Return, MemphisError> {
-        let program = self.compile(parser)?;
-        log(LogLevel::Trace, || format!("{}", program));
-        self.vm.load(program);
-        self.vm.run_loop().map_err(MemphisError::Execution)
+    fn read(&mut self, name: &str) -> Option<MemphisValue> {
+        self.read_vm(name).map(Into::into)
     }
 }
 
 #[cfg(test)]
-mod vm_interpreter_tests {
+mod tests_vm_interpreter {
     use super::*;
 
     use crate::{
-        bytecode_vm::vm::types::Object,
-        domain::{test_utils, ExecutionError, ExecutionErrorKind},
-        init::MemphisContext,
+        bytecode_vm::test_utils::*,
+        domain::{test_utils::*, ExecutionErrorKind},
     };
-
-    fn init(text: &str) -> MemphisContext {
-        MemphisContext::from_text(text.trim())
-    }
-
-    fn init_path(path: &str) -> MemphisContext {
-        MemphisContext::from_path(path)
-    }
-
-    fn take_obj_attr(interpreter: &mut VmInterpreter, object: Object, attr: &str) -> VmValue {
-        interpreter.vm.take(
-            object
-                .read(attr.into(), |reference| {
-                    interpreter.vm.dereference(reference)
-                })
-                .expect(&format!("Failed to read attr \"{}\" from object", attr)),
-        )
-    }
-
-    fn eval_inner(text: &str) -> Result<VmValue, MemphisError> {
-        let mut context = init(text);
-        context.run_vm()
-    }
-
-    fn evaluate(text: &str) -> VmValue {
-        eval_inner(text).expect("Failed to evaluate test string")
-    }
-
-    fn eval_expect_error(text: &str) -> ExecutionError {
-        match eval_inner(text) {
-            Ok(_) => panic!("Expected an error!"),
-            Err(MemphisError::Execution(e)) => return e,
-            Err(_) => panic!("Expected an execution error!"),
-        };
-    }
-
-    fn run(context: &mut MemphisContext) -> &mut VmInterpreter {
-        context.run_vm().expect("VM run failed!");
-        context.ensure_vm()
-    }
-
-    fn run_expect_error(context: &mut MemphisContext) -> ExecutionError {
-        match context.run_vm() {
-            Ok(_) => panic!("Expected an error!"),
-            Err(MemphisError::Execution(e)) => return e,
-            Err(_) => panic!("Expected an execution error!"),
-        };
-    }
 
     #[test]
     fn expression() {
         let text = "4 * (2 + 3)";
-        assert_eq!(evaluate(text), VmValue::Integer(20));
+        assert_eval_eq!(text, VmValue::Integer(20));
 
         let text = "4 < 5";
-        assert_eq!(evaluate(text), VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Boolean(true));
 
         let text = "4 > 5";
-        assert_eq!(evaluate(text), VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Boolean(false));
 
         let text = "4 > x";
         let e = eval_expect_error(text);
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("x".to_string()));
+        assert_error_eq!(e, ExecutionErrorKind::NameError("x".to_string()));
 
         let text = "y()";
         let e = eval_expect_error(text);
-        test_utils::assert_error_kind(&e, ExecutionErrorKind::NameError("y".to_string()));
+        assert_error_eq!(e, ExecutionErrorKind::NameError("y".to_string()));
     }
 
     #[test]
@@ -134,39 +89,32 @@ mod vm_interpreter_tests {
         let text = r#"
 a = 5 - 3
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Integer(2));
 
         let text = r#"
 a = "Hello World"
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(
-            interpreter.take("a"),
-            Some(VmValue::String("Hello World".into()))
-        );
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::String("Hello World".into()));
 
         let text = r#"
 a = 5 - 3
 b = 10
 c = None
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
-        assert_eq!(interpreter.take("b"), Some(VmValue::Integer(10)));
-        assert_eq!(interpreter.take("c"), Some(VmValue::None));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Integer(2));
+        assert_read_eq!(ctx, "b", VmValue::Integer(10));
+        assert_read_eq!(ctx, "c", VmValue::None);
 
         let text = r#"
 a = 5 - 3
 b = 10 + a
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("a"), Some(VmValue::Integer(2)));
-        assert_eq!(interpreter.take("b"), Some(VmValue::Integer(12)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Integer(2));
+        assert_read_eq!(ctx, "b", VmValue::Integer(12));
     }
 
     #[test]
@@ -177,9 +125,8 @@ n = 4
 while i < n:
     i = i + 1
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("i"), Some(VmValue::Integer(4)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "i", VmValue::Integer(4));
     }
 
     #[test]
@@ -190,9 +137,8 @@ def foo(a, b):
 
 c = foo(2, 9)
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("c"), Some(VmValue::Integer(11)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "c", VmValue::Integer(11));
     }
 
     #[test]
@@ -204,9 +150,8 @@ def foo(a, b):
 
 d = foo(2, 9)
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("d"), Some(VmValue::Integer(20)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "d", VmValue::Integer(20));
     }
 
     #[test]
@@ -221,9 +166,8 @@ def world():
 hello()
 world()
 "#;
-        let mut context = init(text);
         // TODO should this do something?
-        let _ = run(&mut context);
+        let _ = run(text);
     }
 
     #[test]
@@ -236,9 +180,8 @@ def foo(a, b):
 
 c = foo(2, 9)
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        assert_eq!(interpreter.take("c"), Some(VmValue::Integer(29)));
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "c", VmValue::Integer(29));
     }
 
     #[test]
@@ -248,18 +191,9 @@ class Foo:
     def bar():
         return 4
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        let Some(VmValue::Class(class)) = interpreter.take("Foo") else {
-            panic!("Did not find class Foo")
-        };
+        let mut ctx = run(text);
+        let class = extract!(ctx, "Foo", Class);
         assert_eq!(class.name(), "Foo");
-        let VmValue::Function(ref function) =
-            *interpreter.vm.dereference(class.read("bar").unwrap())
-        else {
-            panic!("Did not find function bar")
-        };
-        assert_eq!(function.code_object.name(), "bar");
     }
 
     #[test]
@@ -271,19 +205,8 @@ class Foo:
 
 f = Foo()
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        let Some(VmValue::Object(object)) = interpreter.take("f") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(
-            interpreter
-                .vm
-                .dereference(object.class_ref())
-                .as_class()
-                .name(),
-            "Foo"
-        );
+        let mut ctx = run(text);
+        let _ = extract!(ctx, "f", Object);
     }
 
     #[test]
@@ -296,12 +219,8 @@ class Foo:
 f = Foo()
 b = f.bar()
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(b, 4);
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "b", VmValue::Integer(4));
 
         let text = r#"
 class Foo:
@@ -311,12 +230,8 @@ class Foo:
 f = Foo()
 b = f.bar(11)
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(b, 15);
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "b", VmValue::Integer(15));
     }
 
     #[test]
@@ -328,12 +243,8 @@ class Foo:
 f = Foo()
 f.x = 4
 "#;
-        let mut context = init(text);
-        let mut interpreter = run(&mut context);
-        let Some(VmValue::Object(f)) = interpreter.take("f") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), VmValue::Integer(4));
+        let mut ctx = run(text);
+        assert_member_eq!(ctx, "f", "x", VmValue::Integer(4));
     }
 
     #[test]
@@ -346,12 +257,8 @@ class Foo:
 f = Foo()
 f.bar()
 "#;
-        let mut context = init(text);
-        let mut interpreter = run(&mut context);
-        let Some(VmValue::Object(f)) = interpreter.take("f") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(take_obj_attr(&mut interpreter, f, "x"), VmValue::Integer(4));
+        let mut ctx = run(text);
+        assert_member_eq!(ctx, "f", "x", VmValue::Integer(4));
     }
 
     #[test]
@@ -363,15 +270,8 @@ class Foo:
 
 f = Foo()
 "#;
-        let mut context = init(text);
-        let mut interpreter = run(&mut context);
-        let Some(VmValue::Object(f)) = interpreter.take("f") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(
-            take_obj_attr(&mut interpreter, f, "x"),
-            VmValue::Integer(44)
-        );
+        let mut ctx = run(text);
+        assert_member_eq!(ctx, "f", "x", VmValue::Integer(44));
     }
 
     #[test]
@@ -383,15 +283,8 @@ class Foo:
 
 f = Foo(33)
 "#;
-        let mut context = init(text);
-        let mut interpreter = run(&mut context);
-        let Some(VmValue::Object(f)) = interpreter.take("f") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(
-            take_obj_attr(&mut interpreter, f, "x"),
-            VmValue::Integer(33)
-        );
+        let mut ctx = run(text);
+        assert_member_eq!(ctx, "f", "x", VmValue::Integer(33));
     }
 
     #[test]
@@ -407,12 +300,8 @@ class Foo:
 f = Foo(10)
 b = f.bar()
 "#;
-        let mut context = init(text);
-        let interpreter = run(&mut context);
-        let Some(VmValue::Integer(b)) = interpreter.take("b") else {
-            panic!("Did not find object f")
-        };
-        assert_eq!(b, 10);
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "b", VmValue::Integer(10));
     }
 
     #[test]
@@ -426,9 +315,9 @@ def last_call():
 
 middle_call()
 "#;
-        let mut context = init(text);
-        let e = run_expect_error(&mut context);
-        test_utils::assert_name_error(&e, "unknown");
+        let mut ctx = init(text);
+        let e = run_expect_error(&mut ctx);
+        assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
@@ -445,9 +334,9 @@ middle_call()
 
     #[test]
     fn stack_trace_from_file() {
-        let mut context = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut context);
-        test_utils::assert_name_error(&e, "unknown");
+        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
+        let e = run_expect_error(&mut ctx);
+        assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);

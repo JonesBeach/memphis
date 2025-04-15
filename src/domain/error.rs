@@ -155,75 +155,100 @@ impl TryFrom<&ExecutionError> for ExceptionLiteral {
     }
 }
 
+#[cfg(test)]
 pub mod test_utils {
-    use super::*;
-
-    pub fn assert_error_kind(e: &ExecutionError, expected_kind: ExecutionErrorKind) {
-        assert_eq!(e.execution_error_kind, expected_kind);
+    macro_rules! assert_error_eq {
+        ($error:expr, $expected_kind:expr) => {
+            assert_eq!($error.execution_error_kind, $expected_kind);
+        };
     }
 
-    pub fn assert_type_error(e: &ExecutionError, expected_message: &str) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::TypeError(Some(msg)) => {
-                assert_eq!(msg, expected_message, "Unexpected TypeError message");
+    macro_rules! assert_type_error {
+        ($error:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::TypeError(msg) => {
+                    assert!(msg.is_none(), "Unexpected TypeError message");
+                }
+                _ => panic!(
+                    "Expected a TypeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
             }
-            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
-        }
+        }};
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::TypeError(Some(msg)) => {
+                    assert_eq!(msg, $expected_message, "Unexpected TypeError message");
+                }
+                _ => panic!(
+                    "Expected a TypeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
     }
 
-    pub fn assert_type_error_optional_message(e: &ExecutionError, expected_message: Option<&str>) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::TypeError(msg) => {
-                assert_eq!(
-                    msg.as_deref(),
-                    expected_message,
-                    "Unexpected TypeError message"
-                );
+    macro_rules! assert_name_error {
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::NameError(msg) => {
+                    assert_eq!(msg, $expected_message, "Unexpected NameError message");
+                }
+                _ => panic!(
+                    "Expected a NameError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
             }
-            _ => panic!("Expected a TypeError, but got {:?}", e.execution_error_kind),
-        }
+        }};
     }
 
-    pub fn assert_name_error(e: &ExecutionError, expected_name: &str) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::NameError(name) => {
-                assert_eq!(name, expected_name, "Unexpected NameError message");
+    macro_rules! assert_key_error {
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::KeyError(msg) => {
+                    assert_eq!(msg, $expected_message, "Unexpected KeyError message");
+                }
+                _ => panic!(
+                    "Expected a KeyError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
             }
-            _ => panic!("Expected a NameError, but got {:?}", e.execution_error_kind),
-        }
+        }};
     }
 
-    pub fn assert_key_error(e: &ExecutionError, expected_key: &str) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::KeyError(key) => {
-                assert_eq!(key, expected_key, "Unexpected KeyError message");
+    macro_rules! assert_value_error {
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::ValueError(msg) => {
+                    assert_eq!(msg, $expected_message, "Unexpected ValueError message");
+                }
+                _ => panic!(
+                    "Expected a ValueError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
             }
-            _ => panic!("Expected a KeyError, but got {:?}", e.execution_error_kind),
-        }
+        }};
     }
 
-    pub fn assert_value_error(e: &ExecutionError, expected_message: &str) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::ValueError(message) => {
-                assert_eq!(message, expected_message, "Unexpected ValueError message");
+    macro_rules! assert_attribute_error {
+        ($error:expr, $expected_obj:expr, $expected_attr:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::AttributeError(object, attr) => {
+                    assert_eq!(object, $expected_obj, "Unexpected AttributeError object");
+                    assert_eq!(attr, $expected_attr, "Unexpected AttributeError attr");
+                }
+                _ => panic!(
+                    "Expected a AttributeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
             }
-            _ => panic!(
-                "Expected a ValueError, but got {:?}",
-                e.execution_error_kind
-            ),
-        }
+        }};
     }
 
-    pub fn assert_attribute_error(e: &ExecutionError, expected_object: &str, expected_attr: &str) {
-        match &e.execution_error_kind {
-            ExecutionErrorKind::AttributeError(object, attr) => {
-                assert_eq!(object, expected_object, "Unexpected AttributeError object");
-                assert_eq!(attr, expected_attr, "Unexpected AttributeError attr");
-            }
-            _ => panic!(
-                "Expected a AttributeError, but got {:?}",
-                e.execution_error_kind
-            ),
-        }
-    }
+    pub(crate) use assert_attribute_error;
+    pub(crate) use assert_error_eq;
+    pub(crate) use assert_key_error;
+    pub(crate) use assert_name_error;
+    pub(crate) use assert_type_error;
+    pub(crate) use assert_value_error;
 }

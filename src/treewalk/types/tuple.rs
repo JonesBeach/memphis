@@ -7,7 +7,7 @@ use crate::{
         protocols::{Callable, IndexRead, MethodProvider, Typed},
         types::{iterators::ListIterator, List, Range, Set},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -55,7 +55,7 @@ impl Tuple {
 impl IndexRead for Tuple {
     fn getitem(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         let i = index.expect_integer(interpreter)?;
@@ -108,7 +108,11 @@ impl IntoIterator for Tuple {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let tuple = args.get_arg(1).expect_tuple(interpreter)?;
         Ok(TreewalkValue::Tuple(tuple))

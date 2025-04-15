@@ -18,7 +18,7 @@ use crate::{
         protocols::{Callable, IndexRead, IndexWrite, MemberReader},
         types::Str,
         utils::Arguments,
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -46,7 +46,7 @@ impl BuiltinModuleCache {
 }
 
 pub fn import_from_cpython(
-    interpreter: &Interpreter,
+    interpreter: &TreewalkInterpreter,
     import_path: &ImportPath,
 ) -> Option<TreewalkValue> {
     if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
@@ -181,7 +181,7 @@ impl CPythonModule {
 impl MemberReader for CPythonModule {
     fn get_member(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Python::with_gil(|py| self.get_item(name.into_pyobject(py).unwrap()))
@@ -200,7 +200,11 @@ impl MemberReader for CPythonModule {
 }
 
 impl Callable for CPythonObject {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         Python::with_gil(|py| {
             let py_attr = self.0.bind(py);
             if py_attr.is_callable() {
@@ -358,7 +362,7 @@ impl CPythonObject {
 impl IndexRead for CPythonObject {
     fn getitem(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Python::with_gil(|py| {
@@ -376,7 +380,7 @@ impl IndexRead for CPythonObject {
 impl IndexWrite for CPythonObject {
     fn setitem(
         &mut self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -392,7 +396,11 @@ impl IndexWrite for CPythonObject {
         Ok(())
     }
 
-    fn delitem(&mut self, _interpreter: &Interpreter, index: TreewalkValue) -> TreewalkResult<()> {
+    fn delitem(
+        &mut self,
+        _interpreter: &TreewalkInterpreter,
+        index: TreewalkValue,
+    ) -> TreewalkResult<()> {
         Python::with_gil(|py| {
             let key = index.into_pyobject(py).unwrap();
             self.0

@@ -3,7 +3,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MethodProvider, Typed},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -24,7 +24,11 @@ impl MethodProvider for Int {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let int = match args.len() {

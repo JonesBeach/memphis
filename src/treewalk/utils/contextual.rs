@@ -5,10 +5,12 @@ use std::{
 };
 
 use crate::{
-    args,
     core::memphis_utils,
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
-    treewalk::{utils::Arguments, Interpreter, TreewalkDisruption, TreewalkValue},
+    treewalk::{
+        utils::{args, Arguments},
+        TreewalkDisruption, TreewalkInterpreter, TreewalkValue,
+    },
     types::errors::MemphisError,
 };
 
@@ -26,15 +28,15 @@ pub struct Contextual<T> {
     value: T,
 
     /// Store a pointer to the interpreter so that we can evaluate the `Hash`/`Eq` traits.
-    interpreter: Interpreter,
+    interpreter: TreewalkInterpreter,
 }
 
 impl<T> Contextual<T> {
-    pub fn new(value: T, interpreter: Interpreter) -> Self {
+    pub fn new(value: T, interpreter: TreewalkInterpreter) -> Self {
         Self { value, interpreter }
     }
 
-    pub fn interpreter(&self) -> &Interpreter {
+    pub fn interpreter(&self) -> &TreewalkInterpreter {
         &self.interpreter
     }
 }

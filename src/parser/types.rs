@@ -8,10 +8,7 @@ use std::{
 use crate::{
     domain::{Dunder, ExceptionLiteral},
     parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-    types::errors::ParserError,
 };
-
-use super::Parser;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ast {
@@ -53,18 +50,19 @@ impl Ast {
 }
 
 /// Build an [`Ast`] from a literal list of [`Statement`] objects.
-#[macro_export]
 macro_rules! ast {
     // Match no arguments
     () => {
-        Ast::new(vec![])
+        $crate::parser::types::Ast::new(vec![])
     };
 
     // Match comma-separated list of elements
     ($($element:expr),* $(,)?) => {
-        Ast::new(vec![$($element),*])
+        $crate::parser::types::Ast::new(vec![$($element),*])
     };
 }
+
+pub(crate) use ast;
 
 /// There are a handful of places where we reference a variable and it must be a variable name
 /// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
@@ -692,18 +690,24 @@ impl Statement {
     }
 }
 
+#[cfg(test)]
+use crate::{parser::Parser, types::errors::ParserError};
+
+#[cfg(test)]
 pub trait ParseNode {
     fn parse_oneshot(parser: Parser) -> Result<Self, ParserError>
     where
         Self: Sized;
 }
 
+#[cfg(test)]
 impl ParseNode for Expr {
     fn parse_oneshot(mut parser: Parser) -> Result<Self, ParserError> {
         parser.parse_expr()
     }
 }
 
+#[cfg(test)]
 impl ParseNode for Statement {
     fn parse_oneshot(mut parser: Parser) -> Result<Self, ParserError> {
         parser.parse_statement()

@@ -4,7 +4,6 @@ use std::{
 };
 
 use crate::{
-    args,
     core::{log, Container, LogLevel},
     domain::{DebugStackFrame, Dunder, ToDebugStackFrame, Type},
     parser::{
@@ -17,8 +16,8 @@ use crate::{
             NonDataDescriptor, Typed,
         },
         types::{Cell, Class, Dict, Module, Str, Tuple},
-        utils::{Arguments, EnvironmentFrame},
-        Interpreter, Scope, TreewalkResult, TreewalkState, TreewalkValue,
+        utils::{args, Arguments, EnvironmentFrame},
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
 
@@ -159,7 +158,7 @@ impl Function {
     }
 
     fn get_code(&self) -> TreewalkValue {
-        TreewalkValue::Code(Container::new(Code))
+        TreewalkValue::Code(Code)
     }
 
     fn get_closure(&self) -> TreewalkValue {
@@ -184,7 +183,7 @@ impl MemberReader for Container<Function> {
     /// those at some point.
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         log(LogLevel::Debug, || {
@@ -216,7 +215,7 @@ impl MemberReader for Container<Function> {
 impl MemberWriter for Container<Function> {
     fn set_member(
         &mut self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         name: &str,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -224,14 +223,21 @@ impl MemberWriter for Container<Function> {
         Ok(())
     }
 
-    fn delete_member(&mut self, _interpreter: &Interpreter, name: &str) -> TreewalkResult<()> {
+    fn delete_member(
+        &mut self,
+        _interpreter: &TreewalkInterpreter,
+        name: &str,
+    ) -> TreewalkResult<()> {
         self.borrow_mut().scope.delete(name);
         Ok(())
     }
 }
 
 impl Container<Function> {
-    pub fn apply_decorators(&self, interpreter: &Interpreter) -> TreewalkResult<TreewalkValue> {
+    pub fn apply_decorators(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<TreewalkValue> {
         let mut result = TreewalkValue::Function(self.clone());
         if self.borrow().decorators.is_empty() {
             return Ok(result);
@@ -250,7 +256,11 @@ impl Container<Function> {
 }
 
 impl Callable for Container<Function> {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         let scope = Scope::new(interpreter, self, &args)?;
         interpreter.invoke_function(self.clone(), scope)
     }
@@ -288,7 +298,7 @@ struct ClosureAttribute;
 impl NonDataDescriptor for ClosureAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -312,7 +322,7 @@ struct CodeAttribute;
 impl NonDataDescriptor for CodeAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -330,7 +340,7 @@ impl NonDataDescriptor for CodeAttribute {
 impl DataDescriptor for CodeAttribute {
     fn set_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         _instance: TreewalkValue,
         _value: TreewalkValue,
     ) -> TreewalkResult<()> {
@@ -339,7 +349,7 @@ impl DataDescriptor for CodeAttribute {
 
     fn delete_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         _instance: TreewalkValue,
     ) -> TreewalkResult<()> {
         todo!();
@@ -352,7 +362,7 @@ struct GlobalsAttribute;
 impl NonDataDescriptor for GlobalsAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -376,7 +386,7 @@ struct ModuleAttribute;
 impl NonDataDescriptor for ModuleAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -406,7 +416,7 @@ struct DocAttribute;
 impl NonDataDescriptor for DocAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -428,7 +438,7 @@ struct NameAttribute;
 impl NonDataDescriptor for NameAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -452,7 +462,7 @@ struct QualnameAttribute;
 impl NonDataDescriptor for QualnameAttribute {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -476,7 +486,7 @@ struct AnnotationsAttribute;
 impl NonDataDescriptor for AnnotationsAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -497,7 +507,7 @@ struct TypeParamsAttribute;
 impl NonDataDescriptor for TypeParamsAttribute {
     fn get_attr(
         &self,
-        _interpreter: &Interpreter,
+        _interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
@@ -520,7 +530,7 @@ struct DictDescriptor;
 impl NonDataDescriptor for DictDescriptor {
     fn get_attr(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {

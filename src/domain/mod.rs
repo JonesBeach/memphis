@@ -10,7 +10,9 @@ mod value;
 pub use call_stack::DebugCallStack;
 pub use context::Context;
 pub use dunder::Dunder;
-pub use error::{test_utils, ExceptionLiteral, ExecutionError, ExecutionErrorKind};
+#[cfg(test)]
+pub use error::test_utils;
+pub use error::{ExceptionLiteral, ExecutionError, ExecutionErrorKind};
 pub use source::Source;
 pub use stack_frame::{DebugStackFrame, ToDebugStackFrame};
 pub use type_enum::Type;

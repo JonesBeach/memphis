@@ -1,6 +1,8 @@
 use crate::{
     core::{log, Container, LogLevel},
-    treewalk::{protocols::MemberReader, types::Class, Interpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        protocols::MemberReader, types::Class, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 /// Objects of builtin types are represented using different [`TreewalkValue`] variants, so we create
@@ -23,7 +25,7 @@ impl BuiltinObject {
 impl MemberReader for BuiltinObject {
     fn get_member(
         &self,
-        interpreter: &Interpreter,
+        interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         log(LogLevel::Debug, || {

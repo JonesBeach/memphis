@@ -5,13 +5,13 @@ use crate::{
         protocols::{Callable, IndexRead, MethodProvider, Typed},
         types::List,
         utils::{check_args, Arguments},
-        Interpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Clone)]
 pub struct ReversedIterator {
-    interpreter: Interpreter,
+    interpreter: TreewalkInterpreter,
     list_ref: Container<List>,
     current_index: usize,
 }
@@ -29,7 +29,7 @@ impl MethodProvider for ReversedIterator {
 }
 
 impl ReversedIterator {
-    pub fn new(interpreter: Interpreter, list_ref: Container<List>) -> Self {
+    pub fn new(interpreter: TreewalkInterpreter, list_ref: Container<List>) -> Self {
         let current_index = list_ref.borrow().len();
         Self {
             interpreter,
@@ -60,7 +60,11 @@ impl Iterator for ReversedIterator {
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let list = args.get_arg(1).expect_list(interpreter)?;
         Ok(TreewalkValue::ReversedIterator(ReversedIterator::new(

@@ -4,21 +4,17 @@ use crate::{
         protocols::Callable,
         types::{pausable::Pausable, Coroutine},
         utils::{check_args, Arguments},
-        Interpreter, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkValue,
+        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
 };
 
 /// An event loop which runs `Coroutine` objects using the `CoroutineExecutor` utility.
 pub struct Executor {
-    pub current_coroutine: Container<Option<Container<Coroutine>>>,
-    running: Container<Vec<Container<Coroutine>>>,
-    spawned: Container<Vec<Container<Coroutine>>>,
-    to_wait: Container<Vec<(Container<Coroutine>, Container<Coroutine>)>>,
-
-    /// In theory this does not need to be in a `Container` because it is not shared. However, we
-    /// currently call `executor.call(..)` with a reference to the `Executor`, which does not allow
-    /// itself to be borrowed as mutable. We may want to unwind this in the future.
-    sleep_indicator: Container<Option<f64>>,
+    current_coroutine: Option<Container<Coroutine>>,
+    running: Vec<Container<Coroutine>>,
+    spawned: Vec<Container<Coroutine>>,
+    to_wait: Vec<(Container<Coroutine>, Container<Coroutine>)>,
+    sleep_indicator: Option<f64>,
 }
 
 impl Default for Executor {
@@ -31,79 +27,57 @@ impl Executor {
     /// Create an `Executor`.
     pub fn new() -> Self {
         Self {
-            current_coroutine: Container::new(None),
-            running: Container::new(vec![]),
-            spawned: Container::new(vec![]),
-            to_wait: Container::new(vec![]),
-            sleep_indicator: Container::new(None),
+            current_coroutine: None,
+            running: vec![],
+            spawned: vec![],
+            to_wait: vec![],
+            sleep_indicator: None,
         }
     }
 
-    fn set_current_coroutine(&self, coroutine: Container<Coroutine>) {
-        *self.current_coroutine.borrow_mut() = Some(coroutine);
+    pub fn current_coroutine(&self) -> &Option<Container<Coroutine>> {
+        &self.current_coroutine
     }
 
-    fn clear_current_coroutine(&self) {
-        *self.current_coroutine.borrow_mut() = None;
-    }
-
-    /// Do the next piece of work on a given `Coroutine`. After its work is done, check to
-    /// see if it was put to sleep and handle it accordingly.
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        coroutine: Container<Coroutine>,
-    ) -> TreewalkResult<TreewalkValue> {
-        self.set_current_coroutine(coroutine.clone());
-
-        coroutine.run_until_pause(interpreter)?;
-
-        if let Some(duration) = *self.sleep_indicator.borrow() {
-            coroutine.borrow_mut().sleep(duration);
-        }
-        *self.sleep_indicator.borrow_mut() = None;
-
-        self.clear_current_coroutine();
-        Ok(TreewalkValue::None)
+    pub fn set_wait_on(&mut self, first: Container<Coroutine>, second: Container<Coroutine>) {
+        self.to_wait.push((first.clone(), second.clone()));
     }
 
     /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once the
     /// coroutine has resolved.
-    pub fn run(
-        &self,
-        interpreter: &Interpreter,
+    fn run(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
     ) -> TreewalkResult<TreewalkValue> {
-        let executor = Container::new(self);
-        executor
-            .borrow()
-            .running
-            .borrow_mut()
-            .push(coroutine.clone());
+        self.running.push(coroutine.clone());
 
         loop {
-            // Run every coroutine on this event loop that has work to do.
-            for c in executor.borrow().running.borrow_mut().iter() {
+            // Take the current queue of running coroutines
+            let to_run = std::mem::take(&mut self.running);
+            for c in &to_run {
                 if c.borrow().has_work() {
-                    let _ = executor.borrow().call(interpreter, c.clone())?;
+                    let _ = self.step_coroutine(interpreter, c.clone())?;
+                }
+            }
+            // Push them back in for the next round
+            self.running.extend(to_run);
+
+            // Same pattern for to_wait, except we don't need to push them back
+            let to_wait = std::mem::take(&mut self.to_wait);
+            for (first, second) in &to_wait {
+                first.borrow_mut().wait_on(second.clone());
+                if !second.borrow().has_started() {
+                    self.spawn(second.clone())?;
                 }
             }
 
-            for pair in executor.borrow().to_wait.borrow_mut().iter() {
-                pair.0.borrow_mut().wait_on(pair.1.clone());
-                if !pair.1.has_started() {
-                    executor.borrow().spawn(pair.1.clone())?;
-                }
+            // Same pattern for spawned, which we also don't need to push back
+            let new_spawns = std::mem::take(&mut self.spawned);
+            for c in &new_spawns {
+                let _ = self.step_coroutine(interpreter, c.clone())?;
+                self.running.push(c.clone());
             }
-            executor.borrow().to_wait.borrow_mut().clear();
-
-            // Call any coroutines spawned during this iteration and add them to the queue for the
-            // next iteration.
-            for c in executor.borrow().spawned.borrow_mut().iter() {
-                let _ = executor.borrow().call(interpreter, c.clone())?;
-                executor.borrow().running.borrow_mut().push(c.clone());
-            }
-            executor.borrow().spawned.borrow_mut().clear();
 
             // The event loop exits when its original coroutine has completed all its work. Other
             // spawned coroutines may or may not be finished by this time.
@@ -114,21 +88,34 @@ impl Executor {
     }
 
     /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the event loop.
-    pub fn spawn(&self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
-        coroutine.context().start();
-        self.spawned.borrow_mut().push(coroutine.clone());
+    fn spawn(&mut self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
+        coroutine.borrow_mut().context_mut().start();
+        self.spawned.push(coroutine.clone());
         Ok(TreewalkValue::Coroutine(coroutine))
     }
 
-    pub fn sleep(&self, duration: f64) -> TreewalkResult<TreewalkValue> {
-        *self.sleep_indicator.borrow_mut() = Some(duration);
+    fn sleep(&mut self, duration: f64) -> TreewalkResult<TreewalkValue> {
+        self.sleep_indicator = Some(duration);
         Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep))
     }
 
-    pub fn set_wait_on(&self, first: Container<Coroutine>, second: Container<Coroutine>) {
-        self.to_wait
-            .borrow_mut()
-            .push((first.clone(), second.clone()));
+    /// Do the next piece of work on a given `Coroutine`. After its work is done, check to
+    /// see if it was put to sleep and handle it accordingly.
+    fn step_coroutine(
+        &mut self,
+        interpreter: &TreewalkInterpreter,
+        coroutine: Container<Coroutine>,
+    ) -> TreewalkResult<TreewalkValue> {
+        self.current_coroutine = Some(coroutine.clone());
+        coroutine.borrow_mut().run_until_pause(interpreter)?;
+
+        if let Some(duration) = self.sleep_indicator {
+            coroutine.borrow_mut().sleep(duration);
+        }
+
+        self.sleep_indicator = None;
+        self.current_coroutine = None;
+        Ok(TreewalkValue::None)
     }
 }
 
@@ -137,15 +124,15 @@ pub struct AsyncioSleepBuiltin;
 pub struct AsyncioCreateTaskBuiltin;
 
 impl Callable for AsyncioRunBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
-        let executor = interpreter.state.get_executor();
-        let result = executor.borrow().run(interpreter, coroutine);
-
-        drop(executor);
-        result
+        interpreter.with_executor(|exec| exec.run(interpreter, coroutine))
     }
 
     fn name(&self) -> String {
@@ -154,10 +141,14 @@ impl Callable for AsyncioRunBuiltin {
 }
 
 impl Callable for AsyncioSleepBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let duration = args.get_arg(0).expect_fp(interpreter)?;
-        interpreter.state.get_executor().borrow().sleep(duration)
+        interpreter.with_executor(|exec| exec.sleep(duration))
     }
 
     fn name(&self) -> String {
@@ -166,11 +157,15 @@ impl Callable for AsyncioSleepBuiltin {
 }
 
 impl Callable for AsyncioCreateTaskBuiltin {
-    fn call(&self, interpreter: &Interpreter, args: Arguments) -> TreewalkResult<TreewalkValue> {
+    fn call(
+        &self,
+        interpreter: &TreewalkInterpreter,
+        args: Arguments,
+    ) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
-        interpreter.state.get_executor().borrow().spawn(coroutine)
+        interpreter.with_executor(|exec| exec.spawn(coroutine))
     }
 
     fn name(&self) -> String {

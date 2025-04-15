@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::bytecode_vm::{
-    compiler::types::CodeObject,
+    compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
     VmValue,
 };
@@ -74,11 +74,6 @@ impl<'a> Object {
             class,
             namespace: HashMap::new(),
         }
-    }
-
-    #[cfg(test)]
-    pub fn class_ref(&self) -> Reference {
-        self.class
     }
 
     pub fn read<T>(&self, name: &str, deref: T) -> Option<Reference>
