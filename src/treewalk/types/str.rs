@@ -6,9 +6,10 @@ use std::{
 use crate::{
     domain::Type,
     treewalk::{
-        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        macros::*,
+        protocols::{Callable, IndexRead},
         types::Slice,
-        utils::Arguments,
+        utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -16,17 +17,8 @@ use crate::{
 #[derive(Clone, PartialEq)]
 pub struct Str(String);
 
-impl Typed for Str {
-    fn get_type() -> Type {
-        Type::Str
-    }
-}
-
-impl MethodProvider for Str {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(JoinBuiltin), Box::new(MaketransBuiltin)]
-    }
-}
+impl_typed!(Str, Type::Str);
+impl_method_provider!(Str, [JoinBuiltin, MaketransBuiltin]);
 
 impl Str {
     pub fn new(str: String) -> Self {
@@ -79,13 +71,16 @@ impl IndexRead for Str {
     }
 }
 
+#[derive(Clone)]
 struct JoinBuiltin;
+#[derive(Clone)]
+struct MaketransBuiltin;
 
 impl Callable for JoinBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }
@@ -95,13 +90,11 @@ impl Callable for JoinBuiltin {
     }
 }
 
-struct MaketransBuiltin;
-
 impl Callable for MaketransBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }

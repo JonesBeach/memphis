@@ -1,45 +1,37 @@
 use crate::{
-    core::{log, Container, LogLevel},
+    core::{log, LogLevel},
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MemberReader, MethodProvider, Typed},
-        utils::Arguments,
+        macros::*,
+        protocols::{Callable, MemberReader},
+        utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Debug, Clone)]
-pub struct Super(TreewalkValue);
+pub struct Super(Box<TreewalkValue>);
 
-impl Typed for Super {
-    fn get_type() -> Type {
-        Type::Super
-    }
-}
-
-impl MethodProvider for Super {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Super, Type::Super);
+impl_method_provider!(Super, [NewBuiltin]);
 
 impl Super {
     pub fn new(receiver: TreewalkValue) -> Self {
-        Self(receiver)
+        Self(Box::new(receiver))
     }
 
     pub fn receiver(&self) -> TreewalkValue {
-        self.0.clone()
+        *self.0.clone()
     }
 }
 
-impl MemberReader for Container<Super> {
+impl MemberReader for Super {
     fn get_member(
         &self,
         interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        let instance = self.borrow().receiver();
+        let instance = self.receiver();
         let class = instance.get_class(interpreter);
 
         // Retrieve the MRO for the class, excluding the class itself
@@ -52,7 +44,7 @@ impl MemberReader for Container<Super> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class via super()", parent_class, name)
             });
-            return Ok(Some(attr.resolve_nondata_descriptor(
+            return Ok(Some(attr.resolve_descriptor(
                 interpreter,
                 Some(instance),
                 class,
@@ -63,13 +55,14 @@ impl MemberReader for Container<Super> {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(
         &self,
         interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         match interpreter.state.current_receiver() {
             None => {
@@ -80,11 +73,11 @@ impl Callable for NewBuiltin {
                 assert_eq!(function.borrow().name(), String::from(Dunder::New));
 
                 let class = function.borrow().clone().class_context.unwrap();
-                Ok(TreewalkValue::Super(Container::new(Super::new(
-                    TreewalkValue::Class(class),
+                Ok(TreewalkValue::Super(Super::new(TreewalkValue::Class(
+                    class,
                 ))))
             }
-            Some(receiver) => Ok(TreewalkValue::Super(Container::new(Super::new(receiver)))),
+            Some(receiver) => Ok(TreewalkValue::Super(Super::new(receiver))),
         }
     }
 

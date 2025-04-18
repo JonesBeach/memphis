@@ -5,20 +5,15 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::Type,
     treewalk::{
         types::{function::FunctionType, Class},
-        utils::Arguments,
+        utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 pub trait Callable {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue>;
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue>;
 
     fn name(&self) -> String;
 
@@ -128,19 +123,3 @@ pub trait IndexWrite {
 }
 
 // pub trait IndexAccessor: IndexRead + IndexWrite {}
-
-pub trait Typed {
-    fn get_type() -> Type;
-}
-
-pub trait MethodProvider: Typed {
-    fn get_methods() -> Vec<Box<dyn Callable>>;
-}
-
-pub trait DescriptorProvider: Typed {
-    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>>;
-}
-
-pub trait DataDescriptorProvider: Typed {
-    fn get_data_descriptors() -> Vec<Box<dyn DataDescriptor>>;
-}

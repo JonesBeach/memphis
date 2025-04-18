@@ -4,52 +4,36 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::{Dunder, Type},
     treewalk::{
+        macros::*,
         protocols::{
-            Callable, DataDescriptor, DataDescriptorProvider, DescriptorProvider, IndexRead,
-            IndexWrite, MemberReader, MemberWriter, MethodProvider, NonDataDescriptor, Typed,
+            Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, MemberWriter,
+            NonDataDescriptor,
         },
         types::{Class, Str},
-        utils::{args, check_args, Arguments},
+        utils::{args, check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Object {
-    pub class: Container<Class>,
+    class: Container<Class>,
     scope: Scope,
 }
 
-impl Typed for Object {
-    fn get_type() -> Type {
-        Type::Object
-    }
-}
-
-impl MethodProvider for Object {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![
-            Box::new(InitBuiltin),
-            Box::new(NewBuiltin),
-            Box::new(EqBuiltin),
-            Box::new(NeBuiltin),
-            Box::new(HashBuiltin),
-            Box::new(StrBuiltin),
-        ]
-    }
-}
-
-impl DescriptorProvider for Object {
-    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
-        vec![]
-    }
-}
-
-impl DataDescriptorProvider for Object {
-    fn get_data_descriptors() -> Vec<Box<dyn DataDescriptor>> {
-        vec![Box::new(DictDescriptor)]
-    }
-}
+impl_typed!(Object, Type::Object);
+impl_method_provider!(
+    Object,
+    [
+        NewBuiltin,
+        InitBuiltin,
+        EqBuiltin,
+        NeBuiltin,
+        HashBuiltin,
+        StrBuiltin
+    ]
+);
+impl_data_descriptor_provider!(Object, [DictDescriptor]);
 
 impl Object {
     /// Create the object with an empty symbol table. This is also called by the [`Dunder::New`]
@@ -59,6 +43,14 @@ impl Object {
             class,
             scope: Scope::default(),
         }))
+    }
+
+    pub fn class(&self) -> Container<Class> {
+        self.class.clone()
+    }
+
+    pub fn class_ref(&self) -> &Container<Class> {
+        &self.class
     }
 }
 
@@ -70,9 +62,9 @@ impl IndexWrite for Container<Object> {
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
         let _ = interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::SetItem,
-            &args![index, value],
+            args![index, value],
         )?;
 
         Ok(())
@@ -84,9 +76,9 @@ impl IndexWrite for Container<Object> {
         index: TreewalkValue,
     ) -> TreewalkResult<()> {
         let _ = interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::DelItem,
-            &args![index],
+            args![index],
         )?;
 
         Ok(())
@@ -100,9 +92,9 @@ impl IndexRead for Container<Object> {
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         let result = interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::GetItem,
-            &args![index],
+            args![index],
         )?;
 
         Ok(Some(result))
@@ -138,7 +130,7 @@ impl MemberReader for Container<Object> {
             });
             let instance = TreewalkValue::Object(self.clone());
             let owner = instance.get_class(interpreter);
-            return Ok(Some(attr.resolve_nondata_descriptor(
+            return Ok(Some(attr.resolve_descriptor(
                 interpreter,
                 Some(instance),
                 owner,
@@ -170,12 +162,8 @@ impl MemberWriter for Container<Object> {
                     name
                 )
             });
-            if let Some(descriptor) = attr.as_data_descriptor(interpreter)? {
-                descriptor.borrow().set_attr(
-                    interpreter,
-                    TreewalkValue::Object(self.clone()),
-                    value,
-                )?;
+            if let Some(descriptor) = attr.into_data_descriptor(interpreter)? {
+                descriptor.set_attr(interpreter, TreewalkValue::Object(self.clone()), value)?;
                 return Ok(());
             }
         }
@@ -200,10 +188,8 @@ impl MemberWriter for Container<Object> {
                     name
                 )
             });
-            if let Some(descriptor) = attr.as_data_descriptor(interpreter)? {
-                descriptor
-                    .borrow()
-                    .delete_attr(interpreter, TreewalkValue::Object(self.clone()))?;
+            if let Some(descriptor) = attr.into_data_descriptor(interpreter)? {
+                descriptor.delete_attr(interpreter, TreewalkValue::Object(self.clone()))?;
                 return Ok(());
             }
         }
@@ -213,9 +199,10 @@ impl MemberWriter for Container<Object> {
         // would happen if we called `get_member`.
         let result = TreewalkValue::Object(self.clone());
         if !result
-            .as_member_reader(interpreter)
+            .clone()
+            .into_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
-            .ok_or_else(|| interpreter.attribute_error(result.clone(), Dunder::Dict.as_ref()))?
+            .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
             .expect_dict(interpreter)?
             .borrow()
             .has(
@@ -223,7 +210,7 @@ impl MemberWriter for Container<Object> {
                 &TreewalkValue::String(Str::new(name.to_owned())),
             )
         {
-            return Err(interpreter.attribute_error(result, name));
+            return Err(interpreter.attribute_error(&result, name));
         }
 
         log(LogLevel::Debug, || {
@@ -243,9 +230,9 @@ impl NonDataDescriptor for Container<Object> {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::Get,
-            &args![
+            args![
                 instance.unwrap_or(TreewalkValue::None),
                 TreewalkValue::Class(owner)
             ],
@@ -268,9 +255,9 @@ impl DataDescriptor for Container<Object> {
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
         interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::Set,
-            &args![instance, value],
+            args![instance, value],
         )?;
 
         Ok(())
@@ -282,9 +269,9 @@ impl DataDescriptor for Container<Object> {
         instance: TreewalkValue,
     ) -> TreewalkResult<()> {
         interpreter.invoke_method(
-            TreewalkValue::Object(self.clone()),
+            &TreewalkValue::Object(self.clone()),
             Dunder::Delete,
-            &args![instance],
+            args![instance],
         )?;
 
         Ok(())
@@ -302,14 +289,21 @@ impl Display for Container<Object> {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
+#[derive(Clone)]
+struct InitBuiltin;
+#[derive(Clone)]
+struct EqBuiltin;
+#[derive(Clone)]
+struct HashBuiltin;
+#[derive(Clone)]
+struct NeBuiltin;
+#[derive(Clone)]
+struct StrBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
         let class = args.get_arg(0).expect_class(interpreter)?;
@@ -321,13 +315,11 @@ impl Callable for NewBuiltin {
     }
 }
 
-struct InitBuiltin;
-
 impl Callable for InitBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         Ok(TreewalkValue::None)
     }
@@ -337,16 +329,10 @@ impl Callable for InitBuiltin {
     }
 }
 
-/// The default behavior in Python for the `==` sign is to compare the object identity. This is
-/// only used when `Dunder::Eq` is not overridden by a user-defined class.
-struct EqBuiltin;
-
 impl Callable for EqBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    /// The default behavior in Python for the `==` sign is to compare the object identity. This is
+    /// only used when `Dunder::Eq` is not overridden by a user-defined class.
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let a = args.expect_self(interpreter)?;
@@ -360,14 +346,8 @@ impl Callable for EqBuiltin {
     }
 }
 
-struct HashBuiltin;
-
 impl Callable for HashBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         let object = args.expect_self(interpreter)?;
         Ok(TreewalkValue::Integer(object.hash() as i64))
@@ -378,18 +358,12 @@ impl Callable for HashBuiltin {
     }
 }
 
-/// The default behavior in Python for the `!=` sign is to call the `Dunder::Eq` and invert the
-/// result. This is only used when `Dunder::Ne` is not overridden by a user-defined class.
-struct NeBuiltin;
-
 impl Callable for NeBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    /// The default behavior in Python for the `!=` sign is to call the `Dunder::Eq` and invert the
+    /// result. This is only used when `Dunder::Ne` is not overridden by a user-defined class.
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let receiver = args.expect_self(interpreter)?;
-        let result = interpreter.invoke_method(receiver, Dunder::Eq, &args![args.get_arg(0)])?;
+        let result = interpreter.invoke_method(&receiver, Dunder::Eq, args![args.get_arg(0)])?;
 
         Ok(result.inverted())
     }
@@ -399,13 +373,11 @@ impl Callable for NeBuiltin {
     }
 }
 
-struct StrBuiltin;
-
 impl Callable for StrBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }

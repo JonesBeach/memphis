@@ -2,9 +2,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        macros::*,
+        protocols::{Callable, NonDataDescriptor},
         types::Class,
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -12,17 +13,8 @@ use crate::{
 #[derive(Clone)]
 pub struct Staticmethod(Box<TreewalkValue>);
 
-impl Typed for Staticmethod {
-    fn get_type() -> Type {
-        Type::Staticmethod
-    }
-}
-
-impl MethodProvider for Staticmethod {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Staticmethod, Type::Staticmethod);
+impl_method_provider!(Staticmethod, [NewBuiltin]);
 
 impl Staticmethod {
     fn new(func: Box<TreewalkValue>) -> Self {
@@ -30,14 +22,11 @@ impl Staticmethod {
     }
 }
 
+#[derive(Clone)]
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
         check_args(&args, |len| len == 2, interpreter)?;
         let function = args.get_arg(1);

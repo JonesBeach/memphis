@@ -3,23 +3,24 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     core::Container,
     treewalk::{
-        protocols::Callable, utils::Arguments, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::Callable, type_system::CloneableCallable, utils::Args, TreewalkInterpreter,
+        TreewalkResult, TreewalkValue,
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Method {
     receiver: TreewalkValue,
-    function: Container<Box<dyn Callable>>,
+    function: Box<dyn CloneableCallable>,
 }
 
 impl Method {
-    pub fn new(receiver: TreewalkValue, function: Container<Box<dyn Callable>>) -> Self {
+    pub fn new(receiver: TreewalkValue, function: Box<dyn CloneableCallable>) -> Self {
         Self { receiver, function }
     }
 
     pub fn name(&self) -> String {
-        format!("{} of {}", self.function.borrow().name(), &self.receiver)
+        format!("{} of {}", self.function.name(), &self.receiver)
     }
 
     pub fn receiver(&self) -> TreewalkValue {
@@ -28,15 +29,11 @@ impl Method {
 }
 
 impl Callable for Container<Method> {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         interpreter
             .state
             .push_receiver(self.borrow().receiver.clone());
-        let result = self.borrow().function.borrow().call(interpreter, args);
+        let result = self.borrow().function.call(interpreter, args);
         interpreter.state.pop_receiver();
 
         result

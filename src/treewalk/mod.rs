@@ -1,3 +1,4 @@
+mod boxing;
 pub mod builtins;
 mod context;
 mod evaluators;
@@ -6,7 +7,9 @@ mod executor;
 #[allow(clippy::module_inception)]
 pub mod interpreter;
 mod iterator;
+pub mod macros;
 mod module;
+pub mod pausable;
 pub mod protocols;
 mod resolver;
 mod result;
@@ -16,6 +19,7 @@ mod state;
 #[cfg(test)]
 pub mod test_utils;
 mod type_registry;
+mod type_system;
 pub mod types;
 pub mod typing;
 pub mod utils;

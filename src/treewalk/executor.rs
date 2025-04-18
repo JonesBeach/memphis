@@ -1,14 +1,15 @@
 use crate::{
     core::Container,
     treewalk::{
+        pausable::Pausable,
         protocols::Callable,
-        types::{pausable::Pausable, Coroutine},
-        utils::{check_args, Arguments},
+        types::Coroutine,
+        utils::{check_args, Args},
         TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
 };
 
-/// An event loop which runs `Coroutine` objects using the `CoroutineExecutor` utility.
+/// An event loop which runs `Coroutine` objects.
 pub struct Executor {
     current_coroutine: Option<Container<Coroutine>>,
     running: Vec<Container<Coroutine>>,
@@ -119,16 +120,15 @@ impl Executor {
     }
 }
 
+#[derive(Clone)]
 pub struct AsyncioRunBuiltin;
+#[derive(Clone)]
 pub struct AsyncioSleepBuiltin;
+#[derive(Clone)]
 pub struct AsyncioCreateTaskBuiltin;
 
 impl Callable for AsyncioRunBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
@@ -141,11 +141,7 @@ impl Callable for AsyncioRunBuiltin {
 }
 
 impl Callable for AsyncioSleepBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let duration = args.get_arg(0).expect_fp(interpreter)?;
         interpreter.with_executor(|exec| exec.sleep(duration))
@@ -157,11 +153,7 @@ impl Callable for AsyncioSleepBuiltin {
 }
 
 impl Callable for AsyncioCreateTaskBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;

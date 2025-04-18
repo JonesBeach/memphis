@@ -5,12 +5,11 @@ use crate::{
     domain::Type,
     parser::types::Statement,
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        types::{
-            pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
-            Function,
-        },
-        utils::{check_args, Arguments},
+        macros::*,
+        pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
+        protocols::Callable,
+        types::Function,
+        utils::{check_args, Args},
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
         TreewalkValue,
     },
@@ -21,8 +20,8 @@ pub enum Poll {
     Ready(TreewalkValue),
 }
 
-/// Stateful encapsulation of a pausable `Function` with a `Scope`. This struct needs an
-/// `Executor` to be run.
+/// Stateful encapsulation of a pausable `Function` with a `Scope`. This must be run by an
+/// `Executor`.
 pub struct Coroutine {
     scope: Container<Scope>,
     context: PausableContext,
@@ -31,17 +30,8 @@ pub struct Coroutine {
     return_val: Option<TreewalkValue>,
 }
 
-impl Typed for Coroutine {
-    fn get_type() -> Type {
-        Type::Coroutine
-    }
-}
-
-impl MethodProvider for Coroutine {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(CloseBuiltin)]
-    }
-}
+impl_typed!(Coroutine, Type::Coroutine);
+impl_method_provider!(Coroutine, [CloseBuiltin]);
 
 impl Coroutine {
     pub fn new(scope: Container<Scope>, function: Container<Function>) -> Self {
@@ -164,17 +154,14 @@ impl Pausable for Coroutine {
     }
 }
 
+#[derive(Clone)]
 struct CloseBuiltin;
 
 // I'm not sure what coroutine.close() should do. The stdlib says this is used to prevent a
 // ResourceWarning, but I'm not doing anything when I invoke a coroutine right now that would lead
 // to this.
 impl Callable for CloseBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         Ok(TreewalkValue::None)
     }

@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
+    ptr,
 };
 
 #[cfg(feature = "c_stdlib")]
@@ -10,10 +11,8 @@ use crate::{
     core::{Container, Voidable},
     domain::{Dunder, ExecutionError, MemphisValue, Type},
     treewalk::{
-        protocols::{
-            Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, MemberWriter,
-            NonDataDescriptor,
-        },
+        protocols::MemberReader,
+        type_system::{CloneableCallable, CloneableDataDescriptor, CloneableNonDataDescriptor},
         types::{
             iterators::{
                 DictItemsIterator, DictKeysIterator, DictValuesIterator, GeneratorIterator,
@@ -24,7 +23,7 @@ use crate::{
             Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
         },
         typing::TypeExpr,
-        utils::{Arguments, BuiltinObject},
+        utils::Args,
         TreewalkInterpreter, TreewalkIterator, TreewalkResult,
     },
 };
@@ -40,16 +39,16 @@ pub enum TreewalkValue {
     Class(Container<Class>),
     Object(Container<Object>),
     Module(Container<Module>),
-    Super(Container<Super>),
+    Super(Super),
     Classmethod(Classmethod),
     Staticmethod(Staticmethod),
     Property(Property),
-    DataDescriptor(Container<Box<dyn DataDescriptor>>),
-    NonDataDescriptor(Container<Box<dyn NonDataDescriptor>>),
+    DataDescriptor(Box<dyn CloneableDataDescriptor>),
+    NonDataDescriptor(Box<dyn CloneableNonDataDescriptor>),
     Function(Container<Function>),
     Method(Container<Method>),
-    BuiltinFunction(Container<Box<dyn Callable>>),
-    BuiltinMethod(Container<Box<dyn Callable>>),
+    BuiltinFunction(Box<dyn CloneableCallable>),
+    BuiltinMethod(Box<dyn CloneableCallable>),
     Generator(GeneratorIterator),
     Coroutine(Container<Coroutine>),
     Code(Code),
@@ -122,13 +121,13 @@ impl PartialEq for TreewalkValue {
             (TreewalkValue::Object(a), TreewalkValue::Object(b)) => a.same_identity(b),
             (TreewalkValue::Exception(a), TreewalkValue::Exception(b)) => a == b,
             (TreewalkValue::BuiltinMethod(a), TreewalkValue::BuiltinMethod(b)) => {
-                a.same_identity(b)
+                ptr::eq(a.as_ref(), b.as_ref())
             }
             (TreewalkValue::DataDescriptor(a), TreewalkValue::DataDescriptor(b)) => {
-                a.same_identity(b)
+                ptr::eq(a.as_ref(), b.as_ref())
             }
             (TreewalkValue::NonDataDescriptor(a), TreewalkValue::NonDataDescriptor(b)) => {
-                a.same_identity(b)
+                ptr::eq(a.as_ref(), b.as_ref())
             }
             _ => false,
         }
@@ -144,7 +143,7 @@ impl Hash for TreewalkValue {
         H: Hasher,
     {
         if let TreewalkValue::Set(set) = self {
-            for i in set.borrow().items.clone() {
+            for i in set.borrow().iter() {
                 i.as_integer().unwrap().hash(state)
             }
         }
@@ -172,25 +171,28 @@ impl TreewalkValue {
     pub fn new(
         interpreter: &TreewalkInterpreter,
         class: Container<Class>,
-        arguments: Arguments,
+        args: Args,
     ) -> TreewalkResult<Self> {
         // We have to handle calls to `type()` with only one parameter as a special case because
         // this doesn't actually call the `Type::Type` `Dunder::New` method, which expects more
         // arguments and would return a new class. Overloading the `Dunder::Init` method
         // here on `Type::Type` would also create unintended behaviors.
         if class.borrow().is_type(&Type::Type) {
-            assert_eq!(arguments.len(), 1);
-            return Ok(interpreter.state.get_type(&arguments.get_arg(0)));
+            assert_eq!(args.len(), 1);
+            return Ok(interpreter.state.class_of_value(&args.get_arg(0)));
         };
 
         // The [`Class`] must be explicitly passed to the [`Dunder::New`] method as this method is
         // never bound.
-        let mut new_args = arguments.clone();
-        new_args.bind_new(TreewalkValue::Class(class.clone()));
+        // We clone here because these args will be consumed by the `Dunder::New` method call and
+        // we still need a version of these for method call to `Dunder::Init`.
+        let new_args = args
+            .clone()
+            .with_bound_new(TreewalkValue::Class(class.clone()));
         let object =
-            interpreter.invoke_method(TreewalkValue::Class(class), Dunder::New, &new_args)?;
+            interpreter.invoke_method(&TreewalkValue::Class(class), Dunder::New, new_args)?;
 
-        interpreter.invoke_method(object.clone(), Dunder::Init, &arguments)?;
+        interpreter.invoke_method(&object, Dunder::Init, args)?;
 
         Ok(object)
     }
@@ -224,7 +226,7 @@ impl TreewalkValue {
             TreewalkValue::Generator(_) => write!(f, "<generator object>"),
             TreewalkValue::Coroutine(_) => write!(f, "<coroutine object>"),
             TreewalkValue::BuiltinFunction(func) => {
-                write!(f, "<built-in function {}>", func.borrow().name())
+                write!(f, "<built-in function {}>", func.name())
             }
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
             TreewalkValue::Integer(i) => write!(f, "{}", i),
@@ -371,11 +373,56 @@ impl TreewalkValue {
 
     pub fn get_class(&self, interpreter: &TreewalkInterpreter) -> Container<Class> {
         match self {
-            TreewalkValue::Object(o) => o.borrow().class.clone(),
+            TreewalkValue::Object(o) => o.borrow().class(),
             TreewalkValue::Class(o) => o.clone(),
-            TreewalkValue::Super(s) => s.borrow().receiver().get_class(interpreter),
-            _ => interpreter.state.get_type_class(self.get_type()).clone(),
+            TreewalkValue::Super(s) => s.receiver().get_class(interpreter),
+            _ => interpreter.state.class_of_type(self.get_type()).clone(),
         }
+    }
+
+    pub fn resolve_descriptor(
+        self,
+        interpreter: &TreewalkInterpreter,
+        instance: Option<TreewalkValue>,
+        owner: Container<Class>,
+    ) -> TreewalkResult<TreewalkValue> {
+        // Similar to callable below, ideally we'd be able to handle this inside
+        // `Result::as_nondata_descriptor` but we don't yet have a way to downcast in this way
+        // (i.e. treat `S` as a different `dyn T` when `S : T`)
+        if let Some(descriptor) = self.clone().into_data_descriptor(interpreter)? {
+            return descriptor.get_attr(interpreter, instance, owner);
+        }
+
+        // I'd love to find a way to combine this into [`Result::as_nondata_descriptor`] and move
+        // this functionality onto the [`Callable`] trait somehow.
+        if let Some(callable) = self.clone().into_callable() {
+            // The new method is never bound. When called explicitly inside other metaclasses, the
+            // class must be passed in by the calling metaclass.
+            if callable.name() == String::from(Dunder::New) {
+                return Ok(self.clone());
+            }
+
+            return Ok(match instance {
+                Some(instance) => {
+                    TreewalkValue::Method(Container::new(Method::new(instance, callable)))
+                }
+                None => self.clone(),
+            });
+        }
+
+        match self.clone().into_nondata_descriptor(interpreter)? {
+            Some(descriptor) => descriptor.get_attr(interpreter, instance, owner),
+            None => Ok(self.clone()),
+        }
+    }
+
+    pub fn expect_callable(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Box<dyn CloneableCallable>> {
+        self.clone()
+            .into_callable()
+            .ok_or_else(|| interpreter.type_error("Expected a callable"))
     }
 
     pub fn as_integer(&self) -> Option<i64> {
@@ -431,177 +478,12 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_member_reader(&self, interpreter: &TreewalkInterpreter) -> Box<dyn MemberReader> {
-        match self {
-            TreewalkValue::Object(i) => Box::new(i.clone()),
-            TreewalkValue::Class(i) => Box::new(i.clone()),
-            TreewalkValue::Function(i) => Box::new(i.clone()),
-            TreewalkValue::Cell(i) => Box::new(i.borrow().clone()),
-            TreewalkValue::Module(i) => Box::new(i.borrow().clone()),
-            TreewalkValue::Super(i) => Box::new(i.clone()),
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonModule(i) => Box::new(i.borrow().clone()),
-            _ => {
-                // We need this fallback case for instances of builtin types.
-                // i.e. [].append
-                // All attributes fetched off the builtin types not explicitly handled above do not
-                // support attribute writes, only reads of builtin attributes.
-                let class = interpreter.state.get_type_class(self.get_type());
-                Box::new(BuiltinObject::new(self.clone(), class))
-            }
-        }
-    }
-
-    pub fn as_member_writer(&self) -> Option<Box<dyn MemberWriter>> {
-        match self {
-            TreewalkValue::Object(i) => Some(Box::new(i.clone())),
-            TreewalkValue::Class(i) => Some(Box::new(i.clone())),
-            TreewalkValue::Function(i) => Some(Box::new(i.clone())),
-            // #[cfg(feature = "c_stdlib")]
-            // TreewalkValue::CPythonModule(i) => Some(Box::new(i.borrow().clone())),
-            _ => None,
-        }
-    }
-
-    fn hasattr(&self, interpreter: &TreewalkInterpreter, attr: Dunder) -> bool {
-        self.as_member_reader(interpreter)
-            .get_member(interpreter, &attr)
-            .unwrap()
-            .is_some()
-    }
-
-    fn map_hasattr(
+    pub fn expect_module(
         &self,
         interpreter: &TreewalkInterpreter,
-        attr: Dunder,
-    ) -> Option<TreewalkValue> {
-        match self.hasattr(interpreter, attr) {
-            true => Some(self.clone()),
-            false => None,
-        }
-    }
-
-    pub fn as_index_read(&self, interpreter: &TreewalkInterpreter) -> Option<Box<dyn IndexRead>> {
-        match self {
-            TreewalkValue::List(list) => Some(Box::new(list.clone())),
-            TreewalkValue::Tuple(tuple) => Some(Box::new(tuple.clone())),
-            TreewalkValue::Dict(dict) => Some(Box::new(dict.clone())),
-            TreewalkValue::MappingProxy(proxy) => Some(Box::new(proxy.clone())),
-            TreewalkValue::String(s) => Some(Box::new(s.clone())),
-            TreewalkValue::Object(i) => self
-                .map_hasattr(interpreter, Dunder::GetItem)
-                .map(|_| Box::new(i.clone()) as Box<dyn IndexRead>),
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonObject(o) => match o.hasattr(Dunder::GetItem) {
-                true => Some(Box::new(o.clone())),
-                false => None,
-            },
-            _ => None,
-        }
-    }
-
-    pub fn as_index_write(&self, interpreter: &TreewalkInterpreter) -> Option<Box<dyn IndexWrite>> {
-        match self {
-            TreewalkValue::List(list) => Some(Box::new(list.clone())),
-            TreewalkValue::Dict(dict) => Some(Box::new(dict.clone())),
-            TreewalkValue::Object(i) => self
-                .map_hasattr(interpreter, Dunder::SetItem)
-                .map(|_| Box::new(i.clone()) as Box<dyn IndexWrite>),
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonObject(o) => match o.hasattr(Dunder::SetItem) {
-                true => Some(Box::new(o.clone())),
-                false => None,
-            },
-            _ => None,
-        }
-    }
-
-    fn as_nondata_descriptor(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Option<Container<Box<dyn NonDataDescriptor>>>> {
-        Ok(match self {
-            TreewalkValue::NonDataDescriptor(i) => Some(i.clone()),
-            TreewalkValue::Object(i) => self
-                .map_hasattr(interpreter, Dunder::Get)
-                .map(|_| Container::new(Box::new(i.clone()) as Box<dyn NonDataDescriptor>)),
-            TreewalkValue::Classmethod(i) => Some(Container::new(Box::new(i.clone()))),
-            TreewalkValue::Staticmethod(i) => Some(Container::new(Box::new(i.clone()))),
-            TreewalkValue::Property(i) => Some(Container::new(Box::new(i.clone()))),
-            _ => None,
-        })
-    }
-
-    pub fn as_data_descriptor(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Option<Container<Box<dyn DataDescriptor>>>> {
-        Ok(match self {
-            TreewalkValue::Object(i) => self
-                .map_hasattr(interpreter, Dunder::Set)
-                .map(|_| Container::new(Box::new(i.clone()) as Box<dyn DataDescriptor>)),
-            TreewalkValue::DataDescriptor(i) => Some(i.clone()),
-            // TODO handle property here
-            // TreewalkValue::Property(i) => Some(Container::new(Box::new(i.clone()))),
-            _ => None,
-        })
-    }
-
-    pub fn resolve_nondata_descriptor(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        instance: Option<TreewalkValue>,
-        owner: Container<Class>,
-    ) -> TreewalkResult<TreewalkValue> {
-        // Similar to callable below, ideally we'd be able to handle this inside
-        // `Result::as_nondata_descriptor` but we don't yet have a way to downcast in this way
-        // (i.e. treat `S` as a different `dyn T` when `S : T`)
-        if let Some(descriptor) = self.as_data_descriptor(interpreter)? {
-            return descriptor.borrow().get_attr(interpreter, instance, owner);
-        }
-
-        // I'd love to find a way to combine this into [`Result::as_nondata_descriptor`] and move
-        // this functionality onto the [`Callable`] trait somehow.
-        if let Some(callable) = self.as_callable() {
-            // The new method is never bound. When called explicitly inside other metaclasses, the
-            // class must be passed in by the calling metaclass.
-            if callable.borrow().name() == String::from(Dunder::New) {
-                return Ok(self.clone());
-            }
-
-            return Ok(match instance {
-                Some(instance) => {
-                    TreewalkValue::Method(Container::new(Method::new(instance, callable)))
-                }
-                None => self.clone(),
-            });
-        }
-
-        match self.as_nondata_descriptor(interpreter)? {
-            Some(descriptor) => descriptor.borrow().get_attr(interpreter, instance, owner),
-            None => Ok(self.clone()),
-        }
-    }
-
-    pub fn as_callable(&self) -> Option<Container<Box<dyn Callable>>> {
-        match self {
-            TreewalkValue::Function(i) => Some(Container::new(Box::new(i.clone()))),
-            TreewalkValue::Method(i) => Some(Container::new(Box::new(i.clone()))),
-            TreewalkValue::BuiltinMethod(i) => Some(i.clone()),
-            TreewalkValue::BuiltinFunction(i) => Some(i.clone()),
-            TreewalkValue::Class(i) => Some(Container::new(Box::new(i.clone()))),
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonObject(i) => Some(Container::new(Box::new(i.clone()))),
-            _ => None,
-        }
-    }
-
-    pub fn expect_callable(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Box<dyn Callable>>> {
-        self.as_callable()
-            .ok_or_else(|| interpreter.type_error("Expected a callable"))
+    ) -> TreewalkResult<Box<dyn MemberReader>> {
+        self.as_module()
+            .ok_or_else(|| interpreter.type_error("Expected a module"))
     }
 
     pub fn as_function(&self) -> Option<Container<Function>> {

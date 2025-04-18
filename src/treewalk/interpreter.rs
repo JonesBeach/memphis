@@ -19,12 +19,13 @@ use crate::{
     },
     treewalk::{
         evaluators,
-        protocols::{Callable, MemberReader},
+        protocols::MemberReader,
+        type_system::CloneableCallable,
         types::{
             function::FunctionType, iterators::GeneratorIterator, Class, Coroutine, Dict, Function,
             Generator, List, Module, Set, Slice, Str, Tuple,
         },
-        utils::{args, Arguments},
+        utils::{args, Args},
         Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
         TreewalkValue,
     },
@@ -87,7 +88,7 @@ impl TreewalkInterpreter {
 
     pub fn attribute_error(
         &self,
-        object: TreewalkValue,
+        object: &TreewalkValue,
         attr: impl Into<String>,
     ) -> TreewalkDisruption {
         self.error(ExecutionErrorKind::AttributeError(
@@ -104,28 +105,25 @@ impl TreewalkInterpreter {
 
     pub fn call(
         &self,
-        callable: Container<Box<dyn Callable>>,
-        arguments: &Arguments,
+        callable: Box<dyn CloneableCallable>,
+        args: Args,
     ) -> TreewalkResult<TreewalkValue> {
-        let mut bound_args = arguments.clone();
-        if let Some(receiver) = callable.borrow().receiver() {
-            bound_args.bind(receiver);
-        }
+        let args = if let Some(receiver) = callable.receiver() {
+            args.with_bound(receiver)
+        } else {
+            args
+        };
 
-        match callable.borrow().call(self, bound_args) {
+        match callable.call(self, args) {
             Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => Ok(result),
             Err(e) => Err(e),
             Ok(result) => Ok(result),
         }
     }
 
-    pub fn call_function(
-        &self,
-        name: &str,
-        arguments: &Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    pub fn call_function(&self, name: &str, args: Args) -> TreewalkResult<TreewalkValue> {
         let function = self.read_callable(name)?;
-        self.call_function_inner(function, arguments)
+        self.call_function_inner(function, args)
     }
 
     pub fn invoke_function(
@@ -174,22 +172,22 @@ impl TreewalkInterpreter {
 
     pub fn resolve_method<S>(
         &self,
-        receiver: TreewalkValue,
+        receiver: &TreewalkValue,
         name: S,
-    ) -> TreewalkResult<Container<Box<dyn Callable>>>
+    ) -> TreewalkResult<Box<dyn CloneableCallable>>
     where
         S: AsRef<str>,
     {
         let name = name.as_ref();
-        self.evaluate_member_access_inner(&receiver, name)?
+        self.evaluate_member_access_inner(receiver, name)?
             .expect_callable(self)
     }
 
     pub fn invoke_method<S>(
         &self,
-        receiver: TreewalkValue,
+        receiver: &TreewalkValue,
         name: S,
-        arguments: &Arguments,
+        args: Args,
     ) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
@@ -211,42 +209,39 @@ impl TreewalkInterpreter {
         }
 
         let method = self.resolve_method(receiver, name)?;
-        self.call(method, arguments)
+        self.call(method, args)
     }
 
     fn call_function_inner(
         &self,
-        function: Container<Box<dyn Callable>>,
-        arguments: &Arguments,
+        function: Box<dyn CloneableCallable>,
+        args: Args,
     ) -> TreewalkResult<TreewalkValue> {
-        let function_type = function.borrow().function_type();
-        match function_type {
+        match function.function_type() {
             FunctionType::Generator => {
                 // TODO we may want to support builtin generators in the future. For now, we only
                 // support user-defined so we are safe to downcast to `Container<Function>`.
                 let function = function
-                    .borrow()
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
                     .ok_or_else(|| self.type_error("Expected a function"))?;
-                let scope = Scope::new(self, &function, arguments)?;
+                let scope = Scope::new(self, &function, &args)?;
                 let generator_function = Generator::new(scope, function);
                 let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
                 Ok(TreewalkValue::Generator(generator_iterator))
             }
             FunctionType::Async => {
                 let function = function
-                    .borrow()
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
                     .ok_or_else(|| self.type_error("Expected a function"))?;
-                let scope = Scope::new(self, &function, arguments)?;
+                let scope = Scope::new(self, &function, &args)?;
                 let coroutine = Coroutine::new(scope, function);
                 Ok(TreewalkValue::Coroutine(Container::new(coroutine)))
             }
-            FunctionType::Regular => self.call(function, arguments),
+            FunctionType::Regular => self.call(function, args),
         }
     }
 
@@ -267,7 +262,7 @@ impl TreewalkInterpreter {
         };
     }
 
-    fn read_callable(&self, name: &str) -> TreewalkResult<Container<Box<dyn Callable>>> {
+    fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
         self.state
             .read_or_disrupt(name, self)?
             .expect_callable(self)
@@ -279,7 +274,8 @@ impl TreewalkInterpreter {
         index: &TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         object
-            .as_index_read(self)
+            .clone()
+            .into_index_read(self)?
             .ok_or_else(|| {
                 self.type_error(format!(
                     "'{}' object is not subscriptable",
@@ -331,7 +327,7 @@ impl TreewalkInterpreter {
             && Dunder::try_from(op).is_ok()
         {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.invoke_method(left, &dunder, &args![right])
+            self.invoke_method(&left, &dunder, args![right])
         } else {
             evaluators::evaluate_object_comparison(left, op, right)
         }
@@ -349,9 +345,10 @@ impl TreewalkInterpreter {
             format!("Member access {}.{}", result, field.as_ref())
         });
         result
-            .as_member_reader(self)
+            .clone()
+            .into_member_reader(self)
             .get_member(self, field.as_ref())?
-            .ok_or_else(|| self.attribute_error(result.clone(), field.as_ref()))
+            .ok_or_else(|| self.attribute_error(result, field.as_ref()))
     }
 
     // -----------------------------
@@ -370,7 +367,8 @@ impl TreewalkInterpreter {
             return Ok(result);
         }
 
-        Ok(TreewalkValue::Module(Module::import(self, import_path)?))
+        let module = Module::import(self, import_path)?;
+        Ok(TreewalkValue::Module(module))
     }
 
     fn evaluate_unary_operation(
@@ -536,7 +534,8 @@ impl TreewalkInterpreter {
                     let index_result = self.evaluate_expr(index)?;
                     let object_result = self.evaluate_expr(object)?;
                     object_result
-                        .as_index_write(self)
+                        .clone()
+                        .into_index_write(self)?
                         .ok_or_else(|| {
                             self.type_error(format!(
                                 "'{}' object does not support item deletion",
@@ -546,10 +545,11 @@ impl TreewalkInterpreter {
                         .delitem(self, index_result)?;
                 }
                 Expr::MemberAccess { object, field } => {
-                    let object_result = self.evaluate_expr(object)?;
-                    object_result
-                        .as_member_writer()
-                        .ok_or_else(|| self.attribute_error(object_result.clone(), field))?
+                    let result = self.evaluate_expr(object)?;
+                    result
+                        .clone()
+                        .into_member_writer()
+                        .ok_or_else(|| self.attribute_error(&result, field))?
                         .delete_member(self, field)?;
                 }
                 _ => return Err(self.type_error("cannot delete")),
@@ -611,10 +611,10 @@ impl TreewalkInterpreter {
     fn evaluate_function_call(
         &self,
         name: &str,
-        arguments: &CallArgs,
+        call_args: &CallArgs,
         callee: &Option<Box<Expr>>,
     ) -> TreewalkResult<TreewalkValue> {
-        let arguments = Arguments::from(self, arguments)?;
+        let args = Args::from(self, call_args)?;
 
         let function = if let Some(callee) = callee {
             self.evaluate_expr(callee)?.expect_callable(self)?
@@ -622,28 +622,27 @@ impl TreewalkInterpreter {
             self.read_callable(name)?
         };
 
-        self.call_function_inner(function, &arguments)
+        self.call_function_inner(function, args)
     }
 
     fn evaluate_method_call<S>(
         &self,
         obj: &Expr,
         name: S,
-        arguments: &CallArgs,
+        call_args: &CallArgs,
     ) -> TreewalkResult<TreewalkValue>
     where
         S: AsRef<str>,
     {
-        let arguments = Arguments::from(self, arguments)?;
+        let args = Args::from(self, call_args)?;
         let result = self.evaluate_expr(obj)?;
-
-        self.invoke_method(result, name, &arguments)
+        self.invoke_method(&result, name, args)
     }
 
     fn evaluate_class_instantiation(
         &self,
         name: &str,
-        arguments: &CallArgs,
+        call_args: &CallArgs,
     ) -> TreewalkResult<TreewalkValue> {
         log(LogLevel::Debug, || format!("Instantiating: {}", name));
         log(LogLevel::Trace, || {
@@ -660,8 +659,8 @@ impl TreewalkInterpreter {
         }
 
         let class = self.read_callable(name)?;
-        let arguments = Arguments::from(self, arguments)?;
-        self.call(class, &arguments)
+        let args = Args::from(self, call_args)?;
+        self.call(class, args)
     }
 
     fn evaluate_compound_assignment(
@@ -680,13 +679,14 @@ impl TreewalkInterpreter {
     fn evaluate_assignment_inner(&self, name: &Expr, value: TreewalkValue) -> TreewalkResult<()> {
         match name {
             Expr::Variable(name) => {
-                self.state.write(name, value.clone());
+                self.state.write(name, value);
             }
             Expr::IndexAccess { object, index } => {
                 let index_result = self.evaluate_expr(index)?;
                 let object_result = self.evaluate_expr(object)?;
                 object_result
-                    .as_index_write(self)
+                    .clone()
+                    .into_index_write(self)?
                     .ok_or_else(|| {
                         self.type_error(format!(
                             "'{}' object does not support item assignment",
@@ -698,8 +698,9 @@ impl TreewalkInterpreter {
             Expr::MemberAccess { object, field } => {
                 let result = self.evaluate_expr(object)?;
                 result
-                    .as_member_writer()
-                    .ok_or_else(|| self.attribute_error(result, field))?
+                    .clone()
+                    .into_member_writer()
+                    .ok_or_else(|| self.attribute_error(&result, field))?
                     .set_member(self, field, value)?;
             }
             _ => return Err(self.type_error("cannot assign")),
@@ -714,9 +715,9 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_multiple_assignment(&self, left: &[Expr], expr: &Expr) -> TreewalkResult<()> {
-        let value = self.evaluate_expr(expr)?;
         for name in left {
-            self.evaluate_assignment_inner(name, value.clone())?;
+            let value = self.evaluate_expr(expr)?;
+            self.evaluate_assignment_inner(name, value)?;
         }
 
         Ok(())
@@ -748,12 +749,12 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn evaluate_lambda(&self, arguments: &Params, expr: &Expr) -> TreewalkResult<TreewalkValue> {
+    fn evaluate_lambda(&self, params: &Params, expr: &Expr) -> TreewalkResult<TreewalkValue> {
         let block = Ast::from_expr(expr.clone());
 
         let function = Container::new(Function::new_lambda(
             self.state.clone(),
-            arguments.clone(),
+            params.clone(),
             block,
         ));
 
@@ -763,7 +764,7 @@ impl TreewalkInterpreter {
     fn evaluate_function_def(
         &self,
         name: &str,
-        arguments: &Params,
+        params: &Params,
         body: &Ast,
         decorators: &[Expr],
         is_async: &bool,
@@ -772,7 +773,7 @@ impl TreewalkInterpreter {
         let function = Container::new(Function::new(
             self.state.clone(),
             name,
-            arguments.clone(),
+            params.clone(),
             body.clone(),
             decorators,
             *is_async,
@@ -901,7 +902,7 @@ impl TreewalkInterpreter {
             let mut output = vec![];
             for i in self.evaluate_expr(&first_clause.iterable)? {
                 if first_clause.indices.len() == 1 {
-                    self.state.write(&first_clause.indices[0], i.clone());
+                    self.state.write(&first_clause.indices[0], i);
                 } else {
                     for (key, value) in first_clause.indices.iter().zip(i) {
                         self.state.write(key, value);
@@ -1046,15 +1047,14 @@ impl TreewalkInterpreter {
     fn evaluate_selective_import(
         &self,
         import_path: &ImportPath,
-        arguments: &[ImportedItem],
+        items: &[ImportedItem],
         wildcard: &bool,
     ) -> TreewalkResult<()> {
         let module = self
             .evaluate_module_import(import_path)?
-            .as_module()
-            .ok_or_else(|| self.import_error(import_path.as_str()))?;
+            .expect_module(self)?;
 
-        let mapped_imports = arguments
+        let mapped_imports = items
             .iter()
             .map(|arg| {
                 let original = arg.as_original_symbol();
@@ -1076,7 +1076,7 @@ impl TreewalkInterpreter {
             };
 
             if let Some(value) = module.get_member(self, module_symbol.as_str())? {
-                self.state.write(&aliased_symbol, value.clone());
+                self.state.write(&aliased_symbol, value);
             } else {
                 return Err(self.name_error(aliased_symbol));
             }
@@ -1100,7 +1100,7 @@ impl TreewalkInterpreter {
             return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
-        let result = self.invoke_method(expr_result.clone(), Dunder::Enter, &args![])?;
+        let result = self.invoke_method(&expr_result, Dunder::Enter, args![])?;
 
         if let Some(variable) = variable {
             self.state.write(variable, result);
@@ -1108,9 +1108,9 @@ impl TreewalkInterpreter {
         let block_result = self.evaluate_ast(block);
 
         self.invoke_method(
-            expr_result.clone(),
+            &expr_result,
             Dunder::Exit,
-            &args![
+            args![
                 TreewalkValue::None,
                 TreewalkValue::None,
                 TreewalkValue::None
@@ -1130,7 +1130,7 @@ impl TreewalkInterpreter {
         }
 
         let instance = instance.as_ref().unwrap();
-        let args = Arguments::from(self, &instance.args)?;
+        let args = Args::from(self, &instance.args)?;
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
@@ -2461,7 +2461,11 @@ t = type(slice)
 
         assert_eq!(extract!(ctx, "b", Class).borrow().name(), "Foo");
         assert_eq!(
-            extract!(ctx, "c", Object).borrow().class.borrow().name(),
+            extract!(ctx, "c", Object)
+                .borrow()
+                .class_ref()
+                .borrow()
+                .name(),
             "Foo"
         );
         assert_read_eq!(ctx, "f", list![int!(1), int!(2), int!(3),]);

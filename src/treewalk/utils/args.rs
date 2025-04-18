@@ -9,23 +9,30 @@ use crate::{
 ///
 /// For the unresolved state, see [`CallArgs`].
 #[derive(Default, Debug, Clone)]
-pub struct Arguments {
+pub struct Args {
     bound_val: Option<TreewalkValue>,
     args: Vec<TreewalkValue>,
     kwargs: HashMap<TreewalkValue, TreewalkValue>,
 }
 
-impl Arguments {
-    pub fn from(interpreter: &TreewalkInterpreter, arguments: &CallArgs) -> TreewalkResult<Self> {
-        let mut arg_values = arguments
+impl Args {
+    pub fn from(interpreter: &TreewalkInterpreter, call_args: &CallArgs) -> TreewalkResult<Self> {
+        let mut positional = call_args
             .args
             .iter()
             .map(|arg| interpreter.evaluate_expr(arg))
             .collect::<Result<Vec<_>, _>>()?;
 
+        if let Some(ref args_var) = call_args.args_var {
+            let value = interpreter.evaluate_expr(args_var)?;
+            let args = value.expect_tuple(interpreter)?;
+            // Clone each item in place without an intermediate Vec
+            positional.extend_from_slice(args.items());
+        };
+
         #[allow(clippy::mutable_key_type)]
         let mut kwargs = HashMap::default();
-        for kwarg in arguments.kwargs.iter() {
+        for kwarg in call_args.kwargs.iter() {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
                     kwargs.insert(
@@ -46,16 +53,7 @@ impl Arguments {
             }
         }
 
-        let mut second_arg_values = if let Some(ref args_var) = arguments.args_var {
-            let args_var_value = interpreter.evaluate_expr(args_var)?;
-            let args = args_var_value.expect_tuple(interpreter)?;
-            args.raw()
-        } else {
-            vec![]
-        };
-        arg_values.append(&mut second_arg_values);
-
-        Ok(Self::new(arg_values, kwargs))
+        Ok(Self::new(positional, kwargs))
     }
 
     #[allow(clippy::mutable_key_type)]
@@ -67,18 +65,27 @@ impl Arguments {
         }
     }
 
-    pub fn add_arg(&mut self, arg: TreewalkValue) -> Self {
+    pub fn add_arg(&mut self, arg: TreewalkValue) {
         self.args.push(arg);
-        self.clone()
     }
 
-    pub fn bind(&mut self, val: TreewalkValue) {
+    pub fn with_bound(mut self, val: TreewalkValue) -> Self {
+        self.bind(val);
+        self
+    }
+
+    pub fn with_bound_new(mut self, val: TreewalkValue) -> Self {
+        self.bind_new(val);
+        self
+    }
+
+    fn bind(&mut self, val: TreewalkValue) {
         self.bound_val = Some(val);
     }
 
     /// The `Dunder::New` method expects the class to be passed in as the first argument but in
     /// an unbound way.
-    pub fn bind_new(&mut self, val: TreewalkValue) {
+    fn bind_new(&mut self, val: TreewalkValue) {
         self.args.insert(0, val);
     }
 
@@ -145,14 +152,14 @@ impl Arguments {
 /// When kwargs are needed, you can use `ResolvedArguments::new`.
 macro_rules! args {
     () => {{
-        Arguments::default()
+        Args::default()
     }};
     // Double curly braces ensure that the entire macro expands into a single expression, which is
     // necessary since we are returning a value from this macro.
     ( $( $arg:expr ),* ) => {{
-        let mut args = Arguments::default();
+        let mut args = Args::default();
         $(
-            args = args.add_arg($arg);
+            args.add_arg($arg);
         )*
         args
     }};
@@ -161,7 +168,7 @@ macro_rules! args {
 pub(crate) use args;
 
 pub fn check_args<F>(
-    args: &Arguments,
+    args: &Args,
     condition: F,
     interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<()>

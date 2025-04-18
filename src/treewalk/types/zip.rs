@@ -2,9 +2,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
+        macros::*,
+        protocols::Callable,
         types::{iterators::ListIterator, List, Str, Tuple},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
@@ -12,17 +13,8 @@ use crate::{
 #[derive(Clone)]
 pub struct ZipIterator(Vec<TreewalkIterator>);
 
-impl Typed for ZipIterator {
-    fn get_type() -> Type {
-        Type::Zip
-    }
-}
-
-impl MethodProvider for ZipIterator {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(ZipIterator, Type::Zip);
+impl_method_provider!(ZipIterator, [NewBuiltin]);
 
 impl ZipIterator {
     pub fn new(items: Vec<TreewalkIterator>) -> Self {
@@ -63,14 +55,11 @@ impl Iterator for ZipIterator {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // This function cannot be called with 2 args (1 unbound arg) because there would be
         // nothing to zip.
         check_args(&args, |len| len == 1 || len >= 3, interpreter)?;

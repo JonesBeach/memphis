@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     core::Container,
     parser::types::{Expr, LoopIndex, Statement},
-    treewalk::{types::pausable::Frame, TreewalkValue},
+    treewalk::{pausable::Frame, TreewalkValue},
 };
 
 /// An enumeration of the possible states in which a `Pausable` can exist. This is key to

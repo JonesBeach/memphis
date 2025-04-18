@@ -1,34 +1,23 @@
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::{check_args, Arguments},
+        macros::*,
+        protocols::Callable,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 pub struct Int;
 
-impl Typed for Int {
-    fn get_type() -> Type {
-        Type::Int
-    }
-}
+impl_typed!(Int, Type::Int);
+impl_method_provider!(Int, [NewBuiltin]);
 
-impl MethodProvider for Int {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
-
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let int = match args.len() {

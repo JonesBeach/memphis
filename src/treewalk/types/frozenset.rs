@@ -7,40 +7,37 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
+        macros::*,
+        protocols::Callable,
         types::{iterators::ListIterator, Set},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct FrozenSet {
-    pub items: HashSet<TreewalkValue>,
+    items: HashSet<TreewalkValue>,
 }
 
-impl Typed for FrozenSet {
-    fn get_type() -> Type {
-        Type::FrozenSet
-    }
-}
-
-impl MethodProvider for FrozenSet {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin), Box::new(ContainsBuiltin)]
-    }
-}
+impl_typed!(FrozenSet, Type::FrozenSet);
+impl_method_provider!(FrozenSet, [NewBuiltin, ContainsBuiltin]);
 
 impl FrozenSet {
     #[allow(clippy::mutable_key_type)]
     pub fn new(items: HashSet<TreewalkValue>) -> Self {
         Self { items }
     }
+
+    #[allow(clippy::mutable_key_type)]
+    pub fn cloned_items(&self) -> HashSet<TreewalkValue> {
+        self.items.clone()
+    }
 }
 
 impl From<Container<Set>> for FrozenSet {
     fn from(set: Container<Set>) -> FrozenSet {
-        FrozenSet::new(set.borrow().clone().items)
+        FrozenSet::new(set.borrow().cloned_items())
     }
 }
 
@@ -65,15 +62,13 @@ impl Display for FrozenSet {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
+#[derive(Clone)]
 struct ContainsBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let frozen_set = match args.len() {
@@ -100,7 +95,7 @@ impl Callable for ContainsBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!();
     }

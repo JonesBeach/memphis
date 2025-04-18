@@ -1,9 +1,8 @@
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::Arguments,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        macros::*, protocols::Callable, utils::Args, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
 
@@ -11,25 +10,17 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Memoryview;
 
-impl Typed for Memoryview {
-    fn get_type() -> Type {
-        Type::Memoryview
-    }
-}
+impl_typed!(Memoryview, Type::Memoryview);
+impl_method_provider!(Memoryview, [NewBuiltin]);
 
-impl MethodProvider for Memoryview {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
-
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }

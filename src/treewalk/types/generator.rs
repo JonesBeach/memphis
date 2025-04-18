@@ -3,10 +3,8 @@ use crate::{
     domain::ExecutionErrorKind,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
-        types::{
-            pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
-            Function,
-        },
+        pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
+        types::Function,
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkState,
         TreewalkValue,
     },

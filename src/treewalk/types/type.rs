@@ -2,9 +2,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, DescriptorProvider, MethodProvider, NonDataDescriptor, Typed},
+        macros::*,
+        protocols::{Callable, NonDataDescriptor},
         types::{Class, MappingProxy, Tuple},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -13,27 +14,12 @@ use crate::{
 /// `types::interpreter::Type`.
 pub struct TypeClass;
 
-impl Typed for TypeClass {
-    fn get_type() -> Type {
-        Type::Type
-    }
-}
-
-impl MethodProvider for TypeClass {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
-
-impl DescriptorProvider for TypeClass {
-    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
-        vec![Box::new(DictAttribute), Box::new(MroAttribute)]
-    }
-}
+impl_typed!(TypeClass, Type::Type);
+impl_method_provider!(TypeClass, [NewBuiltin]);
+impl_descriptor_provider!(TypeClass, [DictAttribute, MroAttribute]);
 
 #[derive(Clone)]
 struct DictAttribute;
-
 #[derive(Clone)]
 struct MroAttribute;
 
@@ -45,7 +31,7 @@ impl NonDataDescriptor for DictAttribute {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
-            Some(instance) => instance.as_class().unwrap().borrow().scope.clone(),
+            Some(instance) => instance.expect_class(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
 
@@ -62,14 +48,13 @@ impl NonDataDescriptor for DictAttribute {
 impl NonDataDescriptor for MroAttribute {
     fn get_attr(
         &self,
-        _interpreter: &TreewalkInterpreter,
+        interpreter: &TreewalkInterpreter,
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let mro = match instance {
             Some(instance) => instance
-                .as_class()
-                .unwrap()
+                .expect_class(interpreter)?
                 .mro()
                 .iter()
                 .cloned()
@@ -90,14 +75,11 @@ impl NonDataDescriptor for MroAttribute {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }
@@ -110,17 +92,16 @@ impl Callable for NewBuiltin {
             .get_arg(2)
             .expect_tuple(interpreter)?
             .into_iter()
-            .map(|c| c.as_class().unwrap())
-            .collect::<Vec<Container<Class>>>();
+            .map(|c| c.expect_class(interpreter))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let parent_classes = if parent_classes.is_empty() {
-            vec![interpreter.state.get_type_class(Type::Object)]
+            vec![interpreter.state.class_of_type(Type::Object)]
         } else {
             parent_classes
         };
 
         let namespace = args.get_arg(3).expect_dict(interpreter)?;
-
         let scope = Scope::try_from(namespace.clone().borrow().clone())
             .map_err(|_| interpreter.type_error("Expected a dict"))?;
 

@@ -4,7 +4,7 @@ use crate::{
     core::Container,
     treewalk::{
         types::{Dict, DictItems, Function, Str, Tuple},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -25,7 +25,7 @@ impl Scope {
     pub fn new(
         interpreter: &TreewalkInterpreter,
         function: &Container<Function>,
-        args: &Arguments,
+        args: &Args,
     ) -> TreewalkResult<Container<Self>> {
         let mut scope = Self::default();
 

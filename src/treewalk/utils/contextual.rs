@@ -8,7 +8,7 @@ use crate::{
     core::memphis_utils,
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
     treewalk::{
-        utils::{args, Arguments},
+        utils::{args, Args},
         TreewalkDisruption, TreewalkInterpreter, TreewalkValue,
     },
     types::errors::MemphisError,
@@ -90,23 +90,18 @@ impl Contextual<TreewalkValue> {
         //
         // "obj1 has an overridden __eq__ method" will always evaluate to false when obj1 is a
         // class, which is what we detect by checking for the unbound case (receiver().is_none()).
-        let eq = match self
-            .interpreter
-            .resolve_method(self.value.clone(), Dunder::Eq)
-        {
+        let eq = match self.interpreter.resolve_method(&self.value, Dunder::Eq) {
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
             Ok(eq) => eq,
         };
-        if eq.borrow().receiver().is_none() {
+        if eq.receiver().is_none() {
             return self.value == other.value;
         }
 
-        let result = self.interpreter.invoke_method(
-            self.value.clone(),
-            Dunder::Eq,
-            &args![other.value.clone()],
-        );
+        let result =
+            self.interpreter
+                .invoke_method(&self.value, Dunder::Eq, args![other.value.clone()]);
 
         match result {
             Ok(TreewalkValue::Boolean(true)) => true,
@@ -120,7 +115,7 @@ impl Contextual<TreewalkValue> {
     fn hash(&self) -> u64 {
         let result = self
             .interpreter
-            .call_function("hash", &args![self.value.clone()]);
+            .call_function("hash", args![self.value.clone()]);
 
         match result {
             Ok(TreewalkValue::Integer(hash_val)) => hash_val as u64,

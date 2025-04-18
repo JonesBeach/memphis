@@ -2,42 +2,32 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        macros::*,
+        protocols::{Callable, NonDataDescriptor},
+        type_system::CloneableCallable,
         types::Class,
-        utils::{args, check_args, Arguments},
+        utils::{args, check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Clone)]
-pub struct Property(Container<Box<dyn Callable>>);
+pub struct Property(Box<dyn CloneableCallable>);
 
-impl Typed for Property {
-    fn get_type() -> Type {
-        Type::Property
-    }
-}
-
-impl MethodProvider for Property {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Property, Type::Property);
+impl_method_provider!(Property, [NewBuiltin]);
 
 impl Property {
-    fn new(function: Container<Box<dyn Callable>>) -> Self {
+    fn new(function: Box<dyn CloneableCallable>) -> Self {
         Self(function)
     }
 }
 
+#[derive(Clone)]
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
         check_args(&args, |len| len == 2, interpreter)?;
         let function = args.get_arg(1).expect_callable(interpreter)?;
@@ -60,7 +50,7 @@ impl NonDataDescriptor for Property {
             panic!("No instance for descriptor!");
         };
 
-        interpreter.call(self.0.clone(), &args![instance])
+        interpreter.call(self.0.clone(), args![instance])
     }
 
     fn name(&self) -> String {

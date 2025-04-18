@@ -91,15 +91,6 @@ impl Container<TreewalkState> {
         self.borrow().memphis_state.pop_stack_frame()
     }
 
-    pub fn get_type(&self, result: &TreewalkValue) -> TreewalkValue {
-        match result {
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonObject(o) => o.get_type(),
-            TreewalkValue::Object(o) => TreewalkValue::Class(o.borrow().class.clone()),
-            _ => TreewalkValue::Class(self.get_type_class(result.get_type())),
-        }
-    }
-
     /// Write an `TreewalkValue` to the symbol table.
     pub fn write(&self, name: &str, value: TreewalkValue) {
         self.borrow_mut().scope_manager.write(name, value);
@@ -214,8 +205,17 @@ impl Container<TreewalkState> {
         self.borrow_mut().scope_manager.mark_global(name);
     }
 
+    pub fn class_of_value(&self, result: &TreewalkValue) -> TreewalkValue {
+        match result {
+            #[cfg(feature = "c_stdlib")]
+            TreewalkValue::CPythonObject(o) => o.get_type(),
+            TreewalkValue::Object(o) => TreewalkValue::Class(o.borrow().class()),
+            _ => TreewalkValue::Class(self.class_of_type(result.get_type())),
+        }
+    }
+
     /// Return a singleton `Class` for builtin types such as list, set, tuple, dict, etc.
-    pub fn get_type_class(&self, type_: Type) -> Container<Class> {
+    pub fn class_of_type(&self, type_: Type) -> Container<Class> {
         self.borrow().type_registry.get_type_class(type_)
     }
 

@@ -4,32 +4,39 @@ use crate::{
     treewalk::{
         protocols::Callable,
         types::{iterators::StringIterator, List, Str},
-        utils::{args, check_args, Arguments},
+        utils::{args, check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
+#[derive(Clone)]
 pub struct CallableBuiltin;
+#[derive(Clone)]
 pub struct DirBuiltin;
+#[derive(Clone)]
 pub struct GetattrBuiltin;
+#[derive(Clone)]
 pub struct GlobalsBuiltin;
+#[derive(Clone)]
 pub struct HashBuiltin;
+#[derive(Clone)]
 pub struct IsinstanceBuiltin;
+#[derive(Clone)]
 pub struct IssubclassBuiltin;
+#[derive(Clone)]
 pub struct IterBuiltin;
+#[derive(Clone)]
 pub struct LenBuiltin;
+#[derive(Clone)]
 pub struct NextBuiltin;
+#[derive(Clone)]
 pub struct PrintBuiltin;
 
 impl Callable for CallableBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         Ok(TreewalkValue::Boolean(
-            args.get_arg(0).as_callable().is_some(),
+            args.get_arg(0).into_callable().is_some(),
         ))
     }
 
@@ -39,15 +46,11 @@ impl Callable for CallableBuiltin {
 }
 
 impl Callable for DirBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let dir = args
             .get_arg(0)
-            .as_member_reader(interpreter)
+            .into_member_reader(interpreter)
             .dir()
             .iter()
             .map(|i| TreewalkValue::String(Str::new(i.to_string())))
@@ -61,18 +64,15 @@ impl Callable for DirBuiltin {
 }
 
 impl Callable for GetattrBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [2, 3].contains(&len), interpreter)?;
 
         let object = args.get_arg(0);
         let name = args.get_arg(1).expect_string(interpreter)?;
 
         let attr = object
-            .as_member_reader(interpreter)
+            .clone()
+            .into_member_reader(interpreter)
             .get_member(interpreter, name.as_str())?;
 
         if let Some(attr) = attr {
@@ -82,7 +82,7 @@ impl Callable for GetattrBuiltin {
             if args.len() == 3 {
                 Ok(args.get_arg(2))
             } else {
-                Err(interpreter.attribute_error(object, name))
+                Err(interpreter.attribute_error(&object, name))
             }
         }
     }
@@ -93,11 +93,7 @@ impl Callable for GetattrBuiltin {
 }
 
 impl Callable for GlobalsBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         Ok(TreewalkValue::Dict(
             interpreter.state.read_globals(interpreter),
@@ -110,11 +106,7 @@ impl Callable for GlobalsBuiltin {
 }
 
 impl Callable for HashBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let arg = args.get_arg(0);
@@ -122,7 +114,7 @@ impl Callable for HashBuiltin {
             return Ok(TreewalkValue::Integer(arg.hash() as i64));
         }
 
-        let result = interpreter.invoke_method(arg, Dunder::Hash, &args![])?;
+        let result = interpreter.invoke_method(&arg, Dunder::Hash, args![])?;
 
         if let TreewalkValue::Integer(_) = result {
             Ok(result)
@@ -137,11 +129,7 @@ impl Callable for HashBuiltin {
 }
 
 impl Callable for IsinstanceBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let message = "isinstance() arg 2 must be a type, a tuple of types, or a union";
 
@@ -177,11 +165,7 @@ impl Callable for IsinstanceBuiltin {
 }
 
 impl Callable for IssubclassBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
 
         let instance_class = args
@@ -208,7 +192,7 @@ impl Callable for PrintBuiltin {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        args: Arguments,
+        args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         println!(
             "{}",
@@ -227,11 +211,7 @@ impl Callable for PrintBuiltin {
 }
 
 impl Callable for LenBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let iterator = args
@@ -249,11 +229,7 @@ impl Callable for LenBuiltin {
 }
 
 impl Callable for NextBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let mut generator = args
@@ -270,11 +246,7 @@ impl Callable for NextBuiltin {
 }
 
 impl Callable for IterBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         match args.get_arg(0) {
@@ -313,7 +285,7 @@ impl Callable for NoopCallable {
     fn call(
         &self,
         _interpreter: &TreewalkInterpreter,
-        _args: Arguments,
+        _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
         unimplemented!()
     }

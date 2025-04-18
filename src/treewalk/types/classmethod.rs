@@ -2,42 +2,32 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, NonDataDescriptor, Typed},
+        macros::*,
+        protocols::{Callable, NonDataDescriptor},
+        type_system::CloneableCallable,
         types::{Class, Method},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Clone)]
-pub struct Classmethod(Container<Box<dyn Callable>>);
+pub struct Classmethod(Box<dyn CloneableCallable>);
 
-impl Typed for Classmethod {
-    fn get_type() -> Type {
-        Type::Classmethod
-    }
-}
-
-impl MethodProvider for Classmethod {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Classmethod, Type::Classmethod);
+impl_method_provider!(Classmethod, [NewBuiltin]);
 
 impl Classmethod {
-    fn new(func: Container<Box<dyn Callable>>) -> Self {
+    fn new(func: Box<dyn CloneableCallable>) -> Self {
         Self(func)
     }
 }
 
+#[derive(Clone)]
 pub struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
         check_args(&args, |len| len == 2, interpreter)?;
 

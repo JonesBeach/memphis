@@ -8,9 +8,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, IndexRead, IndexWrite, MethodProvider, Typed},
+        macros::*,
+        protocols::{Callable, IndexRead, IndexWrite},
         types::{iterators::GeneratorIterator, Range, Set, Slice, Tuple},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
 };
@@ -20,21 +21,8 @@ pub struct List {
     items: Vec<TreewalkValue>,
 }
 
-impl Typed for List {
-    fn get_type() -> Type {
-        Type::List
-    }
-}
-
-impl MethodProvider for List {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![
-            Box::new(NewBuiltin),
-            Box::new(AppendBuiltin),
-            Box::new(ExtendBuiltin),
-        ]
-    }
-}
+impl_typed!(List, Type::List);
+impl_method_provider!(List, [NewBuiltin, AppendBuiltin, ExtendBuiltin,]);
 
 impl List {
     pub fn new(items: Vec<TreewalkValue>) -> Self {
@@ -149,7 +137,7 @@ impl From<Container<Set>> for Container<List> {
     fn from(set: Container<Set>) -> Container<List> {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<TreewalkValue> = set.into_iter().collect();
-        let mut items: Vec<TreewalkValue> = set.borrow().items.clone().into_iter().collect();
+        let mut items: Vec<TreewalkValue> = set.borrow().cloned_items().into_iter().collect();
 
         items.sort_by_key(|x| {
             match x {
@@ -166,7 +154,7 @@ impl From<Container<Set>> for Container<List> {
 
 impl From<Tuple> for Container<List> {
     fn from(tuple: Tuple) -> Container<List> {
-        Container::new(List::new(tuple.raw()))
+        Container::new(List::new(tuple.items().to_vec()))
     }
 }
 
@@ -233,16 +221,15 @@ impl ExactSizeIterator for ListIterator {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
+#[derive(Clone)]
 struct AppendBuiltin;
+#[derive(Clone)]
 struct ExtendBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let list = match args.len() {
@@ -263,11 +250,7 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for AppendBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
@@ -282,11 +265,7 @@ impl Callable for AppendBuiltin {
 }
 
 impl Callable for ExtendBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;

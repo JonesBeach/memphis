@@ -7,29 +7,21 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
+        macros::*,
+        protocols::Callable,
         types::{iterators::ListIterator, FrozenSet, List, Range, Tuple},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Set {
-    pub items: HashSet<TreewalkValue>,
+    items: HashSet<TreewalkValue>,
 }
 
-impl Typed for Set {
-    fn get_type() -> Type {
-        Type::Set
-    }
-}
-
-impl MethodProvider for Set {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin), Box::new(AddBuiltin)]
-    }
-}
+impl_typed!(Set, Type::Set);
+impl_method_provider!(Set, [AddBuiltin, NewBuiltin]);
 
 impl Set {
     #[allow(clippy::mutable_key_type)]
@@ -44,6 +36,15 @@ impl Set {
     pub fn subset(&self, other: Set) -> bool {
         self.items.is_subset(&other.items)
     }
+
+    #[allow(clippy::mutable_key_type)]
+    pub fn cloned_items(&self) -> HashSet<TreewalkValue> {
+        self.items.clone()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &TreewalkValue> {
+        self.items.iter()
+    }
 }
 
 impl TryFrom<TreewalkValue> for Container<Set> {
@@ -51,10 +52,10 @@ impl TryFrom<TreewalkValue> for Container<Set> {
 
     fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
         match value {
-            TreewalkValue::Set(set) => Ok(set.clone()),
-            TreewalkValue::List(list) => Ok(list.clone().into()),
-            TreewalkValue::Tuple(tuple) => Ok(tuple.clone().into()),
-            TreewalkValue::Range(range) => Ok(range.clone().into()),
+            TreewalkValue::Set(set) => Ok(set),
+            TreewalkValue::List(list) => Ok(list.into()),
+            TreewalkValue::Tuple(tuple) => Ok(tuple.into()),
+            TreewalkValue::Range(range) => Ok(range.into()),
             _ => Err(()),
         }
     }
@@ -80,7 +81,7 @@ impl From<Range> for Container<Set> {
 
 impl From<FrozenSet> for Container<Set> {
     fn from(frozenset: FrozenSet) -> Container<Set> {
-        Container::new(Set::new(frozenset.items))
+        Container::new(Set::new(frozenset.cloned_items()))
     }
 }
 
@@ -103,15 +104,13 @@ impl Display for Container<Set> {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
+#[derive(Clone)]
 struct AddBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let set = match args.len() {
@@ -132,11 +131,7 @@ impl Callable for NewBuiltin {
 }
 
 impl Callable for AddBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let set = args.expect_self(interpreter)?.expect_set(interpreter)?;

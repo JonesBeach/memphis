@@ -7,8 +7,9 @@ use crate::{
     domain::{Dunder, Type},
     parser::types::{Expr, SliceParams},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::{check_args, Arguments},
+        macros::*,
+        protocols::Callable,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -20,17 +21,8 @@ pub struct Slice {
     pub step: Option<i64>,
 }
 
-impl Typed for Slice {
-    fn get_type() -> Type {
-        Type::Slice
-    }
-}
-
-impl MethodProvider for Slice {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Slice, Type::Slice);
+impl_method_provider!(Slice, [NewBuiltin]);
 
 impl Slice {
     pub fn new(start: Option<i64>, stop: Option<i64>, step: Option<i64>) -> Self {
@@ -119,14 +111,11 @@ impl Display for Slice {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
         let slice = match args.len() {

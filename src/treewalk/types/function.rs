@@ -11,12 +11,10 @@ use crate::{
         types::{Ast, Closure, Expr, Params},
     },
     treewalk::{
-        protocols::{
-            Callable, DataDescriptor, DescriptorProvider, MemberReader, MemberWriter,
-            NonDataDescriptor, Typed,
-        },
+        macros::*,
+        protocols::{Callable, DataDescriptor, MemberReader, MemberWriter, NonDataDescriptor},
         types::{Cell, Class, Dict, Module, Str, Tuple},
-        utils::{args, Arguments, EnvironmentFrame},
+        utils::{args, Args, EnvironmentFrame},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
@@ -50,28 +48,22 @@ pub struct Function {
     closure: Closure,
 }
 
-impl Typed for Function {
-    fn get_type() -> Type {
-        Type::Function
-    }
-}
-
-impl DescriptorProvider for Function {
-    fn get_descriptors() -> Vec<Box<dyn NonDataDescriptor>> {
-        vec![
-            Box::new(CodeAttribute),
-            Box::new(DictDescriptor),
-            Box::new(GlobalsAttribute),
-            Box::new(ClosureAttribute),
-            Box::new(ModuleAttribute),
-            Box::new(DocAttribute),
-            Box::new(NameAttribute),
-            Box::new(QualnameAttribute),
-            Box::new(AnnotationsAttribute),
-            Box::new(TypeParamsAttribute),
-        ]
-    }
-}
+impl_typed!(Function, Type::Function);
+impl_descriptor_provider!(
+    Function,
+    [
+        CodeAttribute,
+        DictDescriptor,
+        GlobalsAttribute,
+        ClosureAttribute,
+        ModuleAttribute,
+        DocAttribute,
+        NameAttribute,
+        QualnameAttribute,
+        AnnotationsAttribute,
+        TypeParamsAttribute,
+    ]
+);
 
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
@@ -195,13 +187,13 @@ impl MemberReader for Container<Function> {
             return Ok(Some(attr));
         }
 
-        let class = interpreter.state.get_type_class(Type::Function);
+        let class = interpreter.state.class_of_type(Type::Function);
 
         if let Some(attr) = class.get_from_class(name) {
             log(LogLevel::Debug, || format!("Found: {}::{}", class, name));
             let instance = TreewalkValue::Function(self.clone());
             let owner = instance.get_class(interpreter);
-            return Ok(Some(attr.resolve_nondata_descriptor(
+            return Ok(Some(attr.resolve_descriptor(
                 interpreter,
                 Some(instance),
                 owner,
@@ -248,7 +240,7 @@ impl Container<Function> {
             let function = interpreter
                 .evaluate_expr(decorator)?
                 .expect_callable(interpreter)?;
-            result = interpreter.call(function, &args![result])?;
+            result = interpreter.call(function, args![result])?;
         }
 
         Ok(result)
@@ -256,11 +248,7 @@ impl Container<Function> {
 }
 
 impl Callable for Container<Function> {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let scope = Scope::new(interpreter, self, &args)?;
         interpreter.invoke_function(self.clone(), scope)
     }
@@ -294,6 +282,24 @@ impl Display for Container<Function> {
 
 #[derive(Clone)]
 struct ClosureAttribute;
+#[derive(Clone)]
+struct CodeAttribute;
+#[derive(Clone)]
+struct GlobalsAttribute;
+#[derive(Clone)]
+struct ModuleAttribute;
+#[derive(Clone)]
+struct DocAttribute;
+#[derive(Clone)]
+struct NameAttribute;
+#[derive(Clone)]
+struct QualnameAttribute;
+#[derive(Clone)]
+struct AnnotationsAttribute;
+#[derive(Clone)]
+struct TypeParamsAttribute;
+#[derive(Clone)]
+struct DictDescriptor;
 
 impl NonDataDescriptor for ClosureAttribute {
     fn get_attr(
@@ -307,7 +313,7 @@ impl NonDataDescriptor for ClosureAttribute {
                 .expect_function(interpreter)?
                 .borrow()
                 .get_closure(),
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -315,9 +321,6 @@ impl NonDataDescriptor for ClosureAttribute {
         Dunder::Closure.into()
     }
 }
-
-#[derive(Clone)]
-struct CodeAttribute;
 
 impl NonDataDescriptor for CodeAttribute {
     fn get_attr(
@@ -328,7 +331,7 @@ impl NonDataDescriptor for CodeAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance.expect_function(interpreter)?.borrow().get_code(),
-            None => TreewalkValue::DataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::DataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -356,9 +359,6 @@ impl DataDescriptor for CodeAttribute {
     }
 }
 
-#[derive(Clone)]
-struct GlobalsAttribute;
-
 impl NonDataDescriptor for GlobalsAttribute {
     fn get_attr(
         &self,
@@ -371,7 +371,7 @@ impl NonDataDescriptor for GlobalsAttribute {
                 .expect_function(interpreter)?
                 .borrow()
                 .get_globals(),
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -379,9 +379,6 @@ impl NonDataDescriptor for GlobalsAttribute {
         Dunder::Globals.into()
     }
 }
-
-#[derive(Clone)]
-struct ModuleAttribute;
 
 impl NonDataDescriptor for ModuleAttribute {
     fn get_attr(
@@ -401,7 +398,7 @@ impl NonDataDescriptor for ModuleAttribute {
                     .to_string();
                 TreewalkValue::String(Str::new(name))
             }
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -409,9 +406,6 @@ impl NonDataDescriptor for ModuleAttribute {
         Dunder::Module.into()
     }
 }
-
-#[derive(Clone)]
-struct DocAttribute;
 
 impl NonDataDescriptor for DocAttribute {
     fn get_attr(
@@ -423,7 +417,7 @@ impl NonDataDescriptor for DocAttribute {
         Ok(match instance {
             // TODO store doc strings
             Some(_) => TreewalkValue::String(Str::new("".into())),
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -431,9 +425,6 @@ impl NonDataDescriptor for DocAttribute {
         Dunder::Doc.into()
     }
 }
-
-#[derive(Clone)]
-struct NameAttribute;
 
 impl NonDataDescriptor for NameAttribute {
     fn get_attr(
@@ -447,7 +438,7 @@ impl NonDataDescriptor for NameAttribute {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
                 TreewalkValue::String(Str::new(name))
             }
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -455,9 +446,6 @@ impl NonDataDescriptor for NameAttribute {
         Dunder::Name.into()
     }
 }
-
-#[derive(Clone)]
-struct QualnameAttribute;
 
 impl NonDataDescriptor for QualnameAttribute {
     fn get_attr(
@@ -471,7 +459,7 @@ impl NonDataDescriptor for QualnameAttribute {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
                 TreewalkValue::String(Str::new(name))
             }
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -479,9 +467,6 @@ impl NonDataDescriptor for QualnameAttribute {
         Dunder::Qualname.into()
     }
 }
-
-#[derive(Clone)]
-struct AnnotationsAttribute;
 
 impl NonDataDescriptor for AnnotationsAttribute {
     fn get_attr(
@@ -492,7 +477,7 @@ impl NonDataDescriptor for AnnotationsAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(_) => TreewalkValue::Dict(Container::new(Dict::default())),
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -500,9 +485,6 @@ impl NonDataDescriptor for AnnotationsAttribute {
         Dunder::Annotations.into()
     }
 }
-
-#[derive(Clone)]
-struct TypeParamsAttribute;
 
 impl NonDataDescriptor for TypeParamsAttribute {
     fn get_attr(
@@ -513,7 +495,7 @@ impl NonDataDescriptor for TypeParamsAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(_) => TreewalkValue::Tuple(Tuple::default()),
-            None => TreewalkValue::NonDataDescriptor(Container::new(Box::new(self.clone()))),
+            None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
 
@@ -521,9 +503,6 @@ impl NonDataDescriptor for TypeParamsAttribute {
         Dunder::TypeParams.into()
     }
 }
-
-#[derive(Clone)]
-struct DictDescriptor;
 
 /// This is really the same logic as in Container<Object>::get_attr. Maybe we can combine those at
 /// some point.

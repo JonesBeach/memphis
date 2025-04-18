@@ -2,9 +2,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        macros::*,
+        protocols::{Callable, IndexRead},
         types::List,
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -16,17 +17,8 @@ pub struct ReversedIterator {
     current_index: usize,
 }
 
-impl Typed for ReversedIterator {
-    fn get_type() -> Type {
-        Type::ReversedIterator
-    }
-}
-
-impl MethodProvider for ReversedIterator {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(ReversedIterator, Type::ReversedIterator);
+impl_method_provider!(ReversedIterator, [NewBuiltin]);
 
 impl ReversedIterator {
     pub fn new(interpreter: TreewalkInterpreter, list_ref: Container<List>) -> Self {
@@ -57,14 +49,11 @@ impl Iterator for ReversedIterator {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let list = args.get_arg(1).expect_list(interpreter)?;
         Ok(TreewalkValue::ReversedIterator(ReversedIterator::new(

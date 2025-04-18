@@ -3,8 +3,9 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::{check_args, Arguments},
+        macros::*,
+        protocols::Callable,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -20,17 +21,8 @@ pub struct Range {
     pub step: i64,
 }
 
-impl Typed for Range {
-    fn get_type() -> Type {
-        Type::Range
-    }
-}
-
-impl MethodProvider for Range {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Range, Type::Range);
+impl_method_provider!(Range, [NewBuiltin]);
 
 impl Range {
     fn new(start: i64, stop: i64, step: i64) -> Self {
@@ -100,14 +92,11 @@ impl Iterator for RangeIterator {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
 
         let range = match args.len() {

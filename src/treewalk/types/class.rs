@@ -6,7 +6,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, MemberReader, MemberWriter},
         types::{Str, Tuple},
-        utils::{args, Arguments},
+        utils::{args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -34,7 +34,7 @@ impl Class {
         parent_classes: Vec<Container<Class>>,
         metaclass: Option<Container<Class>>,
     ) -> TreewalkResult<Container<Self>> {
-        let type_class = interpreter.state.get_type_class(Type::Type);
+        let type_class = interpreter.state.class_of_type(Type::Type);
         let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
 
         let bases = if parent_classes.is_empty() {
@@ -48,14 +48,14 @@ impl Class {
             TreewalkValue::Tuple(Tuple::new(bases))
         };
 
-        let args = &args![
+        let args = args![
             TreewalkValue::Class(metaclass.clone()),
             TreewalkValue::String(Str::new(name.into())),
             bases,
             TreewalkValue::Dict(Scope::default().as_dict(interpreter))
         ];
         interpreter
-            .invoke_method(TreewalkValue::Class(metaclass), Dunder::New, args)?
+            .invoke_method(&TreewalkValue::Class(metaclass), Dunder::New, args)?
             .expect_class(interpreter)
     }
 
@@ -268,7 +268,7 @@ impl MemberReader for Container<Class> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on class [from class]", self, name)
             });
-            return Ok(Some(attr.resolve_nondata_descriptor(
+            return Ok(Some(attr.resolve_descriptor(
                 interpreter,
                 None,
                 self.clone(),
@@ -279,7 +279,7 @@ impl MemberReader for Container<Class> {
             log(LogLevel::Debug, || {
                 format!("Found: {}::{} on metaclass", self, name)
             });
-            return Ok(Some(attr.resolve_nondata_descriptor(
+            return Ok(Some(attr.resolve_descriptor(
                 interpreter,
                 Some(TreewalkValue::Class(self.clone())),
                 self.borrow().metaclass(),
@@ -320,11 +320,7 @@ impl Display for Container<Class> {
 }
 
 impl Callable for Container<Class> {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         TreewalkValue::new(interpreter, self.clone(), args)
     }
 

@@ -8,14 +8,14 @@ use crate::{
             PrintBuiltin,
         },
         executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
-        protocols::Callable,
+        type_system::CloneableCallable,
         types::Module,
         utils::EnvironmentFrame,
         Scope, TreewalkValue, TypeRegistry,
     },
 };
 
-fn get_asyncio_builtins() -> Vec<Box<dyn Callable>> {
+fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
     vec![
         Box::new(AsyncioRunBuiltin),
         Box::new(AsyncioSleepBuiltin),
@@ -23,7 +23,7 @@ fn get_asyncio_builtins() -> Vec<Box<dyn Callable>> {
     ]
 }
 
-fn get_builtins() -> Vec<Box<dyn Callable>> {
+fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
     vec![
         Box::new(CallableBuiltin),
         Box::new(DirBuiltin),
@@ -42,18 +42,12 @@ fn get_builtins() -> Vec<Box<dyn Callable>> {
 fn init_builtin_scope() -> Scope {
     let mut scope = Scope::default();
     for builtin in get_builtins() {
-        scope.insert(
-            &builtin.name(),
-            TreewalkValue::BuiltinFunction(Container::new(builtin)),
-        );
+        scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
     let mut asyncio_scope = Scope::default();
     for builtin in get_asyncio_builtins() {
-        asyncio_scope.insert(
-            &builtin.name(),
-            TreewalkValue::BuiltinFunction(Container::new(builtin)),
-        );
+        asyncio_scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
     scope.insert(

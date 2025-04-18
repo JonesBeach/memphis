@@ -1,34 +1,21 @@
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::Arguments,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        macros::*, protocols::Callable, utils::Args, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
 
 pub struct Bool;
 
-impl Typed for Bool {
-    fn get_type() -> Type {
-        Type::Bool
-    }
-}
+impl_typed!(Bool, Type::Bool);
+impl_method_provider!(Bool, [NewBuiltin]);
 
-impl MethodProvider for Bool {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
-
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         if args.len() == 1 {
             Ok(TreewalkValue::Boolean(false))
         } else if args.len() == 2 {

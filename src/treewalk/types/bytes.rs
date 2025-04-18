@@ -1,8 +1,9 @@
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::{check_args, Arguments},
+        macros::*,
+        protocols::Callable,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -11,26 +12,14 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bytes;
 
-impl Typed for Bytes {
-    fn get_type() -> Type {
-        Type::Bytes
-    }
-}
+impl_typed!(Bytes, Type::Bytes);
+impl_method_provider!(Bytes, [NewBuiltin]);
 
-impl MethodProvider for Bytes {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
-
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
 
         let bytes = match args.len() {

@@ -17,7 +17,7 @@ use crate::{
     treewalk::{
         protocols::{Callable, IndexRead, IndexWrite, MemberReader},
         types::Str,
-        utils::Arguments,
+        utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -68,7 +68,8 @@ pub fn import_from_cpython(
             .expect("Failed to read sys.modules")
             .expect("Failed to read sys.modules");
         let module_result = sys_modules
-            .as_index_read(interpreter)
+            .into_index_read(interpreter)
+            .expect("Failed to read sys.modules")
             .expect("Failed to read sys.modules")
             .getitem(interpreter, TreewalkValue::String(Str::new(import_str)))
             .expect("Failed to find this import path");
@@ -200,11 +201,7 @@ impl MemberReader for CPythonModule {
 }
 
 impl Callable for CPythonObject {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         Python::with_gil(|py| {
             let py_attr = self.0.bind(py);
             if py_attr.is_callable() {
@@ -465,7 +462,7 @@ pub mod utils {
         }
     }
 
-    pub fn to_args(py: Python, args: Arguments) -> Bound<PyTuple> {
+    pub fn to_args(py: Python, args: Args) -> Bound<PyTuple> {
         let args = args
             .iter_args()
             .map(|a| a.clone().into_pyobject(py).unwrap())

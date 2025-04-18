@@ -3,8 +3,9 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MethodProvider, Typed},
-        utils::{check_args, Arguments},
+        macros::*,
+        protocols::Callable,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -18,17 +19,8 @@ pub struct Complex {
     im: f64,
 }
 
-impl Typed for Complex {
-    fn get_type() -> Type {
-        Type::Complex
-    }
-}
-
-impl MethodProvider for Complex {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Complex, Type::Complex);
+impl_method_provider!(Complex, [NewBuiltin]);
 
 impl Complex {
     pub fn new(re: f64, im: f64) -> Self {
@@ -74,14 +66,11 @@ impl Display for Complex {
 /// immutable built-in type like complex, the __init__ method typically does nothing so we do not
 /// need to add it here. This is because the complex object is already fully initialized by the
 /// time __init__ is called, and since it is immutable, its state cannot be changed after creation.
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
 
         let complex = match args.len() {

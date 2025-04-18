@@ -4,9 +4,10 @@ use crate::{
     core::Container,
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, IndexRead, MethodProvider, Typed},
+        macros::*,
+        protocols::{Callable, IndexRead},
         types::{iterators::ListIterator, List, Range, Set},
-        utils::{check_args, Arguments},
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -16,29 +17,18 @@ pub struct Tuple {
     items: Vec<TreewalkValue>,
 }
 
-impl Typed for Tuple {
-    fn get_type() -> Type {
-        Type::Tuple
-    }
-}
-
-impl MethodProvider for Tuple {
-    fn get_methods() -> Vec<Box<dyn Callable>> {
-        vec![Box::new(NewBuiltin)]
-    }
-}
+impl_typed!(Tuple, Type::Tuple);
+impl_method_provider!(Tuple, [NewBuiltin]);
 
 impl Tuple {
     pub fn new(items: Vec<TreewalkValue>) -> Self {
         Self { items }
     }
 
-    pub fn raw(&self) -> Vec<TreewalkValue> {
-        self.items.clone()
+    pub fn items(&self) -> &[TreewalkValue] {
+        &self.items
     }
-}
 
-impl Tuple {
     fn get_item(&self, index: usize) -> Option<TreewalkValue> {
         self.items.get(index).cloned()
     }
@@ -67,7 +57,7 @@ impl From<Container<Set>> for Tuple {
     fn from(set: Container<Set>) -> Tuple {
         // Calling `into_iter()` directly off the `Set` results in a stack overflow.
         //let mut items: Vec<TreewalkValue> = set.into_iter().collect();
-        let mut items: Vec<TreewalkValue> = set.borrow().items.clone().into_iter().collect();
+        let mut items: Vec<TreewalkValue> = set.borrow().cloned_items().into_iter().collect();
         // TODO remove unwrap
         items.sort_by_key(|x| x.as_integer().unwrap());
         Tuple::new(items)
@@ -105,14 +95,11 @@ impl IntoIterator for Tuple {
     }
 }
 
+#[derive(Clone)]
 struct NewBuiltin;
 
 impl Callable for NewBuiltin {
-    fn call(
-        &self,
-        interpreter: &TreewalkInterpreter,
-        args: Arguments,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let tuple = args.get_arg(1).expect_tuple(interpreter)?;
         Ok(TreewalkValue::Tuple(tuple))

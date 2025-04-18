@@ -4,8 +4,9 @@ use crate::{
     core::Container,
     domain::Type,
     treewalk::{
-        protocols::{
-            Callable, DataDescriptorProvider, DescriptorProvider, MethodProvider, NonDataDescriptor,
+        type_system::{
+            CloneableCallable, CloneableNonDataDescriptor, DataDescriptorProvider,
+            DescriptorProvider, MethodProvider,
         },
         types::{
             iterators::{ReversedIterator, ZipIterator},
@@ -17,19 +18,21 @@ use crate::{
     },
 };
 
-fn register_methods<T: MethodProvider>(methods: &mut HashMap<Type, Vec<Box<dyn Callable>>>) {
+fn register_methods<T: MethodProvider>(
+    methods: &mut HashMap<Type, Vec<Box<dyn CloneableCallable>>>,
+) {
     methods.insert(T::get_type(), T::get_methods());
 }
 
 fn register_descriptors<T: DescriptorProvider>(
-    methods: &mut HashMap<Type, Vec<Box<dyn NonDataDescriptor>>>,
+    methods: &mut HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>>,
 ) {
     methods.insert(T::get_type(), T::get_descriptors());
 }
 
 /// Register methods for each type that implements `MethodProvider`. [`Type::Type`] and
 /// [`Type::Object`] are excluded here because they are initialized separately.
-fn builtin_methods() -> HashMap<Type, Vec<Box<dyn Callable>>> {
+fn builtin_methods() -> HashMap<Type, Vec<Box<dyn CloneableCallable>>> {
     let mut methods = HashMap::new();
 
     register_methods::<Dict>(&mut methods);
@@ -60,7 +63,7 @@ fn builtin_methods() -> HashMap<Type, Vec<Box<dyn Callable>>> {
 
 /// Register attributes that implement `DescriptorProvider`. [`Type::Type`] and
 /// [`Type::Object`] are excluded here because they are initialized separately.
-fn descriptors() -> HashMap<Type, Vec<Box<dyn NonDataDescriptor>>> {
+fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
     let mut methods = HashMap::new();
 
     register_descriptors::<Function>(&mut methods);
@@ -173,40 +176,25 @@ static CALLABLE_TYPES: [Type; 23] = [
 fn type_class() -> Container<Class> {
     let object_base = Class::new_builtin(Type::ObjectMeta, None, vec![]);
     for method in Object::get_methods().into_iter() {
-        object_base.set_on_class(
-            &method.name(),
-            TreewalkValue::BuiltinMethod(Container::new(method)),
-        );
+        object_base.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
 
     let type_base = Class::new_builtin(Type::TypeMeta, None, vec![]);
     for method in TypeClass::get_methods().into_iter() {
-        type_base.set_on_class(
-            &method.name(),
-            TreewalkValue::BuiltinMethod(Container::new(method)),
-        );
+        type_base.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
-        type_base.set_on_class(
-            &attr.name(),
-            TreewalkValue::NonDataDescriptor(Container::new(attr)),
-        );
+        type_base.set_on_class(&attr.name(), TreewalkValue::NonDataDescriptor(attr));
     }
 
     let type_class = Class::new_builtin(Type::Type, Some(type_base), vec![object_base]);
     for method in TypeClass::get_methods().into_iter() {
-        type_class.set_on_class(
-            &method.name(),
-            TreewalkValue::BuiltinMethod(Container::new(method)),
-        );
+        type_class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
 
     for attr in TypeClass::get_descriptors().into_iter() {
-        type_class.set_on_class(
-            &attr.name(),
-            TreewalkValue::NonDataDescriptor(Container::new(attr)),
-        );
+        type_class.set_on_class(&attr.name(), TreewalkValue::NonDataDescriptor(attr));
     }
 
     type_class
@@ -217,24 +205,11 @@ fn type_class() -> Container<Class> {
 fn object_class(metaclass: Container<Class>) -> Container<Class> {
     let object_class = Class::new_builtin(Type::Object, Some(metaclass), vec![]);
     for method in Object::get_methods().into_iter() {
-        object_class.set_on_class(
-            &method.name(),
-            TreewalkValue::BuiltinMethod(Container::new(method)),
-        );
-    }
-
-    for attr in Object::get_descriptors().into_iter() {
-        object_class.set_on_class(
-            &attr.name(),
-            TreewalkValue::NonDataDescriptor(Container::new(attr)),
-        );
+        object_class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
 
     for attr in Object::get_data_descriptors().into_iter() {
-        object_class.set_on_class(
-            &attr.name(),
-            TreewalkValue::DataDescriptor(Container::new(attr)),
-        );
+        object_class.set_on_class(&attr.name(), TreewalkValue::DataDescriptor(attr));
     }
 
     object_class
@@ -274,20 +249,14 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
         // which is what we want since this is just initialization code.
         if let Some(methods_for_type) = methods.remove(&builtin_type) {
             for method in methods_for_type.into_iter().by_ref() {
-                class.set_on_class(
-                    &method.name(),
-                    TreewalkValue::BuiltinMethod(Container::new(method)),
-                );
+                class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
             }
         }
 
         // Add the dynamic attributes for this type class.
         if let Some(attributes_for_type) = attributes.remove(&builtin_type) {
             for attr in attributes_for_type.into_iter().by_ref() {
-                class.set_on_class(
-                    &attr.name(),
-                    TreewalkValue::NonDataDescriptor(Container::new(attr)),
-                );
+                class.set_on_class(&attr.name(), TreewalkValue::NonDataDescriptor(attr));
             }
         }
 
