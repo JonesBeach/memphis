@@ -4042,12 +4042,20 @@ a **= 3
 
     #[test]
     fn iter_builtin() {
-        let input = r#"
-a = iter([1,2,3])
-"#;
-        let ctx = run(input);
+        let input = r#"iter([1,2,3])"#;
+        assert_eval_variant!(input, ListIter);
 
-        assert_variant!(ctx, "a", ListIter);
+        let input = r#"iter("str")"#;
+        assert_eval_variant!(input, StringIter);
+
+        let input = r#"iter({1,2,3})"#;
+        assert_eval_variant!(input, SetIter);
+
+        let input = r#"iter((x for x in [1,2,3]))"#;
+        assert_eval_variant!(input, Generator);
+
+        let input = r#"iter(x for x in [1,2,3])"#;
+        assert_eval_variant!(input, Generator);
 
         let input = r#"
 b = 0

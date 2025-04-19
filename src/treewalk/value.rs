@@ -299,25 +299,24 @@ impl TreewalkValue {
     /// Take ownership and convert to a user-facing value. These are the Python objects which are
     /// returned from `iter()` and on which you can call `next()`.
     pub fn into_iterator_value(self) -> Option<TreewalkValue> {
-        match self {
-            TreewalkValue::String(s) => Some(TreewalkValue::StringIter(s.into_iter())),
-            TreewalkValue::List(list) => Some(TreewalkValue::ListIter(list.into_iter())),
-            TreewalkValue::ReversedIter(_) => Some(self),
-            TreewalkValue::Set(set) => Some(TreewalkValue::SetIter(set.into_iter())),
-            TreewalkValue::Zip(_) => Some(self),
-            TreewalkValue::Tuple(tuple) => Some(TreewalkValue::TupleIter(tuple.into_iter())),
-            TreewalkValue::DictItems(dict) => Some(TreewalkValue::DictItemsIter(dict.into_iter())),
-            TreewalkValue::DictKeys(dict) => Some(TreewalkValue::DictKeysIter(dict.into_iter())),
-            TreewalkValue::DictValues(dict) => {
-                Some(TreewalkValue::DictValuesIter(dict.into_iter()))
-            }
-            TreewalkValue::Bytes(b) => Some(TreewalkValue::BytesIter(b)),
-            TreewalkValue::ByteArray(b) => {
-                Some(TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()))
-            }
-            TreewalkValue::Range(r) => Some(TreewalkValue::RangeIter(r.into_iter())),
-            _ => None,
-        }
+        let value = match self {
+            TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
+            TreewalkValue::String(s) => TreewalkValue::StringIter(s.into_iter()),
+            TreewalkValue::Set(set) => TreewalkValue::SetIter(set.into_iter()),
+            TreewalkValue::Tuple(tuple) => TreewalkValue::TupleIter(tuple.into_iter()),
+            TreewalkValue::DictItems(dict) => TreewalkValue::DictItemsIter(dict.into_iter()),
+            TreewalkValue::DictKeys(dict) => TreewalkValue::DictKeysIter(dict.into_iter()),
+            TreewalkValue::DictValues(dict) => TreewalkValue::DictValuesIter(dict.into_iter()),
+            TreewalkValue::Bytes(b) => TreewalkValue::BytesIter(b),
+            TreewalkValue::ByteArray(b) => TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()),
+            TreewalkValue::Range(r) => TreewalkValue::RangeIter(r.into_iter()),
+            TreewalkValue::Generator(_) => self,
+            TreewalkValue::ReversedIter(_) => self,
+            TreewalkValue::Zip(_) => self,
+            _ => return None,
+        };
+
+        Some(value)
     }
 
     /// Check for object identity, as opposed to object value evaluated in `PartialEq` above.
