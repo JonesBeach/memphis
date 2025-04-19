@@ -293,17 +293,17 @@ impl TreewalkInterpreter {
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         if matches!(op, BinOp::In) {
-            if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(TreewalkValue::Boolean(iterable.contains(left)));
-            }
-            return Err(self.type_error("Expected an iterable"));
+            let mut iterable = right
+                .try_into_iter()
+                .ok_or_else(|| self.type_error("Expected an iterable"))?;
+            return Ok(TreewalkValue::Boolean(iterable.contains(left)));
         }
 
         if matches!(op, BinOp::NotIn) {
-            if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(TreewalkValue::Boolean(!iterable.contains(left)));
-            }
-            return Err(self.type_error("Expected an iterable"));
+            let mut iterable = right
+                .try_into_iter()
+                .ok_or_else(|| self.type_error("Expected an iterable"))?;
+            return Ok(TreewalkValue::Boolean(!iterable.contains(left)));
         }
 
         if left.is_integer() && right.is_integer() {
