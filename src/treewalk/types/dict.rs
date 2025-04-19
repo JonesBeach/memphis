@@ -10,8 +10,7 @@ use crate::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
         types::{
-            dict_items::ContextualDictItemsIterator, iterators::DictKeysIterator, DictItems,
-            DictValues,
+            dict_items::ContextualDictItemsIterator, iterators::DictKeysIter, DictItems, DictValues,
         },
         utils::{check_args, Args, Contextual},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -150,10 +149,10 @@ impl Display for Container<Dict> {
 /// keys by default.
 impl IntoIterator for Container<Dict> {
     type Item = TreewalkValue;
-    type IntoIter = DictKeysIterator;
+    type IntoIter = DictKeysIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictKeysIterator::new(self.borrow().clone().into())
+        DictKeysIter::new(self.borrow().clone().into())
     }
 }
 

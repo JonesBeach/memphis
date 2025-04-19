@@ -166,7 +166,7 @@ impl From<GeneratorIterator> for Container<List> {
 
 impl Display for Container<List> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIterator::new(self.clone())
+        let items = ListIter::new(self.clone())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -176,20 +176,20 @@ impl Display for Container<List> {
 
 impl IntoIterator for Container<List> {
     type Item = TreewalkValue;
-    type IntoIter = ListIterator;
+    type IntoIter = ListIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator::new(self)
+        ListIter::new(self)
     }
 }
 
 #[derive(Clone)]
-pub struct ListIterator {
+pub struct ListIter {
     list_ref: Container<List>,
     current_index: usize,
 }
 
-impl ListIterator {
+impl ListIter {
     pub fn new(list_ref: Container<List>) -> Self {
         Self {
             list_ref,
@@ -198,7 +198,7 @@ impl ListIterator {
     }
 }
 
-impl Iterator for ListIterator {
+impl Iterator for ListIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -215,7 +215,7 @@ impl Iterator for ListIterator {
     }
 }
 
-impl ExactSizeIterator for ListIterator {
+impl ExactSizeIterator for ListIter {
     fn len(&self) -> usize {
         self.list_ref.borrow().len() - self.current_index
     }

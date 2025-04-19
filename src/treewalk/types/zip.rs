@@ -4,7 +4,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
-        types::{iterators::ListIterator, List, Str, Tuple},
+        types::{iterators::ListIter, List, Str, Tuple},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
     },
@@ -24,9 +24,9 @@ impl ZipIterator {
 
 impl Default for ZipIterator {
     fn default() -> Self {
-        Self(vec![TreewalkIterator::List(ListIterator::new(
-            Container::new(List::new(vec![])),
-        ))])
+        Self(vec![TreewalkIterator::List(ListIter::new(Container::new(
+            List::new(vec![]),
+        )))])
     }
 }
 

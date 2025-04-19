@@ -15,8 +15,8 @@ use crate::{
         type_system::{CloneableCallable, CloneableDataDescriptor, CloneableNonDataDescriptor},
         types::{
             iterators::{
-                DictItemsIterator, DictKeysIterator, DictValuesIterator, GeneratorIterator,
-                ListIterator, RangeIterator, ReversedIterator, StringIterator, ZipIterator,
+                DictItemsIter, DictKeysIter, DictValuesIter, GeneratorIterator, ListIter,
+                RangeIter, ReversedIter, StringIter, ZipIterator,
             },
             ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
             DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
@@ -72,19 +72,19 @@ pub enum TreewalkValue {
     Exception(ExecutionError),
     Traceback(Traceback),
     Frame,
-    ListIterator(ListIterator),
-    ReversedIterator(ReversedIterator),
+    ListIter(ListIter),
+    ReversedIter(ReversedIter),
     // this might need a real SetIterator, I'm not sure yet
-    SetIterator(ListIterator),
-    DictItemsIterator(DictItemsIterator),
-    DictKeysIterator(DictKeysIterator),
-    DictValuesIterator(DictValuesIterator),
-    RangeIterator(RangeIterator),
+    SetIter(ListIter),
+    DictItemsIter(DictItemsIter),
+    DictKeysIter(DictKeysIter),
+    DictValuesIter(DictValuesIter),
+    RangeIter(RangeIter),
     // this might need a real TupleIterator, I'm not sure yet
-    TupleIterator(ListIterator),
-    StringIterator(StringIterator),
-    BytesIterator(Vec<u8>),
-    ByteArrayIterator(Vec<u8>),
+    TupleIter(ListIter),
+    StringIter(StringIter),
+    BytesIter(Vec<u8>),
+    ByteArrayIter(Vec<u8>),
     TypeNode(TypeExpr),
     #[cfg(feature = "c_stdlib")]
     CPythonModule(Container<CPythonModule>),
@@ -251,17 +251,17 @@ impl TreewalkValue {
             TreewalkValue::DictItems(d) => write!(f, "dict_items({})", d),
             TreewalkValue::DictKeys(d) => write!(f, "dict_keys({})", d),
             TreewalkValue::DictValues(d) => write!(f, "dict_values({})", d),
-            TreewalkValue::StringIterator(_) => write!(f, "<str_ascii_iterator>"),
-            TreewalkValue::BytesIterator(_) => write!(f, "<bytes_iterator>"),
-            TreewalkValue::ByteArrayIterator(_) => write!(f, "<byte_array_iterator>"),
-            TreewalkValue::ListIterator(_) => write!(f, "<list_iterator>"),
-            TreewalkValue::ReversedIterator(_) => write!(f, "<list_reverseiterator>"),
-            TreewalkValue::SetIterator(_) => write!(f, "<set_iterator>"),
-            TreewalkValue::DictItemsIterator(_) => write!(f, "<dict_itemiterator>"),
-            TreewalkValue::DictKeysIterator(_) => write!(f, "<dict_keyiterator>"),
-            TreewalkValue::DictValuesIterator(_) => write!(f, "<dict_valueiterator>"),
-            TreewalkValue::RangeIterator(_) => write!(f, "<range_iterator>"),
-            TreewalkValue::TupleIterator(_) => write!(f, "<tuple_iterator>"),
+            TreewalkValue::StringIter(_) => write!(f, "<str_ascii_iterator>"),
+            TreewalkValue::BytesIter(_) => write!(f, "<bytes_iterator>"),
+            TreewalkValue::ByteArrayIter(_) => write!(f, "<byte_array_iterator>"),
+            TreewalkValue::ListIter(_) => write!(f, "<list_iterator>"),
+            TreewalkValue::ReversedIter(_) => write!(f, "<list_reverseiterator>"),
+            TreewalkValue::SetIter(_) => write!(f, "<set_iterator>"),
+            TreewalkValue::DictItemsIter(_) => write!(f, "<dict_itemiterator>"),
+            TreewalkValue::DictKeysIter(_) => write!(f, "<dict_keyiterator>"),
+            TreewalkValue::DictValuesIter(_) => write!(f, "<dict_valueiterator>"),
+            TreewalkValue::RangeIter(_) => write!(f, "<range_iterator>"),
+            TreewalkValue::TupleIter(_) => write!(f, "<tuple_iterator>"),
             TreewalkValue::Code(_) => write!(f, "<code object>"),
             TreewalkValue::Cell(_) => write!(f, "<cell>"),
             TreewalkValue::Module(m) => write!(f, "{}", m),
@@ -281,8 +281,8 @@ impl TreewalkValue {
     pub fn try_into_iter(self) -> Option<TreewalkIterator> {
         match self {
             TreewalkValue::List(list) => Some(TreewalkIterator::List(list.into_iter())),
-            TreewalkValue::ListIterator(l) => Some(TreewalkIterator::List(l)),
-            TreewalkValue::ReversedIterator(l) => Some(TreewalkIterator::Reversed(l)),
+            TreewalkValue::ListIter(l) => Some(TreewalkIterator::List(l)),
+            TreewalkValue::ReversedIter(l) => Some(TreewalkIterator::Reversed(l)),
             TreewalkValue::Set(set) => Some(TreewalkIterator::List(set.into_iter())),
             TreewalkValue::FrozenSet(set) => Some(TreewalkIterator::List(set.into_iter())),
             TreewalkValue::Zip(zip) => Some(TreewalkIterator::Zip(zip)),
@@ -291,7 +291,31 @@ impl TreewalkValue {
             TreewalkValue::DictItems(dict) => Some(TreewalkIterator::DictItems(dict.into_iter())),
             TreewalkValue::Generator(g) => Some(TreewalkIterator::Generator(g.into_iter())),
             TreewalkValue::Range(range) => Some(TreewalkIterator::Range(range.into_iter())),
-            TreewalkValue::StringIterator(s) => Some(TreewalkIterator::String(s)),
+            TreewalkValue::StringIter(s) => Some(TreewalkIterator::String(s)),
+            _ => None,
+        }
+    }
+
+    /// Take ownership and convert to a user-facing value. These are the Python objects which are
+    /// returned from `iter()` and on which you can call `next()`.
+    pub fn into_iterator_value(self) -> Option<TreewalkValue> {
+        match self {
+            TreewalkValue::String(s) => Some(TreewalkValue::StringIter(s.into_iter())),
+            TreewalkValue::List(list) => Some(TreewalkValue::ListIter(list.into_iter())),
+            TreewalkValue::ReversedIter(_) => Some(self),
+            TreewalkValue::Set(set) => Some(TreewalkValue::SetIter(set.into_iter())),
+            TreewalkValue::Zip(_) => Some(self),
+            TreewalkValue::Tuple(tuple) => Some(TreewalkValue::TupleIter(tuple.into_iter())),
+            TreewalkValue::DictItems(dict) => Some(TreewalkValue::DictItemsIter(dict.into_iter())),
+            TreewalkValue::DictKeys(dict) => Some(TreewalkValue::DictKeysIter(dict.into_iter())),
+            TreewalkValue::DictValues(dict) => {
+                Some(TreewalkValue::DictValuesIter(dict.into_iter()))
+            }
+            TreewalkValue::Bytes(b) => Some(TreewalkValue::BytesIter(b)),
+            TreewalkValue::ByteArray(b) => {
+                Some(TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()))
+            }
+            TreewalkValue::Range(r) => Some(TreewalkValue::RangeIter(r.into_iter())),
             _ => None,
         }
     }
@@ -344,17 +368,17 @@ impl TreewalkValue {
             TreewalkValue::DictKeys(_) => Type::DictKeys,
             TreewalkValue::DictValues(_) => Type::DictValues,
             TreewalkValue::MappingProxy(_) => Type::MappingProxy,
-            TreewalkValue::BytesIterator(_) => Type::BytesIterator,
-            TreewalkValue::ByteArrayIterator(_) => Type::ByteArrayIterator,
-            TreewalkValue::RangeIterator(_) => Type::RangeIterator,
-            TreewalkValue::StringIterator(_) => Type::StringIterator,
-            TreewalkValue::ListIterator(_) => Type::ListIterator,
-            TreewalkValue::ReversedIterator(_) => Type::ReversedIterator,
-            TreewalkValue::SetIterator(_) => Type::SetIterator,
-            TreewalkValue::TupleIterator(_) => Type::TupleIterator,
-            TreewalkValue::DictItemsIterator(_) => Type::DictItemIterator,
-            TreewalkValue::DictKeysIterator(_) => Type::DictKeyIterator,
-            TreewalkValue::DictValuesIterator(_) => Type::DictValueIterator,
+            TreewalkValue::BytesIter(_) => Type::BytesIterator,
+            TreewalkValue::ByteArrayIter(_) => Type::ByteArrayIterator,
+            TreewalkValue::RangeIter(_) => Type::RangeIterator,
+            TreewalkValue::StringIter(_) => Type::StringIterator,
+            TreewalkValue::ListIter(_) => Type::ListIterator,
+            TreewalkValue::ReversedIter(_) => Type::ReversedIterator,
+            TreewalkValue::SetIter(_) => Type::SetIterator,
+            TreewalkValue::TupleIter(_) => Type::TupleIterator,
+            TreewalkValue::DictItemsIter(_) => Type::DictItemIterator,
+            TreewalkValue::DictKeysIter(_) => Type::DictKeyIterator,
+            TreewalkValue::DictValuesIter(_) => Type::DictValueIterator,
             TreewalkValue::TypeNode(_) => Type::Type,
             TreewalkValue::Cell(_) => Type::Cell,
             TreewalkValue::Code(_) => Type::Code,

@@ -1,21 +1,21 @@
 use crate::treewalk::{
     types::iterators::{
-        DictItemsIterator, DictKeysIterator, GeneratorIterator, ListIterator, RangeIterator,
-        ReversedIterator, StringIterator, ZipIterator,
+        DictItemsIter, DictKeysIter, GeneratorIterator, ListIter, RangeIter, ReversedIter,
+        StringIter, ZipIterator,
     },
     TreewalkValue,
 };
 
 #[derive(Clone)]
 pub enum TreewalkIterator {
-    List(ListIterator),
+    List(ListIter),
     Zip(ZipIterator),
-    Reversed(ReversedIterator),
-    Dict(DictKeysIterator),
-    DictItems(DictItemsIterator),
+    Reversed(ReversedIter),
+    Dict(DictKeysIter),
+    DictItems(DictItemsIter),
     Generator(GeneratorIterator),
-    Range(RangeIterator),
-    String(StringIterator),
+    Range(RangeIter),
+    String(StringIter),
 }
 
 impl TreewalkIterator {

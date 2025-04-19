@@ -89,7 +89,7 @@ impl TryFrom<Dict> for DictItems {
 
 impl Display for DictItems {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictItemsIterator::new(self.clone())
+        let items = DictItemsIter::new(self.clone())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -99,23 +99,23 @@ impl Display for DictItems {
 
 impl IntoIterator for DictItems {
     type Item = TreewalkValue;
-    type IntoIter = DictItemsIterator;
+    type IntoIter = DictItemsIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictItemsIterator::new(self)
+        DictItemsIter::new(self)
     }
 }
 
 #[derive(Clone)]
-pub struct DictItemsIterator(DictItems);
+pub struct DictItemsIter(DictItems);
 
-impl DictItemsIterator {
+impl DictItemsIter {
     fn new(dict_items: DictItems) -> Self {
-        DictItemsIterator(dict_items)
+        DictItemsIter(dict_items)
     }
 }
 
-impl Iterator for DictItemsIterator {
+impl Iterator for DictItemsIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

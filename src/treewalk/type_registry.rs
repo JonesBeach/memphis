@@ -9,7 +9,7 @@ use crate::{
             DescriptorProvider, MethodProvider,
         },
         types::{
-            iterators::{ReversedIterator, ZipIterator},
+            iterators::{ReversedIter, ZipIterator},
             Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
             FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
             Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
@@ -48,7 +48,7 @@ fn builtin_methods() -> HashMap<Type, Vec<Box<dyn CloneableCallable>>> {
     register_methods::<Range>(&mut methods);
     register_methods::<Slice>(&mut methods);
     register_methods::<ZipIterator>(&mut methods);
-    register_methods::<ReversedIterator>(&mut methods);
+    register_methods::<ReversedIter>(&mut methods);
     register_methods::<Bytes>(&mut methods);
     register_methods::<Complex>(&mut methods);
     register_methods::<ByteArray>(&mut methods);

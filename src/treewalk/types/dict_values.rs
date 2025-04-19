@@ -38,7 +38,7 @@ impl TryFrom<Dict> for DictValues {
 
 impl Display for DictValues {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictValuesIterator::new(self.clone())
+        let items = DictValuesIter::new(self.clone())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -48,23 +48,23 @@ impl Display for DictValues {
 
 impl IntoIterator for DictValues {
     type Item = TreewalkValue;
-    type IntoIter = DictValuesIterator;
+    type IntoIter = DictValuesIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictValuesIterator::new(self)
+        DictValuesIter::new(self)
     }
 }
 
 #[derive(Clone)]
-pub struct DictValuesIterator(DictValues);
+pub struct DictValuesIter(DictValues);
 
-impl DictValuesIterator {
+impl DictValuesIter {
     fn new(dict_values: DictValues) -> Self {
-        DictValuesIterator(dict_values)
+        DictValuesIter(dict_values)
     }
 }
 
-impl Iterator for DictValuesIterator {
+impl Iterator for DictValuesIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

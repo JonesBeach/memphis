@@ -50,10 +50,10 @@ impl Default for Range {
 
 impl IntoIterator for Range {
     type Item = TreewalkValue;
-    type IntoIter = RangeIterator;
+    type IntoIter = RangeIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        RangeIterator::new(self)
+        RangeIter::new(self)
     }
 }
 
@@ -68,15 +68,15 @@ impl Display for Range {
 }
 
 #[derive(Clone)]
-pub struct RangeIterator(Range);
+pub struct RangeIter(Range);
 
-impl RangeIterator {
+impl RangeIter {
     fn new(range: Range) -> Self {
-        RangeIterator(range)
+        RangeIter(range)
     }
 }
 
-impl Iterator for RangeIterator {
+impl Iterator for RangeIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -104,13 +104,22 @@ impl Callable for MaketransBuiltin {
     }
 }
 
+impl IntoIterator for Str {
+    type Item = TreewalkValue;
+    type IntoIter = StringIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        StringIter::new(self)
+    }
+}
+
 #[derive(Clone)]
-pub struct StringIterator {
+pub struct StringIter {
     string: String,
     position: usize,
 }
 
-impl StringIterator {
+impl StringIter {
     pub fn new(string: Str) -> Self {
         Self {
             string: string.0.clone(),
@@ -119,7 +128,7 @@ impl StringIterator {
     }
 }
 
-impl Iterator for StringIterator {
+impl Iterator for StringIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
