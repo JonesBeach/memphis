@@ -15,7 +15,7 @@ pub enum TreewalkIterator {
     DictItems(DictItemsIter),
     Generator(GeneratorIterator),
     Range(RangeIter),
-    String(StrIter),
+    Str(StrIter),
 }
 
 impl TreewalkIterator {
@@ -42,7 +42,7 @@ impl Iterator for TreewalkIterator {
             TreewalkIterator::DictItems(i) => i.next(),
             TreewalkIterator::Generator(i) => i.next(),
             TreewalkIterator::Range(i) => i.next(),
-            TreewalkIterator::String(i) => i.next(),
+            TreewalkIterator::Str(i) => i.next(),
         }
     }
 }

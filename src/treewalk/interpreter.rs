@@ -1622,7 +1622,7 @@ for i in iter("abcde"):
         let ctx = run(input);
 
         assert_variant!(ctx, "a", StrIter);
-        assert_type_eq!(ctx, "b", Type::StringIterator);
+        assert_type_eq!(ctx, "b", Type::StrIter);
     }
 
     #[test]
@@ -2187,7 +2187,7 @@ t.extend([3,4])
         assert_read_eq!(ctx, "h", list![int!(1), int!(2), int!(1), int!(2)]);
         assert_read_eq!(ctx, "i", list![]);
         assert_variant!(ctx, "j", ListIter);
-        assert_type_eq!(ctx, "k", Type::ListIterator);
+        assert_type_eq!(ctx, "k", Type::ListIter);
         assert_read_eq!(ctx, "l", int!(1));
         assert_read_eq!(ctx, "m", int!(5));
         assert_read_eq!(ctx, "n", int!(0));
@@ -2236,7 +2236,7 @@ l = {1} <= {2}
         assert_read_eq!(ctx, "g", set![int!(0), int!(1),]);
         assert_read_eq!(ctx, "h", set![]);
         assert_variant!(ctx, "i", SetIter);
-        assert_type_eq!(ctx, "j", Type::SetIterator);
+        assert_type_eq!(ctx, "j", Type::SetIter);
         assert_read_eq!(ctx, "new_set", set![str!("five")]);
         assert_read_eq!(ctx, "k", bool!(true));
         assert_read_eq!(ctx, "l", bool!(false));
@@ -2271,7 +2271,7 @@ j = 9, 10
         assert_read_eq!(ctx, "e", tuple![int!(1), int!(2)]);
         assert_read_eq!(ctx, "f", tuple![int!(0), int!(1)]);
         assert_variant!(ctx, "g", TupleIter);
-        assert_type_eq!(ctx, "h", Type::TupleIterator);
+        assert_type_eq!(ctx, "h", Type::TupleIter);
         assert_read_eq!(ctx, "i", tuple![int!(4),]);
         assert_read_eq!(ctx, "j", tuple![int!(9), int!(10),]);
 
@@ -2417,7 +2417,7 @@ for i in r:
         let ctx = run(input);
 
         assert_variant!(ctx, "a", RangeIter);
-        assert_type_eq!(ctx, "b", Type::RangeIterator);
+        assert_type_eq!(ctx, "b", Type::RangeIter);
         assert_type_eq!(ctx, "c", Type::Range);
         assert_read_eq!(ctx, "d", int!(3));
         assert_read_eq!(ctx, "e", int!(6));
@@ -3034,15 +3034,15 @@ w = { key for key, value in a.items() }
         assert_read_eq!(ctx, "g", dict!(ctx.interpreter(), {}));
         assert_read_eq!(ctx, "h", dict_items![]);
         assert_variant!(ctx, "q", DictItemsIter);
-        assert_type_eq!(ctx, "r", Type::DictItemIterator);
+        assert_type_eq!(ctx, "r", Type::DictItemIter);
         assert_read_eq!(ctx, "i", dict_keys![]);
         assert_read_eq!(ctx, "j", dict_keys![str!("b"), str!("c"),]);
         assert_variant!(ctx, "k", DictKeysIter);
-        assert_type_eq!(ctx, "l", Type::DictKeyIterator);
+        assert_type_eq!(ctx, "l", Type::DictKeyIter);
         assert_read_eq!(ctx, "m", dict_values![]);
         assert_read_eq!(ctx, "n", dict_values![int!(4), int!(5),]);
         assert_variant!(ctx, "o", DictValuesIter);
-        assert_type_eq!(ctx, "p", Type::DictValueIterator);
+        assert_type_eq!(ctx, "p", Type::DictValueIter);
         assert_type_eq!(ctx, "s", Type::DictKeys);
         assert_type_eq!(ctx, "t", Type::DictValues);
         assert_type_eq!(ctx, "u", Type::DictItems);
@@ -3872,7 +3872,7 @@ a = type(iter(b'hello'))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIter);
     }
 
     #[test]
@@ -3905,7 +3905,7 @@ a = type(iter(bytearray()))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::ByteArrayIterator);
+        assert_type_eq!(ctx, "a", Type::ByteArrayIter);
     }
 
     #[test]
@@ -3938,7 +3938,7 @@ a = type(iter(bytes()))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIter);
     }
 
     #[test]
@@ -4149,8 +4149,8 @@ e = [ i for i in reversed([1,2,3]) ]
 
         assert_variant!(ctx, "a", ReversedIter);
         assert_variant!(ctx, "b", ReversedIter);
-        assert_type_eq!(ctx, "c", Type::ReversedIterator);
-        assert_type_eq!(ctx, "d", Type::ReversedIterator);
+        assert_type_eq!(ctx, "c", Type::ReversedIter);
+        assert_type_eq!(ctx, "d", Type::ReversedIter);
         assert_read_eq!(ctx, "e", list![int!(3), int!(2), int!(1),]);
     }
 

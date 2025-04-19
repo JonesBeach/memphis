@@ -17,7 +17,7 @@ pub struct ReversedIter {
     current_index: usize,
 }
 
-impl_typed!(ReversedIter, Type::ReversedIterator);
+impl_typed!(ReversedIter, Type::ReversedIter);
 impl_method_provider!(ReversedIter, [NewBuiltin]);
 
 impl ReversedIter {
