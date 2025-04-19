@@ -146,7 +146,7 @@ impl Scope {
         #[allow(clippy::mutable_key_type)]
         let mut items = HashMap::new();
         for (key, value) in self.symbol_table.iter() {
-            items.insert(TreewalkValue::String(Str::new(key.clone())), value.clone());
+            items.insert(TreewalkValue::Str(Str::new(key.clone())), value.clone());
         }
 
         Container::new(Dict::new(interpreter, items))

@@ -80,7 +80,7 @@ impl Callable for NewBuiltin {
                     .collect::<Vec<TreewalkIterator>>();
 
                 if args
-                    .get_kwarg(&TreewalkValue::String(Str::new("strict".to_string())))
+                    .get_kwarg(&TreewalkValue::Str(Str::new("strict".to_string())))
                     .is_some_and(|k| k == TreewalkValue::Boolean(true))
                 {
                     let lengths = iters

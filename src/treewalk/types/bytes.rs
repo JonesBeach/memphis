@@ -26,7 +26,7 @@ impl Callable for NewBuiltin {
             1 => "".into(),
             2 => match args.get_arg(1) {
                 TreewalkValue::Bytes(b) => b,
-                TreewalkValue::String(_) => {
+                TreewalkValue::Str(_) => {
                     return Err(interpreter.type_error("string argument without an encoding"));
                 }
                 _ => todo!(),

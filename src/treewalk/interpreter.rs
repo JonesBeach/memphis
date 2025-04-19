@@ -600,7 +600,7 @@ impl TreewalkInterpreter {
             }
         }
 
-        Ok(TreewalkValue::String(Str::new(result)))
+        Ok(TreewalkValue::Str(Str::new(result)))
     }
 
     fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
@@ -1237,7 +1237,7 @@ impl TreewalkInterpreter {
             Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
             Expr::FloatingPoint(value) => Ok(TreewalkValue::FloatingPoint(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
-            Expr::StringLiteral(value) => Ok(TreewalkValue::String(Str::new(value.clone()))),
+            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
@@ -1621,7 +1621,7 @@ for i in iter("abcde"):
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", StringIter);
+        assert_variant!(ctx, "a", StrIter);
         assert_type_eq!(ctx, "b", Type::StringIterator);
     }
 
@@ -3704,12 +3704,12 @@ m = sys.modules['os.path']
 
         assert_variant!(ctx, "a", Integer);
         assert_variant!(ctx, "b", FloatingPoint);
-        assert_variant!(ctx, "c", String);
-        assert_variant!(ctx, "d", String);
+        assert_variant!(ctx, "c", Str);
+        assert_variant!(ctx, "d", Str);
         assert!(extract!(ctx, "a", Integer) > 0);
         assert!(extract!(ctx, "b", FloatingPoint) > 1701281981.0);
-        assert!(extract!(ctx, "c", String).len() > 10);
-        assert!(extract!(ctx, "d", String).len() > 10);
+        assert!(extract!(ctx, "c", Str).len() > 10);
+        assert!(extract!(ctx, "d", Str).len() > 10);
         assert_variant!(ctx, "ref", CPythonObject);
         assert_variant!(ctx, "e", CPythonClass);
         assert_type_eq!(ctx, "f", Type::Module);
@@ -4045,17 +4045,74 @@ a **= 3
         let input = r#"iter([1,2,3])"#;
         assert_eval_variant!(input, ListIter);
 
+        let input = r#"iter(iter([1,2,3]))"#;
+        assert_eval_variant!(input, ListIter);
+
         let input = r#"iter("str")"#;
-        assert_eval_variant!(input, StringIter);
+        assert_eval_variant!(input, StrIter);
+
+        let input = r#"iter(iter("str"))"#;
+        assert_eval_variant!(input, StrIter);
 
         let input = r#"iter({1,2,3})"#;
         assert_eval_variant!(input, SetIter);
+
+        let input = r#"iter(iter({1,2,3}))"#;
+        assert_eval_variant!(input, SetIter);
+
+        let input = r#"iter((1,2,3))"#;
+        assert_eval_variant!(input, TupleIter);
+
+        let input = r#"iter(iter((1,2,3)))"#;
+        assert_eval_variant!(input, TupleIter);
+
+        let input = r#"iter({"a": 2}.items())"#;
+        assert_eval_variant!(input, DictItemsIter);
+
+        let input = r#"iter(iter({"a": 2}.items()))"#;
+        assert_eval_variant!(input, DictItemsIter);
+
+        let input = r#"iter({"a": 2}.keys())"#;
+        assert_eval_variant!(input, DictKeysIter);
+
+        let input = r#"iter(iter({"a": 2}.keys()))"#;
+        assert_eval_variant!(input, DictKeysIter);
+
+        let input = r#"iter({"a": 2}.values())"#;
+        assert_eval_variant!(input, DictValuesIter);
+
+        let input = r#"iter(iter({"a": 2}.values()))"#;
+        assert_eval_variant!(input, DictValuesIter);
+
+        let input = r#"iter(b'a')"#;
+        assert_eval_variant!(input, BytesIter);
+
+        let input = r#"iter(iter(b'a'))"#;
+        assert_eval_variant!(input, BytesIter);
+
+        let input = r#"iter(bytearray(b'a'))"#;
+        assert_eval_variant!(input, ByteArrayIter);
+
+        let input = r#"iter(iter(bytearray(b'a')))"#;
+        assert_eval_variant!(input, ByteArrayIter);
+
+        let input = r#"iter(range(5))"#;
+        assert_eval_variant!(input, RangeIter);
+
+        let input = r#"iter(iter(range(5)))"#;
+        assert_eval_variant!(input, RangeIter);
 
         let input = r#"iter((x for x in [1,2,3]))"#;
         assert_eval_variant!(input, Generator);
 
         let input = r#"iter(x for x in [1,2,3])"#;
         assert_eval_variant!(input, Generator);
+
+        let input = r#"iter(zip([1], [2]))"#;
+        assert_eval_variant!(input, Zip);
+
+        let input = r#"iter(reversed([1, 2]))"#;
+        assert_eval_variant!(input, ReversedIter);
 
         let input = r#"
 b = 0

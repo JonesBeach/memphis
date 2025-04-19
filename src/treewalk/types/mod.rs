@@ -78,6 +78,6 @@ pub mod iterators {
     pub use super::list::ListIter;
     pub use super::range::RangeIter;
     pub use super::reversed::ReversedIter;
-    pub use super::str::StringIter;
+    pub use super::str::StrIter;
     pub use super::zip::ZipIterator;
 }

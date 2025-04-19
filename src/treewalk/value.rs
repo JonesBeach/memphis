@@ -16,7 +16,7 @@ use crate::{
         types::{
             iterators::{
                 DictItemsIter, DictKeysIter, DictValuesIter, GeneratorIterator, ListIter,
-                RangeIter, ReversedIter, StringIter, ZipIterator,
+                RangeIter, ReversedIter, StrIter, ZipIterator,
             },
             ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
             DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
@@ -35,7 +35,7 @@ pub enum TreewalkValue {
     NotImplemented,
     Integer(i64),
     FloatingPoint(f64),
-    String(Str),
+    Str(Str),
     Class(Container<Class>),
     Object(Container<Object>),
     Module(Container<Module>),
@@ -82,7 +82,7 @@ pub enum TreewalkValue {
     RangeIter(RangeIter),
     // this might need a real TupleIterator, I'm not sure yet
     TupleIter(ListIter),
-    StringIter(StringIter),
+    StrIter(StrIter),
     BytesIter(Vec<u8>),
     ByteArrayIter(Vec<u8>),
     TypeNode(TypeExpr),
@@ -101,7 +101,7 @@ impl PartialEq for TreewalkValue {
             (TreewalkValue::None, TreewalkValue::None) => true,
             (TreewalkValue::Integer(a), TreewalkValue::Integer(b)) => a == b,
             (TreewalkValue::FloatingPoint(a), TreewalkValue::FloatingPoint(b)) => a == b,
-            (TreewalkValue::String(a), TreewalkValue::String(b)) => a == b,
+            (TreewalkValue::Str(a), TreewalkValue::Str(b)) => a == b,
             (TreewalkValue::Bytes(a), TreewalkValue::Bytes(b)) => a == b,
             (TreewalkValue::ByteArray(a), TreewalkValue::ByteArray(b)) => a == b,
             (TreewalkValue::Boolean(a), TreewalkValue::Boolean(b)) => a == b,
@@ -153,7 +153,7 @@ impl Hash for TreewalkValue {
 impl Ord for TreewalkValue {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (TreewalkValue::String(s1), TreewalkValue::String(s2)) => s1.cmp(s2),
+            (TreewalkValue::Str(s1), TreewalkValue::Str(s2)) => s1.cmp(s2),
             (TreewalkValue::Integer(n1), TreewalkValue::Integer(n2)) => n1.cmp(n2),
             _ => todo!(),
         }
@@ -231,7 +231,7 @@ impl TreewalkValue {
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
             TreewalkValue::Integer(i) => write!(f, "{}", i),
             TreewalkValue::FloatingPoint(i) => write!(f, "{}", i),
-            TreewalkValue::String(s) => write!(f, "{}", s),
+            TreewalkValue::Str(s) => write!(f, "{}", s),
             TreewalkValue::Bytes(b) => write!(f, "b'{:?}'", b),
             TreewalkValue::ByteArray(b) => write!(f, "bytearray(b'{:?}')", b),
             TreewalkValue::Boolean(b) => match b {
@@ -251,7 +251,7 @@ impl TreewalkValue {
             TreewalkValue::DictItems(d) => write!(f, "dict_items({})", d),
             TreewalkValue::DictKeys(d) => write!(f, "dict_keys({})", d),
             TreewalkValue::DictValues(d) => write!(f, "dict_values({})", d),
-            TreewalkValue::StringIter(_) => write!(f, "<str_ascii_iterator>"),
+            TreewalkValue::StrIter(_) => write!(f, "<str_ascii_iterator>"),
             TreewalkValue::BytesIter(_) => write!(f, "<bytes_iterator>"),
             TreewalkValue::ByteArrayIter(_) => write!(f, "<byte_array_iterator>"),
             TreewalkValue::ListIter(_) => write!(f, "<list_iterator>"),
@@ -291,7 +291,7 @@ impl TreewalkValue {
             TreewalkValue::DictItems(dict) => Some(TreewalkIterator::DictItems(dict.into_iter())),
             TreewalkValue::Generator(g) => Some(TreewalkIterator::Generator(g.into_iter())),
             TreewalkValue::Range(range) => Some(TreewalkIterator::Range(range.into_iter())),
-            TreewalkValue::StringIter(s) => Some(TreewalkIterator::String(s)),
+            TreewalkValue::StrIter(s) => Some(TreewalkIterator::String(s)),
             _ => None,
         }
     }
@@ -301,15 +301,25 @@ impl TreewalkValue {
     pub fn into_iterator_value(self) -> Option<TreewalkValue> {
         let value = match self {
             TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
-            TreewalkValue::String(s) => TreewalkValue::StringIter(s.into_iter()),
+            TreewalkValue::ListIter(_) => self,
+            TreewalkValue::Str(s) => TreewalkValue::StrIter(s.into_iter()),
+            TreewalkValue::StrIter(_) => self,
             TreewalkValue::Set(set) => TreewalkValue::SetIter(set.into_iter()),
+            TreewalkValue::SetIter(_) => self,
             TreewalkValue::Tuple(tuple) => TreewalkValue::TupleIter(tuple.into_iter()),
+            TreewalkValue::TupleIter(_) => self,
             TreewalkValue::DictItems(dict) => TreewalkValue::DictItemsIter(dict.into_iter()),
+            TreewalkValue::DictItemsIter(_) => self,
             TreewalkValue::DictKeys(dict) => TreewalkValue::DictKeysIter(dict.into_iter()),
+            TreewalkValue::DictKeysIter(_) => self,
             TreewalkValue::DictValues(dict) => TreewalkValue::DictValuesIter(dict.into_iter()),
+            TreewalkValue::DictValuesIter(_) => self,
             TreewalkValue::Bytes(b) => TreewalkValue::BytesIter(b),
+            TreewalkValue::BytesIter(_) => self,
             TreewalkValue::ByteArray(b) => TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()),
+            TreewalkValue::ByteArrayIter(_) => self,
             TreewalkValue::Range(r) => TreewalkValue::RangeIter(r.into_iter()),
+            TreewalkValue::RangeIter(_) => self,
             TreewalkValue::Generator(_) => self,
             TreewalkValue::ReversedIter(_) => self,
             TreewalkValue::Zip(_) => self,
@@ -353,7 +363,7 @@ impl TreewalkValue {
             TreewalkValue::Bytes(_) => Type::Bytes,
             TreewalkValue::ByteArray(_) => Type::ByteArray,
             TreewalkValue::Boolean(_) => Type::Bool,
-            TreewalkValue::String(_) => Type::Str,
+            TreewalkValue::Str(_) => Type::Str,
             TreewalkValue::List(_) => Type::List,
             TreewalkValue::Set(_) => Type::Set,
             TreewalkValue::FrozenSet(_) => Type::FrozenSet,
@@ -370,7 +380,7 @@ impl TreewalkValue {
             TreewalkValue::BytesIter(_) => Type::BytesIterator,
             TreewalkValue::ByteArrayIter(_) => Type::ByteArrayIterator,
             TreewalkValue::RangeIter(_) => Type::RangeIterator,
-            TreewalkValue::StringIter(_) => Type::StringIterator,
+            TreewalkValue::StrIter(_) => Type::StringIterator,
             TreewalkValue::ListIter(_) => Type::ListIterator,
             TreewalkValue::ReversedIter(_) => Type::ReversedIterator,
             TreewalkValue::SetIter(_) => Type::SetIterator,
@@ -451,7 +461,7 @@ impl TreewalkValue {
     pub fn as_integer(&self) -> Option<i64> {
         match self {
             TreewalkValue::Integer(i) => Some(*i),
-            TreewalkValue::String(s) => s.parse::<i64>().ok(),
+            TreewalkValue::Str(s) => s.parse::<i64>().ok(),
             _ => None,
         }
     }
@@ -550,7 +560,7 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Boolean(i) => *i,
             TreewalkValue::List(i) => i.borrow().len() > 0,
-            TreewalkValue::String(i) => !i.is_empty(),
+            TreewalkValue::Str(i) => !i.is_empty(),
             TreewalkValue::Integer(i) => *i != 0,
             TreewalkValue::None => false,
             _ => true,
@@ -650,7 +660,7 @@ impl TreewalkValue {
 
     pub fn as_string(&self) -> Option<String> {
         match self {
-            TreewalkValue::String(i) => Some(i.to_string()),
+            TreewalkValue::Str(i) => Some(i.to_string()),
             TreewalkValue::Integer(i) => Some(i.to_string()),
             _ => None,
         }
@@ -718,7 +728,7 @@ impl From<TreewalkValue> for MemphisValue {
             TreewalkValue::Integer(_) => {
                 MemphisValue::Integer(value.as_integer().expect("Failed to get integer"))
             }
-            TreewalkValue::String(_) => {
+            TreewalkValue::Str(_) => {
                 MemphisValue::String(value.as_string().expect("failed to get string"))
             }
             TreewalkValue::Boolean(val) => MemphisValue::Boolean(val),

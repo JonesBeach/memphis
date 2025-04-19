@@ -50,7 +50,7 @@ impl TreewalkValue {
             TreewalkValue::Tuple(tuple) => Box::new(tuple),
             TreewalkValue::Dict(dict) => Box::new(dict),
             TreewalkValue::MappingProxy(proxy) => Box::new(proxy),
-            TreewalkValue::String(s) => Box::new(s),
+            TreewalkValue::Str(s) => Box::new(s),
             TreewalkValue::Object(ref i) => {
                 if self.hasattr(interpreter, Dunder::GetItem)? {
                     Box::new(i.clone()) as Box<dyn IndexRead>

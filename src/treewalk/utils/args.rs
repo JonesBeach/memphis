@@ -36,7 +36,7 @@ impl Args {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
                     kwargs.insert(
-                        TreewalkValue::String(Str::new(key.to_string())),
+                        TreewalkValue::Str(Str::new(key.to_string())),
                         interpreter.evaluate_expr(value)?,
                     );
                 }

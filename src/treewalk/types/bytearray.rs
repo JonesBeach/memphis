@@ -36,7 +36,7 @@ impl Callable for NewBuiltin {
         let byte_array = match args.len() {
             1 => Container::new(ByteArray::new("".into())),
             2 => match args.get_arg(1) {
-                TreewalkValue::String(_) => {
+                TreewalkValue::Str(_) => {
                     return Err(interpreter.type_error("string argument without an encoding"));
                 }
                 TreewalkValue::Bytes(s) => Container::new(ByteArray::new(s)),

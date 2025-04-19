@@ -1,7 +1,7 @@
 use crate::treewalk::{
     types::iterators::{
-        DictItemsIter, DictKeysIter, GeneratorIterator, ListIter, RangeIter, ReversedIter,
-        StringIter, ZipIterator,
+        DictItemsIter, DictKeysIter, GeneratorIterator, ListIter, RangeIter, ReversedIter, StrIter,
+        ZipIterator,
     },
     TreewalkValue,
 };
@@ -15,7 +15,7 @@ pub enum TreewalkIterator {
     DictItems(DictItemsIter),
     Generator(GeneratorIterator),
     Range(RangeIter),
-    String(StringIter),
+    String(StrIter),
 }
 
 impl TreewalkIterator {
