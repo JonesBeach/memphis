@@ -1,59 +1,28 @@
 use crate::treewalk::{
-    types::iterators::{
-        DictItemsIterator, DictKeysIterator, GeneratorIterator, ListIterator, RangeIterator,
-        ReversedIterator, StringIterator, ZipIterator,
-    },
-    TreewalkValue,
+    protocols::Iterable, type_system::CloneableIterable, TreewalkResult, TreewalkValue,
 };
 
-#[derive(Clone)]
-pub enum TreewalkIterator {
-    List(ListIterator),
-    Zip(ZipIterator),
-    Reversed(ReversedIterator),
-    Dict(DictKeysIterator),
-    DictItems(DictItemsIterator),
-    Generator(GeneratorIterator),
-    Range(RangeIterator),
-    String(StringIterator),
-}
-
-impl TreewalkIterator {
-    pub fn contains(&mut self, item: TreewalkValue) -> bool {
-        for next_item in self.by_ref() {
-            if next_item == item {
-                return true;
-            }
-        }
-
-        false
+impl Iterable for Box<dyn CloneableIterable> {
+    fn next(&mut self) -> TreewalkResult<Option<TreewalkValue>> {
+        self.as_mut().next()
     }
 }
 
-impl Iterator for TreewalkIterator {
+impl Iterator for Box<dyn CloneableIterable> {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            TreewalkIterator::List(i) => i.next(),
-            TreewalkIterator::Zip(i) => i.next(),
-            TreewalkIterator::Reversed(i) => i.next(),
-            TreewalkIterator::Dict(i) => i.next(),
-            TreewalkIterator::DictItems(i) => i.next(),
-            TreewalkIterator::Generator(i) => i.next(),
-            TreewalkIterator::Range(i) => i.next(),
-            TreewalkIterator::String(i) => i.next(),
-        }
+        Iterable::next(self).expect("Iterator evaluation failed.")
     }
 }
 
 impl IntoIterator for TreewalkValue {
     type Item = TreewalkValue;
-    type IntoIter = TreewalkIterator;
+    type IntoIter = Box<dyn CloneableIterable>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let type_ = &self.get_type();
-        self.try_into_iter()
-            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", type_))
+        self.clone()
+            .into_iterable()
+            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", self.get_type()))
     }
 }

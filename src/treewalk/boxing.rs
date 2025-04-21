@@ -2,7 +2,10 @@ use crate::{
     domain::Dunder,
     treewalk::{
         protocols::{IndexRead, IndexWrite, MemberReader, MemberWriter},
-        type_system::{CloneableCallable, CloneableDataDescriptor, CloneableNonDataDescriptor},
+        type_system::{
+            CloneableCallable, CloneableDataDescriptor, CloneableIterable,
+            CloneableNonDataDescriptor,
+        },
         utils::BuiltinObject,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -50,7 +53,7 @@ impl TreewalkValue {
             TreewalkValue::Tuple(tuple) => Box::new(tuple),
             TreewalkValue::Dict(dict) => Box::new(dict),
             TreewalkValue::MappingProxy(proxy) => Box::new(proxy),
-            TreewalkValue::String(s) => Box::new(s),
+            TreewalkValue::Str(s) => Box::new(s),
             TreewalkValue::Object(ref i) => {
                 if self.hasattr(interpreter, Dunder::GetItem)? {
                     Box::new(i.clone()) as Box<dyn IndexRead>
@@ -134,6 +137,26 @@ impl TreewalkValue {
         };
 
         Ok(Some(result))
+    }
+
+    pub fn into_iterable(self) -> Option<Box<dyn CloneableIterable>> {
+        let result: Box<dyn CloneableIterable> = match self {
+            TreewalkValue::List(i) => Box::new(i.into_iter()),
+            TreewalkValue::ListIter(i) => Box::new(i),
+            TreewalkValue::Set(i) => Box::new(i.into_iter()),
+            TreewalkValue::FrozenSet(i) => Box::new(i.into_iter()),
+            TreewalkValue::Range(i) => Box::new(i.into_iter()),
+            TreewalkValue::StrIter(i) => Box::new(i),
+            TreewalkValue::ReversedIter(i) => Box::new(i),
+            TreewalkValue::Dict(i) => Box::new(i.into_iter()),
+            TreewalkValue::DictItems(i) => Box::new(i.into_iter()),
+            TreewalkValue::Tuple(i) => Box::new(i.into_iter()),
+            TreewalkValue::Generator(i) => Box::new(i),
+            TreewalkValue::Zip(i) => Box::new(i),
+            _ => return None,
+        };
+
+        Some(result)
     }
 
     pub fn into_callable(self) -> Option<Box<dyn CloneableCallable>> {

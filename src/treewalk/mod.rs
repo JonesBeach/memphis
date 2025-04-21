@@ -29,7 +29,6 @@ pub use context::TreewalkContext;
 pub use execution_context::ExecutionContextManager;
 pub use executor::Executor;
 pub use interpreter::TreewalkInterpreter;
-pub use iterator::TreewalkIterator;
 pub use module::EvaluatedModuleCache;
 pub use resolver::resolve;
 pub use result::{TreewalkDisruption, TreewalkResult, TreewalkSignal};

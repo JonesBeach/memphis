@@ -3,7 +3,7 @@ use crate::{
     domain::Dunder,
     treewalk::{
         protocols::Callable,
-        types::{iterators::StringIterator, List, Str},
+        types::{List, Str},
         utils::{args, check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -53,7 +53,7 @@ impl Callable for DirBuiltin {
             .into_member_reader(interpreter)
             .dir()
             .iter()
-            .map(|i| TreewalkValue::String(Str::new(i.to_string())))
+            .map(|i| TreewalkValue::Str(Str::new(i.to_string())))
             .collect::<Vec<_>>();
         Ok(TreewalkValue::List(Container::new(List::new(dir))))
     }
@@ -213,13 +213,7 @@ impl Callable for PrintBuiltin {
 impl Callable for LenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-
-        let iterator = args
-            .get_arg(0)
-            .clone()
-            .try_into_iter()
-            .ok_or_else(|| interpreter.type_error("Expected an iterator"))?;
-
+        let iterator = args.get_arg(0).expect_iterable(interpreter)?;
         Ok(TreewalkValue::Integer(iterator.count() as i64))
     }
 
@@ -235,7 +229,7 @@ impl Callable for NextBuiltin {
         let mut generator = args
             .get_arg(0)
             .as_generator()
-            .ok_or_else(|| interpreter.type_error("Expected an iterator"))?;
+            .ok_or_else(|| interpreter.type_error("Expected a generator"))?;
 
         generator.next().ok_or_else(|| interpreter.stop_iteration())
     }
@@ -249,27 +243,9 @@ impl Callable for IterBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        match args.get_arg(0) {
-            TreewalkValue::String(s) => Ok(TreewalkValue::StringIterator(StringIterator::new(s))),
-            TreewalkValue::List(list) => Ok(TreewalkValue::ListIterator(list.into_iter())),
-            TreewalkValue::ReversedIterator(_) => Ok(args.get_arg(0)),
-            TreewalkValue::Set(set) => Ok(TreewalkValue::SetIterator(set.into_iter())),
-            TreewalkValue::Zip(_) => Ok(args.get_arg(0)),
-            TreewalkValue::Tuple(tuple) => Ok(TreewalkValue::TupleIterator(tuple.into_iter())),
-            TreewalkValue::DictItems(dict) => {
-                Ok(TreewalkValue::DictItemsIterator(dict.into_iter()))
-            }
-            TreewalkValue::DictKeys(dict) => Ok(TreewalkValue::DictKeysIterator(dict.into_iter())),
-            TreewalkValue::DictValues(dict) => {
-                Ok(TreewalkValue::DictValuesIterator(dict.into_iter()))
-            }
-            TreewalkValue::Bytes(b) => Ok(TreewalkValue::BytesIterator(b)),
-            TreewalkValue::ByteArray(b) => {
-                Ok(TreewalkValue::ByteArrayIterator(b.borrow().raw().to_vec()))
-            }
-            TreewalkValue::Range(r) => Ok(TreewalkValue::RangeIterator(r.into_iter())),
-            _ => Err(interpreter.type_error("Expected an iterable")),
-        }
+        args.get_arg(0)
+            .into_iterator_value()
+            .ok_or_else(|| interpreter.type_error("Expected an iterable"))
     }
 
     fn name(&self) -> String {

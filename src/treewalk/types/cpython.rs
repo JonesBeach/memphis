@@ -71,7 +71,7 @@ pub fn import_from_cpython(
             .into_index_read(interpreter)
             .expect("Failed to read sys.modules")
             .expect("Failed to read sys.modules")
-            .getitem(interpreter, TreewalkValue::String(Str::new(import_str)))
+            .getitem(interpreter, TreewalkValue::Str(Str::new(import_str)))
             .expect("Failed to find this import path");
         if let Some(module) = module_result {
             return Some(module);
@@ -247,7 +247,7 @@ impl<'py> IntoPyObject<'py> for TreewalkValue {
         let o = match self {
             TreewalkValue::None => py.None().as_any().bind(py).to_owned(),
             TreewalkValue::Boolean(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
-            TreewalkValue::String(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
+            TreewalkValue::Str(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
             _ => {
                 dbg!(&self);
                 todo!()
@@ -426,7 +426,7 @@ pub mod utils {
         } else if let Ok(value) = py_obj.extract::<f64>() {
             TreewalkValue::FloatingPoint(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
-            TreewalkValue::String(Str::new(value.to_string()))
+            TreewalkValue::Str(Str::new(value.to_string()))
         } else if let Ok(py_tuple) = py_obj.extract::<Bound<PyTuple>>() {
             let elements = py_tuple
                 .iter()

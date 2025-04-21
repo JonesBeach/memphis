@@ -1,6 +1,6 @@
 use crate::{
     domain::Type,
-    treewalk::protocols::{Callable, DataDescriptor, NonDataDescriptor},
+    treewalk::protocols::{Callable, DataDescriptor, Iterable, NonDataDescriptor},
 };
 
 /// A trait for enabling `Clone` on trait objects that implement `Callable`.
@@ -70,6 +70,26 @@ where
 }
 
 impl Clone for Box<dyn CloneableNonDataDescriptor> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+/// See `CloneableCallable` for description.
+pub trait CloneableIterable: Iterable {
+    fn clone_box(&self) -> Box<dyn CloneableIterable>;
+}
+
+impl<T> CloneableIterable for T
+where
+    T: Iterable + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn CloneableIterable> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn CloneableIterable> {
     fn clone(&self) -> Self {
         self.clone_box()
     }

@@ -207,7 +207,7 @@ impl MemberWriter for Container<Object> {
             .borrow()
             .has(
                 interpreter.clone(),
-                &TreewalkValue::String(Str::new(name.to_owned())),
+                &TreewalkValue::Str(Str::new(name.to_owned())),
             )
         {
             return Err(interpreter.attribute_error(&result, name));

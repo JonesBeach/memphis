@@ -3,12 +3,15 @@ use crate::{
     domain::ExecutionErrorKind,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
+        macros::*,
         pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
         types::Function,
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkState,
         TreewalkValue,
     },
 };
+
+impl_iterable!(GeneratorIterator);
 
 pub struct Generator {
     scope: Container<Scope>,

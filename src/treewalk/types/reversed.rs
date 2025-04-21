@@ -11,16 +11,17 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct ReversedIterator {
+pub struct ReversedIter {
     interpreter: TreewalkInterpreter,
     list_ref: Container<List>,
     current_index: usize,
 }
 
-impl_typed!(ReversedIterator, Type::ReversedIterator);
-impl_method_provider!(ReversedIterator, [NewBuiltin]);
+impl_typed!(ReversedIter, Type::ReversedIter);
+impl_method_provider!(ReversedIter, [NewBuiltin]);
+impl_iterable!(ReversedIter);
 
-impl ReversedIterator {
+impl ReversedIter {
     pub fn new(interpreter: TreewalkInterpreter, list_ref: Container<List>) -> Self {
         let current_index = list_ref.borrow().len();
         Self {
@@ -31,7 +32,7 @@ impl ReversedIterator {
     }
 }
 
-impl Iterator for ReversedIterator {
+impl Iterator for ReversedIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -56,7 +57,7 @@ impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
         let list = args.get_arg(1).expect_list(interpreter)?;
-        Ok(TreewalkValue::ReversedIterator(ReversedIterator::new(
+        Ok(TreewalkValue::ReversedIter(ReversedIter::new(
             interpreter.clone(),
             list.clone(),
         )))

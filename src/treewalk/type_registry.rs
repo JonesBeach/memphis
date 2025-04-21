@@ -9,7 +9,7 @@ use crate::{
             DescriptorProvider, MethodProvider,
         },
         types::{
-            iterators::{ReversedIterator, ZipIterator},
+            iterators::{ReversedIter, ZipIterator},
             Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
             FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
             Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
@@ -48,7 +48,7 @@ fn builtin_methods() -> HashMap<Type, Vec<Box<dyn CloneableCallable>>> {
     register_methods::<Range>(&mut methods);
     register_methods::<Slice>(&mut methods);
     register_methods::<ZipIterator>(&mut methods);
-    register_methods::<ReversedIterator>(&mut methods);
+    register_methods::<ReversedIter>(&mut methods);
     register_methods::<Bytes>(&mut methods);
     register_methods::<Complex>(&mut methods);
     register_methods::<ByteArray>(&mut methods);
@@ -113,17 +113,17 @@ static ALL_TYPES: [Type; 51] = [
     Type::DictKeys,
     Type::DictValues,
     Type::MappingProxy,
-    Type::DictItemIterator,
-    Type::DictKeyIterator,
-    Type::DictValueIterator,
-    Type::BytesIterator,
-    Type::ByteArrayIterator,
-    Type::RangeIterator,
-    Type::StringIterator,
-    Type::ListIterator,
-    Type::ReversedIterator,
-    Type::SetIterator,
-    Type::TupleIterator,
+    Type::DictItemIter,
+    Type::DictKeyIter,
+    Type::DictValueIter,
+    Type::BytesIter,
+    Type::ByteArrayIter,
+    Type::RangeIter,
+    Type::StrIter,
+    Type::ListIter,
+    Type::ReversedIter,
+    Type::SetIter,
+    Type::TupleIter,
     Type::Exception,
     Type::Traceback,
     Type::Frame,
@@ -156,7 +156,7 @@ static CALLABLE_TYPES: [Type; 23] = [
     Type::ByteArray,
     Type::Memoryview,
     Type::Zip, // this refers to the iterator itself
-    Type::ReversedIterator,
+    Type::ReversedIter,
     Type::Classmethod,
     Type::Staticmethod,
     Type::Property,

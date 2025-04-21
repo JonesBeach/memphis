@@ -6,7 +6,7 @@ macro_rules! none {
 
 macro_rules! str {
     ($input:expr) => {
-        crate::treewalk::TreewalkValue::String(crate::treewalk::types::Str::new($input.to_string()))
+        crate::treewalk::TreewalkValue::Str(crate::treewalk::types::Str::new($input.to_string()))
     };
 }
 

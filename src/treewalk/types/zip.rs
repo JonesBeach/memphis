@@ -1,32 +1,39 @@
 use crate::{
-    core::Container,
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
-        types::{iterators::ListIterator, List, Str, Tuple},
+        type_system::CloneableIterable,
+        types::{Str, Tuple},
         utils::{check_args, Args},
-        TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
-#[derive(Clone)]
-pub struct ZipIterator(Vec<TreewalkIterator>);
+#[derive(Default)]
+pub struct ZipIterator(Vec<Box<dyn CloneableIterable>>);
 
-impl_typed!(ZipIterator, Type::Zip);
-impl_method_provider!(ZipIterator, [NewBuiltin]);
-
-impl ZipIterator {
-    pub fn new(items: Vec<TreewalkIterator>) -> Self {
-        Self(items)
+impl Clone for ZipIterator {
+    /// This works similar to the [dyn-clone](https://github.com/dtolnay/dyn-clone) crate.
+    fn clone(&self) -> Self {
+        Self(self.0.iter().map(safe_clone).collect())
     }
 }
 
-impl Default for ZipIterator {
-    fn default() -> Self {
-        Self(vec![TreewalkIterator::List(ListIterator::new(
-            Container::new(List::new(vec![])),
-        ))])
+impl_typed!(ZipIterator, Type::Zip);
+impl_method_provider!(ZipIterator, [NewBuiltin]);
+impl_iterable!(ZipIterator);
+
+impl ZipIterator {
+    pub fn new(items: Vec<Box<dyn CloneableIterable>>) -> Self {
+        Self(items)
+    }
+
+    fn lengths(&self) -> Vec<usize> {
+        self.0
+            .iter()
+            .map(|i| safe_clone(i).count())
+            .collect::<Vec<usize>>()
     }
 }
 
@@ -76,17 +83,16 @@ impl Callable for NewBuiltin {
                 iter.next();
 
                 let iters = iter
-                    .map(|a| a.clone().into_iter())
-                    .collect::<Vec<TreewalkIterator>>();
+                    .map(|a| a.expect_iterable(interpreter))
+                    .collect::<Result<Vec<Box<dyn CloneableIterable>>, _>>()?;
+
+                let zip = ZipIterator::new(iters);
 
                 if args
-                    .get_kwarg(&TreewalkValue::String(Str::new("strict".to_string())))
+                    .get_kwarg(&TreewalkValue::Str(Str::new("strict".to_string())))
                     .is_some_and(|k| k == TreewalkValue::Boolean(true))
                 {
-                    let lengths = iters
-                        .iter()
-                        .map(|i| i.clone().count())
-                        .collect::<Vec<usize>>();
+                    let lengths = zip.lengths();
                     let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                     if !all_equal {
@@ -94,7 +100,7 @@ impl Callable for NewBuiltin {
                     }
                 }
 
-                ZipIterator::new(iters)
+                zip
             }
             _ => unreachable!(),
         };
@@ -105,4 +111,9 @@ impl Callable for NewBuiltin {
     fn name(&self) -> String {
         Dunder::New.into()
     }
+}
+
+#[allow(clippy::borrowed_box)]
+fn safe_clone(i: &Box<dyn CloneableIterable>) -> Box<dyn CloneableIterable> {
+    (**i).clone_box()
 }

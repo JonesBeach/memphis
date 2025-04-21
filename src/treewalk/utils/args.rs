@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, slice::Iter};
 
 use crate::{
     parser::types::{CallArgs, KwargsOperation},
@@ -36,7 +36,7 @@ impl Args {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
                     kwargs.insert(
-                        TreewalkValue::String(Str::new(key.to_string())),
+                        TreewalkValue::Str(Str::new(key.to_string())),
                         interpreter.evaluate_expr(value)?,
                     );
                 }
@@ -127,7 +127,7 @@ impl Args {
         self.args.is_empty()
     }
 
-    pub fn iter_args(&self) -> std::slice::Iter<'_, TreewalkValue> {
+    pub fn iter_args(&self) -> Iter<'_, TreewalkValue> {
         self.args.iter()
     }
 

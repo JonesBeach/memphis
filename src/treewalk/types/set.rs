@@ -9,7 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
-        types::{iterators::ListIterator, FrozenSet, List, Range, Tuple},
+        types::{iterators::ListIter, FrozenSet, List, Range, Tuple},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -87,16 +87,16 @@ impl From<FrozenSet> for Container<Set> {
 
 impl IntoIterator for Container<Set> {
     type Item = TreewalkValue;
-    type IntoIter = ListIterator;
+    type IntoIter = ListIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator::new(self.into())
+        ListIter::new(self.into())
     }
 }
 
 impl Display for Container<Set> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIterator::new(self.clone().into())
+        let items = ListIter::new(self.clone().into())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");

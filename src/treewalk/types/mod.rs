@@ -71,13 +71,13 @@ pub use traceback::Traceback;
 pub use tuple::Tuple;
 
 pub mod iterators {
-    pub use super::dict_items::DictItemsIterator;
-    pub use super::dict_keys::DictKeysIterator;
-    pub use super::dict_values::DictValuesIterator;
+    pub use super::dict_items::DictItemsIter;
+    pub use super::dict_keys::DictKeysIter;
+    pub use super::dict_values::DictValuesIter;
     pub use super::generator::GeneratorIterator;
-    pub use super::list::ListIterator;
-    pub use super::range::RangeIterator;
-    pub use super::reversed::ReversedIterator;
-    pub use super::str::StringIterator;
+    pub use super::list::ListIter;
+    pub use super::range::RangeIter;
+    pub use super::reversed::ReversedIter;
+    pub use super::str::StrIter;
     pub use super::zip::ZipIterator;
 }

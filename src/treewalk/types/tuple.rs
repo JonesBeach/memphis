@@ -6,7 +6,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
-        types::{iterators::ListIterator, List, Range, Set},
+        types::{iterators::ListIter, List, Range, Set},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -78,7 +78,7 @@ impl From<Range> for Tuple {
 
 impl Display for Tuple {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIterator::new(self.clone().into())
+        let items = ListIter::new(self.clone().into())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -88,10 +88,10 @@ impl Display for Tuple {
 
 impl IntoIterator for Tuple {
     type Item = TreewalkValue;
-    type IntoIter = ListIterator;
+    type IntoIter = ListIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator::new(self.into())
+        ListIter::new(self.into())
     }
 }
 

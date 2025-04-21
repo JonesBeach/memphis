@@ -10,9 +10,10 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
+        type_system::CloneableIterable,
         types::{iterators::GeneratorIterator, Range, Set, Slice, Tuple},
         utils::{check_args, Args},
-        TreewalkInterpreter, TreewalkIterator, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -23,6 +24,7 @@ pub struct List {
 
 impl_typed!(List, Type::List);
 impl_method_provider!(List, [NewBuiltin, AppendBuiltin, ExtendBuiltin,]);
+impl_iterable!(ListIter);
 
 impl List {
     pub fn new(items: Vec<TreewalkValue>) -> Self {
@@ -33,7 +35,7 @@ impl List {
         self.items.push(item)
     }
 
-    pub fn extend(&mut self, items: TreewalkIterator) {
+    pub fn extend(&mut self, items: Box<dyn CloneableIterable>) {
         self.items.extend(items)
     }
 
@@ -166,7 +168,7 @@ impl From<GeneratorIterator> for Container<List> {
 
 impl Display for Container<List> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIterator::new(self.clone())
+        let items = ListIter::new(self.clone())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -176,20 +178,20 @@ impl Display for Container<List> {
 
 impl IntoIterator for Container<List> {
     type Item = TreewalkValue;
-    type IntoIter = ListIterator;
+    type IntoIter = ListIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator::new(self)
+        ListIter::new(self)
     }
 }
 
 #[derive(Clone)]
-pub struct ListIterator {
+pub struct ListIter {
     list_ref: Container<List>,
     current_index: usize,
 }
 
-impl ListIterator {
+impl ListIter {
     pub fn new(list_ref: Container<List>) -> Self {
         Self {
             list_ref,
@@ -198,7 +200,7 @@ impl ListIterator {
     }
 }
 
-impl Iterator for ListIterator {
+impl Iterator for ListIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -215,7 +217,7 @@ impl Iterator for ListIterator {
     }
 }
 
-impl ExactSizeIterator for ListIterator {
+impl ExactSizeIterator for ListIter {
     fn len(&self) -> usize {
         self.list_ref.borrow().len() - self.current_index
     }

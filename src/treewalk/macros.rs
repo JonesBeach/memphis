@@ -44,7 +44,20 @@ macro_rules! impl_data_descriptor_provider {
     };
 }
 
+macro_rules! impl_iterable {
+    ($iter_name:ident) => {
+        impl $crate::treewalk::protocols::Iterable for $iter_name {
+            fn next(
+                &mut self,
+            ) -> $crate::treewalk::TreewalkResult<Option<$crate::treewalk::TreewalkValue>> {
+                Ok(Iterator::next(self))
+            }
+        }
+    };
+}
+
 pub(crate) use impl_data_descriptor_provider;
 pub(crate) use impl_descriptor_provider;
+pub(crate) use impl_iterable;
 pub(crate) use impl_method_provider;
 pub(crate) use impl_typed;

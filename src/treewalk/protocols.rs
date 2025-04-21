@@ -45,6 +45,14 @@ impl PartialEq for dyn Callable {
     }
 }
 
+/// This represents the Python `__iter__` protocol. It differs from the Rust `Iterator` because it
+/// is falliable (i.e.e certain calls to `next()` may throw a runtime error).
+///
+/// For ergonomics, we implement both `Iterable` and `Iterator` for our builitin types.
+pub trait Iterable {
+    fn next(&mut self) -> TreewalkResult<Option<TreewalkValue>>;
+}
+
 pub trait MemberReader {
     /// A pointer to the [`Interpreter`] is sometimes not needed, but is required to evalute method
     /// calls for descriptors.

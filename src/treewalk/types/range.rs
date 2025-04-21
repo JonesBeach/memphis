@@ -23,6 +23,7 @@ pub struct Range {
 
 impl_typed!(Range, Type::Range);
 impl_method_provider!(Range, [NewBuiltin]);
+impl_iterable!(RangeIter);
 
 impl Range {
     fn new(start: i64, stop: i64, step: i64) -> Self {
@@ -48,15 +49,6 @@ impl Default for Range {
     }
 }
 
-impl IntoIterator for Range {
-    type Item = TreewalkValue;
-    type IntoIter = RangeIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        RangeIterator::new(self)
-    }
-}
-
 impl Display for Range {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         if self.step == 1 {
@@ -67,16 +59,25 @@ impl Display for Range {
     }
 }
 
-#[derive(Clone)]
-pub struct RangeIterator(Range);
+impl IntoIterator for Range {
+    type Item = TreewalkValue;
+    type IntoIter = RangeIter;
 
-impl RangeIterator {
-    fn new(range: Range) -> Self {
-        RangeIterator(range)
+    fn into_iter(self) -> Self::IntoIter {
+        RangeIter::new(self)
     }
 }
 
-impl Iterator for RangeIterator {
+#[derive(Clone)]
+pub struct RangeIter(Range);
+
+impl RangeIter {
+    fn new(range: Range) -> Self {
+        RangeIter(range)
+    }
+}
+
+impl Iterator for RangeIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

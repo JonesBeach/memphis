@@ -1,6 +1,8 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::treewalk::{types::Dict, TreewalkValue};
+use crate::treewalk::{macros::*, types::Dict, TreewalkValue};
+
+impl_iterable!(DictKeysIter);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictKeys {
@@ -27,7 +29,7 @@ impl From<Dict> for DictKeys {
 
 impl Display for DictKeys {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictKeysIterator::new(self.clone())
+        let items = DictKeysIter::new(self.clone())
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
             .join(", ");
@@ -37,23 +39,23 @@ impl Display for DictKeys {
 
 impl IntoIterator for DictKeys {
     type Item = TreewalkValue;
-    type IntoIter = DictKeysIterator;
+    type IntoIter = DictKeysIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictKeysIterator::new(self)
+        DictKeysIter::new(self)
     }
 }
 
 #[derive(Clone)]
-pub struct DictKeysIterator(DictKeys);
+pub struct DictKeysIter(DictKeys);
 
-impl DictKeysIterator {
+impl DictKeysIter {
     pub fn new(dict_keys: DictKeys) -> Self {
-        DictKeysIterator(dict_keys)
+        DictKeysIter(dict_keys)
     }
 }
 
-impl Iterator for DictKeysIterator {
+impl Iterator for DictKeysIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -293,17 +293,13 @@ impl TreewalkInterpreter {
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         if matches!(op, BinOp::In) {
-            if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(TreewalkValue::Boolean(iterable.contains(left)));
-            }
-            return Err(self.type_error("Expected an iterable"));
+            let mut iterable = right.expect_iterable(self)?;
+            return Ok(TreewalkValue::Boolean(iterable.any(|i| i == left)));
         }
 
         if matches!(op, BinOp::NotIn) {
-            if let Some(mut iterable) = right.try_into_iter() {
-                return Ok(TreewalkValue::Boolean(!iterable.contains(left)));
-            }
-            return Err(self.type_error("Expected an iterable"));
+            let mut iterable = right.expect_iterable(self)?;
+            return Ok(TreewalkValue::Boolean(!iterable.any(|i| i == left)));
         }
 
         if left.is_integer() && right.is_integer() {
@@ -600,7 +596,7 @@ impl TreewalkInterpreter {
             }
         }
 
-        Ok(TreewalkValue::String(Str::new(result)))
+        Ok(TreewalkValue::Str(Str::new(result)))
     }
 
     fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
@@ -726,19 +722,20 @@ impl TreewalkInterpreter {
     /// Python can unpack any iterables, not any index reads.
     fn evaluate_unpacking_assignment(&self, left: &[Expr], expr: &Expr) -> TreewalkResult<()> {
         let results = self.evaluate_expr(expr)?.into_iter();
-        let right_len = results.clone().count();
-        let left_len = left.len();
+        let right_len = results.clone_box().count();
 
-        if left_len < right_len {
-            return Err(
-                self.value_error(format!("too many values to unpack (expected {})", left_len,))
-            );
+        if left.len() < right_len {
+            return Err(self.value_error(format!(
+                "too many values to unpack (expected {})",
+                left.len()
+            )));
         }
 
         if left.len() > right_len {
             return Err(self.value_error(format!(
                 "not enough values to unpack (expected {}, got {})",
-                left_len, right_len
+                left.len(),
+                right_len
             )));
         }
 
@@ -1237,7 +1234,7 @@ impl TreewalkInterpreter {
             Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
             Expr::FloatingPoint(value) => Ok(TreewalkValue::FloatingPoint(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
-            Expr::StringLiteral(value) => Ok(TreewalkValue::String(Str::new(value.clone()))),
+            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
@@ -1621,8 +1618,8 @@ for i in iter("abcde"):
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", StringIterator);
-        assert_type_eq!(ctx, "b", Type::StringIterator);
+        assert_variant!(ctx, "a", StrIter);
+        assert_type_eq!(ctx, "b", Type::StrIter);
     }
 
     #[test]
@@ -2186,8 +2183,8 @@ t.extend([3,4])
         assert_read_eq!(ctx, "g", list![int!(1), int!(2)]);
         assert_read_eq!(ctx, "h", list![int!(1), int!(2), int!(1), int!(2)]);
         assert_read_eq!(ctx, "i", list![]);
-        assert_variant!(ctx, "j", ListIterator);
-        assert_type_eq!(ctx, "k", Type::ListIterator);
+        assert_variant!(ctx, "j", ListIter);
+        assert_type_eq!(ctx, "k", Type::ListIter);
         assert_read_eq!(ctx, "l", int!(1));
         assert_read_eq!(ctx, "m", int!(5));
         assert_read_eq!(ctx, "n", int!(0));
@@ -2235,8 +2232,8 @@ l = {1} <= {2}
         assert_read_eq!(ctx, "f", set![int!(1), int!(2),]);
         assert_read_eq!(ctx, "g", set![int!(0), int!(1),]);
         assert_read_eq!(ctx, "h", set![]);
-        assert_variant!(ctx, "i", SetIterator);
-        assert_type_eq!(ctx, "j", Type::SetIterator);
+        assert_variant!(ctx, "i", SetIter);
+        assert_type_eq!(ctx, "j", Type::SetIter);
         assert_read_eq!(ctx, "new_set", set![str!("five")]);
         assert_read_eq!(ctx, "k", bool!(true));
         assert_read_eq!(ctx, "l", bool!(false));
@@ -2270,8 +2267,8 @@ j = 9, 10
         assert_read_eq!(ctx, "d", tuple![int!(1), int!(2)]);
         assert_read_eq!(ctx, "e", tuple![int!(1), int!(2)]);
         assert_read_eq!(ctx, "f", tuple![int!(0), int!(1)]);
-        assert_variant!(ctx, "g", TupleIterator);
-        assert_type_eq!(ctx, "h", Type::TupleIterator);
+        assert_variant!(ctx, "g", TupleIter);
+        assert_type_eq!(ctx, "h", Type::TupleIter);
         assert_read_eq!(ctx, "i", tuple![int!(4),]);
         assert_read_eq!(ctx, "j", tuple![int!(9), int!(10),]);
 
@@ -2416,8 +2413,8 @@ for i in r:
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", RangeIterator);
-        assert_type_eq!(ctx, "b", Type::RangeIterator);
+        assert_variant!(ctx, "a", RangeIter);
+        assert_type_eq!(ctx, "b", Type::RangeIter);
         assert_type_eq!(ctx, "c", Type::Range);
         assert_read_eq!(ctx, "d", int!(3));
         assert_read_eq!(ctx, "e", int!(6));
@@ -3033,16 +3030,16 @@ w = { key for key, value in a.items() }
         assert_read_eq!(ctx, "f", int!(4));
         assert_read_eq!(ctx, "g", dict!(ctx.interpreter(), {}));
         assert_read_eq!(ctx, "h", dict_items![]);
-        assert_variant!(ctx, "q", DictItemsIterator);
-        assert_type_eq!(ctx, "r", Type::DictItemIterator);
+        assert_variant!(ctx, "q", DictItemsIter);
+        assert_type_eq!(ctx, "r", Type::DictItemIter);
         assert_read_eq!(ctx, "i", dict_keys![]);
         assert_read_eq!(ctx, "j", dict_keys![str!("b"), str!("c"),]);
-        assert_variant!(ctx, "k", DictKeysIterator);
-        assert_type_eq!(ctx, "l", Type::DictKeyIterator);
+        assert_variant!(ctx, "k", DictKeysIter);
+        assert_type_eq!(ctx, "l", Type::DictKeyIter);
         assert_read_eq!(ctx, "m", dict_values![]);
         assert_read_eq!(ctx, "n", dict_values![int!(4), int!(5),]);
-        assert_variant!(ctx, "o", DictValuesIterator);
-        assert_type_eq!(ctx, "p", Type::DictValueIterator);
+        assert_variant!(ctx, "o", DictValuesIter);
+        assert_type_eq!(ctx, "p", Type::DictValueIter);
         assert_type_eq!(ctx, "s", Type::DictKeys);
         assert_type_eq!(ctx, "t", Type::DictValues);
         assert_type_eq!(ctx, "u", Type::DictItems);
@@ -3704,12 +3701,12 @@ m = sys.modules['os.path']
 
         assert_variant!(ctx, "a", Integer);
         assert_variant!(ctx, "b", FloatingPoint);
-        assert_variant!(ctx, "c", String);
-        assert_variant!(ctx, "d", String);
+        assert_variant!(ctx, "c", Str);
+        assert_variant!(ctx, "d", Str);
         assert!(extract!(ctx, "a", Integer) > 0);
         assert!(extract!(ctx, "b", FloatingPoint) > 1701281981.0);
-        assert!(extract!(ctx, "c", String).len() > 10);
-        assert!(extract!(ctx, "d", String).len() > 10);
+        assert!(extract!(ctx, "c", Str).len() > 10);
+        assert!(extract!(ctx, "d", Str).len() > 10);
         assert_variant!(ctx, "ref", CPythonObject);
         assert_variant!(ctx, "e", CPythonClass);
         assert_type_eq!(ctx, "f", Type::Module);
@@ -3865,14 +3862,14 @@ a = iter(b'hello')
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", BytesIterator);
+        assert_variant!(ctx, "a", BytesIter);
 
         let input = r#"
 a = type(iter(b'hello'))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIter);
     }
 
     #[test]
@@ -3898,14 +3895,14 @@ a = iter(bytearray())
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", ByteArrayIterator);
+        assert_variant!(ctx, "a", ByteArrayIter);
 
         let input = r#"
 a = type(iter(bytearray()))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::ByteArrayIterator);
+        assert_type_eq!(ctx, "a", Type::ByteArrayIter);
     }
 
     #[test]
@@ -3931,14 +3928,14 @@ a = iter(bytes())
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", BytesIterator);
+        assert_variant!(ctx, "a", BytesIter);
 
         let input = r#"
 a = type(iter(bytes()))
 "#;
         let ctx = run(input);
 
-        assert_type_eq!(ctx, "a", Type::BytesIterator);
+        assert_type_eq!(ctx, "a", Type::BytesIter);
     }
 
     #[test]
@@ -4042,12 +4039,77 @@ a **= 3
 
     #[test]
     fn iter_builtin() {
-        let input = r#"
-a = iter([1,2,3])
-"#;
-        let ctx = run(input);
+        let input = r#"iter([1,2,3])"#;
+        assert_eval_variant!(input, ListIter);
 
-        assert_variant!(ctx, "a", ListIterator);
+        let input = r#"iter(iter([1,2,3]))"#;
+        assert_eval_variant!(input, ListIter);
+
+        let input = r#"iter("str")"#;
+        assert_eval_variant!(input, StrIter);
+
+        let input = r#"iter(iter("str"))"#;
+        assert_eval_variant!(input, StrIter);
+
+        let input = r#"iter({1,2,3})"#;
+        assert_eval_variant!(input, SetIter);
+
+        let input = r#"iter(iter({1,2,3}))"#;
+        assert_eval_variant!(input, SetIter);
+
+        let input = r#"iter((1,2,3))"#;
+        assert_eval_variant!(input, TupleIter);
+
+        let input = r#"iter(iter((1,2,3)))"#;
+        assert_eval_variant!(input, TupleIter);
+
+        let input = r#"iter({"a": 2}.items())"#;
+        assert_eval_variant!(input, DictItemsIter);
+
+        let input = r#"iter(iter({"a": 2}.items()))"#;
+        assert_eval_variant!(input, DictItemsIter);
+
+        let input = r#"iter({"a": 2}.keys())"#;
+        assert_eval_variant!(input, DictKeysIter);
+
+        let input = r#"iter(iter({"a": 2}.keys()))"#;
+        assert_eval_variant!(input, DictKeysIter);
+
+        let input = r#"iter({"a": 2}.values())"#;
+        assert_eval_variant!(input, DictValuesIter);
+
+        let input = r#"iter(iter({"a": 2}.values()))"#;
+        assert_eval_variant!(input, DictValuesIter);
+
+        let input = r#"iter(b'a')"#;
+        assert_eval_variant!(input, BytesIter);
+
+        let input = r#"iter(iter(b'a'))"#;
+        assert_eval_variant!(input, BytesIter);
+
+        let input = r#"iter(bytearray(b'a'))"#;
+        assert_eval_variant!(input, ByteArrayIter);
+
+        let input = r#"iter(iter(bytearray(b'a')))"#;
+        assert_eval_variant!(input, ByteArrayIter);
+
+        let input = r#"iter(range(5))"#;
+        assert_eval_variant!(input, RangeIter);
+
+        let input = r#"iter(iter(range(5)))"#;
+        assert_eval_variant!(input, RangeIter);
+
+        let input = r#"iter((x for x in [1,2,3]))"#;
+        assert_eval_variant!(input, Generator);
+
+        let input = r#"iter(x for x in [1,2,3])"#;
+        assert_eval_variant!(input, Generator);
+
+        let input = r#"iter(zip([1], [2]))"#;
+        assert_eval_variant!(input, Zip);
+
+        let input = r#"iter(reversed([1, 2]))"#;
+        assert_eval_variant!(input, ReversedIter);
 
         let input = r#"
 b = 0
@@ -4082,10 +4144,10 @@ e = [ i for i in reversed([1,2,3]) ]
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", ReversedIterator);
-        assert_variant!(ctx, "b", ReversedIterator);
-        assert_type_eq!(ctx, "c", Type::ReversedIterator);
-        assert_type_eq!(ctx, "d", Type::ReversedIterator);
+        assert_variant!(ctx, "a", ReversedIter);
+        assert_variant!(ctx, "b", ReversedIter);
+        assert_type_eq!(ctx, "c", Type::ReversedIter);
+        assert_type_eq!(ctx, "d", Type::ReversedIter);
         assert_read_eq!(ctx, "e", list![int!(3), int!(2), int!(1),]);
     }
 

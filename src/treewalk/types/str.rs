@@ -19,6 +19,7 @@ pub struct Str(String);
 
 impl_typed!(Str, Type::Str);
 impl_method_provider!(Str, [JoinBuiltin, MaketransBuiltin]);
+impl_iterable!(StrIter);
 
 impl Str {
     pub fn new(str: String) -> Self {
@@ -64,8 +65,8 @@ impl IndexRead for Str {
                 .nth(i as usize)
                 .map(|c| c.to_string())
                 .map(Str::new)
-                .map(TreewalkValue::String),
-            TreewalkValue::Slice(s) => Some(TreewalkValue::String(self.slice(&s))),
+                .map(TreewalkValue::Str),
+            TreewalkValue::Slice(s) => Some(TreewalkValue::Str(self.slice(&s))),
             _ => None,
         })
     }
@@ -104,13 +105,22 @@ impl Callable for MaketransBuiltin {
     }
 }
 
+impl IntoIterator for Str {
+    type Item = TreewalkValue;
+    type IntoIter = StrIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        StrIter::new(self)
+    }
+}
+
 #[derive(Clone)]
-pub struct StringIterator {
+pub struct StrIter {
     string: String,
     position: usize,
 }
 
-impl StringIterator {
+impl StrIter {
     pub fn new(string: Str) -> Self {
         Self {
             string: string.0.clone(),
@@ -119,12 +129,12 @@ impl StringIterator {
     }
 }
 
-impl Iterator for StringIterator {
+impl Iterator for StrIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.string[self.position..].chars().next()?;
         self.position += result.len_utf8();
-        Some(TreewalkValue::String(Str::new(result.to_string())))
+        Some(TreewalkValue::Str(Str::new(result.to_string())))
     }
 }
