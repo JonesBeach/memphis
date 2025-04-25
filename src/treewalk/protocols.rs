@@ -53,7 +53,7 @@ pub trait Iterable {
     fn next(&mut self) -> TreewalkResult<Option<TreewalkValue>>;
 }
 
-pub trait MemberReader {
+pub trait MemberRead {
     /// A pointer to the [`Interpreter`] is sometimes not needed, but is required to evalute method
     /// calls for descriptors.
     fn get_member(
@@ -68,7 +68,7 @@ pub trait MemberReader {
     }
 }
 
-pub trait MemberWriter {
+pub trait MemberWrite {
     fn set_member(
         &mut self,
         interpreter: &TreewalkInterpreter,

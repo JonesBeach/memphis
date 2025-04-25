@@ -32,7 +32,7 @@ pub use interpreter::TreewalkInterpreter;
 pub use module::EvaluatedModuleCache;
 pub use resolver::resolve;
 pub use result::{TreewalkDisruption, TreewalkResult, TreewalkSignal};
-pub use scope::Scope;
+pub use scope::{Scope, SymbolTable};
 pub use scope_manager::ScopeManager;
 pub use state::TreewalkState;
 pub use type_registry::TypeRegistry;

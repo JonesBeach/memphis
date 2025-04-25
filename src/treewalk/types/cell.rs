@@ -1,5 +1,5 @@
 use crate::treewalk::{
-    protocols::MemberReader, Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    protocols::MemberRead, Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
 };
 
 /// This corresponds to the Python internal `Cell` class, which is returned for values captured in
@@ -19,7 +19,7 @@ impl Cell {
     }
 }
 
-impl MemberReader for Cell {
+impl MemberRead for Cell {
     fn get_member(
         &self,
         _interpreter: &TreewalkInterpreter,

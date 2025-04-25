@@ -15,7 +15,7 @@ use crate::{
     domain::Dunder,
     parser::types::ImportPath,
     treewalk::{
-        protocols::{Callable, IndexRead, IndexWrite, MemberReader},
+        protocols::{Callable, IndexRead, IndexWrite, MemberRead},
         types::Str,
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -179,7 +179,7 @@ impl CPythonModule {
     }
 }
 
-impl MemberReader for CPythonModule {
+impl MemberRead for CPythonModule {
     fn get_member(
         &self,
         _interpreter: &TreewalkInterpreter,

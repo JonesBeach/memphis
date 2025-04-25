@@ -3,7 +3,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::{Callable, MemberReader},
+        protocols::{Callable, MemberRead},
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -25,7 +25,7 @@ impl Super {
     }
 }
 
-impl MemberReader for Super {
+impl MemberRead for Super {
     fn get_member(
         &self,
         interpreter: &TreewalkInterpreter,

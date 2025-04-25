@@ -11,8 +11,8 @@ use crate::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
         type_system::CloneableIterable,
-        types::{iterators::GeneratorIterator, Range, Set, Slice, Tuple},
-        utils::{check_args, Args},
+        types::Slice,
+        utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -46,6 +46,10 @@ impl List {
 
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    pub fn cloned_items(&self) -> Vec<TreewalkValue> {
+        self.items.clone()
     }
 
     pub fn slice(&self, interpreter: &TreewalkInterpreter, slice: &Slice) -> Self {
@@ -115,64 +119,16 @@ impl TryFrom<TreewalkValue> for Container<List> {
     type Error = ();
 
     fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        match value {
-            TreewalkValue::List(list) => Ok(list),
-            TreewalkValue::Set(set) => Ok(set.into()),
-            TreewalkValue::Tuple(tuple) => Ok(tuple.into()),
-            TreewalkValue::Range(range) => Ok(range.into()),
-            TreewalkValue::Generator(g) => Ok(g.into()),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<Range> for Container<List> {
-    fn from(range: Range) -> Container<List> {
-        let items = (range.start..range.stop)
-            .map(TreewalkValue::Integer)
-            .collect();
-        Container::new(List::new(items))
-    }
-}
-
-impl From<Container<Set>> for Container<List> {
-    fn from(set: Container<Set>) -> Container<List> {
-        // Calling `into_iter()` directly off the `Set` results in a stack overflow.
-        //let mut items: Vec<TreewalkValue> = set.into_iter().collect();
-        let mut items: Vec<TreewalkValue> = set.borrow().cloned_items().into_iter().collect();
-
-        items.sort_by_key(|x| {
-            match x {
-                TreewalkValue::Integer(i) => *i,
-                // TODO how should we sort strings here?
-                //TreewalkValue::String(s) => s.0,
-                _ => 0,
-            }
-        });
-
-        Container::new(List::new(items))
-    }
-}
-
-impl From<Tuple> for Container<List> {
-    fn from(tuple: Tuple) -> Container<List> {
-        Container::new(List::new(tuple.items().to_vec()))
-    }
-}
-
-impl From<GeneratorIterator> for Container<List> {
-    fn from(g: GeneratorIterator) -> Container<List> {
-        Container::new(List::new(g.collect()))
+        value
+            .into_iterable()
+            .map(|i| Container::new(List::new(i.collect())))
+            .ok_or(())
     }
 }
 
 impl Display for Container<List> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIter::new(self.clone())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "[{}]", items)
+        write!(f, "[{}]", format_comma_separated(self.clone()))
     }
 }
 
@@ -188,14 +144,14 @@ impl IntoIterator for Container<List> {
 #[derive(Clone)]
 pub struct ListIter {
     list_ref: Container<List>,
-    current_index: usize,
+    current_index: Container<usize>,
 }
 
 impl ListIter {
     pub fn new(list_ref: Container<List>) -> Self {
         Self {
             list_ref,
-            current_index: 0,
+            current_index: Container::new(0),
         }
     }
 }
@@ -204,14 +160,14 @@ impl Iterator for ListIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_index == self.list_ref.borrow().len() {
+        if *self.current_index.borrow() == self.list_ref.borrow().len() {
             None
         } else {
-            self.current_index += 1;
+            *self.current_index.borrow_mut() += 1;
             self.list_ref
                 .borrow()
                 .items
-                .get(self.current_index - 1)
+                .get(*self.current_index.borrow() - 1)
                 .cloned()
         }
     }
@@ -219,7 +175,7 @@ impl Iterator for ListIter {
 
 impl ExactSizeIterator for ListIter {
     fn len(&self) -> usize {
-        self.list_ref.borrow().len() - self.current_index
+        self.list_ref.borrow().len() - *self.current_index.borrow()
     }
 }
 

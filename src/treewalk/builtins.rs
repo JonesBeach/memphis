@@ -225,13 +225,8 @@ impl Callable for LenBuiltin {
 impl Callable for NextBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-
-        let mut generator = args
-            .get_arg(0)
-            .as_generator()
-            .ok_or_else(|| interpreter.type_error("Expected a generator"))?;
-
-        generator.next().ok_or_else(|| interpreter.stop_iteration())
+        let mut iterator = args.get_arg(0).expect_iterable(interpreter)?;
+        iterator.next().ok_or_else(|| interpreter.stop_iteration())
     }
 
     fn name(&self) -> String {

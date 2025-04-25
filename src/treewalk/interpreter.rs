@@ -19,10 +19,10 @@ use crate::{
     },
     treewalk::{
         evaluators,
-        protocols::MemberReader,
+        protocols::MemberRead,
         type_system::CloneableCallable,
         types::{
-            function::FunctionType, iterators::GeneratorIterator, Class, Coroutine, Dict, Function,
+            function::FunctionType, iterators::GeneratorIter, Class, Coroutine, Dict, Function,
             Generator, List, Module, Set, Slice, Str, Tuple,
         },
         utils::{args, Args},
@@ -226,9 +226,10 @@ impl TreewalkInterpreter {
                     .downcast_ref::<Container<Function>>()
                     .cloned()
                     .ok_or_else(|| self.type_error("Expected a function"))?;
-                let scope = Scope::new(self, &function, &args)?;
+                let symbol_table = function.borrow().bind_args(&args, self)?;
+                let scope = Container::new(Scope::new(symbol_table));
                 let generator_function = Generator::new(scope, function);
-                let generator_iterator = GeneratorIterator::new(generator_function, self.clone());
+                let generator_iterator = GeneratorIter::new(generator_function, self.clone());
                 Ok(TreewalkValue::Generator(generator_iterator))
             }
             FunctionType::Async => {
@@ -237,7 +238,8 @@ impl TreewalkInterpreter {
                     .downcast_ref::<Container<Function>>()
                     .cloned()
                     .ok_or_else(|| self.type_error("Expected a function"))?;
-                let scope = Scope::new(self, &function, &args)?;
+                let symbol_table = function.borrow().bind_args(&args, self)?;
+                let scope = Container::new(Scope::new(symbol_table));
                 let coroutine = Coroutine::new(scope, function);
                 Ok(TreewalkValue::Coroutine(Container::new(coroutine)))
             }
@@ -720,9 +722,13 @@ impl TreewalkInterpreter {
     }
 
     /// Python can unpack any iterables, not any index reads.
-    fn evaluate_unpacking_assignment(&self, left: &[Expr], expr: &Expr) -> TreewalkResult<()> {
-        let results = self.evaluate_expr(expr)?.into_iter();
-        let right_len = results.clone_box().count();
+    fn evaluate_unpacking_assignment(&self, left: &[Expr], right: &Expr) -> TreewalkResult<()> {
+        let right_result = self.evaluate_expr(right)?.into_iter();
+
+        // Collect the items once so that we can get a length without clearing our iterator, some
+        // of which (`ListIter`, etc) use interior mutability to track iterator state.
+        let right_items: Vec<_> = right_result.clone_box().collect();
+        let right_len = right_items.len();
 
         if left.len() < right_len {
             return Err(self.value_error(format!(
@@ -739,7 +745,7 @@ impl TreewalkInterpreter {
             )));
         }
 
-        for (key, value) in left.iter().zip(results) {
+        for (key, value) in left.iter().zip(right_items) {
             self.evaluate_assignment_inner(key, value)?;
         }
 
@@ -885,7 +891,7 @@ impl TreewalkInterpreter {
         clauses: &[ForClause],
     ) -> TreewalkResult<TreewalkValue> {
         let generator = Generator::new_from_comprehension(self.state.clone(), body, clauses);
-        let iterator = GeneratorIterator::new(generator, self.clone());
+        let iterator = GeneratorIter::new(generator, self.clone());
         Ok(TreewalkValue::Generator(iterator))
     }
 
@@ -2528,6 +2534,22 @@ g = a != [8,10,9]
         assert_read_eq!(ctx, "e", bool!(true));
         assert_read_eq!(ctx, "f", bool!(true));
         assert_read_eq!(ctx, "g", bool!(true));
+    }
+
+    #[test]
+    fn next_builtin() {
+        let input = r#"
+a = iter([5,4,3])
+b = next(a)
+c = next(a)
+d = next(a)
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "b", int!(5));
+        assert_read_eq!(ctx, "c", int!(4));
+        assert_read_eq!(ctx, "d", int!(3));
     }
 
     #[test]

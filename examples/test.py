@@ -36,6 +36,13 @@ import other
 import other
 other.something()
 
+# Dictionaries
+a = {"a": 2, "b": 3}
+print(a)
+print(a.items())
+print(a.keys())
+print(a.values())
+
 # Things to test on iterables:
 # 1) literal
 # 2) builtin

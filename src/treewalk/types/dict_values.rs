@@ -1,9 +1,8 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{
-    core::Container,
-    treewalk::{protocols::IndexRead, types::Dict, TreewalkValue},
-};
+use crate::treewalk::{macros::*, utils::format_comma_separated, TreewalkValue};
+
+impl_iterable!(DictValuesIter);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DictValues {
@@ -16,33 +15,9 @@ impl DictValues {
     }
 }
 
-pub struct DictValuesError;
-
-impl TryFrom<Dict> for DictValues {
-    type Error = DictValuesError;
-
-    fn try_from(dict: Dict) -> Result<Self, Self::Error> {
-        let mut items = vec![];
-        let stored = Container::new(dict.clone());
-        for item in dict.keys() {
-            let value = stored
-                .getitem(item.interpreter(), (**item).clone())
-                .map_err(|_| DictValuesError)?
-                .ok_or(DictValuesError)?;
-            items.push(value);
-        }
-        items.sort();
-        Ok(DictValues::new(items))
-    }
-}
-
 impl Display for DictValues {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictValuesIter::new(self.clone())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "[{}]", items)
+        write!(f, "[{}]", format_comma_separated(self.clone()))
     }
 }
 

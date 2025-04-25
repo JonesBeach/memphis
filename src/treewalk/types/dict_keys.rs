@@ -1,6 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::treewalk::{macros::*, types::Dict, TreewalkValue};
+use crate::treewalk::{macros::*, utils::format_comma_separated_with, TreewalkValue};
 
 impl_iterable!(DictKeysIter);
 
@@ -15,25 +15,11 @@ impl DictKeys {
     }
 }
 
-impl From<Dict> for DictKeys {
-    fn from(dict: Dict) -> Self {
-        let mut items = vec![];
-        for item in dict.keys() {
-            // Dereference `i` twice to get `TreewalkValue` (because `Deref` returns &TreewalkValue)
-            items.push((**item).clone());
-        }
-        items.sort();
-        DictKeys::new(items)
-    }
-}
-
 impl Display for DictKeys {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictKeysIter::new(self.clone())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "[{}]", items)
+        let items = self.items.clone();
+        let formatted = format_comma_separated_with(items, |key| format!("'{}'", key));
+        write!(f, "[{}]", formatted)
     }
 }
 

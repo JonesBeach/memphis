@@ -12,10 +12,10 @@ use crate::{
     },
     treewalk::{
         macros::*,
-        protocols::{Callable, DataDescriptor, MemberReader, MemberWriter, NonDataDescriptor},
+        protocols::{Callable, DataDescriptor, MemberRead, MemberWrite, NonDataDescriptor},
         types::{Cell, Class, Dict, Module, Str, Tuple},
-        utils::{args, Args, EnvironmentFrame},
-        Scope, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
+        utils::{args, bind_args, Args, EnvironmentFrame},
+        Scope, SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
 
@@ -168,9 +168,19 @@ impl Function {
 
         TreewalkValue::Tuple(Tuple::new(items))
     }
+
+    /// Bind the provided `Args` to this `Function` signature, returning a `SymbolTable` which can
+    /// be turned into a runtime `Scope`.
+    pub fn bind_args(
+        &self,
+        args: &Args,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<SymbolTable> {
+        bind_args(self.name(), args, &self.args, interpreter)
+    }
 }
 
-impl MemberReader for Container<Function> {
+impl MemberRead for Container<Function> {
     /// This is really the same logic as in Container<Object>::get_member. Maybe we can combine
     /// those at some point.
     fn get_member(
@@ -204,7 +214,7 @@ impl MemberReader for Container<Function> {
     }
 }
 
-impl MemberWriter for Container<Function> {
+impl MemberWrite for Container<Function> {
     fn set_member(
         &mut self,
         _interpreter: &TreewalkInterpreter,
@@ -249,7 +259,8 @@ impl Container<Function> {
 
 impl Callable for Container<Function> {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let scope = Scope::new(interpreter, self, &args)?;
+        let symbol_table = self.borrow().bind_args(&args, interpreter)?;
+        let scope = Container::new(Scope::new(symbol_table));
         interpreter.invoke_function(self.clone(), scope)
     }
 

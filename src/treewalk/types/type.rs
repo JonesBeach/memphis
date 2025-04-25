@@ -101,9 +101,8 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let namespace = args.get_arg(3).expect_dict(interpreter)?;
-        let scope = Scope::try_from(namespace.clone().borrow().clone())
-            .map_err(|_| interpreter.type_error("Expected a dict"))?;
+        let symbol_table = args.get_arg(3).expect_symbol_table(interpreter)?;
+        let scope = Scope::new(symbol_table);
 
         Ok(TreewalkValue::Class(Class::new_base(
             name,

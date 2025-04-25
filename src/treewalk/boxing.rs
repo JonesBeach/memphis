@@ -1,7 +1,7 @@
 use crate::{
     domain::Dunder,
     treewalk::{
-        protocols::{IndexRead, IndexWrite, MemberReader, MemberWriter},
+        protocols::{IndexRead, IndexWrite, MemberRead, MemberWrite},
         type_system::{
             CloneableCallable, CloneableDataDescriptor, CloneableIterable,
             CloneableNonDataDescriptor,
@@ -12,7 +12,7 @@ use crate::{
 };
 
 impl TreewalkValue {
-    pub fn into_member_reader(self, interpreter: &TreewalkInterpreter) -> Box<dyn MemberReader> {
+    pub fn into_member_reader(self, interpreter: &TreewalkInterpreter) -> Box<dyn MemberRead> {
         match self {
             TreewalkValue::Object(i) => Box::new(i),
             TreewalkValue::Class(i) => Box::new(i),
@@ -33,7 +33,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn into_member_writer(self) -> Option<Box<dyn MemberWriter>> {
+    pub fn into_member_writer(self) -> Option<Box<dyn MemberWrite>> {
         match self {
             TreewalkValue::Object(i) => Some(Box::new(i)),
             TreewalkValue::Class(i) => Some(Box::new(i)),

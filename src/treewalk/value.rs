@@ -11,15 +11,15 @@ use crate::{
     core::{Container, Voidable},
     domain::{Dunder, ExecutionError, MemphisValue, Type},
     treewalk::{
-        protocols::MemberReader,
+        protocols::MemberRead,
         type_system::{
             CloneableCallable, CloneableDataDescriptor, CloneableIterable,
             CloneableNonDataDescriptor,
         },
         types::{
             iterators::{
-                DictItemsIter, DictKeysIter, DictValuesIter, GeneratorIterator, ListIter,
-                RangeIter, ReversedIter, StrIter, ZipIterator,
+                DictItemsIter, DictKeysIter, DictValuesIter, GeneratorIter, ListIter, RangeIter,
+                ReversedIter, SetIter, StrIter, TupleIter, ZipIterator,
             },
             ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
             DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
@@ -27,7 +27,7 @@ use crate::{
         },
         typing::TypeExpr,
         utils::Args,
-        TreewalkInterpreter, TreewalkResult,
+        SymbolTable, TreewalkInterpreter, TreewalkResult,
     },
 };
 
@@ -52,7 +52,7 @@ pub enum TreewalkValue {
     Method(Container<Method>),
     BuiltinFunction(Box<dyn CloneableCallable>),
     BuiltinMethod(Box<dyn CloneableCallable>),
-    Generator(GeneratorIterator),
+    Generator(GeneratorIter),
     Coroutine(Container<Coroutine>),
     Code(Code),
     Cell(Container<Cell>),
@@ -77,14 +77,12 @@ pub enum TreewalkValue {
     Frame,
     ListIter(ListIter),
     ReversedIter(ReversedIter),
-    // this might need a real SetIterator, I'm not sure yet
-    SetIter(ListIter),
+    SetIter(SetIter),
     DictItemsIter(DictItemsIter),
     DictKeysIter(DictKeysIter),
     DictValuesIter(DictValuesIter),
     RangeIter(RangeIter),
-    // this might need a real TupleIterator, I'm not sure yet
-    TupleIter(ListIter),
+    TupleIter(TupleIter),
     StrIter(StrIter),
     BytesIter(Vec<u8>),
     ByteArrayIter(Vec<u8>),
@@ -496,7 +494,7 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a class"))
     }
 
-    pub fn as_module(&self) -> Option<Box<dyn MemberReader>> {
+    pub fn as_module(&self) -> Option<Box<dyn MemberRead>> {
         match self {
             TreewalkValue::Module(i) => Some(Box::new(i.borrow().clone())),
             #[cfg(feature = "c_stdlib")]
@@ -508,7 +506,7 @@ impl TreewalkValue {
     pub fn expect_module(
         &self,
         interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Box<dyn MemberReader>> {
+    ) -> TreewalkResult<Box<dyn MemberRead>> {
         self.as_module()
             .ok_or_else(|| interpreter.type_error("Expected a module"))
     }
@@ -528,7 +526,7 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a function"))
     }
 
-    pub fn as_generator(&self) -> Option<GeneratorIterator> {
+    pub fn as_generator(&self) -> Option<GeneratorIter> {
         match self {
             TreewalkValue::Generator(i) => Some(i.clone()),
             _ => None,
@@ -607,49 +605,54 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a set"))
     }
 
-    pub fn as_dict(&self, interpreter: &TreewalkInterpreter) -> Option<Container<Dict>> {
-        match self {
+    pub fn as_dict(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Option<Container<Dict>>> {
+        let result = match self {
             TreewalkValue::Dict(i) => Some(i.clone()),
             TreewalkValue::List(list) => {
-                let mut pairs = vec![];
-                for item in list.clone() {
-                    let tuple = item.as_tuple()?;
-                    pairs.push((tuple.first(), tuple.second()));
-                }
-                Some(Container::new(DictItems::new(interpreter, pairs).into()))
+                let dict_items = DictItems::from_vec(list.borrow().cloned_items(), interpreter)?;
+                Some(Container::new(dict_items.to_dict()))
             }
             _ => None,
-        }
+        };
+
+        Ok(result)
     }
 
     pub fn expect_dict(
         &self,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Container<Dict>> {
-        self.as_dict(interpreter)
+        self.as_dict(interpreter)?
             .ok_or_else(|| interpreter.type_error("Expected a dict"))
     }
 
-    pub fn as_range(&self) -> Option<Range> {
-        match self {
-            TreewalkValue::Range(i) => Some(i.clone()),
+    pub fn as_symbol_table(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Option<SymbolTable>> {
+        let table = match self {
+            TreewalkValue::Dict(dict) => Some(dict.borrow().to_symbol_table(interpreter)?),
             _ => None,
-        }
+        };
+
+        Ok(table)
     }
 
-    pub fn as_tuple(&self) -> Option<Tuple> {
-        match self {
-            TreewalkValue::List(i) => Some(i.clone().into()),
-            TreewalkValue::Tuple(i) => Some(i.clone()),
-            TreewalkValue::Set(set) => Some(set.clone().into()),
-            TreewalkValue::Range(range) => Some(range.clone().into()),
-            _ => None,
-        }
+    pub fn expect_symbol_table(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<SymbolTable> {
+        self.as_symbol_table(interpreter)?
+            .ok_or_else(|| interpreter.type_error("Expected a symbol-table-like object"))
     }
 
     pub fn expect_tuple(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Tuple> {
-        self.as_tuple()
-            .ok_or_else(|| interpreter.type_error("Expected a tuple"))
+        self.clone()
+            .try_into()
+            .map_err(|_| interpreter.type_error("Expected a tuple"))
     }
 
     pub fn as_string(&self) -> Option<String> {

@@ -9,11 +9,9 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
-        types::{
-            dict_items::ContextualDictItemsIterator, iterators::DictKeysIter, DictItems, DictValues,
-        },
-        utils::{check_args, Args, Contextual},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        types::{iterators::DictKeysIter, DictItems},
+        utils::{check_args, Args, Contextual, ContextualPair},
+        SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -38,7 +36,7 @@ impl_method_provider!(
 
 impl Dict {
     #[allow(clippy::mutable_key_type)]
-    fn new_inner(items: HashMap<Contextual<TreewalkValue>, TreewalkValue>) -> Self {
+    pub fn new_inner(items: HashMap<Contextual<TreewalkValue>, TreewalkValue>) -> Self {
         Self { items }
     }
 
@@ -75,11 +73,56 @@ impl Dict {
         let key = Contextual::new(key.clone(), interpreter);
         self.items.contains_key(&key)
     }
+
+    /// Convert this to `DictItems`, which can subsequently become `DictKeys` or `DictValues`. This
+    /// currently sorts the items before returning the object, which doesn't technically match
+    /// Python's implementation, but makes our lives way easier.
+    pub fn to_items(&self) -> DictItems {
+        let mut items = Vec::with_capacity(self.items.len());
+
+        for (ctx_key, value) in &self.items {
+            items.push(ContextualPair::new(ctx_key.clone(), value.clone()));
+        }
+
+        items.sort();
+        DictItems::new_inner(items)
+    }
+
+    /// Turn this `Dict` into a `SymbolTable`, which is another key-value store but where the keys
+    /// are all confirmed to be valid Python identifiers.
+    pub fn to_symbol_table(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<SymbolTable> {
+        let mut table = HashMap::new();
+
+        let dict_items = self.to_items();
+        for pair in dict_items {
+            let tuple = pair.expect_tuple(interpreter)?;
+            let key = tuple.first().expect_string(interpreter)?;
+            let value = tuple.second();
+            table.insert(key, value);
+        }
+
+        Ok(table)
+    }
 }
 
-impl From<Dict> for HashMap<Contextual<TreewalkValue>, TreewalkValue> {
-    fn from(value: Dict) -> Self {
-        value.items
+impl Display for Container<Dict> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        self.borrow().to_items().fmt_as_mapping(f)
+    }
+}
+
+/// We can reuse `DictKeysIterator` here because an iterator over a `Dict` will just return its
+/// keys by default.
+impl IntoIterator for Container<Dict> {
+    type Item = TreewalkValue;
+    type IntoIter = DictKeysIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let dict_items = self.borrow().to_items();
+        DictKeysIter::new(dict_items.to_keys())
     }
 }
 
@@ -120,42 +163,6 @@ impl IndexWrite for Container<Dict> {
     }
 }
 
-impl From<DictItems> for Dict {
-    fn from(dict_items: DictItems) -> Self {
-        #[allow(clippy::mutable_key_type)]
-        let mut items = HashMap::new();
-        for pair in ContextualDictItemsIterator::new(dict_items) {
-            items.insert(pair.first().clone(), pair.second().clone());
-        }
-
-        Dict::new_inner(items)
-    }
-}
-
-impl Display for Container<Dict> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = self
-            .borrow()
-            .items
-            .iter()
-            .map(|x| x.0.to_string() + ": " + &x.1.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "{{{}}}", items)
-    }
-}
-
-/// We can reuse `DictKeysIterator` here because an iterator over a `Dict` will just return its
-/// keys by default.
-impl IntoIterator for Container<Dict> {
-    type Item = TreewalkValue;
-    type IntoIter = DictKeysIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        DictKeysIter::new(self.borrow().clone().into())
-    }
-}
-
 #[derive(Clone)]
 struct NewBuiltin;
 #[derive(Clone)]
@@ -174,11 +181,8 @@ struct FromKeysBuiltin;
 impl Callable for DictItemsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-        let dict_items = DictItems::try_from(dict.clone().borrow().clone())
-            .map_err(|_| interpreter.type_error("Expected a dict"))?;
-
+        let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictItems(dict_items))
     }
 
@@ -191,9 +195,8 @@ impl Callable for DictKeysBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-        Ok(TreewalkValue::DictKeys(
-            dict.clone().borrow().clone().into(),
-        ))
+        let dict_items = dict.borrow().to_items();
+        Ok(TreewalkValue::DictKeys(dict_items.to_keys()))
     }
 
     fn name(&self) -> String {
@@ -204,12 +207,9 @@ impl Callable for DictKeysBuiltin {
 impl Callable for DictValuesBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-
         let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-
-        let dict_values = DictValues::try_from(dict.clone().borrow().clone())
-            .map_err(|_| interpreter.type_error("Expected a dict"))?;
-        Ok(TreewalkValue::DictValues(dict_values))
+        let dict_items = dict.borrow().to_items();
+        Ok(TreewalkValue::DictValues(dict_items.to_values()))
     }
 
     fn name(&self) -> String {
@@ -249,10 +249,8 @@ impl Callable for InitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-
         let input = args.get_arg(0).expect_dict(interpreter)?;
-
+        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
         *output.borrow_mut() = input.borrow().clone();
 
         Ok(TreewalkValue::None)

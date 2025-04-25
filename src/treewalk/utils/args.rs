@@ -104,6 +104,10 @@ impl Args {
         self.args[index].clone()
     }
 
+    pub fn get_arg_mut(&mut self, index: usize) -> &mut TreewalkValue {
+        &mut self.args[index]
+    }
+
     pub fn get_arg_optional(&self, index: usize) -> Option<TreewalkValue> {
         self.args.get(index).cloned()
     }

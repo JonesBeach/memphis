@@ -4,13 +4,12 @@ use std::{
 };
 
 use crate::{
-    core::Container,
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
-        types::{iterators::ListIter, Set},
-        utils::{check_args, Args},
+        types::iterators::SetIter,
+        utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -35,30 +34,31 @@ impl FrozenSet {
     }
 }
 
-impl From<Container<Set>> for FrozenSet {
-    fn from(set: Container<Set>) -> FrozenSet {
-        FrozenSet::new(set.borrow().cloned_items())
+impl TryFrom<TreewalkValue> for FrozenSet {
+    type Error = ();
+
+    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
+        value
+            .into_iterable()
+            .map(|i| FrozenSet::new(i.collect()))
+            .ok_or(())
     }
 }
 
 impl IntoIterator for FrozenSet {
     type Item = TreewalkValue;
-    type IntoIter = ListIter;
+    type IntoIter = SetIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        let set: Container<Set> = self.into();
-        ListIter::new(set.into())
+        let mut items: Vec<TreewalkValue> = self.cloned_items().into_iter().collect();
+        items.sort();
+        SetIter::new(items)
     }
 }
 
 impl Display for FrozenSet {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let set: Container<Set> = self.clone().into();
-        let items = ListIter::new(set.into())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "frozenset({{{}}})", items)
+        write!(f, "frozenset({{{}}})", format_comma_separated(self.clone()))
     }
 }
 
@@ -73,13 +73,10 @@ impl Callable for NewBuiltin {
 
         let frozen_set = match args.len() {
             1 => FrozenSet::default(),
-            2 => {
-                let input_set: Container<Set> = args
-                    .get_arg(1)
-                    .try_into()
-                    .map_err(|_| interpreter.type_error("Expected a set"))?;
-                input_set.into()
-            }
+            2 => args
+                .get_arg(1)
+                .try_into()
+                .map_err(|_| interpreter.type_error("Expected a set"))?,
             _ => unreachable!(),
         };
 

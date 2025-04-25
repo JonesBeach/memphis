@@ -10,7 +10,7 @@ use crate::{
     domain::{ExecutionErrorKind, Source},
     parser::types::ImportPath,
     treewalk::{
-        protocols::MemberReader, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
+        protocols::MemberRead, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
     types::errors::MemphisError,
@@ -113,7 +113,7 @@ impl Module {
     }
 }
 
-impl MemberReader for Module {
+impl MemberRead for Module {
     fn get_member(
         &self,
         _interpreter: &TreewalkInterpreter,

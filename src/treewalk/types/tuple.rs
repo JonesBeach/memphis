@@ -1,13 +1,11 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    core::Container,
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
-        types::{iterators::ListIter, List, Range, Set},
-        utils::{check_args, Args},
+        utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -19,6 +17,7 @@ pub struct Tuple {
 
 impl_typed!(Tuple, Type::Tuple);
 impl_method_provider!(Tuple, [NewBuiltin]);
+impl_iterable!(TupleIter);
 
 impl Tuple {
     pub fn new(items: Vec<TreewalkValue>) -> Self {
@@ -27,6 +26,10 @@ impl Tuple {
 
     pub fn items(&self) -> &[TreewalkValue] {
         &self.items
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
     }
 
     fn get_item(&self, index: usize) -> Option<TreewalkValue> {
@@ -53,45 +56,57 @@ impl IndexRead for Tuple {
     }
 }
 
-impl From<Container<Set>> for Tuple {
-    fn from(set: Container<Set>) -> Tuple {
-        // Calling `into_iter()` directly off the `Set` results in a stack overflow.
-        //let mut items: Vec<TreewalkValue> = set.into_iter().collect();
-        let mut items: Vec<TreewalkValue> = set.borrow().cloned_items().into_iter().collect();
-        // TODO remove unwrap
-        items.sort_by_key(|x| x.as_integer().unwrap());
-        Tuple::new(items)
-    }
-}
+impl TryFrom<TreewalkValue> for Tuple {
+    type Error = ();
 
-impl From<Container<List>> for Tuple {
-    fn from(list: Container<List>) -> Tuple {
-        Tuple::new(list.into_iter().collect())
-    }
-}
-
-impl From<Range> for Tuple {
-    fn from(range: Range) -> Tuple {
-        Tuple::new(range.into_iter().collect())
+    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
+        value
+            .into_iterable()
+            .map(|i| Tuple::new(i.collect()))
+            .ok_or(())
     }
 }
 
 impl Display for Tuple {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIter::new(self.clone().into())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "({})", items)
+        write!(f, "({})", format_comma_separated(self.clone()))
     }
 }
 
 impl IntoIterator for Tuple {
     type Item = TreewalkValue;
-    type IntoIter = ListIter;
+    type IntoIter = TupleIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        ListIter::new(self.into())
+        TupleIter::new(self)
+    }
+}
+
+#[derive(Clone)]
+pub struct TupleIter {
+    list_ref: Tuple,
+    current_index: usize,
+}
+
+impl TupleIter {
+    pub fn new(list_ref: Tuple) -> Self {
+        Self {
+            list_ref,
+            current_index: 0,
+        }
+    }
+}
+
+impl Iterator for TupleIter {
+    type Item = TreewalkValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index == self.list_ref.len() {
+            None
+        } else {
+            self.current_index += 1;
+            self.list_ref.items.get(self.current_index - 1).cloned()
+        }
     }
 }
 

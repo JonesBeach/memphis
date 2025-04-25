@@ -9,8 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
-        types::{iterators::ListIter, FrozenSet, List, Range, Tuple},
-        utils::{check_args, Args},
+        utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -22,6 +21,7 @@ pub struct Set {
 
 impl_typed!(Set, Type::Set);
 impl_method_provider!(Set, [AddBuiltin, NewBuiltin]);
+impl_iterable!(SetIter);
 
 impl Set {
     #[allow(clippy::mutable_key_type)]
@@ -51,56 +51,55 @@ impl TryFrom<TreewalkValue> for Container<Set> {
     type Error = ();
 
     fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        match value {
-            TreewalkValue::Set(set) => Ok(set),
-            TreewalkValue::List(list) => Ok(list.into()),
-            TreewalkValue::Tuple(tuple) => Ok(tuple.into()),
-            TreewalkValue::Range(range) => Ok(range.into()),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<Container<List>> for Container<Set> {
-    fn from(list: Container<List>) -> Container<Set> {
-        Container::new(Set::new(list.into_iter().collect()))
-    }
-}
-
-impl From<Tuple> for Container<Set> {
-    fn from(tuple: Tuple) -> Container<Set> {
-        Container::new(Set::new(tuple.into_iter().collect()))
-    }
-}
-
-impl From<Range> for Container<Set> {
-    fn from(range: Range) -> Container<Set> {
-        Container::new(Set::new(range.into_iter().collect()))
-    }
-}
-
-impl From<FrozenSet> for Container<Set> {
-    fn from(frozenset: FrozenSet) -> Container<Set> {
-        Container::new(Set::new(frozenset.cloned_items()))
-    }
-}
-
-impl IntoIterator for Container<Set> {
-    type Item = TreewalkValue;
-    type IntoIter = ListIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        ListIter::new(self.into())
+        value
+            .into_iterable()
+            .map(|i| Container::new(Set::new(i.collect())))
+            .ok_or(())
     }
 }
 
 impl Display for Container<Set> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = ListIter::new(self.clone().into())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "{{{}}}", items)
+        write!(f, "{{{}}}", format_comma_separated(self.clone()))
+    }
+}
+
+impl IntoIterator for Container<Set> {
+    type Item = TreewalkValue;
+    type IntoIter = SetIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut items: Vec<TreewalkValue> = self.borrow().cloned_items().into_iter().collect();
+        items.sort();
+        SetIter::new(items)
+    }
+}
+
+#[derive(Clone)]
+pub struct SetIter {
+    items: Vec<TreewalkValue>,
+    current_index: usize,
+}
+
+impl SetIter {
+    pub fn new(list_ref: Vec<TreewalkValue>) -> Self {
+        Self {
+            items: list_ref,
+            current_index: 0,
+        }
+    }
+}
+
+impl Iterator for SetIter {
+    type Item = TreewalkValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index == self.items.len() {
+            None
+        } else {
+            self.current_index += 1;
+            self.items.get(self.current_index - 1).cloned()
+        }
     }
 }
 

@@ -3,16 +3,22 @@ use std::collections::{hash_map::Iter, HashMap, HashSet};
 use crate::{
     core::Container,
     treewalk::{
-        types::{Dict, DictItems, Function, Str, Tuple},
-        utils::{check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        types::{Dict, Str},
+        TreewalkInterpreter, TreewalkValue,
     },
 };
+
+/// we could add more validation here eventually
+pub type Identifier = String;
+
+/// This is similar to our runtime `Dict` object, but where keys must be valid Python
+/// identifiers.
+pub type SymbolTable = HashMap<Identifier, TreewalkValue>;
 
 /// This represents a symbol table for a given scope.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Scope {
-    symbol_table: HashMap<String, TreewalkValue>,
+    symbol_table: SymbolTable,
 
     /// Used to hold directives such as `global x` which will expire with this scope.
     global_vars: HashSet<String>,
@@ -22,82 +28,13 @@ pub struct Scope {
 }
 
 impl Scope {
-    pub fn new(
-        interpreter: &TreewalkInterpreter,
-        function: &Container<Function>,
-        args: &Args,
-    ) -> TreewalkResult<Container<Self>> {
-        let mut scope = Self::default();
-
-        let expected_args = &function.borrow().args;
-
-        // Function expects fewer positional args than it was invoked with and there is not an
-        // `args_var` in which to store the rest.
-        check_args(
-            args,
-            |_| !(expected_args.args.len() < args.bound_len() && expected_args.args_var.is_none()),
-            interpreter,
-        )?;
-
-        let bound_args = args.bound_args();
-        let mut missing_args = vec![];
-
-        for (index, arg_definition) in expected_args.args.iter().enumerate() {
-            // Check if the argument is provided, otherwise use default
-            let value = if index < bound_args.len() {
-                bound_args[index].clone()
-            } else {
-                match &arg_definition.default {
-                    Some(default_value) => interpreter.evaluate_expr(default_value)?,
-                    None => {
-                        missing_args.push(arg_definition.arg.clone());
-                        // We use None here only because if we hit this case, we will return an
-                        // error shortly after this loop. We can't do it here because we need to
-                        // find all the missing args first.
-                        TreewalkValue::None
-                    }
-                }
-            };
-
-            scope.insert(&arg_definition.arg, value);
+    /// Constructs a new `Scope` from an already-bound symbol table.
+    pub fn new(symbol_table: SymbolTable) -> Self {
+        Self {
+            symbol_table,
+            global_vars: HashSet::new(),
+            nonlocal_vars: HashSet::new(),
         }
-
-        // Function expects more positional args than it was invoked with.
-        if !missing_args.is_empty() {
-            let num_missing = missing_args.len();
-            let noun = if num_missing == 1 {
-                "argument"
-            } else {
-                "arguments"
-            };
-            let arg_names = missing_args
-                .into_iter()
-                .map(|a| format!("'{}'", a))
-                .collect::<Vec<_>>()
-                .join(" and ");
-            return Err(interpreter.type_error(format!(
-                "{}() missing {} required positional {}: {}",
-                function.borrow().name(),
-                num_missing,
-                noun,
-                arg_names
-            )));
-        }
-
-        if let Some(ref args_var) = expected_args.args_var {
-            let extra = args.len() - expected_args.args.len();
-            let left_over = bound_args.iter().rev().take(extra).rev().cloned().collect();
-            let args_value = TreewalkValue::Tuple(Tuple::new(left_over));
-            scope.insert(args_var.as_str(), args_value);
-        }
-
-        if let Some(ref kwargs_var) = expected_args.kwargs_var {
-            let kwargs_value =
-                TreewalkValue::Dict(Container::new(Dict::new(interpreter, args.get_kwargs())));
-            scope.insert(kwargs_var.as_str(), kwargs_value);
-        }
-
-        Ok(Container::new(scope.to_owned()))
     }
 
     pub fn get(&self, name: &str) -> Option<TreewalkValue> {
@@ -160,34 +97,5 @@ impl<'a> IntoIterator for &'a Scope {
 
     fn into_iter(self) -> Self::IntoIter {
         self.symbol_table.iter()
-    }
-}
-
-impl From<HashMap<String, TreewalkValue>> for Scope {
-    fn from(symbol_table: HashMap<String, TreewalkValue>) -> Self {
-        Self {
-            symbol_table,
-            global_vars: HashSet::new(),
-            nonlocal_vars: HashSet::new(),
-        }
-    }
-}
-
-pub struct ScopeParsingError;
-
-impl TryFrom<Dict> for Scope {
-    type Error = ScopeParsingError;
-
-    fn try_from(value: Dict) -> Result<Self, Self::Error> {
-        let mut symbol_table = HashMap::new();
-        let dict_items = DictItems::try_from(value).map_err(|_| ScopeParsingError)?;
-        for pair in dict_items {
-            let tuple = pair.as_tuple().ok_or(ScopeParsingError)?;
-            let key = tuple.first().as_string().ok_or(ScopeParsingError)?;
-            let value = tuple.second();
-            symbol_table.insert(key, value);
-        }
-
-        Ok(Self::from(symbol_table))
     }
 }

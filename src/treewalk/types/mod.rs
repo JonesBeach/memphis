@@ -74,10 +74,12 @@ pub mod iterators {
     pub use super::dict_items::DictItemsIter;
     pub use super::dict_keys::DictKeysIter;
     pub use super::dict_values::DictValuesIter;
-    pub use super::generator::GeneratorIterator;
+    pub use super::generator::GeneratorIter;
     pub use super::list::ListIter;
     pub use super::range::RangeIter;
     pub use super::reversed::ReversedIter;
+    pub use super::set::SetIter;
     pub use super::str::StrIter;
+    pub use super::tuple::TupleIter;
     pub use super::zip::ZipIterator;
 }

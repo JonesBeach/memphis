@@ -1,7 +1,7 @@
 use crate::{
     core::{log, Container, LogLevel},
     treewalk::{
-        protocols::MemberReader, types::Class, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::MemberRead, types::Class, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -22,7 +22,7 @@ impl BuiltinObject {
     }
 }
 
-impl MemberReader for BuiltinObject {
+impl MemberRead for BuiltinObject {
     fn get_member(
         &self,
         interpreter: &TreewalkInterpreter,

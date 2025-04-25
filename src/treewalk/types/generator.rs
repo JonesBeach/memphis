@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-impl_iterable!(GeneratorIterator);
+impl_iterable!(GeneratorIter);
 
 pub struct Generator {
     scope: Container<Scope>,
@@ -146,12 +146,12 @@ impl Pausable for Generator {
 }
 
 #[derive(Clone)]
-pub struct GeneratorIterator {
-    pub generator: Container<Generator>,
-    pub interpreter: TreewalkInterpreter,
+pub struct GeneratorIter {
+    generator: Container<Generator>,
+    interpreter: TreewalkInterpreter,
 }
 
-impl GeneratorIterator {
+impl GeneratorIter {
     pub fn new(generator: Generator, interpreter: TreewalkInterpreter) -> Self {
         Self {
             generator: Container::new(generator),
@@ -160,7 +160,7 @@ impl GeneratorIterator {
     }
 }
 
-impl Iterator for GeneratorIterator {
+impl Iterator for GeneratorIter {
     type Item = TreewalkValue;
 
     fn next(&mut self) -> Option<Self::Item> {

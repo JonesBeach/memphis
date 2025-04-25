@@ -1,50 +1,16 @@
-use std::fmt::{Display, Error, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Error, Formatter},
+};
 
-use crate::{
-    core::Container,
-    treewalk::{
-        macros::*,
-        protocols::IndexRead,
-        types::{Dict, Tuple},
-        utils::Contextual,
-        TreewalkInterpreter, TreewalkValue,
-    },
+use crate::treewalk::{
+    macros::*,
+    types::{Dict, DictKeys, DictValues, Tuple},
+    utils::{format_comma_separated_with, Contextual, ContextualPair},
+    TreewalkInterpreter, TreewalkResult, TreewalkValue,
 };
 
 impl_iterable!(DictItemsIter);
-
-/// A helper to hold a pair of `TreewalkValue` objects but which enforces the first hold a reference
-/// to its interpreter via a `ContextualTreewalkValue`. We need this for `DictItems` since the first
-/// will become the keys of a `Dict`.
-#[derive(Clone, PartialEq, Debug)]
-pub struct ContextualPair {
-    key: Contextual<TreewalkValue>,
-    value: TreewalkValue,
-}
-
-impl ContextualPair {
-    pub fn new(key: Contextual<TreewalkValue>, value: TreewalkValue) -> Self {
-        Self { key, value }
-    }
-
-    pub fn first(&self) -> &Contextual<TreewalkValue> {
-        &self.key
-    }
-
-    pub fn first_resolved(&self) -> &TreewalkValue {
-        &self.key
-    }
-
-    pub fn second(&self) -> &TreewalkValue {
-        &self.value
-    }
-}
-
-impl Display for ContextualPair {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "contextual({}, {})", self.key, self.value)
-    }
-}
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct DictItems {
@@ -52,51 +18,81 @@ pub struct DictItems {
 }
 
 impl DictItems {
+    pub fn from_vec(
+        items: Vec<TreewalkValue>,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        let mut pairs = vec![];
+        for item in items {
+            let tuple = item.expect_tuple(interpreter)?;
+            pairs.push((tuple.first(), tuple.second()));
+        }
+        Ok(Self::new(interpreter, pairs))
+    }
+
     pub fn new(
         interpreter: &TreewalkInterpreter,
         items: Vec<(TreewalkValue, TreewalkValue)>,
     ) -> Self {
-        let mut new_hash = Vec::new();
+        let mut pairs = Vec::new();
         for (key, value) in items {
             let new_key = Contextual::new(key, interpreter.clone());
-            new_hash.push(ContextualPair::new(new_key, value));
+            pairs.push(ContextualPair::new(new_key, value));
         }
 
-        Self::new_inner(new_hash)
+        Self::new_inner(pairs)
     }
 
-    fn new_inner(items: Vec<ContextualPair>) -> Self {
+    pub fn new_inner(items: Vec<ContextualPair>) -> Self {
         Self { items }
     }
-}
 
-pub struct DictItemsError;
+    fn keys(&self) -> Vec<TreewalkValue> {
+        self.items
+            .iter()
+            .map(|i| i.first_inner())
+            .cloned()
+            .collect()
+    }
 
-impl TryFrom<Dict> for DictItems {
-    type Error = DictItemsError;
+    fn values(&self) -> Vec<TreewalkValue> {
+        self.items.iter().map(|i| i.second()).cloned().collect()
+    }
 
-    fn try_from(dict: Dict) -> Result<Self, Self::Error> {
-        let mut items = vec![];
-        let stored = Container::new(dict.clone());
-        for item in dict.keys() {
-            let value = stored
-                .getitem(item.interpreter(), (**item).clone())
-                .map_err(|_| DictItemsError)?
-                .ok_or(DictItemsError)?;
-            items.push(ContextualPair::new(item.clone(), value));
+    pub fn to_keys(&self) -> DictKeys {
+        DictKeys::new(self.keys())
+    }
+
+    pub fn to_values(&self) -> DictValues {
+        DictValues::new(self.values())
+    }
+
+    pub fn to_dict(&self) -> Dict {
+        #[allow(clippy::mutable_key_type)]
+        let mut items = HashMap::new();
+        for pair in ContextualDictItemsIterator::new(self.clone()) {
+            items.insert(pair.first().clone(), pair.second().clone());
         }
-        items.sort_by(|a, b| a.first_resolved().cmp(b.first_resolved()));
-        Ok(DictItems::new_inner(items))
+
+        Dict::new_inner(items)
+    }
+
+    pub fn fmt_as_mapping(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        let items = self.items.clone();
+        let formatted = format_comma_separated_with(items, |pair| {
+            format!("'{}': {}", pair.first_inner(), pair.second())
+        });
+        write!(f, "{{{}}}", formatted)
     }
 }
 
 impl Display for DictItems {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let items = DictItemsIter::new(self.clone())
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join(", ");
-        write!(f, "[{}]", items)
+        let items = self.items.clone();
+        let formatted = format_comma_separated_with(items, |pair| {
+            format!("('{}', {})", pair.first_inner(), pair.second())
+        });
+        write!(f, "[{}]", formatted)
     }
 }
 
@@ -113,7 +109,7 @@ impl IntoIterator for DictItems {
 pub struct DictItemsIter(DictItems);
 
 impl DictItemsIter {
-    fn new(dict_items: DictItems) -> Self {
+    pub fn new(dict_items: DictItems) -> Self {
         DictItemsIter(dict_items)
     }
 }
@@ -126,7 +122,7 @@ impl Iterator for DictItemsIter {
             None
         } else {
             let removed = self.0.items.remove(0);
-            let key = removed.first_resolved().clone();
+            let key = removed.first_inner().clone();
             let value = removed.second().clone();
             let tuple = TreewalkValue::Tuple(Tuple::new(vec![key, value]));
             Some(tuple)

@@ -49,5 +49,5 @@ pub fn read_optional(ctx: &TreewalkContext, name: &str) -> Option<TreewalkValue>
 }
 
 pub fn read(ctx: &TreewalkContext, name: &str) -> TreewalkValue {
-    read_optional(&ctx, name).expect("Failed to read var")
+    read_optional(&ctx, name).expect(&format!("Failed to read var: {}", name))
 }

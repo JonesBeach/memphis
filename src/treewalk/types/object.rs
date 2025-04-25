@@ -6,7 +6,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{
-            Callable, DataDescriptor, IndexRead, IndexWrite, MemberReader, MemberWriter,
+            Callable, DataDescriptor, IndexRead, IndexWrite, MemberRead, MemberWrite,
             NonDataDescriptor,
         },
         types::{Class, Str},
@@ -101,7 +101,7 @@ impl IndexRead for Container<Object> {
     }
 }
 
-impl MemberReader for Container<Object> {
+impl MemberRead for Container<Object> {
     /// According to Python's rules, when searching for a member of an object, we must look at
     /// itself and its class (following its MRO), but NOT its class' metaclasses.
     fn get_member(
@@ -147,7 +147,7 @@ impl MemberReader for Container<Object> {
     }
 }
 
-impl MemberWriter for Container<Object> {
+impl MemberWrite for Container<Object> {
     fn set_member(
         &mut self,
         interpreter: &TreewalkInterpreter,

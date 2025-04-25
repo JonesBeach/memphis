@@ -4,7 +4,7 @@ use crate::{
     core::{log, Container, LogLevel},
     domain::{Dunder, Type},
     treewalk::{
-        protocols::{Callable, MemberReader, MemberWriter},
+        protocols::{Callable, MemberRead, MemberWrite},
         types::{Str, Tuple},
         utils::{args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -253,7 +253,7 @@ impl Container<Class> {
     }
 }
 
-impl MemberReader for Container<Class> {
+impl MemberRead for Container<Class> {
     /// Attribute access for a class uses this order:
     /// 1. the class itself
     /// 2. parent class MRO
@@ -290,7 +290,7 @@ impl MemberReader for Container<Class> {
     }
 }
 
-impl MemberWriter for Container<Class> {
+impl MemberWrite for Container<Class> {
     fn delete_member(
         &mut self,
         _interpreter: &TreewalkInterpreter,
