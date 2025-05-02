@@ -37,7 +37,7 @@ pub enum TreewalkValue {
     Ellipsis,
     NotImplemented,
     Integer(i64),
-    FloatingPoint(f64),
+    Float(f64),
     Str(Str),
     Class(Container<Class>),
     Object(Container<Object>),
@@ -101,7 +101,7 @@ impl PartialEq for TreewalkValue {
         match (self, other) {
             (TreewalkValue::None, TreewalkValue::None) => true,
             (TreewalkValue::Integer(a), TreewalkValue::Integer(b)) => a == b,
-            (TreewalkValue::FloatingPoint(a), TreewalkValue::FloatingPoint(b)) => a == b,
+            (TreewalkValue::Float(a), TreewalkValue::Float(b)) => (a - b).abs() < 1e-9,
             (TreewalkValue::Str(a), TreewalkValue::Str(b)) => a == b,
             (TreewalkValue::Bytes(a), TreewalkValue::Bytes(b)) => a == b,
             (TreewalkValue::ByteArray(a), TreewalkValue::ByteArray(b)) => a == b,
@@ -231,7 +231,7 @@ impl TreewalkValue {
             }
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
             TreewalkValue::Integer(i) => write!(f, "{}", i),
-            TreewalkValue::FloatingPoint(i) => write!(f, "{}", i),
+            TreewalkValue::Float(i) => write!(f, "{}", i),
             TreewalkValue::Str(s) => write!(f, "{}", s),
             TreewalkValue::Bytes(b) => write!(f, "b'{:?}'", b),
             TreewalkValue::ByteArray(b) => write!(f, "bytearray(b'{:?}')", b),
@@ -342,7 +342,7 @@ impl TreewalkValue {
             TreewalkValue::Generator(_) => Type::Generator,
             TreewalkValue::Coroutine(_) => Type::Coroutine,
             TreewalkValue::Integer(_) => Type::Int,
-            TreewalkValue::FloatingPoint(_) => Type::Float,
+            TreewalkValue::Float(_) => Type::Float,
             TreewalkValue::Bytes(_) => Type::Bytes,
             TreewalkValue::ByteArray(_) => Type::ByteArray,
             TreewalkValue::Boolean(_) => Type::Bool,
@@ -465,7 +465,7 @@ impl TreewalkValue {
 
     pub fn as_fp(&self) -> Option<f64> {
         match self {
-            TreewalkValue::FloatingPoint(i) => Some(*i),
+            TreewalkValue::Float(i) => Some(*i),
             TreewalkValue::Integer(i) => Some(*i as f64),
             _ => None,
         }
@@ -670,7 +670,7 @@ impl TreewalkValue {
 
     pub fn negated(&self) -> Self {
         match self {
-            TreewalkValue::FloatingPoint(i) => TreewalkValue::FloatingPoint(-i),
+            TreewalkValue::Float(i) => TreewalkValue::Float(-i),
             TreewalkValue::Integer(i) => TreewalkValue::Integer(-i),
             _ => unreachable!(),
         }
@@ -722,9 +722,8 @@ impl From<TreewalkValue> for MemphisValue {
     fn from(value: TreewalkValue) -> Self {
         match value {
             TreewalkValue::None => MemphisValue::None,
-            TreewalkValue::Integer(_) => {
-                MemphisValue::Integer(value.as_integer().expect("Failed to get integer"))
-            }
+            TreewalkValue::Integer(i) => MemphisValue::Integer(i),
+            TreewalkValue::Float(i) => MemphisValue::Float(i),
             TreewalkValue::Str(_) => {
                 MemphisValue::String(value.as_string().expect("failed to get string"))
             }

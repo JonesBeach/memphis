@@ -6,7 +6,7 @@ use crate::{
     lexer::{Lexer, Token},
     parser::{
         types::{
-            ast, Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalBlock,
+            ast, Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalAst,
             DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart,
             ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp,
             LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
@@ -471,7 +471,7 @@ impl<'a> Parser<'a> {
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
-                Ok(Expr::FloatingPoint(-i))
+                Ok(Expr::Float(-i))
             }
             _ => {
                 let right = self.parse_term()?;
@@ -494,7 +494,7 @@ impl<'a> Parser<'a> {
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
-                Ok(Expr::FloatingPoint(i))
+                Ok(Expr::Float(i))
             }
             _ => {
                 let right = self.parse_term()?;
@@ -578,7 +578,7 @@ impl<'a> Parser<'a> {
             }
             Token::FloatingPoint(i) => {
                 self.consume(&Token::FloatingPoint(i))?;
-                Ok(Expr::FloatingPoint(i))
+                Ok(Expr::Float(i))
             }
             Token::BooleanLiteral(b) => {
                 self.consume(&Token::BooleanLiteral(b))?;
@@ -982,19 +982,19 @@ impl<'a> Parser<'a> {
         self.consume(&Token::If)?;
         let condition = self.parse_simple_expr()?;
         self.consume(&Token::Colon)?;
-        let if_part = ConditionalBlock {
+        let if_part = ConditionalAst {
             condition,
-            block: self.parse_block()?,
+            ast: self.parse_block()?,
         };
 
-        let mut elif_parts: Vec<ConditionalBlock> = vec![];
+        let mut elif_parts = vec![];
         while self.current_token() == &Token::Elif {
             self.consume(&Token::Elif)?;
             let condition = self.parse_simple_expr()?;
             self.consume(&Token::Colon)?;
-            let elif_parts_part = ConditionalBlock {
+            let elif_parts_part = ConditionalAst {
                 condition,
-                block: self.parse_indented_block()?,
+                ast: self.parse_indented_block()?,
             };
 
             // We must use push because these will be evaluated in order
@@ -1252,8 +1252,11 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::While)?;
                 let condition = self.parse_simple_expr()?;
                 self.consume(&Token::Colon)?;
-                let body = self.parse_indented_block()?;
-                Ok(StatementKind::WhileLoop { condition, body })
+                let block = self.parse_indented_block()?;
+                Ok(StatementKind::WhileLoop(ConditionalAst {
+                    condition,
+                    ast: block,
+                }))
             }
             Token::For => self.parse_for_in_loop(),
             Token::Import => self.parse_regular_import(),
@@ -1810,414 +1813,8 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        domain::Source,
-        parser::{test_utils::*, types::ParseNode},
-    };
 
-    struct ParseContext {
-        lexer: Lexer,
-    }
-
-    impl ParseContext {
-        fn new(source: Source) -> Self {
-            Self {
-                lexer: Lexer::new(&source),
-            }
-        }
-
-        /// Parse a single [`ParseNode`]. This cannot be used for multiple parse calls.
-        fn parse_oneshot<T>(&mut self) -> Result<T, ParserError>
-        where
-            T: ParseNode,
-        {
-            let parser = self.init_parser();
-            T::parse_oneshot(parser)
-        }
-
-        fn parse_all(&mut self) -> Result<Ast, ParserError> {
-            let mut parser = self.init_parser();
-            let mut statements = ast![];
-
-            while !parser.is_finished() {
-                statements.push(parser.parse_statement()?);
-            }
-
-            Ok(statements)
-        }
-
-        fn init_parser(&mut self) -> Parser {
-            Parser::new(&mut self.lexer)
-        }
-    }
-
-    fn init(text: &str) -> ParseContext {
-        ParseContext::new(Source::from_text(text))
-    }
-
-    fn parse_all(input: &str) -> Ast {
-        init(input)
-            .parse_all()
-            .expect("Failed to parse all statements!")
-    }
-
-    macro_rules! expect_error {
-        ($input:expr, $pattern:ident) => {
-            match init($input).parse_oneshot::<$pattern>() {
-                Ok(_) => panic!("Expected a ParserError!"),
-                Err(e) => e,
-            }
-        };
-    }
-
-    macro_rules! parse {
-        ($input:expr, $pattern:ident) => {
-            match init($input).parse_oneshot::<$pattern>() {
-                Err(e) => panic!("Parser error: {:?}", e),
-                Ok(ast) => ast,
-            }
-        };
-    }
-
-    macro_rules! assert_ast_eq {
-        ($input:expr, $expected:expr) => {
-            let ast = parse!($input, Statement);
-            assert_stmt_eq!(ast, $expected);
-        };
-        ($input:expr, $expected:expr, $pattern:ident) => {
-            let ast = parse!($input, $pattern);
-            assert_eq!(ast, $expected);
-        };
-    }
-
-    macro_rules! assert_stmt_eq {
-        ($actual:expr, $expected:expr) => {
-            assert_stmt_eq(&$actual, &$expected)
-        };
-    }
-
-    fn assert_stmt_eq(actual: &Statement, expected: &Statement) {
-        match (&actual.kind, &expected.kind) {
-            // Function definitions (compare nested body statements)
-            (
-                StatementKind::FunctionDef {
-                    name: actual_name,
-                    args: actual_args,
-                    body: actual_body,
-                    decorators: actual_decorators,
-                    is_async: actual_is_async,
-                },
-                StatementKind::FunctionDef {
-                    name: expected_name,
-                    args: expected_args,
-                    body: expected_body,
-                    decorators: expected_decorators,
-                    is_async: expected_is_async,
-                },
-            ) => {
-                assert_eq!(
-                    actual_body.len(),
-                    expected_body.len(),
-                    "Function body length mismatch"
-                );
-                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-
-                assert_eq!(actual_name, expected_name, "Function name mismatch");
-                assert_eq!(actual_args, expected_args, "Function args mismatch");
-                assert_eq!(
-                    actual_decorators, expected_decorators,
-                    "Function decorators mismatch"
-                );
-                assert_eq!(
-                    actual_is_async, expected_is_async,
-                    "Function is_async mismatch"
-                );
-            }
-
-            (
-                StatementKind::ClassDef {
-                    name: actual_name,
-                    parents: actual_parents,
-                    metaclass: actual_metaclass,
-                    body: actual_body,
-                },
-                StatementKind::ClassDef {
-                    name: expected_name,
-                    parents: expected_parents,
-                    metaclass: expected_metaclass,
-                    body: expected_body,
-                },
-            ) => {
-                assert_eq!(actual_name, expected_name, "Class name mismatch");
-                assert_eq!(actual_parents, expected_parents, "Class parents mismatch");
-                assert_eq!(
-                    actual_metaclass, expected_metaclass,
-                    "Class metaclass mismatch"
-                );
-
-                assert_eq!(
-                    actual_body.len(),
-                    expected_body.len(),
-                    "Class body length mismatch"
-                );
-                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-            }
-
-            (
-                StatementKind::ContextManager {
-                    expr: actual_expr,
-                    variable: actual_variable,
-                    block: actual_block,
-                },
-                StatementKind::ContextManager {
-                    expr: expected_expr,
-                    variable: expected_variable,
-                    block: expected_block,
-                },
-            ) => {
-                assert_eq!(actual_expr, expected_expr, "Context manager expr mismatch");
-                assert_eq!(
-                    actual_variable, expected_variable,
-                    "Context manager variable mismatch"
-                );
-
-                assert_eq!(
-                    actual_block.len(),
-                    expected_block.len(),
-                    "Context manager block length mismatch"
-                );
-                for (a, e) in actual_block.iter().zip(expected_block.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-            }
-
-            (
-                StatementKind::TryExcept {
-                    try_block: actual_try_block,
-                    except_clauses: actual_except_clauses,
-                    else_block: actual_else_block,
-                    finally_block: actual_finally_block,
-                },
-                StatementKind::TryExcept {
-                    try_block: expected_try_block,
-                    except_clauses: expected_except_clauses,
-                    else_block: expected_else_block,
-                    finally_block: expected_finally_block,
-                },
-            ) => {
-                assert_eq!(
-                    actual_try_block.len(),
-                    expected_try_block.len(),
-                    "Try block length mismatch"
-                );
-                for (a, e) in actual_try_block.iter().zip(expected_try_block.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-
-                assert_eq!(
-                    actual_except_clauses.len(),
-                    expected_except_clauses.len(),
-                    "Except clauses length mismatch"
-                );
-                for (actual_except_clause, expected_except_clause) in actual_except_clauses
-                    .iter()
-                    .zip(expected_except_clauses.iter())
-                {
-                    assert_eq!(
-                        actual_except_clause.exception_types,
-                        expected_except_clause.exception_types,
-                        "Except clause types mismatch"
-                    );
-                    assert_eq!(
-                        actual_except_clause.alias, expected_except_clause.alias,
-                        "Except clause alias mismatch"
-                    );
-                    assert_eq!(
-                        actual_except_clause.block.len(),
-                        expected_except_clause.block.len(),
-                        "Except_clause.block length mismatch"
-                    );
-                    for (a, e) in actual_except_clause
-                        .block
-                        .iter()
-                        .zip(expected_except_clause.block.iter())
-                    {
-                        assert_stmt_eq(a, e);
-                    }
-                }
-
-                match (actual_else_block, expected_else_block) {
-                    (Some(actual), Some(expected)) => {
-                        assert_eq!(actual.len(), expected.len(), "Else block length mismatch");
-                        for (a, e) in actual.iter().zip(expected.iter()) {
-                            assert_stmt_eq(a, e);
-                        }
-                    }
-                    (None, None) => {} // Both bodies are None—nothing to compare
-                    (None, Some(_)) | (Some(_), None) => {
-                        panic!("Else block mismatch: one body is None while the other is Some");
-                    }
-                }
-
-                match (actual_finally_block, expected_finally_block) {
-                    (Some(actual), Some(expected)) => {
-                        assert_eq!(
-                            actual.len(),
-                            expected.len(),
-                            "Finally block length mismatch"
-                        );
-                        for (a, e) in actual.iter().zip(expected.iter()) {
-                            assert_stmt_eq(a, e);
-                        }
-                    }
-                    (None, None) => {} // Both bodies are None—nothing to compare
-                    (None, Some(_)) | (Some(_), None) => {
-                        panic!("Finally block mismatch: one body is None while the other is Some");
-                    }
-                }
-            }
-
-            (
-                StatementKind::IfElse {
-                    if_part: actual_if_part,
-                    elif_parts: actual_elif_parts,
-                    else_part: actual_else_part,
-                },
-                StatementKind::IfElse {
-                    if_part: expected_if_part,
-                    elif_parts: expected_elif_parts,
-                    else_part: expected_else_part,
-                },
-            ) => {
-                assert_eq!(
-                    actual_if_part.condition, expected_if_part.condition,
-                    "If/else condition mismatch"
-                );
-                assert_eq!(
-                    actual_if_part.block.len(),
-                    expected_if_part.block.len(),
-                    "If/else if_part.block length mismatch"
-                );
-                for (a, e) in actual_if_part
-                    .block
-                    .iter()
-                    .zip(expected_if_part.block.iter())
-                {
-                    assert_stmt_eq(a, e);
-                }
-
-                assert_eq!(
-                    actual_elif_parts.len(),
-                    expected_elif_parts.len(),
-                    "Elif parts length mismatch"
-                );
-                for (actual_elif_part, expected_elif_part) in
-                    actual_elif_parts.iter().zip(expected_elif_parts.iter())
-                {
-                    assert_eq!(
-                        actual_elif_part.condition, expected_elif_part.condition,
-                        "If/else condition mismatch"
-                    );
-                    assert_eq!(
-                        actual_elif_part.block.len(),
-                        expected_elif_part.block.len(),
-                        "If/else elif_part.block length mismatch"
-                    );
-                    for (a, e) in actual_elif_part
-                        .block
-                        .iter()
-                        .zip(expected_elif_part.block.iter())
-                    {
-                        assert_stmt_eq(a, e);
-                    }
-                }
-
-                match (actual_else_part, expected_else_part) {
-                    (Some(actual), Some(expected)) => {
-                        assert_eq!(actual.len(), expected.len(), "Else part length mismatch");
-                        for (a, e) in actual.iter().zip(expected.iter()) {
-                            assert_stmt_eq(a, e);
-                        }
-                    }
-                    (None, None) => {} // Both bodies are None—nothing to compare
-                    (None, Some(_)) | (Some(_), None) => {
-                        panic!("Else part mismatch: one body is None while the other is Some");
-                    }
-                }
-            }
-
-            (
-                StatementKind::WhileLoop {
-                    condition: actual_cond,
-                    body: actual_body,
-                },
-                StatementKind::WhileLoop {
-                    condition: expected_cond,
-                    body: expected_body,
-                },
-            ) => {
-                assert_eq!(actual_cond, expected_cond, "Loop condition mismatch");
-
-                assert_eq!(
-                    actual_body.len(),
-                    expected_body.len(),
-                    "Loop body length mismatch"
-                );
-                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-            }
-
-            (
-                StatementKind::ForInLoop {
-                    index: actual_index,
-                    iterable: actual_iterable,
-                    body: actual_body,
-                    else_block: actual_else_block,
-                },
-                StatementKind::ForInLoop {
-                    index: expected_index,
-                    iterable: expected_iterable,
-                    body: expected_body,
-                    else_block: expected_else_block,
-                },
-            ) => {
-                assert_eq!(actual_index, expected_index, "Loop index mismatch");
-                assert_eq!(actual_iterable, expected_iterable, "Loop iterable mismatch");
-
-                assert_eq!(
-                    actual_body.len(),
-                    expected_body.len(),
-                    "Loop body length mismatch"
-                );
-                for (a, e) in actual_body.iter().zip(expected_body.iter()) {
-                    assert_stmt_eq(a, e);
-                }
-
-                match (actual_else_block, expected_else_block) {
-                    (Some(actual), Some(expected)) => {
-                        assert_eq!(actual.len(), expected.len(), "Loop body length mismatch");
-                        for (a, e) in actual.iter().zip(expected.iter()) {
-                            assert_stmt_eq(a, e);
-                        }
-                    }
-                    (None, None) => {} // Both bodies are None—nothing to compare
-                    (None, Some(_)) | (Some(_), None) => {
-                        panic!("Loop body mismatch: one body is None while the other is Some");
-                    }
-                }
-            }
-
-            // Default case (compare only kinds, ignoring start_line)
-            _ => {
-                assert_eq!(actual.kind, expected.kind, "AST nodes do not match");
-            }
-        }
-    }
+    use crate::parser::test_utils::*;
 
     #[test]
     fn expression() {
@@ -2336,7 +1933,7 @@ def add(x, y):
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "lambda: (yield)";
-        let expected_ast = lambda!(params![], Expr::Yield(None));
+        let expected_ast = lambda!(params![], yield_expr!());
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -2344,7 +1941,7 @@ def add(x, y):
         let expected_ast = func_call!(
             "<anonymous_from_callee>",
             call_args![],
-            lambda!(params![], Expr::Yield(None))
+            lambda!(params![], yield_expr!())
         );
 
         assert_ast_eq!(input, expected_ast, Expr);
@@ -2399,9 +1996,9 @@ if (a
     pass
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: logic_op!(var!("a"), Or, var!("b")),
-                block: ast![stmt!(StatementKind::Pass)],
+                ast: ast![stmt!(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2497,24 +2094,18 @@ else:
     print("Less")
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt!(StatementKind::Expression(func_call!(
-                    "print",
-                    call_args![str!("Greater")]
-                )))],
+                ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
-            elif_parts: vec![ConditionalBlock {
+            elif_parts: vec![ConditionalAst {
                 condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
-                block: ast![stmt!(StatementKind::Expression(func_call!(
-                    "print",
-                    call_args![str!("Medium")]
-                )))],
+                ast: ast![stmt_expr!(func_call!("print", call_args![str!("Medium")]))],
             }],
-            else_part: Some(ast![stmt!(StatementKind::Expression(func_call!(
+            else_part: Some(ast![stmt_expr!(func_call!(
                 "print",
                 call_args![str!("Less")]
-            )))]),
+            ))]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2528,27 +2119,18 @@ elif x > -20:
     print("Less")
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt!(StatementKind::Expression(func_call!(
-                    "print",
-                    call_args![str!("Greater")]
-                )))],
+                ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
             elif_parts: vec![
-                ConditionalBlock {
+                ConditionalAst {
                     condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
-                    block: ast![stmt!(StatementKind::Expression(func_call!(
-                        "print",
-                        call_args![str!("Medium")]
-                    )))],
+                    ast: ast![stmt_expr!(func_call!("print", call_args![str!("Medium")]))],
                 },
-                ConditionalBlock {
+                ConditionalAst {
                     condition: bin_op!(var!("x"), GreaterThan, int!(-20)),
-                    block: ast![stmt!(StatementKind::Expression(func_call!(
-                        "print",
-                        call_args![str!("Less")]
-                    )))],
+                    ast: ast![stmt_expr!(func_call!("print", call_args![str!("Less")]))],
                 },
             ],
             else_part: None,
@@ -2561,12 +2143,9 @@ if x > 0:
     print("Greater")
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bin_op!(var!("x"), GreaterThan, int!(0)),
-                block: ast![stmt!(StatementKind::Expression(func_call!(
-                    "print",
-                    call_args![str!("Greater")]
-                )))],
+                ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2578,9 +2157,9 @@ if x > 0:
 if True: return False
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bool!(true),
-                block: ast![stmt_return![bool!(false)]],
+                ast: ast![stmt_return![bool!(false)]],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2595,13 +2174,13 @@ if (a == 1
     pass
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: logic_op!(
                     logic_op!(bin_op!(var!("a"), Equals, int!(1)), And, var!("b")),
                     And,
                     var!("c")
                 ),
-                block: ast![stmt!(StatementKind::Pass)],
+                ast: ast![stmt!(StatementKind::Pass)],
             },
             elif_parts: vec![],
             else_part: None,
@@ -2616,13 +2195,13 @@ if (a == 1
 while True:
     print(\"busy loop\")
 ";
-        let expected_ast = stmt!(StatementKind::WhileLoop {
+        let expected_ast = stmt!(StatementKind::WhileLoop(ConditionalAst {
             condition: bool!(true),
-            body: ast![stmt!(StatementKind::Expression(func_call!(
+            ast: ast![stmt_expr!(func_call!(
                 "print",
                 call_args![str!("busy loop")]
-            )))],
-        });
+            ))],
+        }));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2652,10 +2231,10 @@ class Foo:
                 stmt!(StatementKind::FunctionDef {
                     name: "bar".to_string(),
                     args: params![param!("self")],
-                    body: ast![stmt!(StatementKind::Expression(func_call!(
+                    body: ast![stmt_expr!(func_call!(
                         "print",
                         call_args![member_access!(var!("self"), "x")]
-                    )))],
+                    ))],
                     decorators: vec![],
                     is_async: false,
                 }),
@@ -2913,15 +2492,12 @@ from ..other.module import (something as imported_name,
     #[test]
     fn floating_point() {
         let input = "a = 3.14";
-        let expected_ast = stmt_assign!(var!("a"), Expr::FloatingPoint(3.14));
+        let expected_ast = stmt_assign!(var!("a"), float!(3.14));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "b = a + 2.5e-3";
-        let expected_ast = stmt_assign!(
-            var!("b"),
-            bin_op!(var!("a"), Add, Expr::FloatingPoint(2.5e-3))
-        );
+        let expected_ast = stmt_assign!(var!("b"), bin_op!(var!("a"), Add, float!(2.5e-3)));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2929,7 +2505,7 @@ from ..other.module import (something as imported_name,
     #[test]
     fn negative_numbers() {
         let input = "-3.14";
-        let expected_ast = Expr::FloatingPoint(-3.14);
+        let expected_ast = float!(-3.14);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -2944,7 +2520,7 @@ from ..other.module import (something as imported_name,
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "-2e-3";
-        let expected_ast = Expr::FloatingPoint(-2e-3);
+        let expected_ast = float!(-2e-3);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -3029,7 +2605,7 @@ a = [1,
     2,
     3
 }"#;
-        let expected_ast = stmt!(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
+        let expected_ast = stmt_expr!(set![int!(1), int!(2), int!(3),]);
 
         assert_ast_eq!(input, expected_ast);
 
@@ -3039,7 +2615,7 @@ a = [1,
     2,
     3,
 }"#;
-        let expected_ast = stmt!(StatementKind::Expression(set![int!(1), int!(2), int!(3),]));
+        let expected_ast = stmt_expr!(set![int!(1), int!(2), int!(3),]);
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3086,10 +2662,10 @@ tuple((1,
        2,
        3))
 "#;
-        let expected_ast = stmt!(StatementKind::Expression(func_call!(
+        let expected_ast = stmt_expr!(func_call!(
             "tuple",
             call_args![tuple![int!(1), int!(2), int!(3)]]
-        )));
+        ));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3133,10 +2709,7 @@ for i in a:
         let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Variable("i".into()),
             iterable: var!("a"),
-            body: ast![stmt!(StatementKind::Expression(func_call!(
-                "print",
-                call_args![var!("i")]
-            )))],
+            body: ast![stmt_expr!(func_call!("print", call_args![var!("i")]))],
             else_block: None,
         });
 
@@ -3149,10 +2722,7 @@ for k, v in a.items():
         let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
             iterable: method_call!(var!("a"), "items"),
-            body: ast![stmt!(StatementKind::Expression(func_call!(
-                "print",
-                call_args![var!("v")]
-            )))],
+            body: ast![stmt_expr!(func_call!("print", call_args![var!("v")]))],
             else_block: None,
         });
 
@@ -3197,15 +2767,13 @@ def countdown(n):
         let expected_ast = stmt!(StatementKind::FunctionDef {
             name: "countdown".to_string(),
             args: params![param!("n")],
-            body: ast![stmt!(StatementKind::WhileLoop {
+            body: ast![stmt!(StatementKind::WhileLoop(ConditionalAst {
                 condition: bin_op!(var!("n"), GreaterThan, int!(0)),
-                body: ast![
-                    stmt!(StatementKind::Expression(Expr::Yield(Some(Box::new(
-                        var!("n")
-                    ))))),
+                ast: ast![
+                    stmt_expr!(yield_expr!(var!("n"))),
                     stmt_assign!(var!("n"), bin_op!(var!("n"), Sub, int!(1))),
                 ],
-            })],
+            }))],
             decorators: vec![],
             is_async: false,
         });
@@ -3213,7 +2781,7 @@ def countdown(n):
         assert_ast_eq!(input, expected_ast);
 
         let input = "yield from a";
-        let expected_ast = Expr::YieldFrom(Box::new(var!("a")));
+        let expected_ast = yield_from!(var!("a"));
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -3398,11 +2966,7 @@ finally:
     a = 3
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
-            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
-                int!(4),
-                Div,
-                int!(0)
-            )))],
+            try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![],
                 alias: None,
@@ -3423,11 +2987,7 @@ finally:
     a = 3
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
-            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
-                int!(4),
-                Div,
-                int!(0)
-            )))],
+            try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
@@ -3446,11 +3006,7 @@ except (ZeroDivisionError, IOError) as e:
     a = 2
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
-            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
-                int!(4),
-                Div,
-                int!(0)
-            )))],
+            try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![
                     ExceptionLiteral::ZeroDivisionError,
@@ -3476,11 +3032,7 @@ finally:
     a = 3
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
-            try_block: ast![stmt!(StatementKind::Expression(bin_op!(
-                int!(4),
-                Div,
-                int!(0)
-            )))],
+            try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
                 alias: Some("e".into()),
@@ -3707,10 +3259,10 @@ deprecated("collections.abc.ByteString",
 "#;
         // TODO we have to use StatementKind::Expression here because it is on multiple lines, I
         // don't think this should technically be required
-        let expected_ast = stmt!(StatementKind::Expression(func_call!(
+        let expected_ast = stmt_expr!(func_call!(
             "deprecated",
             call_args![str!("collections.abc.ByteString")]
-        )));
+        ));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -4284,10 +3836,7 @@ def outer():
                     args: params![],
                     body: ast![
                         stmt_assign!(var!("b"), int!(3)),
-                        stmt!(StatementKind::Expression(func_call!(
-                            "print",
-                            call_args![var!("a")]
-                        ))),
+                        stmt_expr!(func_call!("print", call_args![var!("a")])),
                     ],
                     decorators: vec![],
                     is_async: false,
@@ -4439,9 +3988,9 @@ if True:
     a, b = b, a
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bool!(true),
-                block: ast![stmt!(StatementKind::UnpackingAssignment {
+                ast: ast![stmt!(StatementKind::UnpackingAssignment {
                     left: vec![var!("a"), var!("b")],
                     right: tuple![var!("b"), var!("a"),],
                 })],

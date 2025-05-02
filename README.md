@@ -33,12 +33,12 @@ Use `memphis` as if it were `python`/`python3` and provide the path to a Python 
 memphis examples/test.py
 
 # or run using the bytecode VM (WARNING: many features currently unsupported)
-MEMPHIS_ENGINE=vm memphis examples/test.py
+MEMPHIS_ENGINE=bytecode_vm memphis examples/test.py
 ```
 Or launch the REPL (requires a build with the `repl` feature flag).
 ```bash
 > memphis
-memphis 0.1.0 REPL (Type 'exit()' to quit)
+memphis 0.1.0 REPL (engine: treewalk) (Type 'exit()' to quit)
 >>>
 ```
 See [DEVELOPING.md](docs/DEVELOPING.md) for instructions on local development.

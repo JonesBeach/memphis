@@ -19,7 +19,9 @@ macro_rules! crosscheck_expect_error {
 
 macro_rules! assert_crosscheck_eq {
     ($session:expr, $name:expr, $expected:expr) => {{
-        let actual = $session.read($name).expect("Symbol not found");
+        let actual = $session
+            .read($name)
+            .expect(&format!("Variable not found: {}", $name));
         assert_eq!(actual, $expected);
     }};
 }
@@ -28,8 +30,15 @@ macro_rules! assert_crosscheck_return {
     ($src:expr, $expected:expr) => {{
         let mut session =
             $crate::crosscheck::CrosscheckSession::new($crate::domain::Source::from_text($src));
-        let actual = session.eval_expect_val();
-        assert_eq!(actual, $expected, "Return value did not match expected");
+        let (tw_val, vm_val) = session.eval();
+        assert_eq!(
+            tw_val, $expected,
+            "Treewalk return value did not match expected"
+        );
+        assert_eq!(
+            vm_val, $expected,
+            "Bytecode VM return value did not match expected"
+        );
     }};
 }
 

@@ -18,6 +18,7 @@ pub type Namespace = HashMap<String, Reference>;
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Reference {
     Int(i64),
+    Float(f64),
     Bool(bool),
     ObjectRef(ObjectTableIndex),
     ConstantRef(ConstantIndex),
@@ -26,16 +27,6 @@ pub enum Reference {
 impl Display for Reference {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "{:?}", self)
-    }
-}
-
-impl From<VmValue> for Reference {
-    fn from(value: VmValue) -> Self {
-        match value {
-            VmValue::Integer(i) => Reference::Int(i),
-            VmValue::Boolean(i) => Reference::Bool(i),
-            _ => unimplemented!(),
-        }
     }
 }
 

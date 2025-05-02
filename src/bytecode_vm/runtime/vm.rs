@@ -111,6 +111,10 @@ impl VirtualMachine {
         self.error(ExecutionErrorKind::NameError(name.to_string()))
     }
 
+    fn type_error(&self, msg: &str) -> ExecutionError {
+        self.error(ExecutionErrorKind::TypeError(Some(msg.to_string())))
+    }
+
     fn update_fn<F>(&mut self, index: ObjectTableIndex, function: F)
     where
         F: FnOnce(&mut VmValue),
@@ -121,7 +125,7 @@ impl VirtualMachine {
     }
 
     fn store_global(&mut self, index: NonlocalIndex, value: Reference) -> VmResult<()> {
-        let name = self.lookup_global_name(index)?;
+        let name = self.resolve_name(index)?;
         self.global_store.insert(name.to_string(), value);
         Ok(())
     }
@@ -136,17 +140,20 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn lookup_global_name(&self, index: NonlocalIndex) -> VmResult<&str> {
-        let current_frame = self.current_frame()?;
-        Ok(&current_frame.function.code_object.names[*index])
+    fn load_local(&self, index: LocalIndex) -> VmResult<Reference> {
+        Ok(self.current_frame()?.locals[*index])
     }
 
     fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
-        let name = self.lookup_global_name(index)?;
+        let name = self.resolve_name(index)?;
         self.global_store
             .get(name)
             .copied()
             .ok_or_else(|| self.name_error(name))
+    }
+
+    fn resolve_name(&self, index: NonlocalIndex) -> VmResult<&str> {
+        Ok(&self.current_frame()?.function.code_object.names[*index])
     }
 
     fn pop(&mut self) -> VmResult<Reference> {
@@ -228,6 +235,22 @@ impl VirtualMachine {
         self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
+    fn advance_pc(&mut self) -> VmResult<()> {
+        let frame = self.current_frame_mut()?;
+        frame.pc += 1;
+        Ok(())
+    }
+
+    fn jump_offset(&mut self, offset: isize) -> VmResult<()> {
+        let frame = self.current_frame_mut()?;
+        frame.pc = (frame.pc as isize + offset) as usize;
+        Ok(())
+    }
+
+    fn is_finished(&self) -> bool {
+        self.call_stack.is_empty()
+    }
+
     /// Extract primitives and resolve any references to a [`VmValue`]. A [`Cow`] is returned to make
     /// it difficult to accidentally mutate an object. All modifications should occur through VM
     /// instructions.
@@ -255,9 +278,9 @@ impl VirtualMachine {
 
     /// Primitives are stored inline on the stack, we create a reference to the global store for
     /// all other types.
-    fn create(&mut self, value: VmValue) -> Reference {
+    fn as_ref(&mut self, value: VmValue) -> Reference {
         match value {
-            VmValue::Integer(_) | VmValue::Boolean(_) => value.into(),
+            VmValue::Integer(_) | VmValue::Float(_) | VmValue::Boolean(_) => value.into_ref(),
             _ => {
                 let index = Index::new(self.object_table.len());
                 self.object_table.push(value);
@@ -266,12 +289,78 @@ impl VirtualMachine {
         }
     }
 
+    /// Pops and dereferences a value.
+    fn pop_value(&mut self) -> VmResult<VmValue> {
+        let reference = self.pop()?;
+        Ok(self.dereference(reference).into_owned())
+    }
+
+    /// Pops two dereferenced values.
+    fn pop_two(&mut self) -> VmResult<(VmValue, VmValue)> {
+        let b = self.pop_value()?;
+        let a = self.pop_value()?;
+        Ok((a, b))
+    }
+
+    fn binary_op<F>(&mut self, opcode: Opcode, op: F, force_float: bool) -> VmResult<()>
+    where
+        F: FnOnce(f64, f64) -> f64,
+    {
+        let (a, b) = self.pop_two()?;
+        let result = match opcode {
+            Opcode::Mul => match (&a, &b) {
+                (VmValue::String(s), VmValue::Integer(n))
+                | (VmValue::Integer(n), VmValue::String(s)) => {
+                    if *n < 0 {
+                        VmValue::String("".to_string())
+                    } else {
+                        VmValue::String(s.repeat(*n as usize))
+                    }
+                }
+                _ => self.binary_numeric_op(op, a, b, force_float)?,
+            },
+            _ => self.binary_numeric_op(op, a, b, force_float)?,
+        };
+
+        let reference = self.as_ref(result);
+        self.push(reference)?;
+        Ok(())
+    }
+
+    fn binary_numeric_op<F>(
+        &mut self,
+        op: F,
+        a: VmValue,
+        b: VmValue,
+        force_float: bool,
+    ) -> VmResult<VmValue>
+    where
+        F: FnOnce(f64, f64) -> f64,
+    {
+        let result = match (a, b) {
+            (VmValue::Integer(x), VmValue::Integer(y)) => {
+                let res = op(x as f64, y as f64);
+                if force_float {
+                    VmValue::Float(res)
+                } else {
+                    VmValue::Integer(res as i64)
+                }
+            }
+            (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(x, y)),
+            (VmValue::Integer(x), VmValue::Float(y)) => VmValue::Float(op(x as f64, y)),
+            (VmValue::Float(x), VmValue::Integer(y)) => VmValue::Float(op(x, y as f64)),
+            _ => return Err(self.type_error("Unsupported operand types for binary operation")),
+        };
+
+        Ok(result)
+    }
+
     pub fn run_loop(&mut self) -> VmResult<VmValue> {
         // If we call a function or something that requires us to enter a new frame, we do not want
         // to do so until the end of this loop.
         let mut deferred_frame: Option<Frame> = None;
 
-        while let Some(current_frame_index) = self.call_stack.len().checked_sub(1) {
+        while !self.is_finished() {
             let frame = self.current_frame()?;
             // Save this in case we encounter a runtime exception and need to record this info in
             // the stack trace
@@ -285,33 +374,26 @@ impl VirtualMachine {
             });
 
             match opcode {
-                Opcode::Iadd => {
-                    let reference = self.pop()?;
-                    let b = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let a = self.dereference(reference).as_integer();
-                    self.push(Reference::Int(a + b))?;
+                Opcode::Add => {
+                    self.binary_op(opcode, |a, b| a + b, false)
+                        .map_err(|_| self.type_error("Unsupported operand types for +"))?;
                 }
-                Opcode::Isub => {
-                    let reference = self.pop()?;
-                    let b = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let a = self.dereference(reference).as_integer();
-                    self.push(Reference::Int(a - b))?;
+                Opcode::Sub => {
+                    self.binary_op(opcode, |a, b| a - b, false)
+                        .map_err(|_| self.type_error("Unsupported operand types for -"))?;
                 }
-                Opcode::Imul => {
-                    let reference = self.pop()?;
-                    let b = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let a = self.dereference(reference).as_integer();
-                    self.push(Reference::Int(a * b))?;
+                Opcode::Mul => {
+                    self.binary_op(opcode, |a, b| a * b, false)
+                        .map_err(|_| self.type_error("Unsupported operand types for *"))?;
                 }
-                Opcode::Idiv => {
-                    let reference = self.pop()?;
-                    let b = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let a = self.dereference(reference).as_integer();
-                    self.push(Reference::Int(a / b))?;
+                Opcode::Div => {
+                    self.binary_op(opcode, |a, b| a / b, true)
+                        .map_err(|_| self.type_error("Unsupported operand types for /"))?;
+                }
+                Opcode::Eq => {
+                    let right = self.pop_value()?;
+                    let left = self.pop_value()?;
+                    self.push(Reference::Bool(left == right))?;
                 }
                 Opcode::LessThan => {
                     let reference = self.pop()?;
@@ -342,7 +424,8 @@ impl VirtualMachine {
                     let right = self.dereference(reference).as_integer();
                     self.push(Reference::Int(!right))?;
                 }
-                Opcode::Push(val) => self.push(Reference::Int(val))?,
+                Opcode::PushInt(val) => self.push(Reference::Int(val))?,
+                Opcode::PushFloat(val) => self.push(Reference::Float(val))?,
                 Opcode::LoadConst(index) => {
                     self.push(Reference::ConstantRef(index))?;
                 }
@@ -355,10 +438,8 @@ impl VirtualMachine {
                     self.store_global(index, reference)?;
                 }
                 Opcode::LoadFast(index) => {
-                    if let Some(frame) = self.call_stack.last() {
-                        let value = frame.locals[*index];
-                        self.push(value)?;
-                    }
+                    let reference = self.load_local(index)?;
+                    self.push(reference)?;
                 }
                 Opcode::LoadGlobal(index) => {
                     let reference = self.load_global(index)?;
@@ -368,18 +449,14 @@ impl VirtualMachine {
                     let reference = self.pop()?;
                     let object = self.dereference(reference);
 
-                    let name = self.call_stack[current_frame_index]
-                        .function
-                        .code_object
-                        .names[*index]
-                        .clone();
+                    let name = self.resolve_name(index)?;
                     let attr = object
                         .as_object()
-                        .read(&name, |reference| self.dereference(reference))
+                        .read(name, |reference| self.dereference(reference))
                         .unwrap();
                     let attr_val = self.dereference(attr);
                     let bound_attr = if let VmValue::Function(ref function) = *attr_val {
-                        self.create(VmValue::Method(Method::new(reference, function.clone())))
+                        self.as_ref(VmValue::Method(Method::new(reference, function.clone())))
                     } else {
                         attr
                     };
@@ -391,11 +468,7 @@ impl VirtualMachine {
                         todo!()
                     };
 
-                    let name = self.call_stack[current_frame_index]
-                        .function
-                        .code_object
-                        .names[*index]
-                        .clone();
+                    let name = self.resolve_name(index)?.to_owned();
                     self.update_fn(obj_index, |object_value| {
                         let VmValue::Object(object) = object_value else {
                             todo!()
@@ -404,21 +477,17 @@ impl VirtualMachine {
                     });
                 }
                 Opcode::LoadBuildClass => {
-                    let reference = self.create(VmValue::BuiltinFunction);
+                    let reference = self.as_ref(VmValue::BuiltinFunction);
                     self.push(reference)?;
                 }
                 Opcode::Jump(offset) => {
-                    let new_pc =
-                        (self.call_stack[current_frame_index].pc as isize + offset) as usize;
-                    self.call_stack[current_frame_index].pc = new_pc;
+                    self.jump_offset(offset)?;
                 }
                 Opcode::JumpIfFalse(offset) => {
                     let reference = self.pop()?;
                     let condition = self.dereference(reference).as_boolean();
                     if !condition {
-                        let new_pc =
-                            (self.call_stack[current_frame_index].pc as isize + offset) as usize;
-                        self.call_stack[current_frame_index].pc = new_pc;
+                        self.jump_offset(offset)?;
                     }
                 }
                 Opcode::PrintConst(index) => {
@@ -429,7 +498,7 @@ impl VirtualMachine {
                     let reference = self.pop()?;
                     let code = self.dereference(reference).as_code().clone();
                     let function = FunctionObject::new(code);
-                    let reference = self.create(VmValue::Function(function));
+                    let reference = self.as_ref(VmValue::Function(function));
                     self.push(reference)?;
                 }
                 Opcode::Call(argc) => {
@@ -450,7 +519,7 @@ impl VirtualMachine {
                         VmValue::Class(ref class) => {
                             let init_method = class.read(Dunder::Init);
                             let object = Object::new(reference);
-                            let reference = self.create(VmValue::Object(object));
+                            let reference = self.as_ref(VmValue::Object(object));
 
                             if let Some(init_method) = init_method {
                                 let init = self.dereference(init_method).as_function().clone();
@@ -481,7 +550,7 @@ impl VirtualMachine {
                     let return_value = self.pop()?;
 
                     // Exit the loop if there are no more frames
-                    if self.call_stack.is_empty() {
+                    if self.is_finished() {
                         break;
                     }
 
@@ -500,7 +569,7 @@ impl VirtualMachine {
 
                     let name = self.class_stack.pop().ok_or_else(|| self.runtime_error())?;
                     let class = Class::new(name.clone(), frame.namespace());
-                    let reference = self.create(VmValue::Class(class));
+                    let reference = self.as_ref(VmValue::Class(class));
 
                     self.push(reference)?;
                     continue;
@@ -512,7 +581,7 @@ impl VirtualMachine {
             }
 
             // Increment PC for all instructions.
-            self.call_stack[current_frame_index].pc += 1;
+            self.advance_pc()?;
 
             // Check if we need to enter a new function frame
             if let Some(frame) = deferred_frame.take() {
@@ -521,7 +590,7 @@ impl VirtualMachine {
             }
 
             // Handle functions that complete without explicit return
-            if self.call_stack[current_frame_index].is_finished() {
+            if self.current_frame()?.is_finished() {
                 self.exit_context()?;
             }
         }
@@ -557,7 +626,7 @@ f = Foo()
         let ctx = run(text);
         let objects: Vec<&VmValue> = ctx
             .interpreter()
-            .vm
+            .vm()
             .object_table
             .iter()
             .filter(|object| matches!(object, VmValue::Object(_)))
@@ -579,7 +648,7 @@ d = foo(2, 9)
         assert_read_eq!(ctx, "d", VmValue::Integer(20));
         let locals = &ctx
             .interpreter()
-            .vm
+            .vm()
             .current_frame()
             .expect("Failed to get locals")
             .locals;

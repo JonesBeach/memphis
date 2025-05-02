@@ -88,11 +88,11 @@ pub trait Pausable {
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<bool> {
         match &stmt.kind {
-            StatementKind::WhileLoop { body, condition } => {
-                if interpreter.evaluate_expr(condition)?.as_boolean() {
+            StatementKind::WhileLoop(cond_ast) => {
+                if interpreter.evaluate_expr(&cond_ast.condition)?.as_boolean() {
                     self.context_mut().push_context(PausableToken::new(
-                        Frame::new(body.clone()),
-                        PausableState::InWhileLoop(condition.clone()),
+                        Frame::new(cond_ast.ast.clone()),
+                        PausableState::InWhileLoop(cond_ast.condition.clone()),
                     ));
                 }
 
@@ -105,7 +105,7 @@ pub trait Pausable {
             } => {
                 if interpreter.evaluate_expr(&if_part.condition)?.as_boolean() {
                     self.context_mut().push_context(PausableToken::new(
-                        Frame::new(if_part.block.clone()),
+                        Frame::new(if_part.ast.clone()),
                         PausableState::InBlock,
                     ));
 
@@ -118,7 +118,7 @@ pub trait Pausable {
                         .as_boolean()
                     {
                         self.context_mut().push_context(PausableToken::new(
-                            Frame::new(elif_part.block.clone()),
+                            Frame::new(elif_part.ast.clone()),
                             PausableState::InBlock,
                         ));
 

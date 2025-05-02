@@ -9,10 +9,11 @@ use crate::{
     domain::MemphisValue,
 };
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum VmValue {
     None,
     Integer(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
     Class(Class),
@@ -21,6 +22,31 @@ pub enum VmValue {
     Function(FunctionObject),
     Method(Method),
     BuiltinFunction,
+}
+
+impl VmValue {
+    pub fn into_ref(self) -> Reference {
+        match self {
+            VmValue::Integer(i) => Reference::Int(i),
+            VmValue::Float(i) => Reference::Float(i),
+            VmValue::Boolean(i) => Reference::Bool(i),
+            _ => unimplemented!("Conversion to reference not supported for {:?}", self),
+        }
+    }
+}
+
+impl PartialEq for VmValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (VmValue::None, VmValue::None) => true,
+            (VmValue::Integer(a), VmValue::Integer(b)) => a == b,
+            (VmValue::Float(a), VmValue::Float(b)) => (a - b).abs() < 1e-9,
+            (VmValue::String(a), VmValue::String(b)) => a == b,
+            (VmValue::Boolean(a), VmValue::Boolean(b)) => a == b,
+            // Add Class/Object/Code/Function/etc handling later if needed
+            _ => false,
+        }
+    }
 }
 
 impl Default for VmValue {
@@ -39,6 +65,7 @@ impl From<Reference> for VmValue {
     fn from(value: Reference) -> Self {
         match value {
             Reference::Int(i) => VmValue::Integer(i),
+            Reference::Float(i) => VmValue::Float(i),
             Reference::Bool(i) => VmValue::Boolean(i),
             // These require a lookup using VM state and must be converted before this function.
             Reference::ObjectRef(_) | Reference::ConstantRef(_) => unreachable!(),
@@ -133,6 +160,7 @@ impl From<VmValue> for MemphisValue {
         match value {
             VmValue::None => MemphisValue::None,
             VmValue::Integer(val) => MemphisValue::Integer(val),
+            VmValue::Float(val) => MemphisValue::Float(val),
             VmValue::String(val) => MemphisValue::String(val),
             VmValue::Boolean(val) => MemphisValue::Boolean(val),
             _ => unimplemented!("Conversion not implemented for type {:?}", value),

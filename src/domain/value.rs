@@ -9,6 +9,7 @@ use crate::core::Voidable;
 pub enum MemphisValue {
     None,
     Integer(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
     List(Vec<MemphisValue>),
@@ -20,6 +21,7 @@ impl Display for MemphisValue {
         match self {
             MemphisValue::None => write!(f, "None"),
             MemphisValue::Integer(i) => write!(f, "{}", i),
+            MemphisValue::Float(i) => write!(f, "{}", i),
             MemphisValue::String(s) => write!(f, "{}", s),
             MemphisValue::Boolean(b) => write!(f, "{}", b),
             MemphisValue::List(i) => {

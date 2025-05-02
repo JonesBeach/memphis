@@ -1,7 +1,6 @@
 mod boxing;
 pub mod builtins;
 mod context;
-mod evaluators;
 mod execution_context;
 mod executor;
 #[allow(clippy::module_inception)]

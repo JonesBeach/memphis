@@ -46,12 +46,12 @@ impl TreewalkContext {
         } = self;
 
         let mut parser = Parser::new(lexer);
-        interpreter.run_treewalk(&mut parser)
+        interpreter.execute(&mut parser)
     }
 
     #[cfg(test)]
     pub fn read(&self, name: &str) -> Option<TreewalkValue> {
-        self.interpreter.read_treewalk(name)
+        self.interpreter.read_global(name)
     }
 
     #[cfg(test)]

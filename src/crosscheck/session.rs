@@ -33,12 +33,11 @@ impl CrosscheckSession {
     }
 
     /// Run both engines; confirm they return the same value, then return the value.
-    pub fn eval_expect_val(&mut self) -> MemphisValue {
+    pub fn eval(&mut self) -> (MemphisValue, MemphisValue) {
         let tw_val = self.treewalk.run().expect("Treewalk run failed.");
         let vm_val = self.vm.run().expect("VM run failed.");
 
-        assert_eq!(tw_val, vm_val, "Engines returned different values");
-        tw_val
+        (tw_val, vm_val)
     }
 
     /// Run both engines; confirm they return the same error, then return the error.

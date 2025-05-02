@@ -49,11 +49,11 @@ impl VmContext {
         } = self;
 
         let mut parser = Parser::new(lexer);
-        interpreter.run_vm(&mut parser)
+        interpreter.execute(&mut parser)
     }
 
     pub fn read(&mut self, name: &str) -> Option<VmValue> {
-        self.interpreter.read_vm(name)
+        self.interpreter.read_global(name)
     }
 
     pub fn interpreter(&self) -> &VmInterpreter {

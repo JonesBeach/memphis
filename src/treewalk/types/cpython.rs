@@ -424,7 +424,7 @@ pub mod utils {
         if let Ok(value) = py_obj.extract::<i64>() {
             TreewalkValue::Integer(value)
         } else if let Ok(value) = py_obj.extract::<f64>() {
-            TreewalkValue::FloatingPoint(value)
+            TreewalkValue::Float(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
             TreewalkValue::Str(Str::new(value.to_string()))
         } else if let Ok(py_tuple) = py_obj.extract::<Bound<PyTuple>>() {

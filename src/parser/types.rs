@@ -326,7 +326,7 @@ pub enum Expr {
     NotImplemented,
     Ellipsis,
     Integer(i64),
-    FloatingPoint(f64),
+    Float(f64),
     Boolean(bool),
     Variable(String),
     StringLiteral(String),
@@ -451,9 +451,9 @@ pub struct ExceptClause {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ConditionalBlock {
+pub struct ConditionalAst {
     pub condition: Expr,
-    pub block: Ast,
+    pub ast: Ast,
 }
 
 /// This represents one of the comma-separated values being imported. This is only used in
@@ -619,14 +619,11 @@ pub enum StatementKind {
     Nonlocal(Vec<Variable>),
     Global(Vec<Variable>),
     IfElse {
-        if_part: ConditionalBlock,
-        elif_parts: Vec<ConditionalBlock>,
+        if_part: ConditionalAst,
+        elif_parts: Vec<ConditionalAst>,
         else_part: Option<Ast>,
     },
-    WhileLoop {
-        condition: Expr,
-        body: Ast,
-    },
+    WhileLoop(ConditionalAst),
     ForInLoop {
         index: LoopIndex,
         iterable: Expr,
@@ -662,8 +659,8 @@ impl Statement {
             StatementKind::FunctionDef { body, .. } => {
                 body.accept(visitor);
             }
-            StatementKind::WhileLoop { body, .. } => {
-                body.accept(visitor);
+            StatementKind::WhileLoop(cond_ast) => {
+                cond_ast.ast.accept(visitor);
             }
             StatementKind::ForInLoop { body, .. } => {
                 body.accept(visitor);
@@ -676,9 +673,9 @@ impl Statement {
                 elif_parts,
                 else_part,
             } => {
-                if_part.block.accept(visitor);
+                if_part.ast.accept(visitor);
                 for part in elif_parts {
-                    part.block.accept(visitor);
+                    part.ast.accept(visitor);
                 }
 
                 if let Some(else_part) = else_part {

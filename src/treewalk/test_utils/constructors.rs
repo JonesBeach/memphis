@@ -18,7 +18,7 @@ macro_rules! int {
 
 macro_rules! float {
     ($val:expr) => {
-        crate::treewalk::TreewalkValue::FloatingPoint($val)
+        crate::treewalk::TreewalkValue::Float($val)
     };
 }
 

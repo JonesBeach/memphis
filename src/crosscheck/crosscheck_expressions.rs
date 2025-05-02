@@ -7,8 +7,11 @@ fn binary_expression() {
     let input = "2 + 2";
     assert_crosscheck_return!(input, MemphisValue::Integer(4));
 
+    let input = "2 + 2.1";
+    assert_crosscheck_return!(input, MemphisValue::Float(4.1));
+
     let input = "2 / 2";
-    assert_crosscheck_return!(input, MemphisValue::Integer(1));
+    assert_crosscheck_return!(input, MemphisValue::Float(1.0));
 
     let input = "4 < 5";
     assert_crosscheck_return!(input, MemphisValue::Boolean(true));
@@ -42,6 +45,4 @@ fn unary_expression() {
 
     let input = "~0b1101";
     assert_crosscheck_return!(input, MemphisValue::Integer(-14));
-
-    // TODO test unpacking here
 }

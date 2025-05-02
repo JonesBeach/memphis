@@ -10,7 +10,7 @@ use crate::{
     domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, MemphisValue},
     parser::{
         types::{
-            Ast, BinOp, CallArgs, CompoundOperator, ConditionalBlock, DictOperation, ExceptClause,
+            Ast, BinOp, CallArgs, CompoundOperator, ConditionalAst, DictOperation, ExceptClause,
             ExceptionInstance, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
             LoopIndex, Params, RegularImport, SliceParams, Statement, StatementKind, TypeNode,
             UnaryOp, Variable,
@@ -18,7 +18,6 @@ use crate::{
         Parser,
     },
     treewalk::{
-        evaluators,
         protocols::MemberRead,
         type_system::CloneableCallable,
         types::{
@@ -32,6 +31,9 @@ use crate::{
     types::errors::MemphisError,
 };
 
+mod errors;
+mod evaluators;
+
 #[derive(Clone)]
 pub struct TreewalkInterpreter {
     pub state: Container<TreewalkState>,
@@ -40,61 +42,6 @@ pub struct TreewalkInterpreter {
 impl TreewalkInterpreter {
     pub fn new(state: Container<TreewalkState>) -> Self {
         TreewalkInterpreter { state }
-    }
-
-    pub fn error(&self, error_kind: ExecutionErrorKind) -> TreewalkDisruption {
-        self.state.save_line_number();
-        TreewalkDisruption::Error(ExecutionError::new(
-            self.state.debug_call_stack(),
-            error_kind,
-        ))
-    }
-
-    pub fn type_error(&self, message: impl Into<String>) -> TreewalkDisruption {
-        self.type_error_optional_message(Some(message.into()))
-    }
-
-    pub fn type_error_optional_message(&self, message: Option<String>) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::TypeError(message))
-    }
-
-    pub fn value_error(&self, message: impl Into<String>) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::ValueError(message.into()))
-    }
-
-    pub fn key_error(&self, key: impl Into<String>) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::KeyError(key.into()))
-    }
-
-    pub fn name_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::NameError(name.into()))
-    }
-
-    pub fn import_error(&self, name: impl Into<String>) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::ImportError(name.into()))
-    }
-
-    pub fn runtime_error(&self) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::RuntimeError)
-    }
-
-    pub fn assertion_error(&self) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::AssertionError)
-    }
-
-    pub fn stop_iteration(&self) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::StopIteration)
-    }
-
-    pub fn attribute_error(
-        &self,
-        object: &TreewalkValue,
-        attr: impl Into<String>,
-    ) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::AttributeError(
-            object.get_class(self).borrow().name().to_string(),
-            attr.into(),
-        ))
     }
 
     pub fn with_executor<R>(&self, f: impl FnOnce(&mut Executor) -> R) -> R {
@@ -294,32 +241,53 @@ impl TreewalkInterpreter {
         op: &BinOp,
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
-        if matches!(op, BinOp::In) {
-            let mut iterable = right.expect_iterable(self)?;
-            return Ok(TreewalkValue::Boolean(iterable.any(|i| i == left)));
-        }
+        use BinOp::*;
 
-        if matches!(op, BinOp::NotIn) {
-            let mut iterable = right.expect_iterable(self)?;
-            return Ok(TreewalkValue::Boolean(!iterable.any(|i| i == left)));
-        }
+        match op {
+            In => {
+                let mut iterable = right.expect_iterable(self)?;
+                return Ok(TreewalkValue::Boolean(iterable.any(|i| i == left)));
+            }
+            NotIn => {
+                let mut iterable = right.expect_iterable(self)?;
+                return Ok(TreewalkValue::Boolean(!iterable.any(|i| i == left)));
+            }
+            Add => {
+                // List concatenation takes priority
+                if left.as_list().is_some() && right.as_list().is_some() {
+                    let left_list = left.expect_list(self)?;
+                    let right_list = right.expect_list(self)?;
+                    let l = left_list.borrow().clone();
+                    let r = right_list.borrow().clone();
+                    return Ok(TreewalkValue::List(Container::new(l + r)));
+                }
 
+                // Fall back to numeric addition
+                return self
+                    .evaluate_numeric_op(left, right, |a, b| a + b, false)
+                    .map_err(|_| self.type_error("Unsupported operand types for +"));
+            }
+            _ => {}
+        };
+
+        // These clauses are left over from before we did dynamic typing properly. These should
+        // eventually all be incorporated in the `match op` above.
         if left.is_integer() && right.is_integer() {
             let left = left.expect_integer(self)?;
             let right = right.expect_integer(self)?;
-            evaluators::evaluate_integer_operation(left, op, right, self)
+            self.evaluate_integer_operation(left, op, right)
         } else if left.is_fp() && right.is_fp() {
             let left = left.expect_fp(self)?;
             let right = right.expect_fp(self)?;
-            evaluators::evaluate_floating_point_operation(left, op, right, self)
+            self.evaluate_floating_point_operation(left, op, right)
         } else if left.as_list().is_some() && right.as_list().is_some() {
             let left = left.expect_list(self)?;
             let right = right.expect_list(self)?;
-            evaluators::evaluate_list_operation(left, op, right)
+            self.evaluate_list_operation(left, op, right)
         } else if left.as_set().is_some() && right.as_set().is_some() {
             let left = left.expect_set(self)?;
             let right = right.expect_set(self)?;
-            evaluators::evaluate_set_operation(left, op, right)
+            self.evaluate_set_operation(left, op, right)
         } else if left.as_object().is_some()
             && right.as_object().is_some()
             && Dunder::try_from(op).is_ok()
@@ -327,7 +295,7 @@ impl TreewalkInterpreter {
             let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
             self.invoke_method(&left, &dunder, args![right])
         } else {
-            evaluators::evaluate_object_comparison(left, op, right)
+            self.evaluate_object_comparison(left, op, right)
         }
     }
 
@@ -369,13 +337,13 @@ impl TreewalkInterpreter {
         Ok(TreewalkValue::Module(module))
     }
 
-    fn evaluate_unary_operation(
+    fn evaluate_unary_operation_outer(
         &self,
         op: &UnaryOp,
         right: &Expr,
     ) -> TreewalkResult<TreewalkValue> {
         let right = self.evaluate_expr(right)?;
-        evaluators::evaluate_unary_operation(op, right, self)
+        self.evaluate_unary_operation(op, right)
     }
 
     fn evaluate_ternary_operation(
@@ -399,7 +367,7 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<TreewalkValue> {
         let left = self.evaluate_expr(left)?.as_boolean();
         let right = self.evaluate_expr(right)?.as_boolean();
-        evaluators::evaluate_logical_op(left, op, right)
+        self.evaluate_logical_op(left, op, right)
     }
 
     fn evaluate_binary_operation(
@@ -844,20 +812,20 @@ impl TreewalkInterpreter {
     /// result early.
     fn evaluate_if_else(
         &self,
-        if_part: &ConditionalBlock,
-        elif_parts: &[ConditionalBlock],
+        if_part: &ConditionalAst,
+        elif_parts: &[ConditionalAst],
         else_part: &Option<Ast>,
     ) -> TreewalkResult<()> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
         if if_condition_result.as_boolean() {
-            self.evaluate_ast(&if_part.block)?;
+            self.evaluate_ast(&if_part.ast)?;
             return Ok(());
         }
 
         for elif_part in elif_parts {
             let elif_condition_result = self.evaluate_expr(&elif_part.condition)?;
             if elif_condition_result.as_boolean() {
-                self.evaluate_ast(&elif_part.block)?;
+                self.evaluate_ast(&elif_part.ast)?;
                 return Ok(());
             }
         }
@@ -870,9 +838,9 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn evaluate_while_loop(&self, condition: &Expr, body: &Ast) -> TreewalkResult<()> {
-        while self.evaluate_expr(condition)?.as_boolean() {
-            match self.evaluate_ast(body) {
+    fn evaluate_while_loop(&self, cond_ast: &ConditionalAst) -> TreewalkResult<()> {
+        while self.evaluate_expr(&cond_ast.condition)?.as_boolean() {
+            match self.evaluate_ast(&cond_ast.ast) {
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     break;
                 }
@@ -1238,7 +1206,7 @@ impl TreewalkInterpreter {
             Expr::Ellipsis => Ok(TreewalkValue::Ellipsis),
             Expr::NotImplemented => Ok(TreewalkValue::NotImplemented),
             Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
-            Expr::FloatingPoint(value) => Ok(TreewalkValue::FloatingPoint(*value)),
+            Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
@@ -1261,7 +1229,7 @@ impl TreewalkInterpreter {
                 key_body,
                 value_body,
             } => self.evaluate_dict_comprehension(clauses, key_body, value_body),
-            Expr::UnaryOperation { op, right } => self.evaluate_unary_operation(op, right),
+            Expr::UnaryOperation { op, right } => self.evaluate_unary_operation_outer(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
             }
@@ -1342,9 +1310,7 @@ impl TreewalkInterpreter {
                 elif_parts,
                 else_part,
             } => self.evaluate_if_else(if_part, elif_parts, else_part),
-            StatementKind::WhileLoop { condition, body } => {
-                self.evaluate_while_loop(condition, body)
-            }
+            StatementKind::WhileLoop(cond_ast) => self.evaluate_while_loop(cond_ast),
             StatementKind::ForInLoop {
                 index,
                 iterable: range,
@@ -1383,7 +1349,7 @@ impl TreewalkInterpreter {
         Ok(TreewalkValue::None)
     }
 
-    pub fn run_treewalk(&mut self, parser: &mut Parser) -> Result<TreewalkValue, MemphisError> {
+    pub fn execute(&mut self, parser: &mut Parser) -> Result<TreewalkValue, MemphisError> {
         let mut result = TreewalkValue::None;
         while !parser.is_finished() {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
@@ -1397,18 +1363,18 @@ impl TreewalkInterpreter {
         Ok(result)
     }
 
-    pub fn read_treewalk(&self, name: &str) -> Option<TreewalkValue> {
+    pub fn read_global(&self, name: &str) -> Option<TreewalkValue> {
         self.state.read(name)
     }
 }
 
 impl Interpreter for TreewalkInterpreter {
     fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
-        self.run_treewalk(parser).map(Into::into)
+        self.execute(parser).map(Into::into)
     }
 
     fn read(&mut self, name: &str) -> Option<MemphisValue> {
-        self.read_treewalk(name).map(Into::into)
+        self.read_global(name).map(Into::into)
     }
 }
 
@@ -1417,8 +1383,8 @@ mod tests {
     use crate::{
         domain::{test_utils::*, ExecutionErrorKind, Type},
         parser::{
-            test_utils::stmt,
-            types::{ast, Expr, Params, StatementKind},
+            test_utils::stmt_expr,
+            types::{ast, Expr, Params},
         },
         treewalk::{protocols::*, test_utils::*, types::Function, TreewalkValue},
     };
@@ -1427,7 +1393,6 @@ mod tests {
     fn undefined_variable() {
         let input = "x + 1";
         let e = eval_expect_error(input);
-
         assert_name_error!(e, "x");
     }
 
@@ -1435,17 +1400,32 @@ mod tests {
     fn division_by_zero() {
         let input = "1 / 0";
         let e = eval_expect_error(input);
-
-        assert_error_eq!(
-            e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string())
-        );
+        assert_div_by_zero_error!(e, "integer division or modulo by zero");
     }
 
     #[test]
     fn expression() {
         let input = "2 + 3 * (4 - 1)";
         assert_eval_eq!(input, int!(11));
+    }
+
+    #[test]
+    fn binary_addition() {
+        let input = "4 + 3";
+        assert_eval_eq!(input, int!(7));
+
+        let input = "4.1 + 3.01";
+        assert_eval_eq!(input, float!(7.11));
+
+        let input = "4 + 3.01";
+        assert_eval_eq!(input, float!(7.01));
+
+        let input = "4.1 + 3";
+        assert_eval_eq!(input, float!(7.1));
+
+        let input = "4.1 + 'a'";
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "Unsupported operand types for +");
     }
 
     #[test]
@@ -1458,10 +1438,7 @@ mod tests {
 
         let input = "5 // 0";
         let e = eval_expect_error(input);
-        assert_error_eq!(
-            e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".to_string())
-        );
+        assert_div_by_zero_error!(e, "integer division or modulo by zero");
     }
 
     #[test]
@@ -1684,17 +1661,11 @@ y = _f.__type_params__
         assert_read_eq!(ctx, "a", int!(5));
         let b = extract!(ctx, "b", Function).borrow().clone();
         let Function { ref body, .. } = b;
-        assert_eq!(
-            body,
-            &ast![stmt!(StatementKind::Expression(Expr::Integer(4)))]
-        );
+        assert_eq!(body, &ast![stmt_expr!(Expr::Integer(4))]);
         assert_read_eq!(ctx, "c", int!(4));
         let d = extract!(ctx, "d", Function).borrow().clone();
         let Function { ref body, .. } = d;
-        assert_eq!(
-            body,
-            &ast![stmt!(StatementKind::Expression(Expr::Yield(None)))]
-        );
+        assert_eq!(body, &ast![stmt_expr!(Expr::Yield(None))]);
         assert_variant!(ctx, "e", Generator);
         assert_type_eq!(ctx, "f", Type::Generator);
         assert_variant!(ctx, "h", Coroutine);
@@ -3158,7 +3129,7 @@ except:
 "#;
         let ctx = run(input);
 
-        assert_read_eq!(ctx, "a", int!(4));
+        assert_read_eq!(ctx, "a", float!(4.0));
 
         let input = r#"
 try:
@@ -3299,10 +3270,7 @@ except ValueError:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(
-            e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into())
-        );
+        assert_div_by_zero_error!(e, "integer division or modulo by zero");
 
         let input = r#"
 try:
@@ -3312,10 +3280,7 @@ except ZeroDivisionError:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(
-            e,
-            ExecutionErrorKind::DivisionByZero("integer division or modulo by zero".into())
-        );
+        assert_div_by_zero_error!(e, "integer division or modulo by zero");
     }
 
     #[test]
@@ -3722,11 +3687,11 @@ m = sys.modules['os.path']
         let ctx = run(input);
 
         assert_variant!(ctx, "a", Integer);
-        assert_variant!(ctx, "b", FloatingPoint);
+        assert_variant!(ctx, "b", Float);
         assert_variant!(ctx, "c", Str);
         assert_variant!(ctx, "d", Str);
         assert!(extract!(ctx, "a", Integer) > 0);
-        assert!(extract!(ctx, "b", FloatingPoint) > 1701281981.0);
+        assert!(extract!(ctx, "b", Float) > 1701281981.0);
         assert!(extract!(ctx, "c", Str).len() > 10);
         assert!(extract!(ctx, "d", Str).len() > 10);
         assert_variant!(ctx, "ref", CPythonObject);
@@ -3992,7 +3957,7 @@ a /= 2
 "#;
         let ctx = run(input);
 
-        assert_read_eq!(ctx, "a", int!(2));
+        assert_read_eq!(ctx, "a", float!(2.5));
 
         let input = r#"
 a = 0b0101

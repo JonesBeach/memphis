@@ -10,18 +10,19 @@
 |Variable assignment|✅|✅|
 |Comments|✅|✅|
 |REPL|✅|✅|
-|Error handling|✅||
-|Control flow statements|✅|🔄|
+|Error handling|✅|🔄|
+|Control flow statements|✅|✅|
 |Function defintion and function calls|✅|✅|
 |Class definition, instatiation, and method calls|✅|✅|
 |Lexical scoping|✅|🔄|
 |Module imports|✅||
-|Floating point|✅||
-|Negative numbers|✅||
+|Floating point|✅|✅|
+|Negative numbers|✅|✅|
 |Stack traces|✅|✅|
 |Lists (and list comprehension)|✅||
 |Sets (and set comprehension)|✅||
 |Dictionaries (and dict comprehension)|✅||
+|Iterables|✅||
 |Tuples|✅||
 |Ranges|✅||
 |Generator functions|✅||
@@ -37,6 +38,8 @@
 |Interface to Python stdlib written in C|✅||
 |Context managers|✅||
 |Compound assignment (`+=`) for integers|✅||
+|Unpacking assignment|✅||
+|Multiple assignment|✅||
 |f-strings (without escape characters)|✅||
 |Class variables, class methods, and static methods|✅||
 |Type hints (without enforcement)|✅||

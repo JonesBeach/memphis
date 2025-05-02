@@ -10,9 +10,12 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, ConditionalBlock, Expr, Params, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, ConditionalAst, Expr, Params, Statement, StatementKind, UnaryOp,
     },
 };
+
+type UnsignedOffset = usize;
+type SignedOffset = isize;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
@@ -71,9 +74,18 @@ impl Compiler {
         Ok(code)
     }
 
-    fn current_offset(&self) -> CompilerResult<usize> {
+    fn current_offset(&self) -> CompilerResult<UnsignedOffset> {
         let code = self.ensure_code_object()?;
         Ok(code.bytecode.len())
+    }
+
+    fn forward_offset_to(&self, to: UnsignedOffset) -> CompilerResult<SignedOffset> {
+        Ok(self.current_offset()? as isize - to as isize - 1)
+    }
+
+    // We must mark these as isize because we are doing subtraction with potential negative values
+    fn backward_offset_from(&self, from: UnsignedOffset) -> CompilerResult<SignedOffset> {
+        Ok(from as isize - self.current_offset()? as isize - 1)
     }
 
     fn emit(&mut self, opcode: Opcode) -> CompilerResult<()> {
@@ -86,13 +98,21 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_at(&mut self, offset: usize, opcode: Opcode) -> CompilerResult<()> {
+    fn emit_at(&mut self, offset: UnsignedOffset, opcode: Opcode) -> CompilerResult<()> {
         let code = self.ensure_code_object_mut()?;
         code.bytecode[offset] = opcode;
         Ok(())
     }
 
-    fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
+    /// Emit a `Placeholder` op and return its `UnsignedOffset`. This will later need to be updated
+    /// using `emit_at` once the final jump target is known.
+    fn emit_placeholder(&mut self) -> CompilerResult<UnsignedOffset> {
+        let placeholder = self.current_offset()?;
+        self.emit(Opcode::Placeholder)?;
+        Ok(placeholder)
+    }
+
+    pub fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
         self.line_number = stmt.start_line;
 
         match &stmt.kind {
@@ -100,9 +120,7 @@ impl Compiler {
             StatementKind::Expression(expr) => self.compile_expr(expr)?,
             StatementKind::Return(expr) => self.compile_return(expr)?,
             StatementKind::Assignment { left, right } => self.compile_assignment(left, right)?,
-            StatementKind::WhileLoop { condition, body } => {
-                self.compile_while_loop(condition, body)?
-            }
+            StatementKind::WhileLoop(cond_ast) => self.compile_while_loop(cond_ast)?,
             StatementKind::IfElse {
                 if_part,
                 elif_parts,
@@ -131,7 +149,8 @@ impl Compiler {
         match expr {
             Expr::None => self.compile_none(),
             Expr::Boolean(value) => self.compile_bool(*value),
-            Expr::Integer(value) => self.emit(Opcode::Push(*value)),
+            Expr::Integer(value) => self.emit(Opcode::PushInt(*value)),
+            Expr::Float(i) => self.emit(Opcode::PushFloat(*i)),
             Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
@@ -208,73 +227,79 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_while_loop(&mut self, condition: &Expr, body: &Ast) -> CompilerResult<()> {
+    /// Compiles a condition and block, returning the offset of the placeholder
+    /// that should later be patched with a `JumpIfFalse`.
+    fn compile_conditional_branch(
+        &mut self,
+        ast: &ConditionalAst,
+    ) -> CompilerResult<UnsignedOffset> {
+        self.compile_expr(&ast.condition)?;
+        let placeholder = self.emit_placeholder()?;
+        self.compile_ast(&ast.ast)?;
+        Ok(placeholder)
+    }
+
+    fn compile_while_loop(&mut self, cond_ast: &ConditionalAst) -> CompilerResult<()> {
         let condition_start = self.current_offset()?;
-        self.compile_expr(condition)?;
-
-        // Temporary offset, we will change this once we know the length of the loop body
-        let jump_if_false_placeholder = self.current_offset()?;
-        self.emit(Opcode::Placeholder)?;
-
-        self.compile_ast(body)?;
+        let post_condition_ph = self.compile_conditional_branch(cond_ast)?;
 
         // Unconditional jump back to the start of the condition
-        // We must mark these as isize because we are doing subtraction with potential overflow
-        let jump_back_offset = condition_start as isize - self.current_offset()? as isize - 1;
-        self.emit(Opcode::Jump(jump_back_offset))?;
+        let offset = self.backward_offset_from(condition_start)?;
+        self.emit(Opcode::Jump(offset))?;
 
         // Update the JUMP_IF_FALSE offset now that we know the length of the loop body
-        let jump_if_false_offset =
-            self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
-        self.emit_at(
-            jump_if_false_placeholder,
-            Opcode::JumpIfFalse(jump_if_false_offset),
-        )?;
+        let offset = self.forward_offset_to(post_condition_ph)?;
+        self.emit_at(post_condition_ph, Opcode::JumpIfFalse(offset))?;
 
         Ok(())
     }
 
     fn compile_if_else(
         &mut self,
-        if_part: &ConditionalBlock,
-        elif_parts: &[ConditionalBlock],
+        if_part: &ConditionalAst,
+        elif_parts: &[ConditionalAst],
         else_part: &Option<Ast>,
     ) -> CompilerResult<()> {
+        // This will collect placeholders for unconditional jumps at the end of each true branch
+        let mut end_jump_placeholders = vec![];
+
+        let mut post_condition_ph = self.compile_conditional_branch(if_part)?;
+
         if !elif_parts.is_empty() {
-            unreachable!("elif not yet supported in the bytecode VM.")
+            // Jump over any elifs/else if the condition was true
+            end_jump_placeholders.push(self.emit_placeholder()?);
         }
 
-        self.compile_expr(&if_part.condition)?;
+        // Compile each `elif`
+        for (i, elif) in elif_parts.iter().enumerate() {
+            // Patch the previous jump-if-false
+            let offset = self.forward_offset_to(post_condition_ph)?;
+            self.emit_at(post_condition_ph, Opcode::JumpIfFalse(offset))?;
 
-        // Temporary offset, we will change this once we know the length of the if condition body
-        let jump_if_false_placeholder = self.current_offset()?;
-        self.emit(Opcode::Placeholder)?;
+            // Compile this elif condition and block
+            let post_elif_condition_ph = self.compile_conditional_branch(elif)?;
 
-        self.compile_ast(&if_part.block)?;
+            // Only emit a jump if this is not the last elif or else
+            if i != elif_parts.len() - 1 || else_part.is_some() {
+                end_jump_placeholders.push(self.emit_placeholder()?);
+            }
 
+            // Update for next loop iteration
+            post_condition_ph = post_elif_condition_ph;
+        }
+
+        let offset = self.forward_offset_to(post_condition_ph)?;
+        self.emit_at(post_condition_ph, Opcode::JumpIfFalse(offset))?;
+
+        // Handle optional `else`
         if let Some(else_part) = else_part {
-            let jump_else_placeholder = self.current_offset()?;
-            self.emit(Opcode::Placeholder)?;
-
-            let jump_if_false_offset =
-                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
-            self.emit_at(
-                jump_if_false_placeholder,
-                Opcode::JumpIfFalse(jump_if_false_offset),
-            )?;
-
             self.compile_ast(else_part)?;
+        }
 
-            let jump_else_offset =
-                self.current_offset()? as isize - jump_else_placeholder as isize - 1;
-            self.emit_at(jump_else_placeholder, Opcode::Jump(jump_else_offset))?;
-        } else {
-            let jump_if_false_offset =
-                self.current_offset()? as isize - jump_if_false_placeholder as isize - 1;
-            self.emit_at(
-                jump_if_false_placeholder,
-                Opcode::JumpIfFalse(jump_if_false_offset),
-            )?;
+        // Patch all end-of-true-branch jumps
+        for placeholder in end_jump_placeholders {
+            let offset = self.forward_offset_to(placeholder)?;
+            self.emit_at(placeholder, Opcode::Jump(offset))?;
         }
 
         Ok(())
@@ -421,10 +446,11 @@ impl Compiler {
         self.compile_expr(right)?;
 
         let opcode = match op {
-            BinOp::Add => Opcode::Iadd,
-            BinOp::Sub => Opcode::Isub,
-            BinOp::Mul => Opcode::Imul,
-            BinOp::Div => Opcode::Idiv,
+            BinOp::Add => Opcode::Add,
+            BinOp::Sub => Opcode::Sub,
+            BinOp::Mul => Opcode::Mul,
+            BinOp::Div => Opcode::Div,
+            BinOp::Equals => Opcode::Eq,
             BinOp::LessThan => Opcode::LessThan,
             BinOp::GreaterThan => Opcode::GreaterThan,
             _ => unimplemented!(
@@ -580,27 +606,17 @@ mod tests_bytecode {
     use super::*;
 
     use crate::{
-        bytecode_vm::compiler::Bytecode,
+        bytecode_vm::compiler::{test_utils::*, Bytecode},
         parser::{test_utils::*, types::ast},
     };
 
-    fn init() -> Compiler {
-        Compiler::new(Source::default())
-    }
-
-    fn compile_expr(expr: Expr) -> Bytecode {
-        compile_stmt(stmt!(StatementKind::Expression(expr)))
-    }
-
-    fn compile_stmt(stmt: Statement) -> Bytecode {
-        let mut compiler = init();
-        compiler
-            .compile_stmt(&stmt)
-            .expect("Failed to compile test Statement!");
-        let code = compiler
-            .ensure_code_object()
-            .expect("Failed to fetch code object");
-        code.bytecode.clone()
+    impl Compiler {
+        pub fn bytecode(&self) -> Bytecode {
+            let code = self
+                .ensure_code_object()
+                .expect("Failed to fetch code object");
+            code.bytecode.clone()
+        }
     }
 
     #[test]
@@ -610,29 +626,64 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(4),
-                Opcode::Push(2),
-                Opcode::Push(3),
-                Opcode::Iadd,
-                Opcode::Imul,
+                Opcode::PushInt(4),
+                Opcode::PushInt(2),
+                Opcode::PushInt(3),
+                Opcode::Add,
+                Opcode::Mul,
             ]
         );
     }
 
     #[test]
     fn binary_operations() {
+        let expr = bin_op!(int!(4), Add, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Add,]
+        );
+
+        let expr = bin_op!(int!(4), Sub, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Sub,]
+        );
+
+        let expr = bin_op!(int!(4), Mul, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Mul,]
+        );
+
+        let expr = bin_op!(int!(4), Div, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Div,]
+        );
+
+        let expr = bin_op!(int!(4), Equals, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Eq,]
+        );
+
         let expr = bin_op!(int!(4), LessThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::Push(4), Opcode::Push(5), Opcode::LessThan,]
+            &[Opcode::PushInt(4), Opcode::PushInt(5), Opcode::LessThan,]
         );
 
         let expr = bin_op!(int!(4), GreaterThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::Push(4), Opcode::Push(5), Opcode::GreaterThan,]
+            &[Opcode::PushInt(4), Opcode::PushInt(5), Opcode::GreaterThan,]
         );
     }
 
@@ -640,11 +691,11 @@ mod tests_bytecode {
     fn unary_operations() {
         let expr = unary_op!(Minus, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryNegative]);
+        assert_eq!(bytecode, &[Opcode::PushInt(4), Opcode::UnaryNegative]);
 
         let expr = unary_op!(Plus, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::Push(4)]);
+        assert_eq!(bytecode, &[Opcode::PushInt(4)]);
 
         let expr = unary_op!(Not, Expr::Boolean(false));
         let bytecode = compile_expr(expr);
@@ -655,7 +706,7 @@ mod tests_bytecode {
 
         let expr = unary_op!(BitwiseNot, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::Push(4), Opcode::UnaryInvert]);
+        assert_eq!(bytecode, &[Opcode::PushInt(4), Opcode::UnaryInvert]);
     }
 
     #[test]
@@ -665,9 +716,9 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(5),
-                Opcode::Push(2),
-                Opcode::Isub,
+                Opcode::PushInt(5),
+                Opcode::PushInt(2),
+                Opcode::Sub,
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -697,9 +748,9 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(2),
+                Opcode::PushInt(2),
                 Opcode::LoadGlobal(Index::new(0)),
-                Opcode::Iadd,
+                Opcode::Add,
             ]
         );
     }
@@ -712,7 +763,7 @@ mod tests_bytecode {
             bytecode,
             &[
                 Opcode::LoadGlobal(Index::new(0)),
-                Opcode::Push(4),
+                Opcode::PushInt(4),
                 Opcode::SetAttr(Index::new(1))
             ]
         );
@@ -730,16 +781,16 @@ mod tests_bytecode {
 
     #[test]
     fn while_loop() {
-        let s = stmt!(StatementKind::WhileLoop {
+        let s = stmt!(StatementKind::WhileLoop(ConditionalAst {
             condition: bin_op!(int!(4), LessThan, int!(5)),
-            body: ast![],
-        });
+            ast: ast![],
+        }));
         let bytecode = compile_stmt(s);
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(4),
-                Opcode::Push(5),
+                Opcode::PushInt(4),
+                Opcode::PushInt(5),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(1),
                 Opcode::Jump(-5),
@@ -748,11 +799,11 @@ mod tests_bytecode {
     }
 
     #[test]
-    fn if_else() {
+    fn if_else_only_if() {
         let s = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bin_op!(int!(4), LessThan, int!(5)),
-                block: ast![stmt_assign!(var!("a"), int!(-1))],
+                ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![],
             else_part: None,
@@ -761,19 +812,22 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(4),
-                Opcode::Push(5),
+                Opcode::PushInt(4),
+                Opcode::PushInt(5),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(2),
-                Opcode::Push(-1),
+                Opcode::PushInt(-1),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
+    }
 
+    #[test]
+    fn if_else_with_else() {
         let s = stmt!(StatementKind::IfElse {
-            if_part: ConditionalBlock {
+            if_part: ConditionalAst {
                 condition: bin_op!(int!(4), LessThan, int!(5)),
-                block: ast![stmt_assign!(var!("a"), int!(-3))],
+                ast: ast![stmt_assign!(var!("a"), int!(-3))],
             },
             elif_parts: vec![],
             else_part: Some(ast![stmt_assign!(var!("a"), int!(3))]),
@@ -782,14 +836,88 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::Push(4),
-                Opcode::Push(5),
+                Opcode::PushInt(4),
+                Opcode::PushInt(5),
                 Opcode::LessThan,
-                Opcode::JumpIfFalse(3),
-                Opcode::Push(-3),
+                Opcode::JumpIfFalse(2),
+                Opcode::PushInt(-3),
                 Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Jump(2),
-                Opcode::Push(3),
+                Opcode::PushInt(3),
+                Opcode::StoreGlobal(Index::new(0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn if_else_with_elif() {
+        let s = stmt!(StatementKind::IfElse {
+            if_part: ConditionalAst {
+                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                ast: ast![stmt_assign!(var!("a"), int!(-1))],
+            },
+            elif_parts: vec![ConditionalAst {
+                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                ast: ast![stmt_assign!(var!("a"), int!(-2))],
+            }],
+            else_part: None,
+        });
+        let bytecode = compile_stmt(s);
+        assert_eq!(
+            bytecode,
+            &[
+                // if: 0-2
+                Opcode::PushInt(4),
+                Opcode::PushInt(5),
+                Opcode::GreaterThan,
+                Opcode::JumpIfFalse(3), // jump to elif condition
+                Opcode::PushInt(-1),
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::Jump(6), // skip rest
+                // elif: 7-9
+                Opcode::PushInt(4),
+                Opcode::PushInt(4),
+                Opcode::GreaterThan,
+                Opcode::JumpIfFalse(2), // jump past elif block if false
+                Opcode::PushInt(-2),
+                Opcode::StoreGlobal(Index::new(0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn if_else_with_elif_and_else() {
+        let s = stmt!(StatementKind::IfElse {
+            if_part: ConditionalAst {
+                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                ast: ast![stmt_assign!(var!("a"), int!(-1))],
+            },
+            elif_parts: vec![ConditionalAst {
+                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                ast: ast![stmt_assign!(var!("a"), int!(-2))],
+            }],
+            else_part: Some(ast![stmt_assign!(var!("a"), int!(3))]),
+        });
+        let bytecode = compile_stmt(s);
+        assert_eq!(
+            bytecode,
+            &[
+                // if: 0-2
+                Opcode::PushInt(4),
+                Opcode::PushInt(5),
+                Opcode::GreaterThan,
+                Opcode::JumpIfFalse(3), // jump to elif condition
+                Opcode::PushInt(-1),
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::Jump(9), // skip rest
+                // elif: 7-9
+                Opcode::PushInt(4),
+                Opcode::PushInt(4),
+                Opcode::GreaterThan,
+                Opcode::JumpIfFalse(3), // jump past elif block if false
+                Opcode::PushInt(-2),
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::Jump(2), // skip else
+                Opcode::PushInt(3),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -819,8 +947,8 @@ mod tests_bytecode {
             &[
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
-                Opcode::Push(99),
-                Opcode::Push(88),
+                Opcode::PushInt(99),
+                Opcode::PushInt(88),
                 Opcode::CallMethod(2),
             ]
         );
@@ -916,7 +1044,7 @@ def foo(a, b):
             bytecode: vec![
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::LoadFast(Index::new(1)),
-                Opcode::Iadd,
+                Opcode::Add,
             ],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into()],
@@ -957,7 +1085,7 @@ def foo(a, b):
 
         let fn_inner = CodeObject {
             name: Some("inner".into()),
-            bytecode: vec![Opcode::Push(10), Opcode::ReturnValue],
+            bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             names: vec![],
@@ -974,7 +1102,7 @@ def foo(a, b):
                 Opcode::StoreFast(Index::new(2)),
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::LoadFast(Index::new(1)),
-                Opcode::Iadd,
+                Opcode::Add,
             ],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into(), "inner".into()],
@@ -1013,7 +1141,7 @@ def foo():
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),
-            bytecode: vec![Opcode::Push(10), Opcode::StoreFast(Index::new(0))],
+            bytecode: vec![Opcode::PushInt(10), Opcode::StoreFast(Index::new(0))],
             arg_count: 0,
             varnames: vec!["c".into()],
             names: vec![],
@@ -1053,7 +1181,7 @@ def foo():
         let fn_foo = CodeObject {
             name: Some("foo".into()),
             bytecode: vec![
-                Opcode::Push(10),
+                Opcode::PushInt(10),
                 Opcode::StoreFast(Index::new(0)),
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::ReturnValue,
@@ -1158,7 +1286,7 @@ class Foo:
 
         let fn_bar = CodeObject {
             name: Some("bar".into()),
-            bytecode: vec![Opcode::Push(99), Opcode::ReturnValue],
+            bytecode: vec![Opcode::PushInt(99), Opcode::ReturnValue],
             arg_count: 1,
             varnames: vec!["self".into()],
             names: vec![],
@@ -1329,7 +1457,7 @@ a = foo()
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),
-            bytecode: vec![Opcode::Push(10), Opcode::ReturnValue],
+            bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             names: vec![],

@@ -44,11 +44,10 @@ pub fn read(context: &mut VmContext, name: &str) -> VmValue {
 
 pub fn read_attr(context: &mut VmContext, object: Object, attr: &str) -> VmValue {
     let interpreter = context.interpreter_mut();
-    interpreter.vm.take(
-        object
-            .read(attr.into(), |reference| {
-                interpreter.vm.dereference(reference)
-            })
-            .expect(&format!("Failed to read attr \"{}\" from object", attr)),
-    )
+    let attr_ref = object
+        .read(attr.into(), |reference| {
+            interpreter.vm().dereference(reference)
+        })
+        .expect(&format!("Failed to read attr \"{}\" from object", attr));
+    interpreter.vm_mut().take(attr_ref)
 }

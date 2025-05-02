@@ -6,16 +6,19 @@ pub type Bytecode = Vec<Opcode>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Opcode {
-    /// Treat the top two values on the stack as integers, add them together, and push their sum
-    /// back onto the stack.
-    Iadd,
-    /// Treat the top two values on the stack as integers, subtract them from each other, and push
-    /// their difference back onto the stack.
-    Isub,
-    /// Integer Multiply
-    Imul,
-    /// Integer Divide
-    Idiv,
+    /// Pop the top two values off the stack, perform dynamic type conversion,
+    /// and push their sum back onto the stack.
+    Add,
+    /// Pop the top two values off the stack, perform dynamic type conversion,
+    /// and push their difference back onto the stack.
+    Sub,
+    /// Pop the top two values off the stack, perform dynamic type conversion,
+    /// and push their product back onto the stack.
+    Mul,
+    /// Pop the top two values off the stack, perform dynamic type conversion,
+    /// and push their quotient back onto the stack. This is NOT integer division.
+    Div,
+    Eq,
     /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is less than the second value.
     LessThan,
@@ -29,7 +32,9 @@ pub enum Opcode {
     /// Implements STACK[-1] = ~STACK[-1].
     UnaryInvert,
     /// Push an integer value onto the stack. This is in preparation for another instruction.
-    Push(i64),
+    PushInt(i64),
+    /// Push a float value onto the stack. This is in preparation for another instruction.
+    PushFloat(f64),
     /// Write the top value of the stack into the local variable indicated by the specified index.
     StoreFast(LocalIndex),
     /// Write the top value of the stack into the global variable indicated by the specified index.
@@ -76,16 +81,18 @@ pub enum Opcode {
 impl Display for Opcode {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Opcode::Iadd => write!(f, "IADD"),
-            Opcode::Isub => write!(f, "ISUB"),
-            Opcode::Imul => write!(f, "IMUL"),
-            Opcode::Idiv => write!(f, "IDIV"),
+            Opcode::Add => write!(f, "ADD"),
+            Opcode::Sub => write!(f, "SUB"),
+            Opcode::Mul => write!(f, "MUL"),
+            Opcode::Div => write!(f, "DIV"),
+            Opcode::Eq => write!(f, "EQ"),
             Opcode::LessThan => write!(f, "LESS_THAN"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
             Opcode::UnaryInvert => write!(f, "UNARY_INVERT"),
-            Opcode::Push(i) => write!(f, "PUSH {}", i),
+            Opcode::PushInt(i) => write!(f, "PUSH_INT {}", i),
+            Opcode::PushFloat(i) => write!(f, "PUSH_FLOAT {}", i),
             Opcode::LoadConst(i) => write!(f, "LOAD_CONST {}", i),
             Opcode::StoreFast(i) => write!(f, "STORE_FAST {}", i),
             Opcode::StoreGlobal(i) => write!(f, "STORE_GLOBAL {}", i),
