@@ -33,7 +33,7 @@ impl VmInterpreter {
 
     pub fn read_global(&mut self, name: &str) -> Option<VmValue> {
         let reference = self.vm.load_global_by_name(name).ok()?;
-        Some(self.vm.take(reference))
+        Some(self.vm.dereference(reference).into_owned())
     }
 }
 

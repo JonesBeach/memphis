@@ -49,5 +49,5 @@ pub fn read_attr(context: &mut VmContext, object: Object, attr: &str) -> VmValue
             interpreter.vm().dereference(reference)
         })
         .expect(&format!("Failed to read attr \"{}\" from object", attr));
-    interpreter.vm_mut().take(attr_ref)
+    interpreter.vm_mut().dereference(attr_ref).into_owned()
 }

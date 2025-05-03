@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, mem};
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
     bytecode_vm::{
@@ -182,8 +182,8 @@ impl VirtualMachine {
 
     fn return_val(&mut self) -> VmValue {
         if let Some(frame) = self.call_stack.last() {
-            if let Some(value) = frame.locals.last() {
-                return self.take(*value);
+            if let Some(reference) = frame.locals.last() {
+                return self.dereference(*reference).into_owned();
             }
         }
 
@@ -250,19 +250,6 @@ impl VirtualMachine {
             Reference::ConstantRef(index) => Cow::Owned(self.read_constant(index).unwrap()),
             // convert primitives directly
             _ => Cow::Owned(reference.into()),
-        }
-    }
-
-    /// Convert a [`Reference`] to a [`VmValue`] taking full ownership. This will remove any objects
-    /// from the VM's management and should only be used at the end of execution (i.e. the final
-    /// return value, in tests, etc).
-    pub fn take(&mut self, reference: Reference) -> VmValue {
-        match reference {
-            Reference::ObjectRef(index) => {
-                mem::replace(&mut self.object_table[*index], VmValue::None)
-            }
-            Reference::ConstantRef(index) => self.read_constant(index).unwrap(),
-            _ => reference.into(),
         }
     }
 
@@ -445,6 +432,7 @@ impl VirtualMachine {
                         .read(name, |reference| self.dereference(reference))
                         .unwrap();
                     let attr_val = self.dereference(attr);
+
                     let bound_attr = if let VmValue::Function(ref function) = *attr_val {
                         self.as_ref(VmValue::Method(Method::new(reference, function.clone())))
                     } else {
