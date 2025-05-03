@@ -28,8 +28,7 @@ impl VmInterpreter {
     pub fn execute(&mut self, parser: &mut Parser) -> Result<VmValue, MemphisError> {
         let code = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", code));
-        self.vm.load(code);
-        self.vm.run_loop().map_err(MemphisError::Execution)
+        self.vm.execute(code).map_err(MemphisError::Execution)
     }
 
     pub fn read_global(&mut self, name: &str) -> Option<VmValue> {

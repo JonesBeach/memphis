@@ -52,7 +52,12 @@ impl VirtualMachine {
         }
     }
 
-    pub fn load(&mut self, code: CodeObject) {
+    pub fn execute(&mut self, code: CodeObject) -> VmResult<VmValue> {
+        self.load(code);
+        self.run_loop()
+    }
+
+    fn load(&mut self, code: CodeObject) {
         log(LogLevel::Debug, || format!("{}", code));
         let function = FunctionObject::new(code);
         let frame = Frame::new(function, vec![]);
@@ -340,7 +345,7 @@ impl VirtualMachine {
         Ok(result)
     }
 
-    pub fn run_loop(&mut self) -> VmResult<VmValue> {
+    fn run_loop(&mut self) -> VmResult<VmValue> {
         // If we call a function or something that requires us to enter a new frame, we do not want
         // to do so until the end of this loop.
         let mut deferred_frame: Option<Frame> = None;
