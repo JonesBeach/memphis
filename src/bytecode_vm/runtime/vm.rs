@@ -8,7 +8,7 @@ use crate::{
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
-    domain::{Dunder, ExecutionError, ExecutionErrorKind},
+    domain::Dunder,
     runtime::MemphisState,
 };
 
@@ -16,6 +16,8 @@ use super::{
     frame::Frame,
     types::{Class, FunctionObject, Method, Object, Reference},
 };
+
+mod errors;
 
 pub struct VirtualMachine {
     state: Container<MemphisState>,
@@ -96,23 +98,6 @@ impl VirtualMachine {
             .constants
             .get(*index)
             .map(|c| c.into())
-    }
-
-    fn error(&self, error_kind: ExecutionErrorKind) -> ExecutionError {
-        self.state.save_line_number();
-        ExecutionError::new(self.state.debug_call_stack(), error_kind)
-    }
-
-    fn runtime_error(&self) -> ExecutionError {
-        self.error(ExecutionErrorKind::RuntimeError)
-    }
-
-    fn name_error(&self, name: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::NameError(name.to_string()))
-    }
-
-    fn type_error(&self, msg: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::TypeError(Some(msg.to_string())))
     }
 
     fn update_fn<F>(&mut self, index: ObjectTableIndex, function: F)
