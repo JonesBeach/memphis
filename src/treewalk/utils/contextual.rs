@@ -11,7 +11,7 @@ use crate::{
         utils::{args, Args},
         TreewalkDisruption, TreewalkInterpreter, TreewalkValue,
     },
-    types::errors::MemphisError,
+    MemphisError,
 };
 
 /// A wrapper which includes a reference to an `Interpreter`.

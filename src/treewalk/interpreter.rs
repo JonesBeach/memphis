@@ -28,7 +28,7 @@ use crate::{
         Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
         TreewalkValue,
     },
-    types::errors::MemphisError,
+    MemphisError,
 };
 
 mod errors;

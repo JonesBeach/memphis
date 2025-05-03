@@ -10,8 +10,7 @@ use crossterm::{
 use crate::{
     core::Voidable,
     repl::{CrosstermIO, IncrementalContext, TerminalIO},
-    types::errors::MemphisError,
-    Engine,
+    Engine, MemphisError,
 };
 
 type ExitCode = i32;

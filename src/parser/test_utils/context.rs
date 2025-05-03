@@ -5,7 +5,7 @@ use crate::{
         types::{ast, Ast, ParseNode},
         Parser,
     },
-    types::errors::ParserError,
+    ParserError,
 };
 
 pub struct ParseContext {

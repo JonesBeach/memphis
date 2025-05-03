@@ -14,7 +14,7 @@ use crate::{
         },
         TokenBuffer,
     },
-    types::errors::ParserError,
+    ParserError,
 };
 
 /// A recursive-descent parser which attempts to encode the full Python grammar.

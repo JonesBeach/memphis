@@ -4,7 +4,7 @@ use crate::{
     domain::{MemphisValue, Source},
     parser::Parser,
     runtime::MemphisState,
-    types::errors::MemphisError,
+    MemphisError,
 };
 
 pub struct VmInterpreter {

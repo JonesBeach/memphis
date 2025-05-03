@@ -4,7 +4,7 @@ mod log;
 pub use container::Container;
 pub use log::{log, log_impure, LogLevel};
 
-use crate::{domain::MemphisValue, parser::Parser, types::errors::MemphisError};
+use crate::{domain::MemphisValue, parser::Parser, MemphisError};
 
 /// Return types which None are used internally, but should never be displayed to the developer.
 pub trait Voidable {

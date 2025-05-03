@@ -1,6 +1,4 @@
-use crate::{
-    domain::MemphisValue, domain::Source, types::errors::MemphisError, Engine, MemphisContext,
-};
+use crate::{domain::MemphisValue, domain::Source, Engine, MemphisContext, MemphisError};
 
 pub struct IncrementalContext {
     context: MemphisContext,

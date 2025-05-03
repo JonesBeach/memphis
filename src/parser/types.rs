@@ -688,7 +688,7 @@ impl Statement {
 }
 
 #[cfg(test)]
-use crate::{parser::Parser, types::errors::ParserError};
+use crate::{parser::Parser, ParserError};
 
 #[cfg(test)]
 pub trait ParseNode {

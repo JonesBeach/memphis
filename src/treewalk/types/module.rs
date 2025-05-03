@@ -13,7 +13,7 @@ use crate::{
         protocols::MemberRead, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
-    types::errors::MemphisError,
+    MemphisError,
 };
 
 #[derive(Debug, PartialEq, Clone, Default)]

@@ -6,8 +6,7 @@ use crate::{
     parser::Parser,
     runtime::MemphisState,
     treewalk::{TreewalkInterpreter, TreewalkState},
-    types::errors::MemphisError,
-    Engine,
+    Engine, MemphisError,
 };
 
 pub struct MemphisContext {

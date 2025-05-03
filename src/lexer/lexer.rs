@@ -7,7 +7,7 @@ use std::{
 use crate::{
     core::{log, LogLevel},
     domain::Source,
-    types::errors::LexerError,
+    LexerError,
 };
 
 use super::{MultilineString, Token};
