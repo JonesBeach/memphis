@@ -57,6 +57,11 @@ impl VirtualMachine {
         self.run_loop()
     }
 
+    pub fn read_global(&self, name: &str) -> Option<VmValue> {
+        let reference = self.load_global_by_name(name).ok()?;
+        Some(self.dereference(reference).into_owned())
+    }
+
     fn load(&mut self, code: CodeObject) {
         log(LogLevel::Debug, || format!("{}", code));
         let function = FunctionObject::new(code);
@@ -68,9 +73,7 @@ impl VirtualMachine {
         self.call_stack.push(frame);
     }
 
-    // this should only be used by the tests and/or after the VM has run. we should probably move
-    // this somewhere else.
-    pub fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
+    fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
         let current_frame = self.current_frame()?;
         let index = find_index(&current_frame.function.code_object.names, name)
             .map(Index::new)
@@ -272,18 +275,12 @@ impl VirtualMachine {
         Ok(self.dereference(reference).into_owned())
     }
 
-    /// Pops two dereferenced values.
-    fn pop_two(&mut self) -> VmResult<(VmValue, VmValue)> {
-        let b = self.pop_value()?;
-        let a = self.pop_value()?;
-        Ok((a, b))
-    }
-
     fn binary_op<F>(&mut self, opcode: Opcode, op: F, force_float: bool) -> VmResult<()>
     where
         F: FnOnce(f64, f64) -> f64,
     {
-        let (a, b) = self.pop_two()?;
+        let b = self.pop_value()?;
+        let a = self.pop_value()?;
         let result = match opcode {
             Opcode::Mul => match (&a, &b) {
                 (VmValue::String(s), VmValue::Integer(n))
