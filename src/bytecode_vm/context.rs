@@ -1,10 +1,10 @@
 use crate::{
     bytecode_vm::{compiler::CodeObject, VmInterpreter, VmValue},
     domain::Source,
+    errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
-    MemphisError,
 };
 
 pub struct VmContext {
@@ -33,7 +33,7 @@ impl VmContext {
             .expect("Failed to add line to lexer");
     }
 
-    pub fn compile(&mut self) -> Result<CodeObject, MemphisError> {
+    pub fn compile(&mut self) -> MemphisResult<CodeObject> {
         let VmContext {
             lexer, interpreter, ..
         } = self;
@@ -42,7 +42,7 @@ impl VmContext {
         interpreter.compile(&mut parser)
     }
 
-    pub fn run(&mut self) -> Result<VmValue, MemphisError> {
+    pub fn run(&mut self) -> MemphisResult<VmValue> {
         // Destructure to break the borrow into disjoint pieces
         let VmContext {
             lexer, interpreter, ..

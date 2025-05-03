@@ -2,6 +2,8 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{bytecode_vm::CompilerError, domain::ExecutionError, lexer::Token};
 
+pub type MemphisResult<T> = Result<T, MemphisError>;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum MemphisError {
     Parser(ParserError),

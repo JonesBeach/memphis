@@ -1,11 +1,11 @@
 use crate::{
     domain::Source,
+    errors::ParserError,
     lexer::Lexer,
     parser::{
         types::{ast, Ast, ParseNode},
         Parser,
     },
-    ParserError,
 };
 
 pub struct ParseContext {

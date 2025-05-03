@@ -20,5 +20,4 @@ mod wasm;
 
 pub use context::MemphisContext;
 pub use engine::Engine;
-pub use errors::{LexerError, MemphisError, ParserError};
 pub use memphis::Memphis;

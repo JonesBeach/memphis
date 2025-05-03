@@ -2,9 +2,9 @@ use crate::{
     bytecode_vm::{compiler::CodeObject, Compiler, VirtualMachine, VmValue},
     core::{log, Container, Interpreter, LogLevel},
     domain::{MemphisValue, Source},
+    errors::{MemphisError, MemphisResult},
     parser::Parser,
     runtime::MemphisState,
-    MemphisError,
 };
 
 pub struct VmInterpreter {
@@ -20,12 +20,12 @@ impl VmInterpreter {
         }
     }
 
-    pub fn compile(&mut self, parser: &mut Parser) -> Result<CodeObject, MemphisError> {
+    pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
 
-    pub fn execute(&mut self, parser: &mut Parser) -> Result<VmValue, MemphisError> {
+    pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<VmValue> {
         let code = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", code));
         self.vm.execute(code).map_err(MemphisError::Execution)
@@ -55,7 +55,7 @@ impl Default for VmInterpreter {
 }
 
 impl Interpreter for VmInterpreter {
-    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
+    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue> {
         self.execute(parser).map(Into::into)
     }
 

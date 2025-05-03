@@ -1,4 +1,4 @@
-use crate::{domain::MemphisValue, domain::Source, Engine, MemphisContext, MemphisError};
+use crate::{domain::MemphisValue, domain::Source, errors::MemphisResult, Engine, MemphisContext};
 
 pub struct IncrementalContext {
     context: MemphisContext,
@@ -18,7 +18,7 @@ impl IncrementalContext {
             .expect("Failed to add line to lexer");
     }
 
-    pub fn run(&mut self) -> Result<MemphisValue, MemphisError> {
+    pub fn run(&mut self) -> MemphisResult<MemphisValue> {
         self.context.run()
     }
 }

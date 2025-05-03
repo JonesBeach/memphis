@@ -2,11 +2,12 @@ use crate::{
     bytecode_vm::VmInterpreter,
     core::Interpreter,
     domain::{MemphisValue, Source},
+    errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
     treewalk::{TreewalkInterpreter, TreewalkState},
-    Engine, MemphisError,
+    Engine,
 };
 
 pub struct MemphisContext {
@@ -29,7 +30,7 @@ impl MemphisContext {
         Self { lexer, interpreter }
     }
 
-    pub fn run(&mut self) -> Result<MemphisValue, MemphisError> {
+    pub fn run(&mut self) -> MemphisResult<MemphisValue> {
         // Destructure to break the borrow into disjoint pieces
         let MemphisContext {
             lexer, interpreter, ..

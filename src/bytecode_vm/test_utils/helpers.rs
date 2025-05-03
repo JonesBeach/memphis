@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{runtime::Object, VmContext, VmValue},
     domain::{ExecutionError, Source},
-    MemphisError,
+    errors::MemphisError,
 };
 
 pub fn init(text: &str) -> VmContext {
