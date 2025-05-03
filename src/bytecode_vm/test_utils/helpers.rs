@@ -1,5 +1,5 @@
 use crate::{
-    bytecode_vm::{runtime::Object, VmContext, VmValue},
+    bytecode_vm::{VmContext, VmValue},
     domain::{ExecutionError, Source},
     errors::MemphisError,
 };
@@ -42,12 +42,12 @@ pub fn read(context: &mut VmContext, name: &str) -> VmValue {
     context.read(name).expect("Failed to read variable.")
 }
 
-pub fn read_attr(context: &mut VmContext, object: Object, attr: &str) -> VmValue {
-    let interpreter = context.interpreter_mut();
-    let attr_ref = object
-        .read(attr.into(), |reference| {
-            interpreter.vm().dereference(reference)
-        })
-        .expect(&format!("Failed to read attr \"{}\" from object", attr));
-    interpreter.vm_mut().dereference(attr_ref).into_owned()
+pub fn read_attr(context: &mut VmContext, name: &str, attr: &str) -> VmValue {
+    let object = read(context, name);
+    let interpreter = context.interpreter();
+    let reference = interpreter
+        .vm()
+        .resolve_raw_attr(&object, attr)
+        .expect("Failed to resolve");
+    interpreter.vm().get_owned(reference)
 }

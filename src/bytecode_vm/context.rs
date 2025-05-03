@@ -59,8 +59,4 @@ impl VmContext {
     pub fn interpreter(&self) -> &VmInterpreter {
         &self.interpreter
     }
-
-    pub fn interpreter_mut(&mut self) -> &mut VmInterpreter {
-        &mut self.interpreter
-    }
 }

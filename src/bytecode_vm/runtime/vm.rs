@@ -62,7 +62,7 @@ impl VirtualMachine {
         Some(self.get_owned(reference))
     }
 
-    fn get_owned(&self, reference: Reference) -> VmValue {
+    pub fn get_owned(&self, reference: Reference) -> VmValue {
         self.dereference(reference).into_owned()
     }
 
@@ -248,6 +248,33 @@ impl VirtualMachine {
             _ => Cow::Owned(reference.into()),
         }
     }
+
+    /// Resolves an attribute without applying method binding (used in tests or low-level access).
+    #[cfg(test)]
+    pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> VmResult<Reference> {
+        object
+            .as_object()
+            .read(name, |r| self.dereference(r))
+            .ok_or_else(|| self.attribute_error(name))
+    }
+
+    // /// Resolves an attribute and applies method binding if it is a function.
+    // pub fn resolve_attr(
+    //     &mut self,
+    //     object: &VmValue,
+    //     name: &str,
+    //     owner_ref: Reference,
+    // ) -> VmResult<Reference> {
+    //     let attr_ref = self.resolve_raw_attr(object, name)?;
+    //     let attr_val = self.dereference(attr_ref);
+    //
+    //     let bound = match &*attr_val {
+    //         VmValue::Function(f) => self.as_ref(VmValue::Method(Method::new(owner_ref, f.clone()))),
+    //         _ => attr_ref,
+    //     };
+    //
+    //     Ok(bound)
+    // }
 
     /// Primitives are stored inline on the stack, we create a reference to the global store for
     /// all other types.

@@ -41,10 +41,6 @@ impl VmInterpreter {
     pub fn vm(&self) -> &VirtualMachine {
         &self.vm
     }
-
-    pub fn vm_mut(&mut self) -> &mut VirtualMachine {
-        &mut self.vm
-    }
 }
 
 impl Default for VmInterpreter {
