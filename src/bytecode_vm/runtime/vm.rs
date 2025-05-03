@@ -71,14 +71,14 @@ impl VirtualMachine {
         self.load_global(index)
     }
 
-    pub fn current_frame_index(&self) -> VmResult<usize> {
+    fn current_frame_index(&self) -> VmResult<usize> {
         self.call_stack
             .len()
             .checked_sub(1)
             .ok_or_else(|| self.runtime_error())
     }
 
-    pub fn current_frame(&self) -> VmResult<&Frame> {
+    fn current_frame(&self) -> VmResult<&Frame> {
         let index = self.current_frame_index()?;
         Ok(&self.call_stack[index])
     }
@@ -88,7 +88,7 @@ impl VirtualMachine {
         Ok(&mut self.call_stack[index])
     }
 
-    pub fn read_constant(&self, index: ConstantIndex) -> Option<VmValue> {
+    fn read_constant(&self, index: ConstantIndex) -> Option<VmValue> {
         self.current_frame()
             .ok()?
             .function
