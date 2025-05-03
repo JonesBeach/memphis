@@ -59,18 +59,11 @@ impl VirtualMachine {
 
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
         let reference = self.load_global_by_name(name).ok()?;
-        Some(self.dereference(reference).into_owned())
+        Some(self.get_owned(reference))
     }
 
-    fn load(&mut self, code: CodeObject) {
-        log(LogLevel::Debug, || format!("{}", code));
-        let function = FunctionObject::new(code);
-        let frame = Frame::new(function, vec![]);
-
-        // We used to do this, but we no longer need to because the MemphisState handles it (kind
-        // of)
-        // self.enter_context(frame);
-        self.call_stack.push(frame);
+    fn get_owned(&self, reference: Reference) -> VmValue {
+        self.dereference(reference).into_owned()
     }
 
     fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
@@ -186,7 +179,7 @@ impl VirtualMachine {
     fn return_val(&mut self) -> VmValue {
         if let Some(frame) = self.call_stack.last() {
             if let Some(reference) = frame.locals.last() {
-                return self.dereference(*reference).into_owned();
+                return self.get_owned(*reference);
             }
         }
 
@@ -272,7 +265,7 @@ impl VirtualMachine {
     /// Pops and dereferences a value.
     fn pop_value(&mut self) -> VmResult<VmValue> {
         let reference = self.pop()?;
-        Ok(self.dereference(reference).into_owned())
+        Ok(self.get_owned(reference))
     }
 
     fn binary_op<F>(&mut self, opcode: Opcode, op: F, force_float: bool) -> VmResult<()>
@@ -571,6 +564,17 @@ impl VirtualMachine {
         }
 
         Ok(self.return_val())
+    }
+
+    fn load(&mut self, code: CodeObject) {
+        log(LogLevel::Debug, || format!("{}", code));
+        let function = FunctionObject::new(code);
+        let frame = Frame::new(function, vec![]);
+
+        // We used to do this, but we no longer need to because the MemphisState handles it (kind
+        // of)
+        // self.enter_context(frame);
+        self.call_stack.push(frame);
     }
 }
 
