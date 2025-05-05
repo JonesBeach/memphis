@@ -20,7 +20,6 @@ impl VirtualMachine {
         self.error(ExecutionErrorKind::TypeError(Some(msg.to_string())))
     }
 
-    #[cfg(test)]
     pub fn attribute_error(&self, attr: &str) -> ExecutionError {
         self.error(ExecutionErrorKind::AttributeError(
             "<TODO obj>".to_string(),

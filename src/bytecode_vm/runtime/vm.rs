@@ -250,7 +250,6 @@ impl VirtualMachine {
     }
 
     /// Resolves an attribute without applying method binding (used in tests or low-level access).
-    #[cfg(test)]
     pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> VmResult<Reference> {
         object
             .as_object()
@@ -263,7 +262,6 @@ impl VirtualMachine {
     //     &mut self,
     //     object: &VmValue,
     //     name: &str,
-    //     owner_ref: Reference,
     // ) -> VmResult<Reference> {
     //     let attr_ref = self.resolve_raw_attr(object, name)?;
     //     let attr_val = self.dereference(attr_ref);
@@ -444,16 +442,16 @@ impl VirtualMachine {
                     let object = self.dereference(reference);
 
                     let name = self.resolve_name(index)?;
-                    let attr = object
-                        .as_object()
-                        .read(name, |reference| self.dereference(reference))
-                        .unwrap();
-                    let attr_val = self.dereference(attr);
+
+                    // let bound_attr = self.resolve_attr(&object, name)?;
+
+                    let attr_ref = self.resolve_raw_attr(&object, name)?;
+                    let attr_val = self.dereference(attr_ref);
 
                     let bound_attr = if let VmValue::Function(ref function) = *attr_val {
                         self.as_ref(VmValue::Method(Method::new(reference, function.clone())))
                     } else {
-                        attr
+                        attr_ref
                     };
                     self.push(bound_attr)?;
                 }
