@@ -204,6 +204,27 @@ mod tests_vm_interpreter {
     fn comparison_less_than() {
         let text = "4 < 5";
         assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
     }
 
     #[test]
