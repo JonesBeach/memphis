@@ -143,47 +143,47 @@ impl VirtualMachine {
     }
 
     fn pop(&mut self) -> VmResult<Reference> {
-        if let Some(frame) = self.call_stack.last_mut() {
-            if let Some(value) = frame.locals.pop() {
-                log_impure(LogLevel::Trace, || {
-                    if let Some(frame) = self.call_stack.last() {
-                        println!("After pop:");
-                        for (index, local) in frame.locals.iter().rev().enumerate() {
-                            println!("{}: {}", index, local);
-                        }
-                    }
-                });
-                return Ok(value);
-            }
+        let frame = self.current_frame_mut()?;
+
+        if let Some(value) = frame.locals.pop() {
+            log_impure(LogLevel::Trace, || {
+                println!("After pop:");
+                let frame = self.current_frame().expect("No frame!");
+                for (index, local) in frame.locals.iter().rev().enumerate() {
+                    println!("{}: {}", index, local);
+                }
+            });
+            return Ok(value);
         }
 
         Err(self.runtime_error())
     }
 
     fn push(&mut self, value: Reference) -> VmResult<()> {
-        if let Some(frame) = self.call_stack.last_mut() {
-            frame.locals.push(value);
-        }
+        let frame = self.current_frame_mut()?;
+        frame.locals.push(value);
+
         log_impure(LogLevel::Trace, || {
-            if let Some(frame) = self.call_stack.last() {
-                println!("After push:");
-                for (index, local) in frame.locals.iter().rev().enumerate() {
-                    println!("{}: {}", index, local);
-                }
+            println!("After push:");
+            let frame = self.current_frame().expect("No frame!");
+            for (index, local) in frame.locals.iter().rev().enumerate() {
+                println!("{}: {}", index, local);
             }
         });
 
         Ok(())
     }
 
-    fn return_val(&mut self) -> VmValue {
-        if let Some(frame) = self.call_stack.last() {
-            if let Some(reference) = frame.locals.last() {
-                return self.get_owned(*reference);
-            }
-        }
+    fn return_val(&mut self) -> VmResult<VmValue> {
+        let frame = self.current_frame()?;
 
-        VmValue::None
+        let value = if let Some(reference) = frame.locals.last() {
+            self.get_owned(*reference)
+        } else {
+            VmValue::None
+        };
+
+        Ok(value)
     }
 
     /// This is intended to be functionally equivalent to `__build_class__` in CPython.
@@ -318,10 +318,10 @@ impl VirtualMachine {
             if let Some(result) = Self::try_string_multiplication(&a, &b) {
                 result
             } else {
-                self.binary_numeric_op(op, a, b, force_float)?
+                self.binary_numeric_op(op, &a, &b, force_float)?
             }
         } else {
-            self.binary_numeric_op(op, a, b, force_float)?
+            self.binary_numeric_op(op, &a, &b, force_float)?
         };
 
         let reference = self.as_ref(result);
@@ -344,8 +344,8 @@ impl VirtualMachine {
     fn binary_numeric_op<F>(
         &mut self,
         op: F,
-        a: VmValue,
-        b: VmValue,
+        a: &VmValue,
+        b: &VmValue,
         force_float: bool,
     ) -> VmResult<VmValue>
     where
@@ -353,33 +353,33 @@ impl VirtualMachine {
     {
         let result = match (a, b) {
             (VmValue::Integer(x), VmValue::Integer(y)) => {
-                let res = op(x as f64, y as f64);
+                let res = op(*x as f64, *y as f64);
                 if force_float {
                     VmValue::Float(res)
                 } else {
                     VmValue::Integer(res as i64)
                 }
             }
-            (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(x, y)),
-            (VmValue::Integer(x), VmValue::Float(y)) => VmValue::Float(op(x as f64, y)),
-            (VmValue::Float(x), VmValue::Integer(y)) => VmValue::Float(op(x, y as f64)),
+            (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(*x, *y)),
+            (VmValue::Integer(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
+            (VmValue::Float(x), VmValue::Integer(y)) => VmValue::Float(op(*x, *y as f64)),
             _ => return Err(self.type_error("Unsupported operand types for binary operation")),
         };
 
         Ok(result)
     }
 
-    fn dynamic_cmp<F>(&self, a: &VmValue, b: &VmValue, cmp: F) -> VmResult<VmValue>
+    fn dynamic_cmp<F>(&self, a: &VmValue, b: &VmValue, op: F) -> VmResult<VmValue>
     where
         F: FnOnce(f64, f64) -> bool,
     {
         match (a, b) {
             (VmValue::Integer(x), VmValue::Integer(y)) => {
-                Ok(VmValue::Boolean(cmp(*x as f64, *y as f64)))
+                Ok(VmValue::Boolean(op(*x as f64, *y as f64)))
             }
-            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Boolean(cmp(*x, *y))),
-            (VmValue::Integer(x), VmValue::Float(y)) => Ok(VmValue::Boolean(cmp(*x as f64, *y))),
-            (VmValue::Float(x), VmValue::Integer(y)) => Ok(VmValue::Boolean(cmp(*x, *y as f64))),
+            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x, *y))),
+            (VmValue::Integer(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x as f64, *y))),
+            (VmValue::Float(x), VmValue::Integer(y)) => Ok(VmValue::Boolean(op(*x, *y as f64))),
             _ => Err(self.type_error("Unsupported operand types for comparison")),
         }
     }
@@ -616,7 +616,7 @@ impl VirtualMachine {
             }
         }
 
-        Ok(self.return_val())
+        self.return_val()
     }
 
     fn load(&mut self, code: CodeObject) {
