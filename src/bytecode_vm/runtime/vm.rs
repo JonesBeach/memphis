@@ -59,11 +59,12 @@ impl VirtualMachine {
 
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
         let reference = self.load_global_by_name(name).ok()?;
-        Some(self.get_owned(reference))
+        let owned = self.get_owned(reference).ok()?;
+        Some(owned)
     }
 
-    pub fn get_owned(&self, reference: Reference) -> VmValue {
-        self.dereference(reference).into_owned()
+    pub fn get_owned(&self, reference: Reference) -> VmResult<VmValue> {
+        Ok(self.dereference(reference)?.into_owned())
     }
 
     fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
@@ -91,14 +92,14 @@ impl VirtualMachine {
         Ok(&mut self.call_stack[index])
     }
 
-    fn read_constant(&self, index: ConstantIndex) -> Option<VmValue> {
-        self.current_frame()
-            .ok()?
+    fn read_constant(&self, index: ConstantIndex) -> VmResult<Option<VmValue>> {
+        Ok(self
+            .current_frame()?
             .function
             .code_object
             .constants
             .get(*index)
-            .map(|c| c.into())
+            .map(|c| c.into()))
     }
 
     fn update_fn<F>(&mut self, index: ObjectTableIndex, function: F)
@@ -178,7 +179,7 @@ impl VirtualMachine {
         let frame = self.current_frame()?;
 
         let value = if let Some(reference) = frame.locals.last() {
-            self.get_owned(*reference)
+            self.get_owned(*reference)?
         } else {
             VmValue::None
         };
@@ -187,14 +188,14 @@ impl VirtualMachine {
     }
 
     /// This is intended to be functionally equivalent to `__build_class__` in CPython.
-    fn build_class(&mut self, args: Vec<Reference>) -> Frame {
-        let code = self.dereference(args[0]).as_code().clone();
+    fn build_class(&mut self, args: Vec<Reference>) -> VmResult<Frame> {
+        let code = self.dereference(args[0])?.as_code().clone();
         let name = code.name().to_string();
         let function = FunctionObject::new(code);
 
         self.class_stack.push(name);
 
-        Frame::new(function, vec![])
+        Ok(Frame::new(function, vec![]))
     }
 
     fn convert_method_to_frame(&mut self, method: Method, args: Vec<Reference>) -> Frame {
@@ -240,13 +241,26 @@ impl VirtualMachine {
     /// Extract primitives and resolve any references to a [`VmValue`]. A [`Cow`] is returned to make
     /// it difficult to accidentally mutate an object. All modifications should occur through VM
     /// instructions.
-    pub fn dereference(&self, reference: Reference) -> Cow<'_, VmValue> {
-        match reference {
-            Reference::ObjectRef(index) => Cow::Borrowed(self.object_table.get(*index).unwrap()),
-            Reference::ConstantRef(index) => Cow::Owned(self.read_constant(index).unwrap()),
+    pub fn dereference(&self, reference: Reference) -> VmResult<Cow<'_, VmValue>> {
+        let val = match reference {
+            Reference::ObjectRef(index) => {
+                let val = self
+                    .object_table
+                    .get(*index)
+                    .ok_or_else(|| self.runtime_error())?;
+                Cow::Borrowed(val)
+            }
+            Reference::ConstantRef(index) => {
+                let val = self
+                    .read_constant(index)?
+                    .ok_or_else(|| self.runtime_error())?;
+                Cow::Owned(val)
+            }
             // convert primitives directly
             _ => Cow::Owned(reference.into()),
-        }
+        };
+
+        Ok(val)
     }
 
     /// Resolves an attribute without applying method binding (used in tests or low-level access).
@@ -259,10 +273,10 @@ impl VirtualMachine {
 
     /// Resolves an attribute and applies method binding if it is a function.
     pub fn resolve_attr(&mut self, object_ref: Reference, name: &str) -> VmResult<Reference> {
-        let object = self.dereference(object_ref);
+        let object = self.dereference(object_ref)?;
 
         let attr_ref = self.resolve_raw_attr(&object, name)?;
-        let attr_val = self.dereference(attr_ref);
+        let attr_val = self.dereference(attr_ref)?;
 
         let bound = match &*attr_val {
             VmValue::Function(f) => {
@@ -290,7 +304,7 @@ impl VirtualMachine {
     /// Pops and dereferences a value.
     fn pop_value(&mut self) -> VmResult<VmValue> {
         let reference = self.pop()?;
-        Ok(self.get_owned(reference))
+        self.get_owned(reference)
     }
 
     fn try_string_multiplication(a: &VmValue, b: &VmValue) -> Option<VmValue> {
@@ -442,17 +456,17 @@ impl VirtualMachine {
                 }
                 Opcode::UnaryNegative => {
                     let reference = self.pop()?;
-                    let right = self.dereference(reference).as_integer();
+                    let right = self.dereference(reference)?.as_integer();
                     self.push(Reference::Int(-right))?;
                 }
                 Opcode::UnaryNot => {
                     let reference = self.pop()?;
-                    let right = self.dereference(reference).as_boolean();
+                    let right = self.dereference(reference)?.as_boolean();
                     self.push(Reference::Bool(!right))?;
                 }
                 Opcode::UnaryInvert => {
                     let reference = self.pop()?;
-                    let right = self.dereference(reference).as_integer();
+                    let right = self.dereference(reference)?.as_integer();
                     self.push(Reference::Int(!right))?;
                 }
                 Opcode::PushInt(val) => self.push(Reference::Int(val))?,
@@ -506,18 +520,20 @@ impl VirtualMachine {
                 }
                 Opcode::JumpIfFalse(offset) => {
                     let reference = self.pop()?;
-                    let condition = self.dereference(reference).as_boolean();
+                    let condition = self.dereference(reference)?.as_boolean();
                     if !condition {
                         self.jump_offset(offset)?;
                     }
                 }
                 Opcode::PrintConst(index) => {
-                    let value = self.read_constant(index).unwrap();
+                    let value = self
+                        .read_constant(index)?
+                        .ok_or_else(|| self.runtime_error())?;
                     println!("{}", value);
                 }
                 Opcode::MakeFunction => {
                     let reference = self.pop()?;
-                    let code = self.dereference(reference).as_code().clone();
+                    let code = self.dereference(reference)?.as_code().clone();
                     let function = FunctionObject::new(code);
                     let reference = self.as_ref(VmValue::Function(function));
                     self.push(reference)?;
@@ -527,11 +543,11 @@ impl VirtualMachine {
                         .map(|_| self.pop())
                         .collect::<Result<Vec<_>, _>>()?;
                     let reference = self.pop()?;
-                    let callable = self.dereference(reference);
+                    let callable = self.dereference(reference)?;
                     match *callable {
                         // this is the placeholder for __build_class__ at the moment
                         VmValue::BuiltinFunction => {
-                            deferred_frame = Some(self.build_class(args));
+                            deferred_frame = Some(self.build_class(args)?);
                         }
                         VmValue::Function(ref function) => {
                             let function = function.clone();
@@ -543,7 +559,7 @@ impl VirtualMachine {
                             let reference = self.as_ref(VmValue::Object(object));
 
                             if let Some(init_method) = init_method {
-                                let init = self.dereference(init_method).as_function().clone();
+                                let init = self.dereference(init_method)?.as_function().clone();
                                 let method = Method::new(reference, init);
 
                                 // The object reference must be on the stack for
@@ -563,7 +579,7 @@ impl VirtualMachine {
                         .map(|_| self.pop())
                         .collect::<Result<Vec<_>, _>>()?;
                     let reference = self.pop()?;
-                    let method = self.dereference(reference);
+                    let method = self.dereference(reference)?;
                     deferred_frame =
                         Some(self.convert_method_to_frame(method.as_method().clone(), args));
                 }

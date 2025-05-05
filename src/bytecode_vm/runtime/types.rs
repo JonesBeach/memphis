@@ -7,7 +7,7 @@ use std::{
 use crate::bytecode_vm::{
     compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
-    VmValue,
+    VmResult, VmValue,
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -69,13 +69,13 @@ impl<'a> Object {
 
     pub fn read<T>(&self, name: &str, deref: T) -> Option<Reference>
     where
-        T: FnOnce(Reference) -> Cow<'a, VmValue>,
+        T: FnOnce(Reference) -> VmResult<Cow<'a, VmValue>>,
     {
         if let Some(result) = self.namespace.get(name) {
             return Some(*result);
         }
 
-        let class = deref(self.class);
+        let class = deref(self.class).ok()?;
         class.as_class().namespace.get(name).cloned()
     }
 
