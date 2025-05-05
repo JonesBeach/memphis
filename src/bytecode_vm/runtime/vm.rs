@@ -357,6 +357,21 @@ impl VirtualMachine {
         Ok(result)
     }
 
+    fn dynamic_cmp<F>(&self, a: &VmValue, b: &VmValue, cmp: F) -> VmResult<VmValue>
+    where
+        F: FnOnce(f64, f64) -> bool,
+    {
+        match (a, b) {
+            (VmValue::Integer(x), VmValue::Integer(y)) => {
+                Ok(VmValue::Boolean(cmp(*x as f64, *y as f64)))
+            }
+            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Boolean(cmp(*x, *y))),
+            (VmValue::Integer(x), VmValue::Float(y)) => Ok(VmValue::Boolean(cmp(*x as f64, *y))),
+            (VmValue::Float(x), VmValue::Integer(y)) => Ok(VmValue::Boolean(cmp(*x, *y as f64))),
+            _ => Err(self.type_error("Unsupported operand types for comparison")),
+        }
+    }
+
     fn run_loop(&mut self) -> VmResult<VmValue> {
         // If we call a function or something that requires us to enter a new frame, we do not want
         // to do so until the end of this loop.
@@ -398,18 +413,18 @@ impl VirtualMachine {
                     self.push(Reference::Bool(left == right))?;
                 }
                 Opcode::LessThan => {
-                    let reference = self.pop()?;
-                    let right = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let left = self.dereference(reference).as_integer();
-                    self.push(Reference::Bool(left < right))?;
+                    let b = self.pop_value()?;
+                    let a = self.pop_value()?;
+                    let result = self.dynamic_cmp(&a, &b, |a, b| a < b)?;
+                    let reference = self.as_ref(result);
+                    self.push(reference)?;
                 }
                 Opcode::GreaterThan => {
-                    let reference = self.pop()?;
-                    let right = self.dereference(reference).as_integer();
-                    let reference = self.pop()?;
-                    let left = self.dereference(reference).as_integer();
-                    self.push(Reference::Bool(left > right))?;
+                    let b = self.pop_value()?;
+                    let a = self.pop_value()?;
+                    let result = self.dynamic_cmp(&a, &b, |a, b| a > b)?;
+                    let reference = self.as_ref(result);
+                    self.push(reference)?;
                 }
                 Opcode::UnaryNegative => {
                     let reference = self.pop()?;

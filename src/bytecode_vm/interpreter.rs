@@ -70,30 +70,6 @@ mod tests_vm_interpreter {
         let text = "4 * (2 + 3)";
         assert_eval_eq!(text, VmValue::Integer(20));
 
-        let text = "4 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = "4 == 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = "4 == 4";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4.1 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = r#""a" == "a""#;
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = r#""a" == "b""#;
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
         let text = "4 > x";
         let e = eval_expect_error(text);
         assert_name_error!(e, "x");
@@ -201,6 +177,39 @@ mod tests_vm_interpreter {
         let text = "4.1 / 'a'";
         let e = eval_expect_error(text);
         assert_type_error!(e, "Unsupported operand types for /");
+    }
+
+    #[test]
+    fn comparison_eq() {
+        let text = "4 == 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 == 4";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 == 4.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4 == 4.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = r#""a" == "a""#;
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = r#""a" == "b""#;
+        assert_eval_eq!(text, VmValue::Boolean(false));
+    }
+
+    #[test]
+    fn comparison_less_than() {
+        let text = "4 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+    }
+
+    #[test]
+    fn comparison_greater_than() {
+        let text = "4 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
     }
 
     #[test]
