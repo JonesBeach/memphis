@@ -419,6 +419,13 @@ impl VirtualMachine {
                     let reference = self.as_ref(result);
                     self.push(reference)?;
                 }
+                Opcode::LessThanOrEq => {
+                    let b = self.pop_value()?;
+                    let a = self.pop_value()?;
+                    let result = self.dynamic_cmp(&a, &b, |a, b| a <= b)?;
+                    let reference = self.as_ref(result);
+                    self.push(reference)?;
+                }
                 Opcode::GreaterThan => {
                     let b = self.pop_value()?;
                     let a = self.pop_value()?;

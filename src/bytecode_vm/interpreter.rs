@@ -234,6 +234,39 @@ mod tests_vm_interpreter {
     }
 
     #[test]
+    fn comparison_less_than_eq() {
+        let text = "4 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "5 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 <= 6.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+    }
+
+    #[test]
     fn comparison_greater_than() {
         let text = "4 > 5";
         assert_eval_eq!(text, VmValue::Boolean(false));

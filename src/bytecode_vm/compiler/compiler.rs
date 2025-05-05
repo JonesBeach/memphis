@@ -452,6 +452,7 @@ impl Compiler {
             BinOp::Div => Opcode::Div,
             BinOp::Equals => Opcode::Eq,
             BinOp::LessThan => Opcode::LessThan,
+            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
             BinOp::GreaterThan => Opcode::GreaterThan,
             _ => unimplemented!(
                 "{}",

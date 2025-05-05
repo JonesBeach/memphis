@@ -23,6 +23,9 @@ pub enum Opcode {
     /// whether the first value is less than the second value.
     LessThan,
     /// Compare two values on the stack and push a boolean result back onto the stack based on
+    /// whether the first value is less than or equal to the second value.
+    LessThanOrEq,
+    /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is greater than the second value.
     GreaterThan,
     /// Implements STACK[-1] = -STACK[-1].
@@ -87,6 +90,7 @@ impl Display for Opcode {
             Opcode::Div => write!(f, "DIV"),
             Opcode::Eq => write!(f, "EQ"),
             Opcode::LessThan => write!(f, "LESS_THAN"),
+            Opcode::LessThanOrEq => write!(f, "LESS_THAN_OR_EQ"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
