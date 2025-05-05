@@ -433,6 +433,13 @@ impl VirtualMachine {
                     let reference = self.as_ref(result);
                     self.push(reference)?;
                 }
+                Opcode::GreaterThanOrEq => {
+                    let b = self.pop_value()?;
+                    let a = self.pop_value()?;
+                    let result = self.dynamic_cmp(&a, &b, |a, b| a >= b)?;
+                    let reference = self.as_ref(result);
+                    self.push(reference)?;
+                }
                 Opcode::UnaryNegative => {
                     let reference = self.pop()?;
                     let right = self.dereference(reference).as_integer();
