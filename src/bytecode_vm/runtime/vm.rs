@@ -293,25 +293,35 @@ impl VirtualMachine {
         Ok(self.get_owned(reference))
     }
 
+    fn try_string_multiplication(a: &VmValue, b: &VmValue) -> Option<VmValue> {
+        match (a, b) {
+            (VmValue::String(s), VmValue::Integer(n))
+            | (VmValue::Integer(n), VmValue::String(s)) => {
+                let result = if *n < 0 {
+                    "".to_string()
+                } else {
+                    s.repeat(*n as usize)
+                };
+                Some(VmValue::String(result))
+            }
+            _ => None,
+        }
+    }
+
     fn binary_op<F>(&mut self, opcode: Opcode, op: F, force_float: bool) -> VmResult<()>
     where
         F: FnOnce(f64, f64) -> f64,
     {
         let b = self.pop_value()?;
         let a = self.pop_value()?;
-        let result = match opcode {
-            Opcode::Mul => match (&a, &b) {
-                (VmValue::String(s), VmValue::Integer(n))
-                | (VmValue::Integer(n), VmValue::String(s)) => {
-                    if *n < 0 {
-                        VmValue::String("".to_string())
-                    } else {
-                        VmValue::String(s.repeat(*n as usize))
-                    }
-                }
-                _ => self.binary_numeric_op(op, a, b, force_float)?,
-            },
-            _ => self.binary_numeric_op(op, a, b, force_float)?,
+        let result = if opcode == Opcode::Mul {
+            if let Some(result) = Self::try_string_multiplication(&a, &b) {
+                result
+            } else {
+                self.binary_numeric_op(op, a, b, force_float)?
+            }
+        } else {
+            self.binary_numeric_op(op, a, b, force_float)?
         };
 
         let reference = self.as_ref(result);
