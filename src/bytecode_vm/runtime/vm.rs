@@ -329,6 +329,18 @@ impl VirtualMachine {
         Ok(())
     }
 
+    fn cmp_op<F>(&mut self, op: F) -> VmResult<()>
+    where
+        F: FnOnce(f64, f64) -> bool,
+    {
+        let b = self.pop_value()?;
+        let a = self.pop_value()?;
+        let result = self.dynamic_cmp(&a, &b, op)?;
+        let reference = self.as_ref(result);
+        self.push(reference)?;
+        Ok(())
+    }
+
     fn binary_numeric_op<F>(
         &mut self,
         op: F,
@@ -413,32 +425,20 @@ impl VirtualMachine {
                     self.push(Reference::Bool(left == right))?;
                 }
                 Opcode::LessThan => {
-                    let b = self.pop_value()?;
-                    let a = self.pop_value()?;
-                    let result = self.dynamic_cmp(&a, &b, |a, b| a < b)?;
-                    let reference = self.as_ref(result);
-                    self.push(reference)?;
+                    self.cmp_op(|a, b| a < b)
+                        .map_err(|_| self.type_error("Unsupported operand types for <"))?;
                 }
                 Opcode::LessThanOrEq => {
-                    let b = self.pop_value()?;
-                    let a = self.pop_value()?;
-                    let result = self.dynamic_cmp(&a, &b, |a, b| a <= b)?;
-                    let reference = self.as_ref(result);
-                    self.push(reference)?;
+                    self.cmp_op(|a, b| a <= b)
+                        .map_err(|_| self.type_error("Unsupported operand types for <="))?;
                 }
                 Opcode::GreaterThan => {
-                    let b = self.pop_value()?;
-                    let a = self.pop_value()?;
-                    let result = self.dynamic_cmp(&a, &b, |a, b| a > b)?;
-                    let reference = self.as_ref(result);
-                    self.push(reference)?;
+                    self.cmp_op(|a, b| a > b)
+                        .map_err(|_| self.type_error("Unsupported operand types for >"))?;
                 }
                 Opcode::GreaterThanOrEq => {
-                    let b = self.pop_value()?;
-                    let a = self.pop_value()?;
-                    let result = self.dynamic_cmp(&a, &b, |a, b| a >= b)?;
-                    let reference = self.as_ref(result);
-                    self.push(reference)?;
+                    self.cmp_op(|a, b| a >= b)
+                        .map_err(|_| self.type_error("Unsupported operand types for >="))?;
                 }
                 Opcode::UnaryNegative => {
                     let reference = self.pop()?;
