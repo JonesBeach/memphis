@@ -257,22 +257,22 @@ impl VirtualMachine {
             .ok_or_else(|| self.attribute_error(name))
     }
 
-    // /// Resolves an attribute and applies method binding if it is a function.
-    // pub fn resolve_attr(
-    //     &mut self,
-    //     object: &VmValue,
-    //     name: &str,
-    // ) -> VmResult<Reference> {
-    //     let attr_ref = self.resolve_raw_attr(object, name)?;
-    //     let attr_val = self.dereference(attr_ref);
-    //
-    //     let bound = match &*attr_val {
-    //         VmValue::Function(f) => self.as_ref(VmValue::Method(Method::new(owner_ref, f.clone()))),
-    //         _ => attr_ref,
-    //     };
-    //
-    //     Ok(bound)
-    // }
+    /// Resolves an attribute and applies method binding if it is a function.
+    pub fn resolve_attr(&mut self, object_ref: Reference, name: &str) -> VmResult<Reference> {
+        let object = self.dereference(object_ref);
+
+        let attr_ref = self.resolve_raw_attr(&object, name)?;
+        let attr_val = self.dereference(attr_ref);
+
+        let bound = match &*attr_val {
+            VmValue::Function(f) => {
+                self.as_ref(VmValue::Method(Method::new(object_ref, f.clone())))
+            }
+            _ => attr_ref,
+        };
+
+        Ok(bound)
+    }
 
     /// Primitives are stored inline on the stack, we create a reference to the global store for
     /// all other types.
@@ -438,21 +438,10 @@ impl VirtualMachine {
                     self.push(reference)?;
                 }
                 Opcode::LoadAttr(index) => {
-                    let reference = self.pop()?;
-                    let object = self.dereference(reference);
+                    let attr_name = self.resolve_name(index)?.to_owned();
+                    let object_ref = self.pop()?;
 
-                    let name = self.resolve_name(index)?;
-
-                    // let bound_attr = self.resolve_attr(&object, name)?;
-
-                    let attr_ref = self.resolve_raw_attr(&object, name)?;
-                    let attr_val = self.dereference(attr_ref);
-
-                    let bound_attr = if let VmValue::Function(ref function) = *attr_val {
-                        self.as_ref(VmValue::Method(Method::new(reference, function.clone())))
-                    } else {
-                        attr_ref
-                    };
+                    let bound_attr = self.resolve_attr(object_ref, &attr_name)?;
                     self.push(bound_attr)?;
                 }
                 Opcode::SetAttr(index) => {
