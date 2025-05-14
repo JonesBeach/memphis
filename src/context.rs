@@ -1,12 +1,12 @@
 use crate::{
-    bytecode_vm::VmInterpreter,
-    core::Interpreter,
+    bytecode_vm::{Runtime, VmInterpreter},
+    core::{Container, Interpreter},
     domain::{MemphisValue, Source},
+    errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
     treewalk::{TreewalkInterpreter, TreewalkState},
-    types::errors::MemphisError,
     Engine,
 };
 
@@ -30,7 +30,7 @@ impl MemphisContext {
         Self { lexer, interpreter }
     }
 
-    pub fn run(&mut self) -> Result<MemphisValue, MemphisError> {
+    pub fn run(&mut self) -> MemphisResult<MemphisValue> {
         // Destructure to break the borrow into disjoint pieces
         let MemphisContext {
             lexer, interpreter, ..
@@ -52,7 +52,10 @@ fn init_interpreter(engine: Engine, source: Source) -> Box<dyn Interpreter> {
             let treewalk_state = TreewalkState::from_source_state(state.clone(), source.clone());
             Box::new(TreewalkInterpreter::new(treewalk_state))
         }
-        Engine::BytecodeVm => Box::new(VmInterpreter::new(state.clone(), source.clone())),
+        Engine::BytecodeVm => {
+            let runtime = Container::new(Runtime::new());
+            Box::new(VmInterpreter::new(state, runtime, source.clone()))
+        }
         #[cfg(feature = "llvm_backend")]
         Engine::LlvmBackend => unimplemented!("LLVM Backend not yet supported by MemphisContext."),
     }

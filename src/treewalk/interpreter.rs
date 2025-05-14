@@ -8,6 +8,7 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, MemphisValue},
+    errors::{MemphisError, MemphisResult},
     parser::{
         types::{
             Ast, BinOp, CallArgs, CompoundOperator, ConditionalAst, DictOperation, ExceptClause,
@@ -28,7 +29,6 @@ use crate::{
         Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
         TreewalkValue,
     },
-    types::errors::MemphisError,
 };
 
 mod errors;
@@ -1349,7 +1349,7 @@ impl TreewalkInterpreter {
         Ok(TreewalkValue::None)
     }
 
-    pub fn execute(&mut self, parser: &mut Parser) -> Result<TreewalkValue, MemphisError> {
+    pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<TreewalkValue> {
         let mut result = TreewalkValue::None;
         while !parser.is_finished() {
             let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
@@ -1369,7 +1369,7 @@ impl TreewalkInterpreter {
 }
 
 impl Interpreter for TreewalkInterpreter {
-    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
+    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue> {
         self.execute(parser).map(Into::into)
     }
 

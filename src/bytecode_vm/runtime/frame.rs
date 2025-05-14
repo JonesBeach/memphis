@@ -2,22 +2,24 @@ use std::collections::HashMap;
 
 use crate::{
     bytecode_vm::compiler::Opcode,
+    core::Container,
     domain::{DebugStackFrame, ToDebugStackFrame},
 };
 
-use super::types::{FunctionObject, Namespace, Reference};
+use super::{
+    types::{FunctionObject, Namespace, Reference},
+    Module,
+};
 
 #[derive(Debug)]
 pub struct Frame {
     pub function: FunctionObject,
 
+    pub module: Container<Module>,
+
     /// The program counter indicating the current point of execution for the immutable block of
     /// bytecode held by this [`Frame`].
     pub pc: usize,
-
-    /// Analogous to CPython's co_varnames, which is the names of the local variables beginning
-    /// with the function arguments.
-    pub varnames: Vec<String>,
 
     /// The stack which holds all the local variables themselves, beginning with the function
     /// arguments.
@@ -25,13 +27,12 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new(function: FunctionObject, args: Vec<Reference>) -> Self {
-        let varnames = function.code_object.varnames.clone();
+    pub fn new(function: FunctionObject, args: Vec<Reference>, module: Container<Module>) -> Self {
         Frame {
             function,
             pc: 0,
-            varnames,
             locals: args,
+            module,
         }
     }
 
@@ -44,8 +45,9 @@ impl Frame {
     }
 
     pub fn namespace(&self) -> Namespace {
+        let varnames = &self.function.code_object.varnames;
         let mut namespace = HashMap::new();
-        for (index, varname) in self.varnames.iter().enumerate() {
+        for (index, varname) in varnames.iter().enumerate() {
             namespace.insert(varname.to_owned(), self.locals[index]);
         }
         namespace

@@ -7,11 +7,11 @@ use std::{
 use crate::{
     core::memphis_utils,
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
+    errors::MemphisError,
     treewalk::{
         utils::{args, Args},
         TreewalkDisruption, TreewalkInterpreter, TreewalkValue,
     },
-    types::errors::MemphisError,
 };
 
 /// A wrapper which includes a reference to an `Interpreter`.

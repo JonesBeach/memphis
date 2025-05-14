@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::{
     core::{log, LogLevel},
     domain::ExceptionLiteral,
+    errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
         types::{
@@ -14,7 +15,6 @@ use crate::{
         },
         TokenBuffer,
     },
-    types::errors::ParserError,
 };
 
 /// A recursive-descent parser which attempts to encode the full Python grammar.

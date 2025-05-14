@@ -8,12 +8,12 @@ use std::{
 use crate::{
     core::{log, Container, LogLevel},
     domain::{ExecutionErrorKind, Source},
+    errors::MemphisError,
     parser::types::ImportPath,
     treewalk::{
         protocols::MemberRead, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
-    types::errors::MemphisError,
 };
 
 #[derive(Debug, PartialEq, Clone, Default)]

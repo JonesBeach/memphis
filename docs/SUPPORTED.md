@@ -3,10 +3,10 @@
 
 |Feature|treewalk|bytecode VM|
 |-|-|-|
-|Integer expressions|✅|🔄|
+|Integer expressions|✅|✅|
 |String literals|✅|✅|
 |Boolean operators|✅|✅|
-|Comparison operators|✅|🔄|
+|Comparison operators|✅|✅|
 |Variable assignment|✅|✅|
 |Comments|✅|✅|
 |REPL|✅|✅|

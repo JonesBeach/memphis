@@ -1,7 +1,7 @@
 use crate::{
     domain::{ExecutionError, Source},
+    errors::MemphisError,
     treewalk::{TreewalkContext, TreewalkValue},
-    MemphisError,
 };
 
 pub fn init(text: &str) -> TreewalkContext {

@@ -5,6 +5,7 @@ mod core;
 mod crosscheck;
 mod domain;
 mod engine;
+mod errors;
 mod lexer;
 #[cfg(feature = "llvm_backend")]
 mod llvm_backend;
@@ -14,11 +15,9 @@ mod parser;
 mod repl;
 mod runtime;
 mod treewalk;
-mod types;
 #[cfg(feature = "wasm")]
 mod wasm;
 
 pub use context::MemphisContext;
 pub use engine::Engine;
 pub use memphis::Memphis;
-pub use types::errors::MemphisError;

@@ -23,8 +23,14 @@ pub enum Opcode {
     /// whether the first value is less than the second value.
     LessThan,
     /// Compare two values on the stack and push a boolean result back onto the stack based on
+    /// whether the first value is less than or equal to the second value.
+    LessThanOrEq,
+    /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is greater than the second value.
     GreaterThan,
+    /// Compare two values on the stack and push a boolean result back onto the stack based on
+    /// whether the first value is greater than or equal to the second value.
+    GreaterThanOrEq,
     /// Implements STACK[-1] = -STACK[-1].
     UnaryNegative,
     /// Implements STACK[-1] = not STACK[-1].
@@ -63,15 +69,15 @@ pub enum Opcode {
     /// the function later.
     MakeFunction,
     /// Call the function from the top of the stack with the specified number of arguments.
+    /// Binding, if needed, should happen at runtime.
     Call(usize),
-    /// Call the method from the top of the stack with the specified number of arguments.
-    CallMethod(usize),
     /// Return the value on the stack to the caller.
     ReturnValue,
     /// Print a constant from the pool.
     PrintConst(ConstantIndex),
     /// Indicate that a we have reached the end of a class body definition.
     EndClass,
+    ImportName(NonlocalIndex),
     /// Stop the VM
     Halt,
     /// Used internally to the compiler when constructing jump offsets.
@@ -87,7 +93,9 @@ impl Display for Opcode {
             Opcode::Div => write!(f, "DIV"),
             Opcode::Eq => write!(f, "EQ"),
             Opcode::LessThan => write!(f, "LESS_THAN"),
+            Opcode::LessThanOrEq => write!(f, "LESS_THAN_OR_EQ"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
+            Opcode::GreaterThanOrEq => write!(f, "GREATER_THAN_OR_EQ"),
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
             Opcode::UnaryInvert => write!(f, "UNARY_INVERT"),
@@ -105,10 +113,10 @@ impl Display for Opcode {
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::Call(i) => write!(f, "CALL {}", i),
-            Opcode::CallMethod(i) => write!(f, "CALL_METHOD {}", i),
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
             Opcode::PrintConst(i) => write!(f, "PRINT_CONST {}", i),
             Opcode::EndClass => write!(f, "END_CLASS"),
+            Opcode::ImportName(i) => write!(f, "IMPORT_NAME {}", i),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),
         }

@@ -1,10 +1,10 @@
 use crate::{
-    bytecode_vm::{compiler::CodeObject, Compiler, VirtualMachine, VmValue},
+    bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
     core::{log, Container, Interpreter, LogLevel},
     domain::{MemphisValue, Source},
+    errors::{MemphisError, MemphisResult},
     parser::Parser,
     runtime::MemphisState,
-    types::errors::MemphisError,
 };
 
 pub struct VmInterpreter {
@@ -13,50 +13,41 @@ pub struct VmInterpreter {
 }
 
 impl VmInterpreter {
-    pub fn new(state: Container<MemphisState>, source: Source) -> Self {
+    pub fn new(
+        state: Container<MemphisState>,
+        runtime: Container<Runtime>,
+        source: Source,
+    ) -> Self {
         Self {
-            compiler: Compiler::new(source),
-            vm: VirtualMachine::new(state),
+            compiler: Compiler::new(source.clone()),
+            vm: VirtualMachine::new(state, runtime),
         }
     }
 
-    pub fn compile(&mut self, parser: &mut Parser) -> Result<CodeObject, MemphisError> {
+    pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
         let ast = parser.parse().map_err(MemphisError::Parser)?;
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
 
-    pub fn execute(&mut self, parser: &mut Parser) -> Result<VmValue, MemphisError> {
+    pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<VmValue> {
         let code = self.compile(parser)?;
         log(LogLevel::Trace, || format!("{}", code));
-        self.vm.load(code);
-        self.vm.run_loop().map_err(MemphisError::Execution)
+        self.vm.execute(code).map_err(MemphisError::Execution)
     }
 
     pub fn read_global(&mut self, name: &str) -> Option<VmValue> {
-        let reference = self.vm.load_global_by_name(name).ok()?;
-        Some(self.vm.take(reference))
+        self.vm.read_global(name)
     }
 }
 
-#[cfg(test)]
 impl VmInterpreter {
     pub fn vm(&self) -> &VirtualMachine {
         &self.vm
     }
-
-    pub fn vm_mut(&mut self) -> &mut VirtualMachine {
-        &mut self.vm
-    }
-}
-
-impl Default for VmInterpreter {
-    fn default() -> Self {
-        Self::new(Container::new(MemphisState::default()), Source::default())
-    }
 }
 
 impl Interpreter for VmInterpreter {
-    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError> {
+    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue> {
         self.execute(parser).map(Into::into)
     }
 
@@ -75,30 +66,6 @@ mod tests_vm_interpreter {
     fn expression() {
         let text = "4 * (2 + 3)";
         assert_eval_eq!(text, VmValue::Integer(20));
-
-        let text = "4 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = "4 == 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = "4 == 4";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4.1 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = "4 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
-
-        let text = r#""a" == "a""#;
-        assert_eval_eq!(text, VmValue::Boolean(true));
-
-        let text = r#""a" == "b""#;
-        assert_eval_eq!(text, VmValue::Boolean(false));
 
         let text = "4 > x";
         let e = eval_expect_error(text);
@@ -207,6 +174,159 @@ mod tests_vm_interpreter {
         let text = "4.1 / 'a'";
         let e = eval_expect_error(text);
         assert_type_error!(e, "Unsupported operand types for /");
+    }
+
+    #[test]
+    fn comparison_eq() {
+        let text = "4 == 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 == 4";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 == 4.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4 == 4.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = r#""a" == "a""#;
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = r#""a" == "b""#;
+        assert_eval_eq!(text, VmValue::Boolean(false));
+    }
+
+    #[test]
+    fn comparison_less_than() {
+        let text = "4 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "5 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 < 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 < 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 < 6.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+    }
+
+    #[test]
+    fn comparison_less_than_or_equal() {
+        let text = "4 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "5 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 <= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 <= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 <= 6.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+    }
+
+    #[test]
+    fn comparison_greater_than() {
+        let text = "4 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "5 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "4.1 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 > 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4 > 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6 > 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 > 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 > 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 > 6.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+    }
+
+    #[test]
+    fn comparison_greater_than_or_equal() {
+        let text = "4 >= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6 >= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "5 >= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 >= 5";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 >= 5";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4 >= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6 >= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "4.1 >= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(false));
+
+        let text = "6.1 >= 5.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
+
+        let text = "6.1 >= 6.1";
+        assert_eval_eq!(text, VmValue::Boolean(true));
     }
 
     #[test]
@@ -430,6 +550,18 @@ b = f.bar()
     }
 
     #[test]
+    fn regular_import() {
+        let mut ctx = run_path("src/bytecode_vm/fixtures/imports/one/main.py");
+        assert_read_eq!(ctx, "x", VmValue::Integer(5));
+    }
+
+    #[test]
+    fn regular_import_function_in_other_file() {
+        let mut ctx = run_path("src/bytecode_vm/fixtures/imports/two/main.py");
+        assert_read_eq!(ctx, "x", VmValue::Integer(33));
+    }
+
+    #[test]
     fn stack_trace() {
         let text = r#"
 def middle_call():
@@ -484,6 +616,38 @@ middle_call()
             .get(2)
             .file_path_str()
             .ends_with("src/fixtures/call_stack/call_stack_one_file.py"));
+        assert!(call_stack.get(2).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(2).line_number(), 5);
+    }
+
+    #[test]
+    fn stack_trace_multiple_files() {
+        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
+        let e = run_expect_error(&mut ctx);
+        assert_name_error!(e, "unknown");
+
+        let call_stack = e.debug_call_stack;
+        dbg!(&call_stack);
+        assert_eq!(call_stack.len(), 3);
+        assert_eq!(call_stack.get(0).name(), "<module>");
+        assert!(call_stack
+            .get(0)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/call_stack.py"));
+        assert!(call_stack.get(0).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(0).line_number(), 2);
+        assert_eq!(call_stack.get(1).name(), "middle_call");
+        assert!(call_stack
+            .get(1)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/other.py"));
+        assert!(call_stack.get(1).file_path_str().starts_with("/"));
+        assert_eq!(call_stack.get(1).line_number(), 2);
+        assert_eq!(call_stack.get(2).name(), "last_call");
+        assert!(call_stack
+            .get(2)
+            .file_path_str()
+            .ends_with("src/fixtures/call_stack/other.py"));
         assert!(call_stack.get(2).file_path_str().starts_with("/"));
         assert_eq!(call_stack.get(2).line_number(), 5);
     }

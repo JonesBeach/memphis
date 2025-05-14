@@ -33,7 +33,6 @@ impl MemphisState {
         if let Some(path) = source.path() {
             state.register_root(path);
         }
-        state.push_stack_frame(source);
         state
     }
 }

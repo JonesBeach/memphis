@@ -1,7 +1,7 @@
 use crate::{
-    bytecode_vm::{runtime::Object, VmContext, VmValue},
+    bytecode_vm::{VmContext, VmValue},
     domain::{ExecutionError, Source},
-    types::errors::MemphisError,
+    errors::MemphisError,
 };
 
 pub fn init(text: &str) -> VmContext {
@@ -30,6 +30,12 @@ pub fn run(text: &str) -> VmContext {
     context
 }
 
+pub fn run_path(path: &str) -> VmContext {
+    let mut context = init_path(path);
+    context.run().expect("VM run failed!");
+    context
+}
+
 pub fn run_expect_error(context: &mut VmContext) -> ExecutionError {
     match context.run() {
         Ok(_) => panic!("Expected an error!"),
@@ -42,12 +48,15 @@ pub fn read(context: &mut VmContext, name: &str) -> VmValue {
     context.read(name).expect("Failed to read variable.")
 }
 
-pub fn read_attr(context: &mut VmContext, object: Object, attr: &str) -> VmValue {
-    let interpreter = context.interpreter_mut();
-    let attr_ref = object
-        .read(attr.into(), |reference| {
-            interpreter.vm().dereference(reference)
-        })
-        .expect(&format!("Failed to read attr \"{}\" from object", attr));
-    interpreter.vm_mut().take(attr_ref)
+pub fn read_attr(context: &mut VmContext, name: &str, attr: &str) -> VmValue {
+    let object = read(context, name);
+    let interpreter = context.interpreter();
+    let reference = interpreter
+        .vm()
+        .resolve_raw_attr(&object, attr)
+        .expect("Failed to resolve");
+    interpreter
+        .vm()
+        .dereference(reference)
+        .expect("Failed to get owned value")
 }

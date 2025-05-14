@@ -9,8 +9,7 @@ macro_rules! extract {
 
 macro_rules! extract_member {
     ($ctx:expr, $obj:expr, $field:expr) => {{
-        let obj = extract!($ctx, $obj, Object);
-        read_attr(&mut $ctx, obj, $field)
+        read_attr(&mut $ctx, $obj, $field)
     }};
 }
 

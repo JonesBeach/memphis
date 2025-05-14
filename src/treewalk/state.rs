@@ -58,6 +58,8 @@ impl TreewalkState {
         memphis_state: Container<MemphisState>,
         source: Source,
     ) -> Container<Self> {
+        memphis_state.push_stack_frame(&source);
+
         let treewalk_state = Container::new(Self::new(memphis_state));
         treewalk_state.push_module(Container::new(Module::new(source)));
         treewalk_state

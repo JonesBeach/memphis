@@ -3,9 +3,9 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
-        runtime::{Class, FunctionObject, Method, Object, Reference},
+        runtime::{Class, FunctionObject, Method, Module, Object, Reference},
     },
-    core::Voidable,
+    core::{Container, Voidable},
     domain::MemphisValue,
 };
 
@@ -21,6 +21,7 @@ pub enum VmValue {
     Code(CodeObject),
     Function(FunctionObject),
     Method(Method),
+    Module(Container<Module>),
     BuiltinFunction,
 }
 
@@ -112,13 +113,6 @@ impl VmValue {
         }
     }
 
-    pub fn as_string(&self) -> &str {
-        match self {
-            VmValue::String(i) => i,
-            _ => panic!("expected string"),
-        }
-    }
-
     pub fn as_code(&self) -> &CodeObject {
         match self {
             VmValue::Code(i) => i,
@@ -133,17 +127,17 @@ impl VmValue {
         }
     }
 
-    pub fn as_method(&self) -> &Method {
+    pub fn as_object(&self) -> Option<&Object> {
         match self {
-            VmValue::Method(i) => i,
-            _ => panic!("expected method"),
+            VmValue::Object(i) => Some(i),
+            _ => None,
         }
     }
 
-    pub fn as_object(&self) -> &Object {
+    pub fn as_module(&self) -> Option<&Container<Module>> {
         match self {
-            VmValue::Object(i) => i,
-            _ => panic!("expected object"),
+            VmValue::Module(i) => Some(i),
+            _ => None,
         }
     }
 

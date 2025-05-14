@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::HashMap,
     fmt::{Display, Error, Formatter},
 };
@@ -7,7 +6,7 @@ use std::{
 use crate::bytecode_vm::{
     compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
-    VmValue,
+    VmResult, VmValue,
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -59,7 +58,7 @@ pub struct Object {
     namespace: Namespace,
 }
 
-impl<'a> Object {
+impl Object {
     pub fn new(class: Reference) -> Self {
         Self {
             class,
@@ -67,15 +66,16 @@ impl<'a> Object {
         }
     }
 
+    /// `deref` is needed to get the actual class in case the symbol is not found on the object.
     pub fn read<T>(&self, name: &str, deref: T) -> Option<Reference>
     where
-        T: FnOnce(Reference) -> Cow<'a, VmValue>,
+        T: FnOnce(Reference) -> VmResult<VmValue>,
     {
         if let Some(result) = self.namespace.get(name) {
             return Some(*result);
         }
 
-        let class = deref(self.class);
+        let class = deref(self.class).ok()?;
         class.as_class().namespace.get(name).cloned()
     }
 
@@ -108,5 +108,26 @@ pub struct Method {
 impl Method {
     pub fn new(receiver: Reference, function: FunctionObject) -> Self {
         Self { receiver, function }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Module {
+    pub name: String,
+
+    /// The runtime mapping of global variables to their values.
+    pub global_store: HashMap<String, Reference>,
+}
+
+impl Module {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            global_store: HashMap::new(),
+        }
+    }
+
+    pub fn read(&self, name: &str) -> Option<Reference> {
+        self.global_store.get(name).cloned()
     }
 }

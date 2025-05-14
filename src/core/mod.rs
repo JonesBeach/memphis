@@ -4,7 +4,7 @@ mod log;
 pub use container::Container;
 pub use log::{log, log_impure, LogLevel};
 
-use crate::{domain::MemphisValue, parser::Parser, types::errors::MemphisError};
+use crate::{domain::MemphisValue, errors::MemphisResult, parser::Parser};
 
 /// Return types which None are used internally, but should never be displayed to the developer.
 pub trait Voidable {
@@ -15,14 +15,14 @@ pub trait Voidable {
 
 pub trait Interpreter {
     /// The primary interpreter entrypoint which is provided an AST in the form of the `Parser`.
-    fn run(&mut self, parser: &mut Parser) -> Result<MemphisValue, MemphisError>;
+    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue>;
     fn read(&mut self, name: &str) -> Option<MemphisValue>;
 }
 
 pub mod memphis_utils {
     use std::process;
 
-    use crate::MemphisError;
+    use crate::errors::MemphisError;
 
     /// The primary exit point from the interpreter. This should be used sparingly: either at the
     /// top level of the `Memphis` runtime or inline in select cases where a hard interface

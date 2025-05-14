@@ -1,6 +1,7 @@
 use crate::{
     domain::{MemphisValue, Source},
-    Engine, MemphisContext, MemphisError,
+    errors::{MemphisError, MemphisResult},
+    Engine, MemphisContext,
 };
 
 pub struct CrosscheckSession {
@@ -17,7 +18,7 @@ impl CrosscheckSession {
     }
 
     /// Run both engines; discard the return value and return the session. Useful for later reads.
-    pub fn run(mut self) -> Result<Self, MemphisError> {
+    pub fn run(mut self) -> MemphisResult<Self> {
         self.treewalk.run()?;
         self.vm.run()?;
         Ok(self)

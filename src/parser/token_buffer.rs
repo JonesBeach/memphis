@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use crate::{
+    errors::ParserError,
     lexer::{Lexer, Token},
-    types::errors::ParserError,
 };
 
 pub struct TokenBuffer<'a> {

@@ -10,7 +10,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, ConditionalAst, Expr, Params, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, ConditionalAst, Expr, ImportPath, Params, RegularImport, Statement,
+        StatementKind, UnaryOp,
     },
 };
 
@@ -139,6 +140,7 @@ impl Compiler {
                 metaclass,
                 body,
             } => self.compile_class_definition(name, parents, metaclass, body)?,
+            StatementKind::RegularImport(items) => self.compile_regular_import(items)?,
             _ => unimplemented!("Statement type {:?} not implemented for bytecode VM", stmt),
         };
 
@@ -342,6 +344,23 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_regular_import(&mut self, items: &[RegularImport]) -> CompilerResult<()> {
+        for item in items {
+            match &item.import_path {
+                ImportPath::Absolute(abs) => {
+                    for path in abs {
+                        let index = self.get_or_set_nonlocal_index(path)?;
+                        self.emit(Opcode::ImportName(index))?;
+                    }
+                }
+                ImportPath::Relative(..) => {
+                    unimplemented!("Relative imports unsupported in bytecode VM.")
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn compile_class_definition(
         &mut self,
         name: &str,
@@ -452,7 +471,9 @@ impl Compiler {
             BinOp::Div => Opcode::Div,
             BinOp::Equals => Opcode::Eq,
             BinOp::LessThan => Opcode::LessThan,
+            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
             BinOp::GreaterThan => Opcode::GreaterThan,
+            BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
             _ => unimplemented!(
                 "{}",
                 format!(
@@ -517,7 +538,7 @@ impl Compiler {
         for arg in args.args.iter().rev() {
             self.compile_expr(arg)?;
         }
-        self.emit(Opcode::CallMethod(args.args.len()))?;
+        self.emit(Opcode::Call(args.args.len()))?;
         Ok(())
     }
 
@@ -949,9 +970,19 @@ mod tests_bytecode {
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::PushInt(99),
                 Opcode::PushInt(88),
-                Opcode::CallMethod(2),
+                Opcode::Call(2),
             ]
         );
+    }
+
+    #[test]
+    fn regular_import() {
+        let expr = stmt!(StatementKind::RegularImport(vec![RegularImport {
+            import_path: ImportPath::Absolute(vec!["other".into()]),
+            alias: None,
+        },]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(bytecode, &[Opcode::ImportName(Index::new(0))]);
     }
 }
 
@@ -1429,7 +1460,7 @@ b = f.bar()
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
-                Opcode::CallMethod(0),
+                Opcode::Call(0),
                 Opcode::StoreGlobal(Index::new(2)),
                 Opcode::Halt,
             ],

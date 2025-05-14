@@ -9,8 +9,8 @@ use crossterm::{
 
 use crate::{
     core::Voidable,
+    errors::MemphisError,
     repl::{CrosstermIO, IncrementalContext, TerminalIO},
-    types::errors::MemphisError,
     Engine,
 };
 

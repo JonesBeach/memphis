@@ -1,11 +1,11 @@
 use crate::{
     core::Container,
     domain::Source,
+    errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
     treewalk::{TreewalkInterpreter, TreewalkState, TreewalkValue},
-    MemphisError,
 };
 
 pub struct TreewalkContext {
@@ -39,7 +39,7 @@ impl TreewalkContext {
         }
     }
 
-    pub fn run(&mut self) -> Result<TreewalkValue, MemphisError> {
+    pub fn run(&mut self) -> MemphisResult<TreewalkValue> {
         // Destructure to break the borrow into disjoint pieces
         let TreewalkContext {
             lexer, interpreter, ..
