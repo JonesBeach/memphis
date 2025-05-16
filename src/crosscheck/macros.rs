@@ -21,10 +21,11 @@ macro_rules! crosscheck_expect_error {
 
 macro_rules! assert_crosscheck_eq {
     ($session:expr, $name:expr, $expected:expr) => {{
-        let actual = $session
-            .read($name)
-            .expect(&format!("Variable not found: {}", $name));
-        assert_eq!(actual, $expected);
+        let (tw_val, vm_val) = $session.read($name);
+        assert_eq!(tw_val, vm_val, "Engines did not return the same value");
+
+        let tw_val = tw_val.expect(&format!("Variable not found: {}", $name));
+        assert_eq!(tw_val, $expected);
     }};
 }
 

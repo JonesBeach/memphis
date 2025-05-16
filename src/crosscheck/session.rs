@@ -25,12 +25,11 @@ impl CrosscheckSession {
     }
 
     /// Read a value from both engines; confirm they return the same value, then return the value.
-    pub fn read(&mut self, name: &str) -> Option<MemphisValue> {
-        let a = self.treewalk.read(name)?;
-        let b = self.vm.read(name)?;
+    pub fn read(&mut self, name: &str) -> (Option<MemphisValue>, Option<MemphisValue>) {
+        let tw_val = self.treewalk.read(name);
+        let vm_val = self.vm.read(name);
 
-        assert_eq!(a, b, "Engines returned different values");
-        Some(a)
+        (tw_val, vm_val)
     }
 
     /// Run both engines, then return the value. We do not test for equality here, but rather leave
