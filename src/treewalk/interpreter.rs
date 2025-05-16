@@ -1944,8 +1944,7 @@ foo.bar()
         assert_read_eq!(ctx, "y", int!(6));
         assert_read_eq!(ctx, "z", int!(6));
 
-        let mut ctx = init_path("src/fixtures/imports/selective_import_c.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/imports/selective_import_c.py");
         assert_name_error!(e, "something_third");
 
         let ctx = run_path("src/fixtures/imports/selective_import_d.py");
@@ -2025,8 +2024,7 @@ j = +(-3)
 
     #[test]
     fn call_stack() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -2051,8 +2049,7 @@ j = +(-3)
         assert_eq!(call_stack.get(1).line_number(), 2);
         assert_eq!(call_stack.get(2).line_number(), 5);
 
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -2091,8 +2088,7 @@ a = 4
 b = 10
 c = foo()
 "#;
-        let mut ctx = init(&input);
-        let e = run_expect_error(&mut ctx);
+        let e = run_expect_error(input);
         assert_name_error!(e, "foo");
 
         let call_stack = e.debug_call_stack;
