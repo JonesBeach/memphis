@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::{
     bytecode_vm::{VmContext, VmResult},
     core::Container,
-    domain::{ExecutionErrorKind, Source},
+    domain::Source,
     parser::types::ImportPath,
     runtime::MemphisState,
 };
@@ -31,9 +31,7 @@ impl ModuleLoader {
         name: &str,
         _caller_path: Option<&Path>,
     ) -> VmResult<Container<Module>> {
-        let source = self
-            .resolve_source(name)
-            .ok_or_else(|| self.error_builder.error(ExecutionErrorKind::RuntimeError))?;
+        let source = self.expect_source(name)?;
         VmContext::import(source, self.state.clone(), self.runtime.clone())
     }
 
@@ -44,5 +42,10 @@ impl ModuleLoader {
         let current_path = Path::new(".");
         let import_path = ImportPath::Absolute(vec![name.to_string()]);
         Source::from_import_path(&import_path, current_path, &search_paths)
+    }
+
+    fn expect_source(&self, name: &str) -> VmResult<Source> {
+        self.resolve_source(name)
+            .ok_or_else(|| self.error_builder.import_error(name))
     }
 }

@@ -21,4 +21,8 @@ impl ErrorBuilder {
     pub fn runtime_error(&self) -> ExecutionError {
         self.error(ExecutionErrorKind::RuntimeError)
     }
+
+    pub fn import_error(&self, name: &str) -> ExecutionError {
+        self.error(ExecutionErrorKind::ImportError(name.to_string()))
+    }
 }

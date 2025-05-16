@@ -202,6 +202,23 @@ pub mod test_utils {
         }};
     }
 
+    macro_rules! assert_import_error {
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::ImportError(module) => {
+                    assert_eq!(
+                        module, $expected_message,
+                        "Unexpected ImportError module name"
+                    );
+                }
+                _ => panic!(
+                    "Expected an ImportError with a module name, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+    }
+
     macro_rules! assert_name_error {
         ($error:expr, $expected_message:expr) => {{
             match &$error.execution_error_kind {
@@ -262,6 +279,7 @@ pub mod test_utils {
     pub(crate) use assert_attribute_error;
     pub(crate) use assert_div_by_zero_error;
     pub(crate) use assert_error_eq;
+    pub(crate) use assert_import_error;
     pub(crate) use assert_key_error;
     pub(crate) use assert_name_error;
     pub(crate) use assert_type_error;

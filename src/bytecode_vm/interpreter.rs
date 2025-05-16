@@ -563,8 +563,11 @@ b = f.bar()
 
     #[test]
     fn regular_import_error() {
-        let mut ctx = run_path("src/bytecode_vm/fixtures/imports/one/main.py");
-        assert_read_eq!(ctx, "x", VmValue::Integer(5));
+        let text = r#"
+import not_found
+"#;
+        let e = run_expect_error(text);
+        assert_import_error!(e, "not_found");
     }
 
     #[test]
