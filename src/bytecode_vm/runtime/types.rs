@@ -30,6 +30,17 @@ impl Display for Reference {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct List {
+    items: Vec<Reference>,
+}
+
+impl List {
+    pub fn new(items: Vec<Reference>) -> Self {
+        Self { items }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Class {
     name: String,
     namespace: Namespace,

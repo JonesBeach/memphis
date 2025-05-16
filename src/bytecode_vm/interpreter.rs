@@ -60,7 +60,13 @@ impl Interpreter for VmInterpreter {
 mod tests_vm_interpreter {
     use super::*;
 
-    use crate::{bytecode_vm::test_utils::*, domain::test_utils::*};
+    use crate::{
+        bytecode_vm::{
+            runtime::{List, Reference},
+            test_utils::*,
+        },
+        domain::test_utils::*,
+    };
 
     #[test]
     fn expression() {
@@ -327,6 +333,15 @@ mod tests_vm_interpreter {
 
         let text = "6.1 >= 6.1";
         assert_eval_eq!(text, VmValue::Boolean(true));
+    }
+
+    #[test]
+    fn lists() {
+        let text = "[2,3]";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
     }
 
     #[test]

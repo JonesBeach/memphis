@@ -3,7 +3,7 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
-        runtime::{Class, FunctionObject, Method, Module, Object, Reference},
+        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
     },
     core::{Container, Voidable},
     domain::MemphisValue,
@@ -23,6 +23,7 @@ pub enum VmValue {
     Method(Method),
     Module(Container<Module>),
     BuiltinFunction,
+    List(List),
 }
 
 impl VmValue {
@@ -44,6 +45,7 @@ impl PartialEq for VmValue {
             (VmValue::Float(a), VmValue::Float(b)) => (a - b).abs() < 1e-9,
             (VmValue::String(a), VmValue::String(b)) => a == b,
             (VmValue::Boolean(a), VmValue::Boolean(b)) => a == b,
+            (VmValue::List(a), VmValue::List(b)) => a == b,
             // Add Class/Object/Code/Function/etc handling later if needed
             _ => false,
         }

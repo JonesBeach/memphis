@@ -3,6 +3,7 @@ use crate::{
         compiler::{CodeObject, Opcode},
         find_index,
         indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex},
+        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -11,11 +12,7 @@ use crate::{
 };
 
 use super::{
-    error_builder::ErrorBuilder,
-    frame::Frame,
-    module_loader::ModuleLoader,
-    types::{Class, FunctionObject, Method, Module, Object, Reference},
-    CallStack, Runtime,
+    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, CallStack, Runtime,
 };
 
 mod errors;
@@ -508,7 +505,18 @@ impl VirtualMachine {
                     let reference = self.as_ref(VmValue::BuiltinFunction);
                     self.push(reference)?;
                 }
-                Opcode::BuildList(_) => todo!(),
+                Opcode::BuildList(n) => {
+                    let mut items = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        let reference = self.pop()?;
+                        items.push(reference);
+                    }
+                    items.reverse(); // because you pop in reverse order
+
+                    let list = List::new(items);
+                    let reference = self.as_ref(VmValue::List(list));
+                    self.push(reference)?;
+                }
                 Opcode::Jump(offset) => {
                     self.call_stack.jump_to_offset(offset)?;
                 }
