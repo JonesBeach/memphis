@@ -508,6 +508,7 @@ impl VirtualMachine {
                     let reference = self.as_ref(VmValue::BuiltinFunction);
                     self.push(reference)?;
                 }
+                Opcode::BuildList(_) => todo!(),
                 Opcode::Jump(offset) => {
                     self.call_stack.jump_to_offset(offset)?;
                 }

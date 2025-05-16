@@ -60,6 +60,8 @@ pub enum Opcode {
     /// Pushes `__build_class__` onto the stack. It is later called by the VM to construct a class,
     /// NOT instantiate an object of that class. This is directly inspired by how CPython does it.
     LoadBuildClass,
+    /// Pop the specified number of elements off the stack and built a list object.
+    BuildList(usize),
     /// Uncomditional jump to an offset. This is signed because you can jump in reverse.
     Jump(isize),
     /// Conditional jump to an offset based on the value on the top of the stack. This is signed
@@ -109,6 +111,7 @@ impl Display for Opcode {
             Opcode::LoadAttr(i) => write!(f, "LOAD_ATTR {}", i),
             Opcode::SetAttr(i) => write!(f, "SET_ATTR {}", i),
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
+            Opcode::BuildList(i) => write!(f, "BUILD_LIST {}", i),
             Opcode::Jump(i) => write!(f, "JUMP {}", i),
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),

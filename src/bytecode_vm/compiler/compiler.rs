@@ -155,6 +155,7 @@ impl Compiler {
             Expr::Float(i) => self.emit(Opcode::PushFloat(*i)),
             Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
+            Expr::List(items) => self.compile_list(items),
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.compile_binary_operation(left, op, right)
@@ -430,6 +431,14 @@ impl Compiler {
     fn compile_store(&mut self, name: &str) -> CompilerResult<()> {
         let store = self.generate_store(name)?;
         self.emit(store)
+    }
+
+    fn compile_list(&mut self, items: &[Expr]) -> CompilerResult<()> {
+        for item in items {
+            self.compile_expr(item)?;
+        }
+        self.emit(Opcode::BuildList(items.len()))?;
+        Ok(())
     }
 
     fn compile_unary_operation(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
@@ -773,6 +782,16 @@ mod tests_bytecode {
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Add,
             ]
+        );
+    }
+
+    #[test]
+    fn lists() {
+        let expr = list![int!(2), int!(3)];
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::PushInt(2), Opcode::PushInt(3), Opcode::BuildList(2),]
         );
     }
 
