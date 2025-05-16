@@ -1929,40 +1929,32 @@ foo.bar()
     #[test]
     fn regular_import_relative() {
         let ctx = run_path("src/fixtures/imports/relative/main_b.py");
-
         assert_read_eq!(ctx, "x", int!(2));
 
         let ctx = run_path("src/fixtures/imports/relative/main_c.py");
-
         assert_read_eq!(ctx, "x", int!(2));
     }
 
     #[test]
     fn selective_import() {
         let ctx = run_path("src/fixtures/imports/selective_import_a.py");
-
         assert_read_eq!(ctx, "x", int!(5));
 
         let ctx = run_path("src/fixtures/imports/selective_import_b.py");
-
         assert_read_eq!(ctx, "y", int!(6));
         assert_read_eq!(ctx, "z", int!(6));
 
         let mut ctx = init_path("src/fixtures/imports/selective_import_c.py");
         let e = run_expect_error(&mut ctx);
-
         assert_name_error!(e, "something_third");
 
         let ctx = run_path("src/fixtures/imports/selective_import_d.py");
-
         assert_read_eq!(ctx, "z", int!(8));
 
         let ctx = run_path("src/fixtures/imports/selective_import_e.py");
-
         assert_read_eq!(ctx, "x", int!(8));
 
         let ctx = run_path("src/fixtures/imports/selective_import_f.py");
-
         assert_read_eq!(ctx, "y", int!(6));
         assert_read_eq!(ctx, "z", int!(6));
     }
@@ -1970,7 +1962,6 @@ foo.bar()
     #[test]
     fn selective_import_relative() {
         let ctx = run_path("src/fixtures/imports/relative/main_a.py");
-
         assert_read_eq!(ctx, "x", int!(2));
     }
 
@@ -2036,10 +2027,9 @@ j = +(-3)
     fn call_stack() {
         let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
         let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
         assert_name_error!(e, "unknown");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
         assert!(call_stack
             .get(0)
@@ -2063,10 +2053,9 @@ j = +(-3)
 
         let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
         let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
         assert_name_error!(e, "unknown");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
         assert_eq!(call_stack.get(1).name(), "middle_call");
@@ -2104,10 +2093,9 @@ c = foo()
 "#;
         let mut ctx = init(&input);
         let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
         assert_name_error!(e, "foo");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 1);
         assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
         assert_eq!(call_stack.get(0).name(), "<module>");

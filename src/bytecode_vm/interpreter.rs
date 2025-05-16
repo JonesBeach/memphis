@@ -562,6 +562,12 @@ b = f.bar()
     }
 
     #[test]
+    fn regular_import_error() {
+        let mut ctx = run_path("src/bytecode_vm/fixtures/imports/one/main.py");
+        assert_read_eq!(ctx, "x", VmValue::Integer(5));
+    }
+
+    #[test]
     fn stack_trace() {
         let text = r#"
 def middle_call():
@@ -627,7 +633,6 @@ middle_call()
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
-        dbg!(&call_stack);
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
         assert!(call_stack
