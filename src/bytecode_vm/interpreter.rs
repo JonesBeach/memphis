@@ -578,8 +578,7 @@ def last_call():
 
 middle_call()
 "#;
-        let mut ctx = init(text);
-        let e = run_expect_error(&mut ctx);
+        let e = run_expect_error(text);
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -597,8 +596,7 @@ middle_call()
 
     #[test]
     fn stack_trace_from_file() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -628,8 +626,7 @@ middle_call()
 
     #[test]
     fn stack_trace_multiple_files() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
