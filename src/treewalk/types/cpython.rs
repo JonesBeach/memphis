@@ -246,7 +246,7 @@ impl<'py> IntoPyObject<'py> for TreewalkValue {
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let o = match self {
             TreewalkValue::None => py.None().as_any().bind(py).to_owned(),
-            TreewalkValue::Boolean(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
+            TreewalkValue::Bool(b) => b.into_pyobject(py)?.into_bound().as_any().to_owned(),
             TreewalkValue::Str(s) => s.as_str().into_pyobject(py)?.as_any().to_owned(),
             _ => {
                 dbg!(&self);
@@ -422,7 +422,7 @@ pub mod utils {
 
     pub fn from_pyobject(py: Python, py_obj: Bound<PyAny>) -> TreewalkValue {
         if let Ok(value) = py_obj.extract::<i64>() {
-            TreewalkValue::Integer(value)
+            TreewalkValue::Int(value)
         } else if let Ok(value) = py_obj.extract::<f64>() {
             TreewalkValue::Float(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {

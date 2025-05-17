@@ -136,7 +136,7 @@ impl Callable for AddBuiltin {
         let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
-        Ok(TreewalkValue::Boolean(result))
+        Ok(TreewalkValue::Bool(result))
     }
 
     fn name(&self) -> String {

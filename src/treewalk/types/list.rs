@@ -58,7 +58,7 @@ impl List {
 
         let sliced_items = Slice::slice(slice, len, |i| {
             receiver
-                .getitem(interpreter, TreewalkValue::Integer(i))
+                .getitem(interpreter, TreewalkValue::Int(i))
                 .unwrap()
         });
 
@@ -73,7 +73,7 @@ impl IndexRead for Container<List> {
         key: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(match key {
-            TreewalkValue::Integer(i) => self.borrow().items.get(i as usize).cloned(),
+            TreewalkValue::Int(i) => self.borrow().items.get(i as usize).cloned(),
             TreewalkValue::Slice(s) => Some(TreewalkValue::List(Container::new(
                 self.borrow().slice(interpreter, &s),
             ))),

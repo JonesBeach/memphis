@@ -90,7 +90,7 @@ impl Callable for NewBuiltin {
 
                 if args
                     .get_kwarg(&TreewalkValue::Str(Str::new("strict".to_string())))
-                    .is_some_and(|k| k == TreewalkValue::Boolean(true))
+                    .is_some_and(|k| k == TreewalkValue::Bool(true))
                 {
                     let lengths = zip.lengths();
                     let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);

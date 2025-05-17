@@ -104,7 +104,7 @@ impl Contextual<TreewalkValue> {
                 .invoke_method(&self.value, Dunder::Eq, args![other.value.clone()]);
 
         match result {
-            Ok(TreewalkValue::Boolean(true)) => true,
+            Ok(TreewalkValue::Bool(true)) => true,
             Ok(_) => false,
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
@@ -118,7 +118,7 @@ impl Contextual<TreewalkValue> {
             .call_function("hash", args![self.value.clone()]);
 
         match result {
-            Ok(TreewalkValue::Integer(hash_val)) => hash_val as u64,
+            Ok(TreewalkValue::Int(hash_val)) => hash_val as u64,
             Ok(_) => memphis_utils::exit(MemphisError::Execution(ExecutionError::new(
                 self.interpreter.state.debug_call_stack(),
                 ExecutionErrorKind::TypeError(None),

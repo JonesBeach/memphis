@@ -43,7 +43,7 @@ impl Iterator for ReversedIter {
             self.list_ref
                 .getitem(
                     &self.interpreter,
-                    TreewalkValue::Integer(self.current_index as i64),
+                    TreewalkValue::Int(self.current_index as i64),
                 )
                 .unwrap()
         }

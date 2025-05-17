@@ -246,11 +246,11 @@ impl TreewalkInterpreter {
         match op {
             In => {
                 let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Boolean(iterable.any(|i| i == left)));
+                return Ok(TreewalkValue::Bool(iterable.any(|i| i == left)));
             }
             NotIn => {
                 let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Boolean(!iterable.any(|i| i == left)));
+                return Ok(TreewalkValue::Bool(!iterable.any(|i| i == left)));
             }
             Add => {
                 // List concatenation takes priority
@@ -1205,9 +1205,9 @@ impl TreewalkInterpreter {
             Expr::None => Ok(TreewalkValue::None),
             Expr::Ellipsis => Ok(TreewalkValue::Ellipsis),
             Expr::NotImplemented => Ok(TreewalkValue::NotImplemented),
-            Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
+            Expr::Integer(value) => Ok(TreewalkValue::Int(*value)),
             Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
-            Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
+            Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
@@ -3670,11 +3670,11 @@ m = sys.modules['os.path']
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", Integer);
+        assert_variant!(ctx, "a", Int);
         assert_variant!(ctx, "b", Float);
         assert_variant!(ctx, "c", Str);
         assert_variant!(ctx, "d", Str);
-        assert!(extract!(ctx, "a", Integer) > 0);
+        assert!(extract!(ctx, "a", Int) > 0);
         assert!(extract!(ctx, "b", Float) > 1701281981.0);
         assert!(extract!(ctx, "c", Str).len() > 10);
         assert!(extract!(ctx, "d", Str).len() > 10);
@@ -5624,8 +5624,8 @@ except Exception as e:
         let ctx = run(input);
 
         assert_read_eq!(ctx, "a", int!(5));
-        assert!(extract!(ctx, "b", Integer) != 0);
-        assert!(extract!(ctx, "c", Integer) != 0);
+        assert!(extract!(ctx, "b", Int) != 0);
+        assert!(extract!(ctx, "c", Int) != 0);
         assert_read_eq!(ctx, "d", bool!(true));
         assert_type_error!(
             extract!(ctx, "the_exp", Exception),

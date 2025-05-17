@@ -36,7 +36,7 @@ pub enum TreewalkValue {
     None,
     Ellipsis,
     NotImplemented,
-    Integer(i64),
+    Int(i64),
     Float(f64),
     Str(Str),
     Class(Container<Class>),
@@ -58,7 +58,7 @@ pub enum TreewalkValue {
     Cell(Container<Cell>),
     Bytes(Vec<u8>),
     ByteArray(Container<ByteArray>),
-    Boolean(bool),
+    Bool(bool),
     List(Container<List>),
     Set(Container<Set>),
     FrozenSet(FrozenSet),
@@ -100,12 +100,12 @@ impl PartialEq for TreewalkValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (TreewalkValue::None, TreewalkValue::None) => true,
-            (TreewalkValue::Integer(a), TreewalkValue::Integer(b)) => a == b,
+            (TreewalkValue::Int(a), TreewalkValue::Int(b)) => a == b,
             (TreewalkValue::Float(a), TreewalkValue::Float(b)) => (a - b).abs() < 1e-9,
             (TreewalkValue::Str(a), TreewalkValue::Str(b)) => a == b,
             (TreewalkValue::Bytes(a), TreewalkValue::Bytes(b)) => a == b,
             (TreewalkValue::ByteArray(a), TreewalkValue::ByteArray(b)) => a == b,
-            (TreewalkValue::Boolean(a), TreewalkValue::Boolean(b)) => a == b,
+            (TreewalkValue::Bool(a), TreewalkValue::Bool(b)) => a == b,
             (TreewalkValue::List(a), TreewalkValue::List(b)) => a == b,
             (TreewalkValue::Set(a), TreewalkValue::Set(b)) => a == b,
             (TreewalkValue::FrozenSet(a), TreewalkValue::FrozenSet(b)) => a == b,
@@ -155,7 +155,7 @@ impl Ord for TreewalkValue {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (TreewalkValue::Str(s1), TreewalkValue::Str(s2)) => s1.cmp(s2),
-            (TreewalkValue::Integer(n1), TreewalkValue::Integer(n2)) => n1.cmp(n2),
+            (TreewalkValue::Int(n1), TreewalkValue::Int(n2)) => n1.cmp(n2),
             _ => todo!(),
         }
     }
@@ -202,7 +202,7 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Object(o) => o.address(),
             TreewalkValue::Class(o) => o.address(),
-            TreewalkValue::Integer(i) => *i as usize,
+            TreewalkValue::Int(i) => *i as usize,
             _ => 0,
         }
     }
@@ -230,12 +230,12 @@ impl TreewalkValue {
                 write!(f, "<built-in function {}>", func.name())
             }
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
-            TreewalkValue::Integer(i) => write!(f, "{}", i),
+            TreewalkValue::Int(i) => write!(f, "{}", i),
             TreewalkValue::Float(i) => write!(f, "{}", i),
             TreewalkValue::Str(s) => write!(f, "{}", s),
             TreewalkValue::Bytes(b) => write!(f, "b'{:?}'", b),
             TreewalkValue::ByteArray(b) => write!(f, "bytearray(b'{:?}')", b),
-            TreewalkValue::Boolean(b) => match b {
+            TreewalkValue::Bool(b) => match b {
                 true => write!(f, "True"),
                 false => write!(f, "False"),
             },
@@ -341,11 +341,11 @@ impl TreewalkValue {
             TreewalkValue::BuiltinMethod(_) => Type::BuiltinMethod,
             TreewalkValue::Generator(_) => Type::Generator,
             TreewalkValue::Coroutine(_) => Type::Coroutine,
-            TreewalkValue::Integer(_) => Type::Int,
+            TreewalkValue::Int(_) => Type::Int,
             TreewalkValue::Float(_) => Type::Float,
             TreewalkValue::Bytes(_) => Type::Bytes,
             TreewalkValue::ByteArray(_) => Type::ByteArray,
-            TreewalkValue::Boolean(_) => Type::Bool,
+            TreewalkValue::Bool(_) => Type::Bool,
             TreewalkValue::Str(_) => Type::Str,
             TreewalkValue::List(_) => Type::List,
             TreewalkValue::Set(_) => Type::Set,
@@ -452,7 +452,7 @@ impl TreewalkValue {
 
     pub fn as_integer(&self) -> Option<i64> {
         match self {
-            TreewalkValue::Integer(i) => Some(*i),
+            TreewalkValue::Int(i) => Some(*i),
             TreewalkValue::Str(s) => s.parse::<i64>().ok(),
             _ => None,
         }
@@ -466,7 +466,7 @@ impl TreewalkValue {
     pub fn as_fp(&self) -> Option<f64> {
         match self {
             TreewalkValue::Float(i) => Some(*i),
-            TreewalkValue::Integer(i) => Some(*i as f64),
+            TreewalkValue::Int(i) => Some(*i as f64),
             _ => None,
         }
     }
@@ -550,10 +550,10 @@ impl TreewalkValue {
 
     pub fn as_boolean(&self) -> bool {
         match self {
-            TreewalkValue::Boolean(i) => *i,
+            TreewalkValue::Bool(i) => *i,
             TreewalkValue::List(i) => i.borrow().len() > 0,
             TreewalkValue::Str(i) => !i.is_empty(),
-            TreewalkValue::Integer(i) => *i != 0,
+            TreewalkValue::Int(i) => *i != 0,
             TreewalkValue::None => false,
             _ => true,
         }
@@ -658,7 +658,7 @@ impl TreewalkValue {
     pub fn as_string(&self) -> Option<String> {
         match self {
             TreewalkValue::Str(i) => Some(i.to_string()),
-            TreewalkValue::Integer(i) => Some(i.to_string()),
+            TreewalkValue::Int(i) => Some(i.to_string()),
             _ => None,
         }
     }
@@ -671,14 +671,14 @@ impl TreewalkValue {
     pub fn negated(&self) -> Self {
         match self {
             TreewalkValue::Float(i) => TreewalkValue::Float(-i),
-            TreewalkValue::Integer(i) => TreewalkValue::Integer(-i),
+            TreewalkValue::Int(i) => TreewalkValue::Int(-i),
             _ => unreachable!(),
         }
     }
 
     pub fn inverted(&self) -> Self {
         match self {
-            TreewalkValue::Boolean(i) => TreewalkValue::Boolean(!i),
+            TreewalkValue::Bool(i) => TreewalkValue::Bool(!i),
             _ => unreachable!(),
         }
     }
@@ -722,12 +722,12 @@ impl From<TreewalkValue> for MemphisValue {
     fn from(value: TreewalkValue) -> Self {
         match value {
             TreewalkValue::None => MemphisValue::None,
-            TreewalkValue::Integer(i) => MemphisValue::Integer(i),
+            TreewalkValue::Int(i) => MemphisValue::Integer(i),
             TreewalkValue::Float(i) => MemphisValue::Float(i),
             TreewalkValue::Str(_) => {
                 MemphisValue::String(value.as_string().expect("failed to get string"))
             }
-            TreewalkValue::Boolean(val) => MemphisValue::Boolean(val),
+            TreewalkValue::Bool(val) => MemphisValue::Boolean(val),
             TreewalkValue::List(i) => {
                 let items = i
                     .into_iter()

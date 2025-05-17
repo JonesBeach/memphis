@@ -273,7 +273,7 @@ impl VirtualMachine {
     /// all other types.
     fn as_ref(&mut self, value: VmValue) -> Reference {
         match value {
-            VmValue::Integer(_) | VmValue::Float(_) | VmValue::Boolean(_) => value.into_ref(),
+            VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
         }
     }
@@ -301,8 +301,7 @@ impl VirtualMachine {
 
     fn try_string_multiplication(a: &VmValue, b: &VmValue) -> Option<VmValue> {
         match (a, b) {
-            (VmValue::String(s), VmValue::Integer(n))
-            | (VmValue::Integer(n), VmValue::String(s)) => {
+            (VmValue::String(s), VmValue::Int(n)) | (VmValue::Int(n), VmValue::String(s)) => {
                 let result = if *n < 0 {
                     "".to_string()
                 } else {
@@ -358,17 +357,17 @@ impl VirtualMachine {
         F: FnOnce(f64, f64) -> f64,
     {
         let result = match (a, b) {
-            (VmValue::Integer(x), VmValue::Integer(y)) => {
+            (VmValue::Int(x), VmValue::Int(y)) => {
                 let res = op(*x as f64, *y as f64);
                 if force_float {
                     VmValue::Float(res)
                 } else {
-                    VmValue::Integer(res as i64)
+                    VmValue::Int(res as i64)
                 }
             }
             (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(*x, *y)),
-            (VmValue::Integer(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
-            (VmValue::Float(x), VmValue::Integer(y)) => VmValue::Float(op(*x, *y as f64)),
+            (VmValue::Int(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
+            (VmValue::Float(x), VmValue::Int(y)) => VmValue::Float(op(*x, *y as f64)),
             _ => return Err(self.type_error("Unsupported operand types for binary operation")),
         };
 
@@ -380,12 +379,10 @@ impl VirtualMachine {
         F: FnOnce(f64, f64) -> bool,
     {
         match (a, b) {
-            (VmValue::Integer(x), VmValue::Integer(y)) => {
-                Ok(VmValue::Boolean(op(*x as f64, *y as f64)))
-            }
-            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x, *y))),
-            (VmValue::Integer(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x as f64, *y))),
-            (VmValue::Float(x), VmValue::Integer(y)) => Ok(VmValue::Boolean(op(*x, *y as f64))),
+            (VmValue::Int(x), VmValue::Int(y)) => Ok(VmValue::Bool(op(*x as f64, *y as f64))),
+            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Bool(op(*x, *y))),
+            (VmValue::Int(x), VmValue::Float(y)) => Ok(VmValue::Bool(op(*x as f64, *y))),
+            (VmValue::Float(x), VmValue::Int(y)) => Ok(VmValue::Bool(op(*x, *y as f64))),
             _ => Err(self.type_error("Unsupported operand types for comparison")),
         }
     }
@@ -688,7 +685,7 @@ def foo(a, b):
 d = foo(2, 9)
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "d", VmValue::Integer(20));
+        assert_read_eq!(ctx, "d", VmValue::Int(20));
         let locals = &ctx
             .interpreter()
             .vm()
