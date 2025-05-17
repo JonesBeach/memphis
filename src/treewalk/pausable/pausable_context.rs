@@ -68,8 +68,8 @@ impl PausableContext {
             .unwrap()
     }
 
-    pub fn current_frame(&self) -> Frame {
-        self.0.last().unwrap().frame.clone()
+    pub fn current_frame(&self) -> &Frame {
+        &self.0.last().unwrap().frame
     }
 
     pub fn current_state(&self) -> PausableState {

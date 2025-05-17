@@ -24,9 +24,6 @@ pub trait Pausable {
     /// A getter for the [`Scope`] of a pausable function.
     fn scope(&self) -> Container<Scope>;
 
-    /// A setter for the [`Scope`] of a pausable function.
-    fn set_scope(&mut self, scope: Container<Scope>);
-
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
     fn finish(
@@ -69,9 +66,7 @@ pub trait Pausable {
     /// The default behavior required to perform the necessary context switching when exiting a
     /// pausable function.
     fn on_exit(&mut self, interpreter: &TreewalkInterpreter) {
-        if let Some(scope) = interpreter.state.pop_local() {
-            self.set_scope(scope);
-        }
+        interpreter.state.pop_local();
     }
 
     /// This function manually executes any control flow statements. Any changes are reflected by
