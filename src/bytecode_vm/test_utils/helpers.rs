@@ -67,6 +67,6 @@ pub fn read_attr(context: &mut VmContext, name: &str, attr: &str) -> VmValue {
         .expect("Failed to resolve");
     interpreter
         .vm()
-        .dereference(reference)
+        .deref(reference)
         .expect("Failed to get owned value")
 }

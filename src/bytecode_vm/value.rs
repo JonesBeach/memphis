@@ -129,6 +129,13 @@ impl VmValue {
         }
     }
 
+    pub fn as_list(&self) -> Option<&List> {
+        match self {
+            VmValue::List(i) => Some(i),
+            _ => None,
+        }
+    }
+
     pub fn as_object(&self) -> Option<&Object> {
         match self {
             VmValue::Object(i) => Some(i),

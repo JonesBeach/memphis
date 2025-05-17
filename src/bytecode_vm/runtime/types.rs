@@ -31,7 +31,9 @@ impl Display for Reference {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct List {
-    items: Vec<Reference>,
+    // TODO this is currently public because we need it in some tests to call deference on the
+    // elements. We'll eventually make this a slice accessor or an iterator or something.
+    pub items: Vec<Reference>,
 }
 
 impl List {

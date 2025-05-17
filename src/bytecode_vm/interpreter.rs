@@ -64,6 +64,7 @@ mod tests_vm_interpreter {
         bytecode_vm::{
             runtime::{List, Reference},
             test_utils::*,
+            VmResult,
         },
         domain::test_utils::*,
     };
@@ -341,6 +342,23 @@ mod tests_vm_interpreter {
         assert_eval_eq!(
             text,
             VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+
+        let text = r#"
+x = [2,"Hello"]
+"#;
+        let mut ctx = run(text);
+        let binding = read(&mut ctx, "x");
+        let list = binding.as_list().unwrap();
+        let values = list
+            .items
+            .iter()
+            .map(|r| ctx.interpreter().vm().deref(*r))
+            .collect::<VmResult<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            values,
+            vec![VmValue::Integer(2), VmValue::String("Hello".to_string())]
         );
     }
 
