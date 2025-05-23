@@ -246,11 +246,11 @@ impl TreewalkInterpreter {
         match op {
             In => {
                 let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Boolean(iterable.any(|i| i == left)));
+                return Ok(TreewalkValue::Bool(iterable.any(|i| i == left)));
             }
             NotIn => {
                 let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Boolean(!iterable.any(|i| i == left)));
+                return Ok(TreewalkValue::Bool(!iterable.any(|i| i == left)));
             }
             Add => {
                 // List concatenation takes priority
@@ -1205,9 +1205,9 @@ impl TreewalkInterpreter {
             Expr::None => Ok(TreewalkValue::None),
             Expr::Ellipsis => Ok(TreewalkValue::Ellipsis),
             Expr::NotImplemented => Ok(TreewalkValue::NotImplemented),
-            Expr::Integer(value) => Ok(TreewalkValue::Integer(*value)),
+            Expr::Integer(value) => Ok(TreewalkValue::Int(*value)),
             Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
-            Expr::Boolean(value) => Ok(TreewalkValue::Boolean(*value)),
+            Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
@@ -1929,40 +1929,31 @@ foo.bar()
     #[test]
     fn regular_import_relative() {
         let ctx = run_path("src/fixtures/imports/relative/main_b.py");
-
         assert_read_eq!(ctx, "x", int!(2));
 
         let ctx = run_path("src/fixtures/imports/relative/main_c.py");
-
         assert_read_eq!(ctx, "x", int!(2));
     }
 
     #[test]
     fn selective_import() {
         let ctx = run_path("src/fixtures/imports/selective_import_a.py");
-
         assert_read_eq!(ctx, "x", int!(5));
 
         let ctx = run_path("src/fixtures/imports/selective_import_b.py");
-
         assert_read_eq!(ctx, "y", int!(6));
         assert_read_eq!(ctx, "z", int!(6));
 
-        let mut ctx = init_path("src/fixtures/imports/selective_import_c.py");
-        let e = run_expect_error(&mut ctx);
-
+        let e = run_path_expect_error("src/fixtures/imports/selective_import_c.py");
         assert_name_error!(e, "something_third");
 
         let ctx = run_path("src/fixtures/imports/selective_import_d.py");
-
         assert_read_eq!(ctx, "z", int!(8));
 
         let ctx = run_path("src/fixtures/imports/selective_import_e.py");
-
         assert_read_eq!(ctx, "x", int!(8));
 
         let ctx = run_path("src/fixtures/imports/selective_import_f.py");
-
         assert_read_eq!(ctx, "y", int!(6));
         assert_read_eq!(ctx, "z", int!(6));
     }
@@ -1970,7 +1961,6 @@ foo.bar()
     #[test]
     fn selective_import_relative() {
         let ctx = run_path("src/fixtures/imports/relative/main_a.py");
-
         assert_read_eq!(ctx, "x", int!(2));
     }
 
@@ -2034,12 +2024,10 @@ j = +(-3)
 
     #[test]
     fn call_stack() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
         assert_name_error!(e, "unknown");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
         assert!(call_stack
             .get(0)
@@ -2061,12 +2049,10 @@ j = +(-3)
         assert_eq!(call_stack.get(1).line_number(), 2);
         assert_eq!(call_stack.get(2).line_number(), 5);
 
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
         assert_name_error!(e, "unknown");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
         assert_eq!(call_stack.get(1).name(), "middle_call");
@@ -2102,12 +2088,10 @@ a = 4
 b = 10
 c = foo()
 "#;
-        let mut ctx = init(&input);
-        let e = run_expect_error(&mut ctx);
-
-        let call_stack = ctx.interpreter().state.debug_call_stack();
+        let e = run_expect_error(input);
         assert_name_error!(e, "foo");
 
+        let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 1);
         assert_eq!(call_stack.get(0).file_path_str(), "<stdin>");
         assert_eq!(call_stack.get(0).name(), "<module>");
@@ -3686,11 +3670,11 @@ m = sys.modules['os.path']
 "#;
         let ctx = run(input);
 
-        assert_variant!(ctx, "a", Integer);
+        assert_variant!(ctx, "a", Int);
         assert_variant!(ctx, "b", Float);
         assert_variant!(ctx, "c", Str);
         assert_variant!(ctx, "d", Str);
-        assert!(extract!(ctx, "a", Integer) > 0);
+        assert!(extract!(ctx, "a", Int) > 0);
         assert!(extract!(ctx, "b", Float) > 1701281981.0);
         assert!(extract!(ctx, "c", Str).len() > 10);
         assert!(extract!(ctx, "d", Str).len() > 10);
@@ -5640,8 +5624,8 @@ except Exception as e:
         let ctx = run(input);
 
         assert_read_eq!(ctx, "a", int!(5));
-        assert!(extract!(ctx, "b", Integer) != 0);
-        assert!(extract!(ctx, "c", Integer) != 0);
+        assert!(extract!(ctx, "b", Int) != 0);
+        assert!(extract!(ctx, "c", Int) != 0);
         assert_read_eq!(ctx, "d", bool!(true));
         assert_type_error!(
             extract!(ctx, "the_exp", Exception),

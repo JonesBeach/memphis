@@ -1,8 +1,8 @@
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
-        find_index,
-        indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex},
+        indices::{ConstantIndex, LocalIndex, NonlocalIndex},
+        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -11,11 +11,7 @@ use crate::{
 };
 
 use super::{
-    error_builder::ErrorBuilder,
-    frame::Frame,
-    module_loader::ModuleLoader,
-    types::{Class, FunctionObject, Method, Module, Object, Reference},
-    CallStack, Runtime,
+    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, CallStack, Runtime,
 };
 
 mod errors;
@@ -30,11 +26,6 @@ pub struct VirtualMachine {
     error_builder: ErrorBuilder,
 
     call_stack: CallStack,
-
-    /// We must keep a stack of class definitions that we have begun so that when they finish, we
-    /// know with which name to associate the namespace. The index here references a name from the
-    /// constant pool.
-    class_stack: Vec<String>,
 }
 
 impl VirtualMachine {
@@ -49,7 +40,6 @@ impl VirtualMachine {
             module_loader,
             error_builder,
             call_stack,
-            class_stack: vec![],
         }
     }
 
@@ -60,20 +50,28 @@ impl VirtualMachine {
 
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
         let reference = self.load_global_by_name(name).ok()?;
-        self.dereference(reference).ok()
+        self.deref(reference).ok()
     }
 
+    // TODO this should really only be available in test/repl mode, but we currently call this in
+    // the Interpreter trait
     fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
-        let current_frame = self.current_frame()?;
-        let index = find_index(&current_frame.function.code_object.names, name)
-            .map(Index::new)
-            .ok_or_else(|| self.runtime_error())?;
-        self.load_global(index)
+        let module = self
+            .runtime
+            .borrow()
+            .read_module(&Dunder::Main)
+            .unwrap_or_else(|| panic!("Failed to read module: {}", Dunder::Main));
+
+        let binding = module.borrow();
+        Ok(binding
+            .global_store
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| panic!("Failed to find var: {}", name)))
     }
 
     pub fn module(&self) -> VmResult<Container<Module>> {
-        let frame = self.current_frame()?;
-        Ok(frame.module.clone())
+        Ok(self.current_frame()?.module.clone())
     }
 
     fn resolve_module(&self, name: &str) -> VmResult<Container<Module>> {
@@ -176,34 +174,6 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn return_val(&mut self) -> VmResult<VmValue> {
-        let frame = self.current_frame()?;
-
-        let value = if let Some(reference) = frame.locals.last() {
-            self.dereference(*reference)?
-        } else {
-            VmValue::None
-        };
-
-        Ok(value)
-    }
-
-    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
-    fn build_class(&mut self, args: Vec<Reference>) -> VmResult<Frame> {
-        let code = self.dereference(args[0])?.as_code().clone();
-        let name = code.name().to_string();
-        let function = FunctionObject::new(code);
-
-        self.class_stack.push(name);
-
-        // TODO do not use default module here
-        Ok(Frame::new(
-            function,
-            vec![],
-            Container::new(Module::default()),
-        ))
-    }
-
     fn convert_method_to_frame(&mut self, method: Method, args: Vec<Reference>) -> VmResult<Frame> {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
@@ -220,7 +190,7 @@ impl VirtualMachine {
 
     /// Extract primitives and resolve any references to a [`VmValue`]. All modifications should
     /// occur through VM instructions.
-    pub fn dereference(&self, reference: Reference) -> VmResult<VmValue> {
+    pub fn deref(&self, reference: Reference) -> VmResult<VmValue> {
         let val = match reference {
             Reference::ObjectRef(_) => self
                 .runtime
@@ -243,7 +213,7 @@ impl VirtualMachine {
     pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> VmResult<Reference> {
         if let Some(object) = object.as_object() {
             object
-                .read(name, |r| self.dereference(r))
+                .read(name, |r| self.deref(r))
                 .ok_or_else(|| self.attribute_error(name))
         } else if let Some(module) = object.as_module() {
             module
@@ -257,10 +227,10 @@ impl VirtualMachine {
 
     /// Resolves an attribute and applies method binding if it is a function.
     pub fn resolve_attr(&mut self, object_ref: Reference, name: &str) -> VmResult<Reference> {
-        let object = self.dereference(object_ref)?;
+        let object = self.deref(object_ref)?;
 
         let attr_ref = self.resolve_raw_attr(&object, name)?;
-        let attr_val = self.dereference(attr_ref)?;
+        let attr_val = self.deref(attr_ref)?;
 
         let bound = match attr_val {
             VmValue::Function(f) => {
@@ -276,7 +246,7 @@ impl VirtualMachine {
     /// all other types.
     fn as_ref(&mut self, value: VmValue) -> Reference {
         match value {
-            VmValue::Integer(_) | VmValue::Float(_) | VmValue::Boolean(_) => value.into_ref(),
+            VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
         }
     }
@@ -284,7 +254,12 @@ impl VirtualMachine {
     /// Pops and dereferences a value.
     fn pop_value(&mut self) -> VmResult<VmValue> {
         let reference = self.pop()?;
-        self.dereference(reference)
+        self.deref(reference)
+    }
+
+    fn push_value(&mut self, value: VmValue) -> VmResult<()> {
+        let reference = self.as_ref(value);
+        self.push(reference)
     }
 
     /// Load and initialize a module, storing its reference in both the global scope and runtime
@@ -304,8 +279,7 @@ impl VirtualMachine {
 
     fn try_string_multiplication(a: &VmValue, b: &VmValue) -> Option<VmValue> {
         match (a, b) {
-            (VmValue::String(s), VmValue::Integer(n))
-            | (VmValue::Integer(n), VmValue::String(s)) => {
+            (VmValue::String(s), VmValue::Int(n)) | (VmValue::Int(n), VmValue::String(s)) => {
                 let result = if *n < 0 {
                     "".to_string()
                 } else {
@@ -333,8 +307,7 @@ impl VirtualMachine {
             self.binary_numeric_op(op, &a, &b, force_float)?
         };
 
-        let reference = self.as_ref(result);
-        self.push(reference)?;
+        self.push_value(result)?;
         Ok(())
     }
 
@@ -345,8 +318,7 @@ impl VirtualMachine {
         let b = self.pop_value()?;
         let a = self.pop_value()?;
         let result = self.dynamic_cmp(&a, &b, op)?;
-        let reference = self.as_ref(result);
-        self.push(reference)?;
+        self.push_value(result)?;
         Ok(())
     }
 
@@ -361,17 +333,17 @@ impl VirtualMachine {
         F: FnOnce(f64, f64) -> f64,
     {
         let result = match (a, b) {
-            (VmValue::Integer(x), VmValue::Integer(y)) => {
+            (VmValue::Int(x), VmValue::Int(y)) => {
                 let res = op(*x as f64, *y as f64);
                 if force_float {
                     VmValue::Float(res)
                 } else {
-                    VmValue::Integer(res as i64)
+                    VmValue::Int(res as i64)
                 }
             }
             (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(*x, *y)),
-            (VmValue::Integer(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
-            (VmValue::Float(x), VmValue::Integer(y)) => VmValue::Float(op(*x, *y as f64)),
+            (VmValue::Int(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
+            (VmValue::Float(x), VmValue::Int(y)) => VmValue::Float(op(*x, *y as f64)),
             _ => return Err(self.type_error("Unsupported operand types for binary operation")),
         };
 
@@ -382,28 +354,70 @@ impl VirtualMachine {
     where
         F: FnOnce(f64, f64) -> bool,
     {
-        match (a, b) {
-            (VmValue::Integer(x), VmValue::Integer(y)) => {
-                Ok(VmValue::Boolean(op(*x as f64, *y as f64)))
-            }
-            (VmValue::Float(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x, *y))),
-            (VmValue::Integer(x), VmValue::Float(y)) => Ok(VmValue::Boolean(op(*x as f64, *y))),
-            (VmValue::Float(x), VmValue::Integer(y)) => Ok(VmValue::Boolean(op(*x, *y as f64))),
-            _ => Err(self.type_error("Unsupported operand types for comparison")),
+        let result = match (a, b) {
+            (VmValue::Int(x), VmValue::Int(y)) => op(*x as f64, *y as f64),
+            (VmValue::Float(x), VmValue::Float(y)) => op(*x, *y),
+            (VmValue::Int(x), VmValue::Float(y)) => op(*x as f64, *y),
+            (VmValue::Float(x), VmValue::Int(y)) => op(*x, *y as f64),
+            _ => return Err(self.type_error("Unsupported operand types for comparison")),
+        };
+
+        Ok(VmValue::Bool(result))
+    }
+
+    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
+    fn build_class(&mut self, args: Vec<Reference>) -> VmResult<()> {
+        let code = self.deref(args[0])?.as_code().clone();
+        let name = code.name().to_string();
+        let function = FunctionObject::new(code);
+
+        // TODO do not use default module here
+        let frame = Frame::new(function, vec![], Container::new(Module::default()));
+
+        let frame = self.run_new_frame(frame)?;
+        self.push_value(VmValue::Class(Class::new(name, frame.namespace())))
+    }
+
+    /// Run the top frame in the call stack until there are no more.
+    fn run_loop(&mut self) -> VmResult<VmValue> {
+        let mut result = VmValue::None;
+        while !self.call_stack.is_finished() {
+            let frame = self.run_frame()?;
+            result = self.return_val_for(&frame)?;
+        }
+
+        Ok(result)
+    }
+
+    fn return_val_for(&self, frame: &Frame) -> VmResult<VmValue> {
+        if let Some(v) = frame.return_val {
+            self.deref(v)
+        } else {
+            Ok(VmValue::None)
         }
     }
 
-    fn run_loop(&mut self) -> VmResult<VmValue> {
-        // If we call a function or something that requires us to enter a new frame, we do not want
-        // to do so until the end of this loop.
-        let mut deferred_frame: Option<Frame> = None;
+    /// Push a new `Frame` to the call stack and immediately execute it to completion.
+    fn run_new_frame_and_return(&mut self, frame: Frame) -> VmResult<VmValue> {
+        let frame = self.run_new_frame(frame)?;
+        self.return_val_for(&frame)
+    }
 
-        while !self.call_stack.is_finished() {
-            let frame = self.current_frame()?;
+    fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
+        self.call_stack.push(frame);
+        self.run_frame()
+    }
+
+    /// This will run the top frame in the call stack to completion and then return.
+    fn run_frame(&mut self) -> VmResult<Frame> {
+        while let Some(frame) = self.call_stack.top() {
+            if self.current_frame()?.is_finished() {
+                return self.call_stack.pop().ok_or_else(|| self.runtime_error());
+            }
+
             // Save this in case we encounter a runtime exception and need to record this info in
             // the stack trace
             self.state.set_line_number(frame.current_line());
-
             let opcode = frame.get_inst();
 
             log(LogLevel::Debug, || {
@@ -450,24 +464,26 @@ impl VirtualMachine {
                         .map_err(|_| self.type_error("Unsupported operand types for >="))?;
                 }
                 Opcode::UnaryNegative => {
-                    let reference = self.pop()?;
-                    let right = self.dereference(reference)?.as_integer();
+                    let right = self.pop_value()?.as_integer();
                     self.push(Reference::Int(-right))?;
                 }
                 Opcode::UnaryNot => {
-                    let reference = self.pop()?;
-                    let right = self.dereference(reference)?.as_boolean();
+                    let right = self.pop_value()?.as_boolean();
                     self.push(Reference::Bool(!right))?;
                 }
                 Opcode::UnaryInvert => {
-                    let reference = self.pop()?;
-                    let right = self.dereference(reference)?.as_integer();
+                    let right = self.pop_value()?.as_integer();
                     self.push(Reference::Int(!right))?;
                 }
                 Opcode::PushInt(val) => self.push(Reference::Int(val))?,
                 Opcode::PushFloat(val) => self.push(Reference::Float(val))?,
                 Opcode::LoadConst(index) => {
-                    self.push(Reference::ConstantRef(index))?;
+                    // After loading a constant for the first time, it becomes an object managed by
+                    // the heap like any other object.
+                    let value = self
+                        .read_constant(index)?
+                        .ok_or_else(|| self.runtime_error())?;
+                    self.push_value(value)?;
                 }
                 Opcode::StoreFast(index) => {
                     let reference = self.pop()?;
@@ -505,15 +521,25 @@ impl VirtualMachine {
                     });
                 }
                 Opcode::LoadBuildClass => {
-                    let reference = self.as_ref(VmValue::BuiltinFunction);
-                    self.push(reference)?;
+                    self.push_value(VmValue::BuiltinFunction)?;
+                }
+                Opcode::BuildList(n) => {
+                    let mut items = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        let reference = self.pop()?;
+                        items.push(reference);
+                    }
+
+                    // Reverse the items because we pop them off in reverse order
+                    items.reverse();
+
+                    self.push_value(VmValue::List(List::new(items)))?;
                 }
                 Opcode::Jump(offset) => {
                     self.call_stack.jump_to_offset(offset)?;
                 }
                 Opcode::JumpIfFalse(offset) => {
-                    let reference = self.pop()?;
-                    let condition = self.dereference(reference)?.as_boolean();
+                    let condition = self.pop_value()?.as_boolean();
                     if !condition {
                         self.call_stack.jump_to_offset(offset)?;
                     }
@@ -525,46 +551,48 @@ impl VirtualMachine {
                     println!("{}", value);
                 }
                 Opcode::MakeFunction => {
-                    let reference = self.pop()?;
-                    let code = self.dereference(reference)?.as_code().clone();
+                    let code = self.pop_value()?.as_code().clone();
                     let function = FunctionObject::new(code);
-                    let reference = self.as_ref(VmValue::Function(function));
-                    self.push(reference)?;
+                    self.push_value(VmValue::Function(function))?;
                 }
                 Opcode::Call(argc) => {
                     let args = (0..argc)
                         .map(|_| self.pop())
                         .collect::<Result<Vec<_>, _>>()?;
-                    let reference = self.pop()?;
-                    let callable = self.dereference(reference)?;
+                    let callable_ref = self.pop()?;
+                    let callable = self.deref(callable_ref)?;
+
                     match callable {
                         // TODO this is the placeholder for __build_class__ at the moment
                         VmValue::BuiltinFunction => {
-                            deferred_frame = Some(self.build_class(args)?);
+                            self.build_class(args)?;
                         }
                         VmValue::Function(ref function) => {
                             let module_name = function.code_object.source.name();
                             let module = self.resolve_module(module_name)?;
-                            deferred_frame =
-                                Some(Frame::new(function.clone(), args, module.clone()));
+                            let frame = Frame::new(function.clone(), args, module.clone());
+                            let ret = self.run_new_frame_and_return(frame)?;
+                            self.push_value(ret)?;
                         }
                         VmValue::Method(ref method) => {
-                            deferred_frame =
-                                Some(self.convert_method_to_frame(method.clone(), args)?);
+                            let frame = self.convert_method_to_frame(method.clone(), args)?;
+                            let ret = self.run_new_frame_and_return(frame)?;
+                            self.push_value(ret)?;
                         }
                         VmValue::Class(ref class) => {
-                            let object = Object::new(reference);
-                            let reference = self.as_ref(VmValue::Object(object));
+                            let object = VmValue::Object(Object::new(callable_ref));
+                            let reference = self.as_ref(object);
 
                             if let Some(init_method) = class.read(Dunder::Init) {
-                                let init = self.dereference(init_method)?.as_function().clone();
+                                let init = self.deref(init_method)?.as_function().clone();
                                 let method = Method::new(reference, init);
 
                                 // The object reference must be on the stack for
                                 // after the constructor executes.
                                 self.push(reference)?;
 
-                                deferred_frame = Some(self.convert_method_to_frame(method, args)?);
+                                let frame = self.convert_method_to_frame(method, args)?;
+                                self.run_new_frame(frame)?;
                             } else {
                                 self.push(reference)?;
                             }
@@ -573,37 +601,18 @@ impl VirtualMachine {
                     };
                 }
                 Opcode::ReturnValue => {
-                    let return_value = self.pop()?;
-
-                    // Exit the loop if there are no more frames
-                    if self.call_stack.is_finished() {
-                        break;
-                    }
-
-                    self.call_stack.pop().ok_or_else(|| self.runtime_error())?;
-                    // Push the return value to the caller's frame
-                    self.push(return_value)?;
-
-                    // Because we have already manipulated the call stack, we can skip the
-                    // end-of-iteration checks and handling.
-                    continue;
-                }
-                Opcode::EndClass => {
-                    // Grab the frame before it gets popped off the call stack below. Its locals
-                    // are the class namespace for the class we just finished defining.
-                    let frame = self.call_stack.pop().ok_or_else(|| self.runtime_error())?;
-
-                    let name = self.class_stack.pop().ok_or_else(|| self.runtime_error())?;
-                    let class = Class::new(name.clone(), frame.namespace());
-                    let reference = self.as_ref(VmValue::Class(class));
-
-                    self.push(reference)?;
-                    continue;
+                    let return_val_ref = self.pop()?;
+                    let frame = self.call_stack.top_frame_mut()?;
+                    frame.return_val = Some(return_val_ref);
+                    frame.finished = true;
                 }
                 Opcode::ImportName(index) => {
                     self.load_and_register_module(index)?;
                 }
-                Opcode::Halt => break,
+                Opcode::Halt => {
+                    let frame = self.call_stack.top_frame_mut()?;
+                    frame.finished = true;
+                }
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
                 Opcode::Placeholder => return Err(self.runtime_error()),
@@ -611,24 +620,15 @@ impl VirtualMachine {
 
             // Increment PC for all instructions.
             self.call_stack.advance_pc()?;
-
-            // Check if we need to enter a new function frame
-            if let Some(frame) = deferred_frame.take() {
-                self.call_stack.push(frame);
-                continue; // Restart loop immediately in new frame
-            }
-
-            // Handle functions that complete without explicit return
-            if self.current_frame()?.is_finished() {
-                self.call_stack.pop().ok_or_else(|| self.runtime_error())?;
-            }
         }
 
-        self.return_val()
+        // We should never get here because we return inline select places in the loop which
+        // indicate this frame has ended.
+        unreachable!()
     }
 
     fn load(&mut self, code: CodeObject) {
-        log(LogLevel::Debug, || format!("{}", code));
+        log(LogLevel::Debug, || format!("{:?}", code));
         let function = FunctionObject::new(code);
         let module = Container::new(Module::new(function.code_object.source.name()));
         let frame = Frame::new(function, vec![], module.clone());
@@ -637,6 +637,20 @@ impl VirtualMachine {
 
         self.call_stack.push(frame);
     }
+}
+
+pub fn _builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let items = match args.len() {
+        0 => vec![],
+        1 => match vm.deref(args[0])? {
+            VmValue::List(list) => list.items.clone(),
+            _ => return Err(vm.type_error("list() expects an iterable")),
+        },
+        _ => return Err(vm.type_error("list() takes at most one argument")),
+    };
+
+    let list = List::new(items);
+    Ok(vm.as_ref(VmValue::List(list)))
 }
 
 #[cfg(test)]
@@ -666,26 +680,5 @@ f = Foo()
             .filter(|object| matches!(object, VmValue::Object(_)))
             .collect();
         assert_eq!(objects.len(), 1);
-    }
-
-    #[test]
-    /// We want to confirm the stack is empty at the end of execution.
-    fn function_call_with_local_var() {
-        let text = r#"
-def foo(a, b):
-    c = 9
-    return a + b + c
-
-d = foo(2, 9)
-"#;
-        let mut ctx = run(text);
-        assert_read_eq!(ctx, "d", VmValue::Integer(20));
-        let locals = &ctx
-            .interpreter()
-            .vm()
-            .current_frame()
-            .expect("Failed to get locals")
-            .locals;
-        assert_eq!(locals.len(), 0);
     }
 }

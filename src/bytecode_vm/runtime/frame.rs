@@ -24,6 +24,11 @@ pub struct Frame {
     /// The stack which holds all the local variables themselves, beginning with the function
     /// arguments.
     pub locals: Vec<Reference>,
+
+    /// This will be set by any return instructions.
+    pub return_val: Option<Reference>,
+
+    pub finished: bool,
 }
 
 impl Frame {
@@ -33,6 +38,8 @@ impl Frame {
             pc: 0,
             locals: args,
             module,
+            return_val: None,
+            finished: false,
         }
     }
 
@@ -41,7 +48,7 @@ impl Frame {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.pc == self.function.code_object.bytecode.len()
+        self.finished || self.pc >= self.function.code_object.bytecode.len()
     }
 
     pub fn namespace(&self) -> Namespace {

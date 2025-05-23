@@ -59,7 +59,7 @@ impl IndexRead for Str {
         key: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
         Ok(match key {
-            TreewalkValue::Integer(i) => self
+            TreewalkValue::Int(i) => self
                 .0
                 .chars()
                 .nth(i as usize)

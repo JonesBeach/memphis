@@ -4,11 +4,11 @@ use crate::{
     errors::MemphisError,
 };
 
-pub fn init(text: &str) -> VmContext {
+fn init(text: &str) -> VmContext {
     VmContext::new(Source::from_text(text.trim()))
 }
 
-pub fn init_path(path: &str) -> VmContext {
+fn init_path(path: &str) -> VmContext {
     VmContext::new(Source::from_path(path))
 }
 
@@ -36,7 +36,17 @@ pub fn run_path(path: &str) -> VmContext {
     context
 }
 
-pub fn run_expect_error(context: &mut VmContext) -> ExecutionError {
+pub fn run_expect_error(text: &str) -> ExecutionError {
+    let mut context = init(text);
+    match context.run() {
+        Ok(_) => panic!("Expected an error!"),
+        Err(MemphisError::Execution(e)) => return e,
+        Err(_) => panic!("Expected an execution error!"),
+    };
+}
+
+pub fn run_path_expect_error(path: &str) -> ExecutionError {
+    let mut context = init_path(path);
     match context.run() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,
@@ -57,6 +67,6 @@ pub fn read_attr(context: &mut VmContext, name: &str, attr: &str) -> VmValue {
         .expect("Failed to resolve");
     interpreter
         .vm()
-        .dereference(reference)
+        .deref(reference)
         .expect("Failed to get owned value")
 }

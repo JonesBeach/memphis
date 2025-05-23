@@ -86,7 +86,7 @@ impl Iterator for RangeIter {
             // Modify the start value in the range itself to prep the state for the next time
             // `next` is called.
             self.0.start += self.0.step;
-            Some(TreewalkValue::Integer(result))
+            Some(TreewalkValue::Int(result))
         } else {
             None
         }

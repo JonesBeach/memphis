@@ -47,6 +47,16 @@ impl Ast {
     pub fn iter(&self) -> Iter<'_, Statement> {
         self.statements.iter()
     }
+
+    /// This simulations CPython `eval` mode, rather than `exec` mode. We currently assume this WAY
+    /// too many places.
+    pub fn rewrite_last_expr_to_return(&mut self) {
+        if self.len() == 1 {
+            if let StatementKind::Expression(expr) = &self.statements[0].kind {
+                self.statements[0].kind = StatementKind::Return(vec![expr.clone()]);
+            }
+        }
+    }
 }
 
 /// Build an [`Ast`] from a literal list of [`Statement`] objects.

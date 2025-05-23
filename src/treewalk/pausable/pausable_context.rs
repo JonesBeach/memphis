@@ -40,18 +40,15 @@ impl PausableToken {
 pub struct PausableContext(Vec<PausableToken>);
 
 impl PausableContext {
-    pub fn new(initial_frame: Frame) -> Self {
-        Self(vec![PausableToken::new(
-            initial_frame,
-            PausableState::Created,
-        )])
+    pub fn new(frame: Frame) -> Self {
+        Self(vec![PausableToken::new(frame, PausableState::Created)])
     }
 
-    pub fn push_context(&mut self, context: PausableToken) {
+    pub fn push(&mut self, context: PausableToken) {
         self.0.push(context);
     }
 
-    pub fn pop_context(&mut self) -> Option<PausableToken> {
+    pub fn pop(&mut self) -> Option<PausableToken> {
         self.0.pop()
     }
 
@@ -68,8 +65,8 @@ impl PausableContext {
             .unwrap()
     }
 
-    pub fn current_frame(&self) -> Frame {
-        self.0.last().unwrap().frame.clone()
+    pub fn current_frame(&self) -> &Frame {
+        &self.0.last().unwrap().frame
     }
 
     pub fn current_state(&self) -> PausableState {

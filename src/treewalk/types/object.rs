@@ -338,7 +338,7 @@ impl Callable for EqBuiltin {
         let a = args.expect_self(interpreter)?;
         let b = args.get_arg(0);
 
-        Ok(TreewalkValue::Boolean(a == b))
+        Ok(TreewalkValue::Bool(a == b))
     }
 
     fn name(&self) -> String {
@@ -350,7 +350,7 @@ impl Callable for HashBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
         let object = args.expect_self(interpreter)?;
-        Ok(TreewalkValue::Integer(object.hash() as i64))
+        Ok(TreewalkValue::Int(object.hash() as i64))
     }
 
     fn name(&self) -> String {

@@ -12,7 +12,7 @@ macro_rules! str {
 
 macro_rules! int {
     ($val:expr) => {
-        crate::treewalk::TreewalkValue::Integer($val)
+        crate::treewalk::TreewalkValue::Int($val)
     };
 }
 
@@ -30,7 +30,7 @@ macro_rules! complex {
 
 macro_rules! bool {
     ($val:expr) => {
-        crate::treewalk::TreewalkValue::Boolean($val)
+        crate::treewalk::TreewalkValue::Bool($val)
     };
 }
 

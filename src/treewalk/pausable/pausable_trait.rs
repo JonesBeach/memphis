@@ -24,9 +24,6 @@ pub trait Pausable {
     /// A getter for the [`Scope`] of a pausable function.
     fn scope(&self) -> Container<Scope>;
 
-    /// A setter for the [`Scope`] of a pausable function.
-    fn set_scope(&mut self, scope: Container<Scope>);
-
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
     fn finish(
@@ -69,9 +66,7 @@ pub trait Pausable {
     /// The default behavior required to perform the necessary context switching when exiting a
     /// pausable function.
     fn on_exit(&mut self, interpreter: &TreewalkInterpreter) {
-        if let Some(scope) = interpreter.state.pop_local() {
-            self.set_scope(scope);
-        }
+        interpreter.state.pop_local();
     }
 
     /// This function manually executes any control flow statements. Any changes are reflected by
@@ -90,7 +85,7 @@ pub trait Pausable {
         match &stmt.kind {
             StatementKind::WhileLoop(cond_ast) => {
                 if interpreter.evaluate_expr(&cond_ast.condition)?.as_boolean() {
-                    self.context_mut().push_context(PausableToken::new(
+                    self.context_mut().push(PausableToken::new(
                         Frame::new(cond_ast.ast.clone()),
                         PausableState::InWhileLoop(cond_ast.condition.clone()),
                     ));
@@ -104,7 +99,7 @@ pub trait Pausable {
                 else_part,
             } => {
                 if interpreter.evaluate_expr(&if_part.condition)?.as_boolean() {
-                    self.context_mut().push_context(PausableToken::new(
+                    self.context_mut().push(PausableToken::new(
                         Frame::new(if_part.ast.clone()),
                         PausableState::InBlock,
                     ));
@@ -117,7 +112,7 @@ pub trait Pausable {
                         .evaluate_expr(&elif_part.condition)?
                         .as_boolean()
                     {
-                        self.context_mut().push_context(PausableToken::new(
+                        self.context_mut().push(PausableToken::new(
                             Frame::new(elif_part.ast.clone()),
                             PausableState::InBlock,
                         ));
@@ -127,7 +122,7 @@ pub trait Pausable {
                 }
 
                 if let Some(else_body) = else_part {
-                    self.context_mut().push_context(PausableToken::new(
+                    self.context_mut().push(PausableToken::new(
                         Frame::new(else_body.clone()),
                         PausableState::InBlock,
                     ));
@@ -150,7 +145,7 @@ pub trait Pausable {
 
                 if let Some(item) = queue.pop_front() {
                     interpreter.write_loop_index(index, item);
-                    self.context_mut().push_context(PausableToken::new(
+                    self.context_mut().push(PausableToken::new(
                         Frame::new(body.clone()),
                         PausableState::InForLoop {
                             index: index.clone(),
@@ -205,7 +200,7 @@ pub trait Pausable {
                             interpreter.write_loop_index(&index, item);
                             self.context_mut().restart_frame();
                         } else {
-                            self.context_mut().pop_context();
+                            self.context_mut().pop();
                             continue;
                         }
                     }
@@ -225,7 +220,7 @@ pub trait Pausable {
                 }
                 PausableState::InBlock => {
                     if self.context().current_frame().is_finished() {
-                        self.context_mut().pop_context();
+                        self.context_mut().pop();
                         continue;
                     }
 
@@ -244,7 +239,7 @@ pub trait Pausable {
                 }
                 PausableState::InWhileLoop(condition) => {
                     if self.context().current_frame().is_finished() {
-                        self.context_mut().pop_context();
+                        self.context_mut().pop();
                         continue;
                     }
 

@@ -1,4 +1,8 @@
-use crate::{bytecode_vm::VmResult, core::Container, runtime::MemphisState};
+use crate::{
+    bytecode_vm::VmResult,
+    core::{log, Container, LogLevel},
+    runtime::MemphisState,
+};
 
 use super::{error_builder::ErrorBuilder, frame::Frame};
 
@@ -21,6 +25,9 @@ impl CallStack {
     }
 
     pub fn push(&mut self, frame: Frame) {
+        log(LogLevel::Debug, || {
+            format!("Pushing frame: {}", frame.function.code_object.name())
+        });
         // If we don't save the current line number, we won't properly record where in the current
         // file we called the next function from. We do something similar in the treewalk
         // interpreter.
@@ -33,7 +40,15 @@ impl CallStack {
 
     pub fn pop(&mut self) -> Option<Frame> {
         self.state.pop_stack_frame();
-        self.stack.pop()
+
+        if let Some(frame) = self.stack.pop() {
+            log(LogLevel::Debug, || {
+                format!("Popping frame: {}", frame.function.code_object.name())
+            });
+            Some(frame)
+        } else {
+            None
+        }
     }
 
     pub fn top(&self) -> Option<&Frame> {
@@ -64,6 +79,12 @@ impl CallStack {
 
     pub fn advance_pc(&mut self) -> VmResult<()> {
         let frame = self.top_frame_mut()?;
+        log(LogLevel::Debug, || {
+            format!(
+                "Advancing PC in module: {}",
+                frame.function.code_object.name()
+            )
+        });
         frame.pc += 1;
         Ok(())
     }

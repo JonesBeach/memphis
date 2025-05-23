@@ -125,10 +125,6 @@ impl Pausable for Coroutine {
         self.scope.clone()
     }
 
-    fn set_scope(&mut self, scope: Container<Scope>) {
-        self.scope = scope;
-    }
-
     fn finish(
         &mut self,
         _interpreter: &TreewalkInterpreter,

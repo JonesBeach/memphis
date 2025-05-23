@@ -36,15 +36,18 @@ impl VmContext {
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
     ) -> VmResult<Container<Module>> {
-        let mut context = VmContext::from_state(source, state.clone(), runtime);
+        let module_name = source.name().to_owned();
+        let mut context = VmContext::from_state(source, state.clone(), runtime.clone());
 
         // TODO we shouldn't squash this error, but it's currently a MemphisError
         let _ = context.run();
 
-        // TODO this shouldn't be necessary, but we currently cannot pop the call stack and still
-        // get the module out of it in the next line here.
-        state.pop_stack_frame();
-        context.interpreter().vm().module()
+        // TODO same with this error
+        let module = runtime
+            .borrow()
+            .read_module(&module_name)
+            .expect("Failed to read newly created module");
+        Ok(module)
     }
 
     /// Initialize a context from a [`Source`] and existing treewalk state.
@@ -70,10 +73,6 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.execute(&mut parser)
     }
-
-    pub fn interpreter(&self) -> &VmInterpreter {
-        &self.interpreter
-    }
 }
 
 #[cfg(test)]
@@ -98,5 +97,9 @@ impl VmContext {
 
     pub fn read(&mut self, name: &str) -> Option<VmValue> {
         self.interpreter.read_global(name)
+    }
+
+    pub fn interpreter(&self) -> &VmInterpreter {
+        &self.interpreter
     }
 }

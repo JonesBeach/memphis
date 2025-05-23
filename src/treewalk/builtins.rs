@@ -35,7 +35,7 @@ pub struct PrintBuiltin;
 impl Callable for CallableBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        Ok(TreewalkValue::Boolean(
+        Ok(TreewalkValue::Bool(
             args.get_arg(0).into_callable().is_some(),
         ))
     }
@@ -111,12 +111,12 @@ impl Callable for HashBuiltin {
 
         let arg = args.get_arg(0);
         if arg.as_class().is_some() {
-            return Ok(TreewalkValue::Integer(arg.hash() as i64));
+            return Ok(TreewalkValue::Int(arg.hash() as i64));
         }
 
         let result = interpreter.invoke_method(&arg, Dunder::Hash, args![])?;
 
-        if let TreewalkValue::Integer(_) = result {
+        if let TreewalkValue::Int(_) = result {
             Ok(result)
         } else {
             Err(interpreter.type_error(format!("{} method should return an integer", Dunder::Hash)))
@@ -156,7 +156,7 @@ impl Callable for IsinstanceBuiltin {
             has_overlap(&reference_class, &instance_class.mro())
         };
 
-        Ok(TreewalkValue::Boolean(isinstance))
+        Ok(TreewalkValue::Bool(isinstance))
     }
 
     fn name(&self) -> String {
@@ -178,7 +178,7 @@ impl Callable for IssubclassBuiltin {
                 .type_error("issubclass() arg 2 must be a type, a tuple of types, or a union")
         })?;
 
-        Ok(TreewalkValue::Boolean(
+        Ok(TreewalkValue::Bool(
             instance_class.mro().contains(&reference_class),
         ))
     }
@@ -214,7 +214,7 @@ impl Callable for LenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let iterator = args.get_arg(0).expect_iterable(interpreter)?;
-        Ok(TreewalkValue::Integer(iterator.count() as i64))
+        Ok(TreewalkValue::Int(iterator.count() as i64))
     }
 
     fn name(&self) -> String {

@@ -4,11 +4,11 @@ use crate::{
     treewalk::{TreewalkContext, TreewalkValue},
 };
 
-pub fn init(text: &str) -> TreewalkContext {
+fn init(text: &str) -> TreewalkContext {
     TreewalkContext::new(Source::from_text(text))
 }
 
-pub fn init_path(path: &str) -> TreewalkContext {
+fn init_path(path: &str) -> TreewalkContext {
     TreewalkContext::new(Source::from_path(path))
 }
 
@@ -36,7 +36,17 @@ pub fn run_path(path: &str) -> TreewalkContext {
     context
 }
 
-pub fn run_expect_error(context: &mut TreewalkContext) -> ExecutionError {
+pub fn run_expect_error(text: &str) -> ExecutionError {
+    let mut context = init(text);
+    match context.run() {
+        Ok(_) => panic!("Expected an error!"),
+        Err(MemphisError::Execution(e)) => return e,
+        Err(_) => panic!("Expected an execution error!"),
+    };
+}
+
+pub fn run_path_expect_error(path: &str) -> ExecutionError {
+    let mut context = init_path(path);
     match context.run() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,

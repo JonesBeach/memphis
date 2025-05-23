@@ -26,7 +26,7 @@ impl Callable for NewBuiltin {
             _ => unreachable!(),
         };
 
-        Ok(TreewalkValue::Integer(int))
+        Ok(TreewalkValue::Int(int))
     }
 
     fn name(&self) -> String {

@@ -25,7 +25,10 @@ impl VmInterpreter {
     }
 
     pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
-        let ast = parser.parse().map_err(MemphisError::Parser)?;
+        let mut ast = parser.parse().map_err(MemphisError::Parser)?;
+        // This simulations CPython `eval` mode, which we assume to be for the tests and REPL.
+        // TODO make this explicit with `CompileMode` or similar.
+        ast.rewrite_last_expr_to_return();
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
     }
 
@@ -37,12 +40,6 @@ impl VmInterpreter {
 
     pub fn read_global(&mut self, name: &str) -> Option<VmValue> {
         self.vm.read_global(name)
-    }
-}
-
-impl VmInterpreter {
-    pub fn vm(&self) -> &VirtualMachine {
-        &self.vm
     }
 }
 
@@ -60,12 +57,25 @@ impl Interpreter for VmInterpreter {
 mod tests_vm_interpreter {
     use super::*;
 
-    use crate::{bytecode_vm::test_utils::*, domain::test_utils::*};
+    use crate::{
+        bytecode_vm::{
+            runtime::{List, Reference},
+            test_utils::*,
+            VmResult,
+        },
+        domain::test_utils::*,
+    };
+
+    impl VmInterpreter {
+        pub fn vm(&self) -> &VirtualMachine {
+            &self.vm
+        }
+    }
 
     #[test]
     fn expression() {
         let text = "4 * (2 + 3)";
-        assert_eval_eq!(text, VmValue::Integer(20));
+        assert_eval_eq!(text, VmValue::Int(20));
 
         let text = "4 > x";
         let e = eval_expect_error(text);
@@ -79,7 +89,7 @@ mod tests_vm_interpreter {
     #[test]
     fn binary_addition() {
         let text = "4 + 3";
-        assert_eval_eq!(text, VmValue::Integer(7));
+        assert_eval_eq!(text, VmValue::Int(7));
 
         let text = "4.1 + 3.01";
         assert_eval_eq!(text, VmValue::Float(7.11));
@@ -91,7 +101,7 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, VmValue::Float(7.1));
 
         let text = "-4 + 3";
-        assert_eval_eq!(text, VmValue::Integer(-1));
+        assert_eval_eq!(text, VmValue::Int(-1));
 
         let text = "4.1 + 'a'";
         let e = eval_expect_error(text);
@@ -101,7 +111,7 @@ mod tests_vm_interpreter {
     #[test]
     fn binary_subtraction() {
         let text = "4 - 3";
-        assert_eval_eq!(text, VmValue::Integer(1));
+        assert_eval_eq!(text, VmValue::Int(1));
 
         let text = "4.1 - 3.01";
         assert_eval_eq!(text, VmValue::Float(1.09));
@@ -113,7 +123,7 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, VmValue::Float(1.1));
 
         let text = "-4 - 3";
-        assert_eval_eq!(text, VmValue::Integer(-7));
+        assert_eval_eq!(text, VmValue::Int(-7));
 
         let text = "4.1 - 'a'";
         let e = eval_expect_error(text);
@@ -123,7 +133,7 @@ mod tests_vm_interpreter {
     #[test]
     fn binary_multiplication() {
         let text = "4 * 3";
-        assert_eval_eq!(text, VmValue::Integer(12));
+        assert_eval_eq!(text, VmValue::Int(12));
 
         let text = "4.1 * 3.01";
         assert_eval_eq!(text, VmValue::Float(12.341));
@@ -135,7 +145,7 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, VmValue::Float(12.3));
 
         let text = "-4 * 3";
-        assert_eval_eq!(text, VmValue::Integer(-12));
+        assert_eval_eq!(text, VmValue::Int(-12));
 
         let text = "4 * 'a'";
         assert_eval_eq!(text, VmValue::String("aaaa".to_string()));
@@ -179,187 +189,222 @@ mod tests_vm_interpreter {
     #[test]
     fn comparison_eq() {
         let text = "4 == 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4 == 4";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4.1 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4 == 4.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = r#""a" == "a""#;
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = r#""a" == "b""#;
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
     }
 
     #[test]
     fn comparison_less_than() {
         let text = "4 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "5 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4.1 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 < 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4 < 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6 < 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4.1 < 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 < 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 < 6.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
     }
 
     #[test]
     fn comparison_less_than_or_equal() {
         let text = "4 <= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6 <= 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "5 <= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4.1 <= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 <= 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4 <= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6 <= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4.1 <= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 <= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 <= 6.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
     }
 
     #[test]
     fn comparison_greater_than() {
         let text = "4 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "5 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "4.1 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 > 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4 > 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6 > 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4.1 > 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 > 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 > 6.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
     }
 
     #[test]
     fn comparison_greater_than_or_equal() {
         let text = "4 >= 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6 >= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "5 >= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4.1 >= 5";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 >= 5";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4 >= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6 >= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "4.1 >= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(false));
+        assert_eval_eq!(text, VmValue::Bool(false));
 
         let text = "6.1 >= 5.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
 
         let text = "6.1 >= 6.1";
-        assert_eval_eq!(text, VmValue::Boolean(true));
+        assert_eval_eq!(text, VmValue::Bool(true));
     }
 
     #[test]
-    fn assignment() {
+    fn lists() {
+        let text = "[2,3]";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+
+        let text = r#"
+x = [2,"Hello"]
+"#;
+        let mut ctx = run(text);
+        let binding = read(&mut ctx, "x");
+        let list = binding.as_list().unwrap();
+        let values = list
+            .items
+            .iter()
+            .map(|r| ctx.interpreter().vm().deref(*r))
+            .collect::<VmResult<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            values,
+            vec![VmValue::Int(2), VmValue::String("Hello".to_string())]
+        );
+    }
+
+    #[test]
+    fn assignment_int() {
         let text = r#"
 a = 5 - 3
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "a", VmValue::Integer(2));
+        assert_read_eq!(ctx, "a", VmValue::Int(2));
+    }
 
+    #[test]
+    fn assignment_str() {
         let text = r#"
 a = "Hello World"
 "#;
         let mut ctx = run(text);
         assert_read_eq!(ctx, "a", VmValue::String("Hello World".into()));
+    }
 
+    #[test]
+    fn assignment_none() {
         let text = r#"
 a = 5 - 3
 b = 10
 c = None
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "a", VmValue::Integer(2));
-        assert_read_eq!(ctx, "b", VmValue::Integer(10));
+        assert_read_eq!(ctx, "a", VmValue::Int(2));
+        assert_read_eq!(ctx, "b", VmValue::Int(10));
         assert_read_eq!(ctx, "c", VmValue::None);
+    }
 
+    #[test]
+    fn assignment_var() {
         let text = r#"
 a = 5 - 3
 b = 10 + a
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "a", VmValue::Integer(2));
-        assert_read_eq!(ctx, "b", VmValue::Integer(12));
+        assert_read_eq!(ctx, "a", VmValue::Int(2));
+        assert_read_eq!(ctx, "b", VmValue::Int(12));
     }
 
     #[test]
@@ -371,7 +416,7 @@ while i < n:
     i = i + 1
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "i", VmValue::Integer(4));
+        assert_read_eq!(ctx, "i", VmValue::Int(4));
     }
 
     #[test]
@@ -383,7 +428,7 @@ def foo(a, b):
 c = foo(2, 9)
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "c", VmValue::Integer(11));
+        assert_read_eq!(ctx, "c", VmValue::Int(11));
     }
 
     #[test]
@@ -396,7 +441,7 @@ def foo(a, b):
 d = foo(2, 9)
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "d", VmValue::Integer(20));
+        assert_read_eq!(ctx, "d", VmValue::Int(20));
     }
 
     #[test]
@@ -426,7 +471,7 @@ def foo(a, b):
 c = foo(2, 9)
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "c", VmValue::Integer(29));
+        assert_read_eq!(ctx, "c", VmValue::Int(29));
     }
 
     #[test]
@@ -465,7 +510,7 @@ f = Foo()
 b = f.bar()
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "b", VmValue::Integer(4));
+        assert_read_eq!(ctx, "b", VmValue::Int(4));
 
         let text = r#"
 class Foo:
@@ -476,7 +521,7 @@ f = Foo()
 b = f.bar(11)
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "b", VmValue::Integer(15));
+        assert_read_eq!(ctx, "b", VmValue::Int(15));
     }
 
     #[test]
@@ -489,7 +534,7 @@ f = Foo()
 f.x = 4
 "#;
         let mut ctx = run(text);
-        assert_member_eq!(ctx, "f", "x", VmValue::Integer(4));
+        assert_member_eq!(ctx, "f", "x", VmValue::Int(4));
     }
 
     #[test]
@@ -503,7 +548,7 @@ f = Foo()
 f.bar()
 "#;
         let mut ctx = run(text);
-        assert_member_eq!(ctx, "f", "x", VmValue::Integer(4));
+        assert_member_eq!(ctx, "f", "x", VmValue::Int(4));
     }
 
     #[test]
@@ -516,7 +561,7 @@ class Foo:
 f = Foo()
 "#;
         let mut ctx = run(text);
-        assert_member_eq!(ctx, "f", "x", VmValue::Integer(44));
+        assert_member_eq!(ctx, "f", "x", VmValue::Int(44));
     }
 
     #[test]
@@ -529,11 +574,11 @@ class Foo:
 f = Foo(33)
 "#;
         let mut ctx = run(text);
-        assert_member_eq!(ctx, "f", "x", VmValue::Integer(33));
+        assert_member_eq!(ctx, "f", "x", VmValue::Int(33));
     }
 
     #[test]
-    fn class_instantiation_with_constructor_and_args_again() {
+    fn class_instantiation_with_method_call() {
         let text = r#"
 class Foo:
     def __init__(self, val):
@@ -546,19 +591,28 @@ f = Foo(10)
 b = f.bar()
 "#;
         let mut ctx = run(text);
-        assert_read_eq!(ctx, "b", VmValue::Integer(10));
+        assert_read_eq!(ctx, "b", VmValue::Int(10));
     }
 
     #[test]
-    fn regular_import() {
+    fn regular_import_same_file() {
         let mut ctx = run_path("src/bytecode_vm/fixtures/imports/one/main.py");
-        assert_read_eq!(ctx, "x", VmValue::Integer(5));
+        assert_read_eq!(ctx, "x", VmValue::Int(5));
     }
 
     #[test]
     fn regular_import_function_in_other_file() {
         let mut ctx = run_path("src/bytecode_vm/fixtures/imports/two/main.py");
-        assert_read_eq!(ctx, "x", VmValue::Integer(33));
+        assert_read_eq!(ctx, "x", VmValue::Int(33));
+    }
+
+    #[test]
+    fn regular_import_error() {
+        let text = r#"
+import not_found
+"#;
+        let e = run_expect_error(text);
+        assert_import_error!(e, "not_found");
     }
 
     #[test]
@@ -572,8 +626,7 @@ def last_call():
 
 middle_call()
 "#;
-        let mut ctx = init(text);
-        let e = run_expect_error(&mut ctx);
+        let e = run_expect_error(text);
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -591,8 +644,7 @@ middle_call()
 
     #[test]
     fn stack_trace_from_file() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack_one_file.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
@@ -622,12 +674,10 @@ middle_call()
 
     #[test]
     fn stack_trace_multiple_files() {
-        let mut ctx = init_path("src/fixtures/call_stack/call_stack.py");
-        let e = run_expect_error(&mut ctx);
+        let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
         assert_name_error!(e, "unknown");
 
         let call_stack = e.debug_call_stack;
-        dbg!(&call_stack);
         assert_eq!(call_stack.len(), 3);
         assert_eq!(call_stack.get(0).name(), "<module>");
         assert!(call_stack

@@ -25,15 +25,15 @@ impl CrosscheckSession {
     }
 
     /// Read a value from both engines; confirm they return the same value, then return the value.
-    pub fn read(&mut self, name: &str) -> Option<MemphisValue> {
-        let a = self.treewalk.read(name)?;
-        let b = self.vm.read(name)?;
+    pub fn read(&mut self, name: &str) -> (Option<MemphisValue>, Option<MemphisValue>) {
+        let tw_val = self.treewalk.read(name);
+        let vm_val = self.vm.read(name);
 
-        assert_eq!(a, b, "Engines returned different values");
-        Some(a)
+        (tw_val, vm_val)
     }
 
-    /// Run both engines; confirm they return the same value, then return the value.
+    /// Run both engines, then return the value. We do not test for equality here, but rather leave
+    /// that up to any downstream macros, so the source of the error will be clearer to the user.
     pub fn eval(&mut self) -> (MemphisValue, MemphisValue) {
         let tw_val = self.treewalk.run().expect("Treewalk run failed.");
         let vm_val = self.vm.run().expect("VM run failed.");
@@ -41,15 +41,15 @@ impl CrosscheckSession {
         (tw_val, vm_val)
     }
 
-    /// Run both engines; confirm they return the same error, then return the error.
-    pub fn run_expect_error(mut self) -> MemphisError {
+    /// Run both engines, then return the error. We do not test for equality here, but rather leave
+    /// that up to any downstream macros, so the source of the error will be clearer to the user.
+    pub fn run_expect_error(mut self) -> (MemphisError, MemphisError) {
         let treewalk_err = self
             .treewalk
             .run()
             .expect_err("Expected error from treewalk engine");
         let vm_err = self.vm.run().expect_err("Expected error from bytecode VM");
 
-        assert_eq!(treewalk_err, vm_err, "Engines returned different errors");
-        treewalk_err
+        (treewalk_err, vm_err)
     }
 }

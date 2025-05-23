@@ -19,19 +19,19 @@ impl TreewalkInterpreter {
         F: FnOnce(f64, f64) -> f64,
     {
         let result = match (left, right) {
-            (TreewalkValue::Integer(x), TreewalkValue::Integer(y)) => {
+            (TreewalkValue::Int(x), TreewalkValue::Int(y)) => {
                 let res = op(x as f64, y as f64);
                 if force_float {
                     TreewalkValue::Float(res)
                 } else {
-                    TreewalkValue::Integer(res as i64)
+                    TreewalkValue::Int(res as i64)
                 }
             }
             (TreewalkValue::Float(x), TreewalkValue::Float(y)) => TreewalkValue::Float(op(x, y)),
-            (TreewalkValue::Integer(x), TreewalkValue::Float(y)) => {
+            (TreewalkValue::Int(x), TreewalkValue::Float(y)) => {
                 TreewalkValue::Float(op(x as f64, y))
             }
-            (TreewalkValue::Float(x), TreewalkValue::Integer(y)) => {
+            (TreewalkValue::Float(x), TreewalkValue::Int(y)) => {
                 TreewalkValue::Float(op(x, y as f64))
             }
             _ => return Err(self.type_error("Unsupported operand types for numeric operation")),
@@ -47,8 +47,8 @@ impl TreewalkInterpreter {
         right: bool,
     ) -> TreewalkResult<TreewalkValue> {
         match op {
-            LogicalOp::And => Ok(TreewalkValue::Boolean(left && right)),
-            LogicalOp::Or => Ok(TreewalkValue::Boolean(left || right)),
+            LogicalOp::And => Ok(TreewalkValue::Bool(left && right)),
+            LogicalOp::Or => Ok(TreewalkValue::Bool(left || right)),
         }
     }
 
@@ -59,9 +59,9 @@ impl TreewalkInterpreter {
         right: i64,
     ) -> TreewalkResult<TreewalkValue> {
         match op {
-            BinOp::Add => Ok(TreewalkValue::Integer(left + right)),
-            BinOp::Sub => Ok(TreewalkValue::Integer(left - right)),
-            BinOp::Mul => Ok(TreewalkValue::Integer(left * right)),
+            BinOp::Add => Ok(TreewalkValue::Int(left + right)),
+            BinOp::Sub => Ok(TreewalkValue::Int(left - right)),
+            BinOp::Mul => Ok(TreewalkValue::Int(left * right)),
             BinOp::Div => {
                 if right == 0 {
                     Err(self.div_by_zero_error("integer division or modulo by zero"))
@@ -73,38 +73,38 @@ impl TreewalkInterpreter {
                 if right == 0 {
                     Err(self.div_by_zero_error("integer division or modulo by zero"))
                 } else {
-                    Ok(TreewalkValue::Integer(left / right))
+                    Ok(TreewalkValue::Int(left / right))
                 }
             }
             BinOp::Mod => {
                 if right == 0 {
                     Err(self.div_by_zero_error("integer division or modulo by zero"))
                 } else {
-                    Ok(TreewalkValue::Integer(left % right))
+                    Ok(TreewalkValue::Int(left % right))
                 }
             }
-            BinOp::GreaterThan => Ok(TreewalkValue::Boolean(left > right)),
-            BinOp::LessThan => Ok(TreewalkValue::Boolean(left < right)),
-            BinOp::GreaterThanOrEqual => Ok(TreewalkValue::Boolean(left >= right)),
-            BinOp::LessThanOrEqual => Ok(TreewalkValue::Boolean(left <= right)),
-            BinOp::Equals => Ok(TreewalkValue::Boolean(left == right)),
-            BinOp::NotEquals => Ok(TreewalkValue::Boolean(left != right)),
-            BinOp::BitwiseAnd => Ok(TreewalkValue::Integer(left & right)),
-            BinOp::BitwiseOr => Ok(TreewalkValue::Integer(left | right)),
-            BinOp::BitwiseXor => Ok(TreewalkValue::Integer(left ^ right)),
+            BinOp::GreaterThan => Ok(TreewalkValue::Bool(left > right)),
+            BinOp::LessThan => Ok(TreewalkValue::Bool(left < right)),
+            BinOp::GreaterThanOrEqual => Ok(TreewalkValue::Bool(left >= right)),
+            BinOp::LessThanOrEqual => Ok(TreewalkValue::Bool(left <= right)),
+            BinOp::Equals => Ok(TreewalkValue::Bool(left == right)),
+            BinOp::NotEquals => Ok(TreewalkValue::Bool(left != right)),
+            BinOp::BitwiseAnd => Ok(TreewalkValue::Int(left & right)),
+            BinOp::BitwiseOr => Ok(TreewalkValue::Int(left | right)),
+            BinOp::BitwiseXor => Ok(TreewalkValue::Int(left ^ right)),
             BinOp::LeftShift => {
                 if right > 100 {
                     // TODO support long ranges. This is found in _collections_abc.py
                     // longrange_iterator = type(iter(range(1 << 1000)))
-                    Ok(TreewalkValue::Integer(left << 10))
+                    Ok(TreewalkValue::Int(left << 10))
                 } else {
-                    Ok(TreewalkValue::Integer(left << right))
+                    Ok(TreewalkValue::Int(left << right))
                 }
             }
-            BinOp::RightShift => Ok(TreewalkValue::Integer(left >> right)),
+            BinOp::RightShift => Ok(TreewalkValue::Int(left >> right)),
             BinOp::Expo => {
                 let right: u32 = right.try_into().map_err(|_| self.runtime_error())?;
-                Ok(TreewalkValue::Integer(left.pow(right)))
+                Ok(TreewalkValue::Int(left.pow(right)))
             }
             BinOp::In | BinOp::NotIn => Err(self.type_error("Expected an iterable")),
             _ => unreachable!(),
@@ -128,12 +128,12 @@ impl TreewalkInterpreter {
                     Ok(TreewalkValue::Float(left / right))
                 }
             }
-            BinOp::GreaterThan => Ok(TreewalkValue::Boolean(left > right)),
-            BinOp::LessThan => Ok(TreewalkValue::Boolean(left < right)),
-            BinOp::GreaterThanOrEqual => Ok(TreewalkValue::Boolean(left >= right)),
-            BinOp::LessThanOrEqual => Ok(TreewalkValue::Boolean(left <= right)),
-            BinOp::Equals => Ok(TreewalkValue::Boolean(left == right)),
-            BinOp::NotEquals => Ok(TreewalkValue::Boolean(left != right)),
+            BinOp::GreaterThan => Ok(TreewalkValue::Bool(left > right)),
+            BinOp::LessThan => Ok(TreewalkValue::Bool(left < right)),
+            BinOp::GreaterThanOrEqual => Ok(TreewalkValue::Bool(left >= right)),
+            BinOp::LessThanOrEqual => Ok(TreewalkValue::Bool(left <= right)),
+            BinOp::Equals => Ok(TreewalkValue::Bool(left == right)),
+            BinOp::NotEquals => Ok(TreewalkValue::Bool(left != right)),
             _ => unimplemented!(),
         }
     }
@@ -145,10 +145,10 @@ impl TreewalkInterpreter {
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
         match op {
-            BinOp::Equals => Ok(TreewalkValue::Boolean(left == right)),
-            BinOp::NotEquals => Ok(TreewalkValue::Boolean(left != right)),
-            BinOp::Is => Ok(TreewalkValue::Boolean(left.is(&right))),
-            BinOp::IsNot => Ok(TreewalkValue::Boolean(!left.is(&right))),
+            BinOp::Equals => Ok(TreewalkValue::Bool(left == right)),
+            BinOp::NotEquals => Ok(TreewalkValue::Bool(left != right)),
+            BinOp::Is => Ok(TreewalkValue::Bool(left.is(&right))),
+            BinOp::IsNot => Ok(TreewalkValue::Bool(!left.is(&right))),
             _ => unimplemented!(),
         }
     }
@@ -170,7 +170,7 @@ impl TreewalkInterpreter {
                         right.get_type()
                     ))
                 })?;
-                Ok(TreewalkValue::Integer(!i))
+                Ok(TreewalkValue::Int(!i))
             }
             UnaryOp::Unpack => {
                 let list = right
@@ -199,9 +199,9 @@ impl TreewalkInterpreter {
         let l = left.borrow().clone();
         let r = right.borrow().clone();
         match op {
-            BinOp::Equals => Ok(TreewalkValue::Boolean(l == r)),
-            BinOp::NotEquals => Ok(TreewalkValue::Boolean(l != r)),
-            BinOp::LessThanOrEqual => Ok(TreewalkValue::Boolean(l.subset(r))),
+            BinOp::Equals => Ok(TreewalkValue::Bool(l == r)),
+            BinOp::NotEquals => Ok(TreewalkValue::Bool(l != r)),
+            BinOp::LessThanOrEqual => Ok(TreewalkValue::Bool(l.subset(r))),
             _ => unimplemented!(),
         }
     }
@@ -216,8 +216,8 @@ impl TreewalkInterpreter {
         let r = right.borrow().clone();
         match op {
             BinOp::Add => unreachable!("This should be handled in evaluate_binary_op now"),
-            BinOp::Equals => Ok(TreewalkValue::Boolean(l == r)),
-            BinOp::NotEquals => Ok(TreewalkValue::Boolean(l != r)),
+            BinOp::Equals => Ok(TreewalkValue::Bool(l == r)),
+            BinOp::NotEquals => Ok(TreewalkValue::Bool(l != r)),
             _ => unimplemented!(),
         }
     }

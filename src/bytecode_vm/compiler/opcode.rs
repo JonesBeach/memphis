@@ -60,6 +60,8 @@ pub enum Opcode {
     /// Pushes `__build_class__` onto the stack. It is later called by the VM to construct a class,
     /// NOT instantiate an object of that class. This is directly inspired by how CPython does it.
     LoadBuildClass,
+    /// Pop the specified number of elements off the stack and built a list object.
+    BuildList(usize),
     /// Uncomditional jump to an offset. This is signed because you can jump in reverse.
     Jump(isize),
     /// Conditional jump to an offset based on the value on the top of the stack. This is signed
@@ -75,8 +77,6 @@ pub enum Opcode {
     ReturnValue,
     /// Print a constant from the pool.
     PrintConst(ConstantIndex),
-    /// Indicate that a we have reached the end of a class body definition.
-    EndClass,
     ImportName(NonlocalIndex),
     /// Stop the VM
     Halt,
@@ -109,13 +109,13 @@ impl Display for Opcode {
             Opcode::LoadAttr(i) => write!(f, "LOAD_ATTR {}", i),
             Opcode::SetAttr(i) => write!(f, "SET_ATTR {}", i),
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
+            Opcode::BuildList(i) => write!(f, "BUILD_LIST {}", i),
             Opcode::Jump(i) => write!(f, "JUMP {}", i),
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::Call(i) => write!(f, "CALL {}", i),
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
             Opcode::PrintConst(i) => write!(f, "PRINT_CONST {}", i),
-            Opcode::EndClass => write!(f, "END_CLASS"),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {}", i),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),
