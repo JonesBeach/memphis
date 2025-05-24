@@ -175,18 +175,22 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn convert_method_to_frame(&mut self, method: Method, args: Vec<Reference>) -> VmResult<Frame> {
+    fn convert_method_to_frame(&self, method: Method, args: Vec<Reference>) -> VmResult<Frame> {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
 
-        let module_name = method.function.code_object.source.name();
+        self.convert_function_to_frame(method.function, bound_args)
+    }
+
+    fn convert_function_to_frame(
+        &self,
+        function: FunctionObject,
+        args: Vec<Reference>,
+    ) -> VmResult<Frame> {
+        let module_name = function.code_object.source.name();
         let module = self.resolve_module(module_name)?;
 
-        Ok(Frame::new(
-            method.function.clone(),
-            bound_args,
-            module.clone(),
-        ))
+        Ok(Frame::new(function, args, module))
     }
 
     /// Extract primitives and resolve any references to a [`VmValue`]. All modifications should
@@ -560,9 +564,7 @@ impl VirtualMachine {
                             self.push(reference)?;
                         }
                         VmValue::Function(ref function) => {
-                            let module_name = function.code_object.source.name();
-                            let module = self.resolve_module(module_name)?;
-                            let frame = Frame::new(function.clone(), args, module.clone());
+                            let frame = self.convert_function_to_frame(function.clone(), args)?;
                             let ret = self.run_new_frame_and_return(frame)?;
                             self.push_value(ret)?;
                         }
@@ -639,10 +641,9 @@ impl VirtualMachine {
 fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let code = vm.deref(args[0])?.as_code().clone();
     let name = code.name().to_string();
-    let function = FunctionObject::new(code);
 
-    // TODO do not use default module here
-    let frame = Frame::new(function, vec![], Container::new(Module::default()));
+    let function = FunctionObject::new(code);
+    let frame = vm.convert_function_to_frame(function, vec![])?;
 
     let frame = vm.run_new_frame(frame)?;
     Ok(vm.as_ref(VmValue::Class(Class::new(name, frame.namespace()))))
