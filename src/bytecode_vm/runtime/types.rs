@@ -6,7 +6,7 @@ use std::{
 use crate::bytecode_vm::{
     compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
-    VmResult, VmValue,
+    VirtualMachine, VmResult, VmValue,
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -39,6 +39,27 @@ pub struct List {
 impl List {
     pub fn new(items: Vec<Reference>) -> Self {
         Self { items }
+    }
+}
+
+type BuiltinFunc = fn(&mut VirtualMachine, Vec<Reference>) -> VmResult<Reference>;
+
+#[derive(Clone, Debug)]
+pub struct BuiltinFunction {
+    _name: String,
+    func: BuiltinFunc,
+}
+
+impl BuiltinFunction {
+    pub fn new(name: &str, func: BuiltinFunc) -> Self {
+        Self {
+            _name: name.to_string(),
+            func,
+        }
+    }
+
+    pub fn call(&self, vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+        (self.func)(vm, args)
     }
 }
 

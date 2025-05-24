@@ -32,3 +32,9 @@ impl Runtime {
         self.module_store.insert(name, module);
     }
 }
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, CallStack, Runtime,
+    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, BuiltinFunction,
+    CallStack, Runtime,
 };
 
 mod errors;
@@ -365,19 +366,6 @@ impl VirtualMachine {
         Ok(VmValue::Bool(result))
     }
 
-    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
-    fn build_class(&mut self, args: Vec<Reference>) -> VmResult<()> {
-        let code = self.deref(args[0])?.as_code().clone();
-        let name = code.name().to_string();
-        let function = FunctionObject::new(code);
-
-        // TODO do not use default module here
-        let frame = Frame::new(function, vec![], Container::new(Module::default()));
-
-        let frame = self.run_new_frame(frame)?;
-        self.push_value(VmValue::Class(Class::new(name, frame.namespace())))
-    }
-
     /// Run the top frame in the call stack until there are no more.
     fn run_loop(&mut self) -> VmResult<VmValue> {
         let mut result = VmValue::None;
@@ -521,7 +509,10 @@ impl VirtualMachine {
                     });
                 }
                 Opcode::LoadBuildClass => {
-                    self.push_value(VmValue::BuiltinFunction)?;
+                    self.push_value(VmValue::BuiltinFunction(BuiltinFunction::new(
+                        "load_build_class",
+                        build_class,
+                    )))?;
                 }
                 Opcode::BuildList(n) => {
                     let mut items = Vec::with_capacity(n);
@@ -564,8 +555,9 @@ impl VirtualMachine {
 
                     match callable {
                         // TODO this is the placeholder for __build_class__ at the moment
-                        VmValue::BuiltinFunction => {
-                            self.build_class(args)?;
+                        VmValue::BuiltinFunction(builtin) => {
+                            let reference = builtin.call(self, args)?;
+                            self.push(reference)?;
                         }
                         VmValue::Function(ref function) => {
                             let module_name = function.code_object.source.name();
@@ -635,6 +627,19 @@ impl VirtualMachine {
 
         self.call_stack.push(frame);
     }
+}
+
+/// This is intended to be functionally equivalent to `__build_class__` in CPython.
+fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let code = vm.deref(args[0])?.as_code().clone();
+    let name = code.name().to_string();
+    let function = FunctionObject::new(code);
+
+    // TODO do not use default module here
+    let frame = Frame::new(function, vec![], Container::new(Module::default()));
+
+    let frame = vm.run_new_frame(frame)?;
+    Ok(vm.as_ref(VmValue::Class(Class::new(name, frame.namespace()))))
 }
 
 pub fn _builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
