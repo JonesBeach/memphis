@@ -621,11 +621,11 @@ impl VirtualMachine {
 
     fn load(&mut self, code: CodeObject) {
         log(LogLevel::Debug, || format!("{:?}", code));
-        let function = FunctionObject::new(code);
-        let module = Container::new(Module::new(function.code_object.source.name()));
-        let frame = Frame::new(function, vec![], module.clone());
-
+        let module = Container::new(Module::new(code.source.name()));
         self.runtime.borrow_mut().store_module(module.clone());
+
+        let function = FunctionObject::new(code);
+        let frame = self.convert_function_to_frame(function, vec![]).unwrap();
 
         let list_builtin = BuiltinFunction::new("list", builtin_list);
         let name = list_builtin.name().to_string();
