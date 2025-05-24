@@ -97,6 +97,7 @@ impl Display for VmValue {
             VmValue::String(i) => write!(f, "{}", i),
             VmValue::Bool(i) => write!(f, "{}", i),
             VmValue::Code(i) => write!(f, "{}", i),
+            VmValue::BuiltinFunction(i) => write!(f, "{}", i),
             _ => unimplemented!("Type {:?} unimplemented in the bytecode VM.", self),
         }
     }

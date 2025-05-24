@@ -366,6 +366,21 @@ x = [2,"Hello"]
     }
 
     #[test]
+    fn lists_builtin() {
+        let text = "list()";
+        assert_eval_eq!(text, VmValue::List(List::new(vec![])));
+
+        let text = "list([])";
+        assert_eval_eq!(text, VmValue::List(List::new(vec![])));
+
+        let text = "list([2,3])";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+    }
+
+    #[test]
     fn assignment_int() {
         let text = r#"
 a = 5 - 3

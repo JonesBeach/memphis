@@ -963,7 +963,7 @@ mod tests_bytecode {
     }
 
     #[test]
-    fn function_call() {
+    fn function_call_user_defined() {
         let expr = func_call!("foo", call_args![var!("a"), var!("b")]);
         let bytecode = compile_expr(expr);
         assert_eq!(
@@ -974,6 +974,16 @@ mod tests_bytecode {
                 Opcode::LoadGlobal(Index::new(2)),
                 Opcode::Call(2),
             ]
+        );
+    }
+
+    #[test]
+    fn function_call_builtin() {
+        let expr = func_call!("list", call_args![]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadGlobal(Index::new(0)), Opcode::Call(0),]
         );
     }
 

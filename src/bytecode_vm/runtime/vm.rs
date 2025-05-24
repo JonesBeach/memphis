@@ -623,7 +623,13 @@ impl VirtualMachine {
         let module = Container::new(Module::new(function.code_object.source.name()));
         let frame = Frame::new(function, vec![], module.clone());
 
-        self.runtime.borrow_mut().store_module(module);
+        self.runtime.borrow_mut().store_module(module.clone());
+
+        let list_builtin = BuiltinFunction::new("list", builtin_list);
+        let name = list_builtin.name().to_string();
+
+        let reference = self.as_ref(VmValue::BuiltinFunction(list_builtin));
+        module.borrow_mut().global_store.insert(name, reference);
 
         self.call_stack.push(frame);
     }
@@ -642,7 +648,7 @@ fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Refere
     Ok(vm.as_ref(VmValue::Class(Class::new(name, frame.namespace()))))
 }
 
-pub fn _builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+pub fn builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let items = match args.len() {
         0 => vec![],
         1 => match vm.deref(args[0])? {
