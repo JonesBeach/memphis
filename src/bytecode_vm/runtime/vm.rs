@@ -48,7 +48,7 @@ impl VirtualMachine {
     }
 
     pub fn execute(&mut self, code: CodeObject) -> VmResult<VmValue> {
-        self.load(code);
+        self.load(code)?;
         self.run_loop()
     }
 
@@ -622,7 +622,7 @@ impl VirtualMachine {
         self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
-    fn load(&mut self, code: CodeObject) {
+    fn load(&mut self, code: CodeObject) -> VmResult<()> {
         log(LogLevel::Debug, || format!("{:?}", code));
         let mut module = Module::new(code.source.name());
         register_builtins(self, &mut module);
@@ -631,9 +631,10 @@ impl VirtualMachine {
             .store_module(Container::new(module));
 
         let function = FunctionObject::new(code);
-        let frame = self.convert_function_to_frame(function, vec![]).unwrap();
+        let frame = self.convert_function_to_frame(function, vec![])?;
 
         self.call_stack.push(frame);
+        Ok(())
     }
 }
 
