@@ -412,7 +412,7 @@ impl VirtualMachine {
     fn run_frame(&mut self) -> VmResult<Frame> {
         while let Some(frame) = self.call_stack.top() {
             if self.current_frame()?.is_finished() {
-                return self.call_stack.pop().ok_or_else(|| self.runtime_error());
+                break;
             }
 
             // Save this in case we encounter a runtime exception and need to record this info in
@@ -622,9 +622,7 @@ impl VirtualMachine {
             self.call_stack.advance_pc()?;
         }
 
-        // We should never get here because we return inline select places in the loop which
-        // indicate this frame has ended.
-        unreachable!()
+        self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
     fn load(&mut self, code: CodeObject) {
