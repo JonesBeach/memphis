@@ -42,7 +42,7 @@ impl List {
     }
 }
 
-type BuiltinFunc = fn(&mut VirtualMachine, Vec<Reference>) -> VmResult<Reference>;
+pub type BuiltinFunc = fn(&mut VirtualMachine, Vec<Reference>) -> VmResult<Reference>;
 
 #[derive(Clone, Debug)]
 pub struct BuiltinFunction {

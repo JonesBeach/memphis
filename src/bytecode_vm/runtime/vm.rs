@@ -2,7 +2,7 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, LocalIndex, NonlocalIndex},
-        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
+        runtime::{FunctionObject, List, Method, Module, Object, Reference},
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -11,8 +11,11 @@ use crate::{
 };
 
 use super::{
-    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, BuiltinFunction,
-    CallStack, Runtime,
+    builtins::{build_class, register_builtins},
+    error_builder::ErrorBuilder,
+    frame::Frame,
+    module_loader::ModuleLoader,
+    BuiltinFunction, CallStack, Runtime,
 };
 
 mod errors;
@@ -182,7 +185,7 @@ impl VirtualMachine {
         self.convert_function_to_frame(method.function, bound_args)
     }
 
-    fn convert_function_to_frame(
+    pub fn convert_function_to_frame(
         &self,
         function: FunctionObject,
         args: Vec<Reference>,
@@ -239,7 +242,7 @@ impl VirtualMachine {
 
         let bound = match attr_val {
             VmValue::Function(f) => {
-                self.as_ref(VmValue::Method(Method::new(object_ref, f.clone())))
+                self.heapify(VmValue::Method(Method::new(object_ref, f.clone())))
             }
             _ => attr_ref,
         };
@@ -249,7 +252,7 @@ impl VirtualMachine {
 
     /// Primitives are stored inline on the stack, we create a reference to the global store for
     /// all other types.
-    fn as_ref(&mut self, value: VmValue) -> Reference {
+    pub fn heapify(&mut self, value: VmValue) -> Reference {
         match value {
             VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
@@ -263,7 +266,7 @@ impl VirtualMachine {
     }
 
     fn push_value(&mut self, value: VmValue) -> VmResult<()> {
-        let reference = self.as_ref(value);
+        let reference = self.heapify(value);
         self.push(reference)
     }
 
@@ -274,7 +277,7 @@ impl VirtualMachine {
         let name = self.resolve_name(index)?.to_owned();
         let module = self.module_loader.import(&name, None)?;
 
-        let module_ref = self.as_ref(VmValue::Module(module.clone()));
+        let module_ref = self.heapify(VmValue::Module(module.clone()));
         self.store_global(index, module_ref)?;
 
         self.runtime.borrow_mut().store_module(module);
@@ -395,7 +398,7 @@ impl VirtualMachine {
         self.return_val_for(&frame)
     }
 
-    fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
+    pub fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
         self.call_stack.push(frame);
         self.run_frame()
     }
@@ -575,7 +578,7 @@ impl VirtualMachine {
                         }
                         VmValue::Class(ref class) => {
                             let object = VmValue::Object(Object::new(callable_ref));
-                            let reference = self.as_ref(object);
+                            let reference = self.heapify(object);
 
                             if let Some(init_method) = class.read(Dunder::Init) {
                                 let init = self.deref(init_method)?.as_function().clone();
@@ -621,46 +624,26 @@ impl VirtualMachine {
 
     fn load(&mut self, code: CodeObject) {
         log(LogLevel::Debug, || format!("{:?}", code));
-        let module = Container::new(Module::new(code.source.name()));
-        self.runtime.borrow_mut().store_module(module.clone());
+        let mut module = Module::new(code.source.name());
+        register_builtins(self, &mut module);
+        self.runtime
+            .borrow_mut()
+            .store_module(Container::new(module));
 
         let function = FunctionObject::new(code);
         let frame = self.convert_function_to_frame(function, vec![]).unwrap();
-
-        let list_builtin = BuiltinFunction::new("list", builtin_list);
-        let name = list_builtin.name().to_string();
-
-        let reference = self.as_ref(VmValue::BuiltinFunction(list_builtin));
-        module.borrow_mut().global_store.insert(name, reference);
 
         self.call_stack.push(frame);
     }
 }
 
-/// This is intended to be functionally equivalent to `__build_class__` in CPython.
-fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let code = vm.deref(args[0])?.as_code().clone();
-    let name = code.name().to_string();
-
-    let function = FunctionObject::new(code);
-    let frame = vm.convert_function_to_frame(function, vec![])?;
-
-    let frame = vm.run_new_frame(frame)?;
-    Ok(vm.as_ref(VmValue::Class(Class::new(name, frame.namespace()))))
-}
-
-pub fn builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let items = match args.len() {
-        0 => vec![],
-        1 => match vm.deref(args[0])? {
-            VmValue::List(list) => list.items.clone(),
-            _ => return Err(vm.type_error("list() expects an iterable")),
-        },
-        _ => return Err(vm.type_error("list() takes at most one argument")),
-    };
-
-    let list = List::new(items);
-    Ok(vm.as_ref(VmValue::List(list)))
+impl Default for VirtualMachine {
+    fn default() -> Self {
+        Self::new(
+            Container::new(MemphisState::default()),
+            Container::new(Runtime::default()),
+        )
+    }
 }
 
 #[cfg(test)]
