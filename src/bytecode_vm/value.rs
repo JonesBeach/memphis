@@ -3,7 +3,9 @@ use std::fmt::{Display, Error, Formatter};
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
-        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
+        runtime::{
+            BuiltinFunction, Class, FunctionObject, List, Method, Module, Object, Reference,
+        },
     },
     core::{Container, Voidable},
     domain::MemphisValue,
@@ -22,7 +24,7 @@ pub enum VmValue {
     Function(FunctionObject),
     Method(Method),
     Module(Container<Module>),
-    BuiltinFunction,
+    BuiltinFunction(BuiltinFunction),
     List(List),
 }
 
@@ -95,6 +97,7 @@ impl Display for VmValue {
             VmValue::String(i) => write!(f, "{}", i),
             VmValue::Bool(i) => write!(f, "{}", i),
             VmValue::Code(i) => write!(f, "{}", i),
+            VmValue::BuiltinFunction(i) => write!(f, "{}", i),
             _ => unimplemented!("Type {:?} unimplemented in the bytecode VM.", self),
         }
     }

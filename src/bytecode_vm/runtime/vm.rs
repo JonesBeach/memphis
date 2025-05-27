@@ -1,8 +1,8 @@
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
-        indices::{ConstantIndex, LocalIndex, NonlocalIndex},
-        runtime::{Class, FunctionObject, List, Method, Module, Object, Reference},
+        indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
+        runtime::{FunctionObject, List, Method, Module, Object, Reference},
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -11,7 +11,11 @@ use crate::{
 };
 
 use super::{
-    error_builder::ErrorBuilder, frame::Frame, module_loader::ModuleLoader, CallStack, Runtime,
+    builtins::{build_class, register_builtins},
+    error_builder::ErrorBuilder,
+    frame::Frame,
+    module_loader::ModuleLoader,
+    BuiltinFunction, CallStack, Runtime,
 };
 
 mod errors;
@@ -44,7 +48,7 @@ impl VirtualMachine {
     }
 
     pub fn execute(&mut self, code: CodeObject) -> VmResult<VmValue> {
-        self.load(code);
+        self.load(code)?;
         self.run_loop()
     }
 
@@ -128,6 +132,10 @@ impl VirtualMachine {
         Ok(self.current_frame()?.locals[*index])
     }
 
+    fn load_free(&self, index: FreeIndex) -> VmResult<Reference> {
+        Ok(self.current_frame()?.function.freevars[*index])
+    }
+
     fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
         let name = self.resolve_name(index)?;
         self.module()?
@@ -174,18 +182,22 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn convert_method_to_frame(&mut self, method: Method, args: Vec<Reference>) -> VmResult<Frame> {
+    fn convert_method_to_frame(&self, method: Method, args: Vec<Reference>) -> VmResult<Frame> {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
 
-        let module_name = method.function.code_object.source.name();
+        self.convert_function_to_frame(method.function, bound_args)
+    }
+
+    pub fn convert_function_to_frame(
+        &self,
+        function: FunctionObject,
+        args: Vec<Reference>,
+    ) -> VmResult<Frame> {
+        let module_name = function.code_object.source.name();
         let module = self.resolve_module(module_name)?;
 
-        Ok(Frame::new(
-            method.function.clone(),
-            bound_args,
-            module.clone(),
-        ))
+        Ok(Frame::new(function, args, module))
     }
 
     /// Extract primitives and resolve any references to a [`VmValue`]. All modifications should
@@ -234,7 +246,7 @@ impl VirtualMachine {
 
         let bound = match attr_val {
             VmValue::Function(f) => {
-                self.as_ref(VmValue::Method(Method::new(object_ref, f.clone())))
+                self.heapify(VmValue::Method(Method::new(object_ref, f.clone())))
             }
             _ => attr_ref,
         };
@@ -244,7 +256,7 @@ impl VirtualMachine {
 
     /// Primitives are stored inline on the stack, we create a reference to the global store for
     /// all other types.
-    fn as_ref(&mut self, value: VmValue) -> Reference {
+    pub fn heapify(&mut self, value: VmValue) -> Reference {
         match value {
             VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
@@ -258,7 +270,7 @@ impl VirtualMachine {
     }
 
     fn push_value(&mut self, value: VmValue) -> VmResult<()> {
-        let reference = self.as_ref(value);
+        let reference = self.heapify(value);
         self.push(reference)
     }
 
@@ -269,7 +281,7 @@ impl VirtualMachine {
         let name = self.resolve_name(index)?.to_owned();
         let module = self.module_loader.import(&name, None)?;
 
-        let module_ref = self.as_ref(VmValue::Module(module.clone()));
+        let module_ref = self.heapify(VmValue::Module(module.clone()));
         self.store_global(index, module_ref)?;
 
         self.runtime.borrow_mut().store_module(module);
@@ -365,19 +377,6 @@ impl VirtualMachine {
         Ok(VmValue::Bool(result))
     }
 
-    /// This is intended to be functionally equivalent to `__build_class__` in CPython.
-    fn build_class(&mut self, args: Vec<Reference>) -> VmResult<()> {
-        let code = self.deref(args[0])?.as_code().clone();
-        let name = code.name().to_string();
-        let function = FunctionObject::new(code);
-
-        // TODO do not use default module here
-        let frame = Frame::new(function, vec![], Container::new(Module::default()));
-
-        let frame = self.run_new_frame(frame)?;
-        self.push_value(VmValue::Class(Class::new(name, frame.namespace())))
-    }
-
     /// Run the top frame in the call stack until there are no more.
     fn run_loop(&mut self) -> VmResult<VmValue> {
         let mut result = VmValue::None;
@@ -403,7 +402,7 @@ impl VirtualMachine {
         self.return_val_for(&frame)
     }
 
-    fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
+    pub fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
         self.call_stack.push(frame);
         self.run_frame()
     }
@@ -412,7 +411,7 @@ impl VirtualMachine {
     fn run_frame(&mut self) -> VmResult<Frame> {
         while let Some(frame) = self.call_stack.top() {
             if self.current_frame()?.is_finished() {
-                return self.call_stack.pop().ok_or_else(|| self.runtime_error());
+                break;
             }
 
             // Save this in case we encounter a runtime exception and need to record this info in
@@ -497,6 +496,10 @@ impl VirtualMachine {
                     let reference = self.load_local(index)?;
                     self.push(reference)?;
                 }
+                Opcode::LoadFree(index) => {
+                    let reference = self.load_free(index)?;
+                    self.push(reference)?;
+                }
                 Opcode::LoadGlobal(index) => {
                     let reference = self.load_global(index)?;
                     self.push(reference)?;
@@ -521,7 +524,10 @@ impl VirtualMachine {
                     });
                 }
                 Opcode::LoadBuildClass => {
-                    self.push_value(VmValue::BuiltinFunction)?;
+                    self.push_value(VmValue::BuiltinFunction(BuiltinFunction::new(
+                        "load_build_class",
+                        build_class,
+                    )))?;
                 }
                 Opcode::BuildList(n) => {
                     let mut items = Vec::with_capacity(n);
@@ -544,15 +550,17 @@ impl VirtualMachine {
                         self.call_stack.jump_to_offset(offset)?;
                     }
                 }
-                Opcode::PrintConst(index) => {
-                    let value = self
-                        .read_constant(index)?
-                        .ok_or_else(|| self.runtime_error())?;
-                    println!("{}", value);
-                }
                 Opcode::MakeFunction => {
                     let code = self.pop_value()?.as_code().clone();
                     let function = FunctionObject::new(code);
+                    self.push_value(VmValue::Function(function))?;
+                }
+                Opcode::MakeClosure(num_free) => {
+                    let freevars = (0..num_free)
+                        .map(|_| self.pop())
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let code = self.pop_value()?.as_code().clone();
+                    let function = FunctionObject::new_with_free(code, freevars);
                     self.push_value(VmValue::Function(function))?;
                 }
                 Opcode::Call(argc) => {
@@ -564,13 +572,12 @@ impl VirtualMachine {
 
                     match callable {
                         // TODO this is the placeholder for __build_class__ at the moment
-                        VmValue::BuiltinFunction => {
-                            self.build_class(args)?;
+                        VmValue::BuiltinFunction(builtin) => {
+                            let reference = builtin.call(self, args)?;
+                            self.push(reference)?;
                         }
                         VmValue::Function(ref function) => {
-                            let module_name = function.code_object.source.name();
-                            let module = self.resolve_module(module_name)?;
-                            let frame = Frame::new(function.clone(), args, module.clone());
+                            let frame = self.convert_function_to_frame(function.clone(), args)?;
                             let ret = self.run_new_frame_and_return(frame)?;
                             self.push_value(ret)?;
                         }
@@ -581,7 +588,7 @@ impl VirtualMachine {
                         }
                         VmValue::Class(ref class) => {
                             let object = VmValue::Object(Object::new(callable_ref));
-                            let reference = self.as_ref(object);
+                            let reference = self.heapify(object);
 
                             if let Some(init_method) = class.read(Dunder::Init) {
                                 let init = self.deref(init_method)?.as_function().clone();
@@ -622,35 +629,32 @@ impl VirtualMachine {
             self.call_stack.advance_pc()?;
         }
 
-        // We should never get here because we return inline select places in the loop which
-        // indicate this frame has ended.
-        unreachable!()
+        self.call_stack.pop().ok_or_else(|| self.runtime_error())
     }
 
-    fn load(&mut self, code: CodeObject) {
+    fn load(&mut self, code: CodeObject) -> VmResult<()> {
         log(LogLevel::Debug, || format!("{:?}", code));
-        let function = FunctionObject::new(code);
-        let module = Container::new(Module::new(function.code_object.source.name()));
-        let frame = Frame::new(function, vec![], module.clone());
+        let mut module = Module::new(code.source.name());
+        register_builtins(self, &mut module);
+        self.runtime
+            .borrow_mut()
+            .store_module(Container::new(module));
 
-        self.runtime.borrow_mut().store_module(module);
+        let function = FunctionObject::new(code);
+        let frame = self.convert_function_to_frame(function, vec![])?;
 
         self.call_stack.push(frame);
+        Ok(())
     }
 }
 
-pub fn _builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let items = match args.len() {
-        0 => vec![],
-        1 => match vm.deref(args[0])? {
-            VmValue::List(list) => list.items.clone(),
-            _ => return Err(vm.type_error("list() expects an iterable")),
-        },
-        _ => return Err(vm.type_error("list() takes at most one argument")),
-    };
-
-    let list = List::new(items);
-    Ok(vm.as_ref(VmValue::List(list)))
+impl Default for VirtualMachine {
+    fn default() -> Self {
+        Self::new(
+            Container::new(MemphisState::default()),
+            Container::new(Runtime::default()),
+        )
+    }
 }
 
 #[cfg(test)]

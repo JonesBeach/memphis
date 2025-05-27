@@ -48,6 +48,8 @@ impl<T> Debug for Index<T> {
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct LocalMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct FreeMarker;
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct NonlocalMarker;
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub struct ObjectTableMarker;
@@ -55,6 +57,7 @@ pub struct ObjectTableMarker;
 pub struct ConstantMarker;
 
 pub type LocalIndex = Index<LocalMarker>;
+pub type FreeIndex = Index<FreeMarker>;
 pub type NonlocalIndex = Index<NonlocalMarker>;
 pub type ObjectTableIndex = Index<ObjectTableMarker>;
 pub type ConstantIndex = Index<ConstantMarker>;

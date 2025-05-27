@@ -4,7 +4,7 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant, Opcode},
         find_index,
-        indices::{ConstantIndex, Index, LocalIndex, NonlocalIndex},
+        indices::{ConstantIndex, FreeIndex, Index, LocalIndex, NonlocalIndex},
         CompilerResult,
     },
     core::{log, LogLevel},
@@ -15,8 +15,7 @@ use crate::{
     },
 };
 
-type UnsignedOffset = usize;
-type SignedOffset = isize;
+use super::opcode::{SignedOffset, UnsignedOffset};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
@@ -30,7 +29,7 @@ impl Display for CompilerError {
     }
 }
 
-/// A Python bytecode compiler.
+/// A Python bytecode compiler. This operates on a single `Source`.
 pub struct Compiler {
     /// This will likely need to become a stack once we support module imports.
     source: Source,
@@ -39,11 +38,8 @@ pub struct Compiler {
     /// (variable names, constants, etc.).
     code_stack: Vec<CodeObject>,
 
-    /// Whether we are in a Local or Global context.
-    context_stack: Vec<Context>,
-
     /// The most recent line number seen from the Ast.
-    line_number: usize,
+    line_number: UnsignedOffset,
 }
 
 impl Compiler {
@@ -53,7 +49,6 @@ impl Compiler {
         Self {
             source,
             code_stack: vec![code],
-            context_stack: vec![Context::Global],
             line_number: 0,
         }
     }
@@ -69,6 +64,14 @@ impl Compiler {
         ast.iter().try_fold((), |_, stmt| self.compile_stmt(stmt))
     }
 
+    fn compile_ast_with_code(&mut self, ast: &Ast, code: CodeObject) -> CompilerResult<CodeObject> {
+        self.code_stack.push(code);
+        self.compile_ast(ast)?;
+        self.code_stack
+            .pop()
+            .ok_or_else(|| internal_error("Code stack underflow."))
+    }
+
     fn finalize(&self) -> CompilerResult<CodeObject> {
         let mut code = self.ensure_code_object()?.clone();
         code.bytecode.push(Opcode::Halt);
@@ -81,12 +84,13 @@ impl Compiler {
     }
 
     fn forward_offset_to(&self, to: UnsignedOffset) -> CompilerResult<SignedOffset> {
-        Ok(self.current_offset()? as isize - to as isize - 1)
+        Ok(self.current_offset()? as SignedOffset - to as SignedOffset - 1)
     }
 
-    // We must mark these as isize because we are doing subtraction with potential negative values
+    // We must mark these as signed because we are doing subtraction which could product a negative
+    // value.
     fn backward_offset_from(&self, from: UnsignedOffset) -> CompilerResult<SignedOffset> {
-        Ok(from as isize - self.current_offset()? as isize - 1)
+        Ok(from as SignedOffset - self.current_offset()? as SignedOffset - 1)
     }
 
     fn emit(&mut self, opcode: Opcode) -> CompilerResult<()> {
@@ -170,23 +174,35 @@ impl Compiler {
     }
 
     fn generate_load(&mut self, name: &str) -> CompilerResult<Opcode> {
-        let opcode = match self.ensure_context()? {
-            Context::Global => Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?),
+        match self.context() {
+            Context::Global => Ok(Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?)),
             Context::Local => {
-                // Check locals first
+                // Check locals first (top of the stack)
                 if let Some(index) = self.get_local_index(name)? {
-                    Opcode::LoadFast(index)
-                } else {
-                    // If not found locally, fall back to globals
-                    Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?)
+                    return Ok(Opcode::LoadFast(index));
                 }
+
+                // Now check if this is a free variable, meaning a variable captured from a
+                // non-global outer function.
+                // We skip the first (top) entry because it's the current code object and the last
+                // (bottom) entry because it's the global scope.
+                let enclosing_scopes = &self.code_stack[1..self.code_stack.len() - 1];
+                for code in enclosing_scopes.iter().rev() {
+                    if self.resolve_local_index_for_code(name, code).is_some() {
+                        // This would be a local in an enclosing scope, but we need an index
+                        // relative to our own code object.
+                        return Ok(Opcode::LoadFree(self.get_or_set_free_var(name)?));
+                    }
+                }
+
+                // If it's not local or free, it's global. Put that quote on the wall.
+                Ok(Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?))
             }
-        };
-        Ok(opcode)
+        }
     }
 
     fn generate_store(&mut self, name: &str) -> CompilerResult<Opcode> {
-        let opcode = match self.ensure_context()? {
+        let opcode = match self.context() {
             Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)?),
             Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)?),
         };
@@ -330,17 +346,20 @@ impl Compiler {
         let code_object =
             CodeObject::with_args(Some(name.to_string()), &varnames, self.source.clone());
 
-        self.context_stack.push(Context::Local);
-        self.code_stack.push(code_object);
-        self.compile_ast(body)?;
-        let code = self
-            .code_stack
-            .pop()
-            .ok_or_else(|| internal_error("Code stack underflow."))?;
-        self.context_stack.pop();
-
+        let code = self.compile_ast_with_code(body, code_object)?;
+        let free_vars = code.freevars.clone();
         self.compile_code(code)?;
-        self.emit(Opcode::MakeFunction)?;
+
+        if free_vars.is_empty() {
+            self.emit(Opcode::MakeFunction)?;
+        } else {
+            // We push the free vars onto the stack in reverse order so that we will pop
+            // them off in order.
+            for free_var in free_vars.iter().rev() {
+                self.compile_load(free_var)?;
+            }
+            self.emit(Opcode::MakeClosure(free_vars.len()))?;
+        }
         self.compile_store(name)?;
         Ok(())
     }
@@ -377,17 +396,7 @@ impl Compiler {
         }
 
         let code_object = CodeObject::new(name, self.source.clone());
-
-        self.context_stack.push(Context::Local);
-        self.code_stack.push(code_object);
-
-        self.compile_ast(body)?;
-
-        let code = self
-            .code_stack
-            .pop()
-            .ok_or_else(|| internal_error("Code stack underflow."))?;
-        self.context_stack.pop();
+        let code = self.compile_ast_with_code(body, code_object)?;
 
         self.emit(Opcode::LoadBuildClass)?;
         self.compile_code(code)?;
@@ -505,19 +514,6 @@ impl Compiler {
             unimplemented!("Callees for function calls not yet supported in the bytecode VM.")
         }
 
-        if name == "print" {
-            if args.args[0].as_string().is_none() {
-                unimplemented!("Non-string args not yet supported for print in the bytecode VM.")
-            }
-            if args.args.len() > 1 {
-                unimplemented!("More than 1 arg not yet supported for print in the bytecode VM.")
-            }
-            let index = self
-                .get_or_set_constant_index(Constant::String(args.args[0].as_string().unwrap()))?;
-            self.emit(Opcode::PrintConst(index))?;
-            return Ok(());
-        }
-
         self.compile_load(name)?;
 
         // We push the args onto the stack in reverse call order so that we will pop
@@ -573,7 +569,23 @@ impl Compiler {
 
     fn get_local_index(&self, name: &str) -> CompilerResult<Option<LocalIndex>> {
         let code = self.ensure_code_object()?;
-        Ok(find_index(&code.varnames, name).map(Index::new))
+        Ok(self.resolve_local_index_for_code(name, code))
+    }
+
+    fn get_or_set_free_var(&mut self, name: &str) -> CompilerResult<FreeIndex> {
+        let code = self.ensure_code_object_mut()?;
+        let index = if let Some(index) = find_index(&code.freevars, name) {
+            index
+        } else {
+            let new_index = code.freevars.len();
+            code.freevars.push(name.to_string());
+            new_index
+        };
+        Ok(Index::new(index))
+    }
+
+    fn resolve_local_index_for_code(&self, name: &str, code: &CodeObject) -> Option<LocalIndex> {
+        find_index(&code.varnames, name).map(Index::new)
     }
 
     fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
@@ -606,11 +618,13 @@ impl Compiler {
         Ok(Index::new(index))
     }
 
-    /// This assumes we always have a context stack.
-    fn ensure_context(&self) -> CompilerResult<&Context> {
-        self.context_stack
-            .last()
-            .ok_or_else(|| internal_error("Failed to find current context."))
+    /// Since an instance of this `Compiler` operates on a single module `Source`, we can assume
+    /// that the outer code object is the global scope and any others are local scopes.
+    fn context(&self) -> Context {
+        match self.code_stack.len() {
+            1 => Context::Global,
+            _ => Context::Local,
+        }
     }
 
     fn ensure_code_object_mut(&mut self) -> CompilerResult<&mut CodeObject> {
@@ -963,7 +977,7 @@ mod tests_bytecode {
     }
 
     #[test]
-    fn function_call() {
+    fn function_call_user_defined() {
         let expr = func_call!("foo", call_args![var!("a"), var!("b")]);
         let bytecode = compile_expr(expr);
         assert_eq!(
@@ -974,6 +988,16 @@ mod tests_bytecode {
                 Opcode::LoadGlobal(Index::new(2)),
                 Opcode::Call(2),
             ]
+        );
+    }
+
+    #[test]
+    fn function_call_builtin() {
+        let expr = func_call!("list", call_args![]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadGlobal(Index::new(0)), Opcode::Call(0),]
         );
     }
 
@@ -1006,79 +1030,9 @@ mod tests_bytecode {
 
 #[cfg(test)]
 mod tests_compiler {
-    use crate::bytecode_vm::VmContext;
+    use crate::bytecode_vm::{compiler::test_utils::*, VmContext};
 
     use super::*;
-
-    fn compile(text: &str) -> CodeObject {
-        VmContext::new(Source::from_text(text))
-            .compile()
-            .expect("Failed to compile test program!")
-    }
-
-    macro_rules! assert_code_eq {
-        ($actual:expr, $expected:expr) => {
-            assert_code_eq(&$actual, &$expected)
-        };
-    }
-
-    macro_rules! compile_incremental {
-        ( $( $line:expr ),* ) => {{
-            let mut context = VmContext::default();
-            $(
-                context.add_line($line);
-            )*
-            context.compile().expect("Failed to compile")
-        }};
-    }
-
-    /// This is designed to confirm everything in a CodeObject matches besides the Source and
-    /// the line number mappings.
-    fn assert_code_eq(actual: &CodeObject, expected: &CodeObject) {
-        assert_eq!(actual.name, expected.name, "Code object names do not match");
-        assert_eq!(
-            actual.bytecode, expected.bytecode,
-            "Code object bytecode does not match"
-        );
-        assert_eq!(
-            actual.arg_count, expected.arg_count,
-            "Code object arg_count does not match"
-        );
-        assert_eq!(
-            actual.varnames, expected.varnames,
-            "Code object varnames do not match"
-        );
-        assert_eq!(
-            actual.names, expected.names,
-            "Code object names do not match"
-        );
-
-        assert_eq!(
-            actual.constants.len(),
-            expected.constants.len(),
-            "Code object constants do not match"
-        );
-
-        for (i, (a_const, e_const)) in actual
-            .constants
-            .iter()
-            .zip(expected.constants.iter())
-            .enumerate()
-        {
-            match (a_const, e_const) {
-                (Constant::Code(a_code), Constant::Code(e_code)) => {
-                    assert_code_eq!(a_code, e_code);
-                }
-                _ => {
-                    assert_eq!(
-                        a_const, e_const,
-                        "Code object constant at index {} does not match",
-                        i
-                    );
-                }
-            }
-        }
-    }
 
     #[test]
     fn function_definition_with_parameters() {
@@ -1097,6 +1051,7 @@ def foo(a, b):
             ],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1113,6 +1068,7 @@ def foo(a, b):
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["foo".into()],
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),
@@ -1137,6 +1093,7 @@ def foo(a, b):
             bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1155,6 +1112,7 @@ def foo(a, b):
             ],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into(), "inner".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_inner)],
             source: Source::default(),
@@ -1171,6 +1129,7 @@ def foo(a, b):
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["foo".to_string()],
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),
@@ -1193,6 +1152,7 @@ def foo():
             bytecode: vec![Opcode::PushInt(10), Opcode::StoreFast(Index::new(0))],
             arg_count: 0,
             varnames: vec!["c".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1209,6 +1169,7 @@ def foo():
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["foo".into()],
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),
@@ -1237,6 +1198,7 @@ def foo():
             ],
             arg_count: 0,
             varnames: vec!["c".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1253,6 +1215,7 @@ def foo():
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["foo".into()],
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),
@@ -1278,10 +1241,15 @@ world()
 
         let fn_hello = CodeObject {
             name: Some("hello".into()),
-            bytecode: vec![Opcode::PrintConst(Index::new(0))],
+            bytecode: vec![
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::Call(1),
+            ],
             arg_count: 0,
             varnames: vec![],
-            names: vec![],
+            freevars: vec![],
+            names: vec!["print".into()],
             constants: vec![Constant::String("Hello".into())],
             source: Source::default(),
             line_map: vec![],
@@ -1289,10 +1257,15 @@ world()
 
         let fn_world = CodeObject {
             name: Some("world".into()),
-            bytecode: vec![Opcode::PrintConst(Index::new(0))],
+            bytecode: vec![
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::Call(1),
+            ],
             arg_count: 0,
             varnames: vec![],
-            names: vec![],
+            freevars: vec![],
+            names: vec!["print".into()],
             constants: vec![Constant::String("World".into())],
             source: Source::default(),
             line_map: vec![],
@@ -1315,8 +1288,75 @@ world()
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["hello".into(), "world".into()],
             constants: vec![Constant::Code(fn_hello), Constant::Code(fn_world)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn closure_definition() {
+        let text = r#"
+def make_adder(x):
+    def inner_adder(y):
+        return x + y
+    return inner_adder
+"#;
+        let code = compile(text);
+
+        let fn_inner_adder = CodeObject {
+            name: Some("inner_adder".into()),
+            bytecode: vec![
+                Opcode::LoadFree(Index::new(0)),
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::Add,
+                Opcode::ReturnValue,
+            ],
+            arg_count: 1,
+            varnames: vec!["y".into()],
+            freevars: vec!["x".into()],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let fn_make_adder = CodeObject {
+            name: Some("make_adder".into()),
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadFast(Index::new(0)),
+                Opcode::MakeClosure(1),
+                Opcode::StoreFast(Index::new(1)),
+                Opcode::LoadFast(Index::new(1)),
+                Opcode::ReturnValue,
+            ],
+            arg_count: 1,
+            varnames: vec!["x".into(), "inner_adder".into()],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![Constant::Code(fn_inner_adder)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["make_adder".into()],
+            constants: vec![Constant::Code(fn_make_adder)],
             source: Source::default(),
             line_map: vec![],
         };
@@ -1338,6 +1378,7 @@ class Foo:
             bytecode: vec![Opcode::PushInt(99), Opcode::ReturnValue],
             arg_count: 1,
             varnames: vec!["self".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1353,6 +1394,7 @@ class Foo:
             ],
             arg_count: 0,
             varnames: vec!["bar".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_bar)],
             source: Source::default(),
@@ -1370,6 +1412,7 @@ class Foo:
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["Foo".into()],
             constants: vec![Constant::Code(cls_foo)],
             source: Source::default(),
@@ -1397,6 +1440,7 @@ class Foo:
             ],
             arg_count: 1,
             varnames: vec!["self".into()],
+            freevars: vec![],
             names: vec!["val".into()],
             constants: vec![],
             source: Source::default(),
@@ -1412,6 +1456,7 @@ class Foo:
             ],
             arg_count: 0,
             varnames: vec!["bar".into()],
+            freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_bar)],
             source: Source::default(),
@@ -1429,6 +1474,7 @@ class Foo:
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["Foo".to_string()],
             constants: vec![Constant::Code(cls_foo)],
             source: Source::default(),
@@ -1455,6 +1501,7 @@ f = Foo()
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["Foo".into(), "f".into()],
             constants: vec![],
             source: Source::default(),
@@ -1482,6 +1529,7 @@ b = f.bar()
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["f".into(), "bar".into(), "b".into()],
             constants: vec![],
             source: Source::default(),
@@ -1507,6 +1555,7 @@ a = foo()
             bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source: Source::default(),
@@ -1526,6 +1575,7 @@ a = foo()
             ],
             arg_count: 0,
             varnames: vec![],
+            freevars: vec![],
             names: vec!["foo".into(), "a".into()],
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),

@@ -1,8 +1,10 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::bytecode_vm::indices::{ConstantIndex, LocalIndex, NonlocalIndex};
+use crate::bytecode_vm::indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex};
 
 pub type Bytecode = Vec<Opcode>;
+pub type UnsignedOffset = usize;
+pub type SignedOffset = isize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Opcode {
@@ -51,6 +53,9 @@ pub enum Opcode {
     LoadFast(LocalIndex),
     /// Read the global variable indicated by the specified index and push the value onto the stack.
     LoadGlobal(NonlocalIndex),
+    /// Read a variable from an enclosing environment.
+    // TODO we may also need a level here?
+    LoadFree(FreeIndex),
     /// Pop an object off the stack, find the attribute name specified by the given index, look up
     /// the attribute with that name off the object, and push it onto the stack.
     LoadAttr(NonlocalIndex),
@@ -63,20 +68,22 @@ pub enum Opcode {
     /// Pop the specified number of elements off the stack and built a list object.
     BuildList(usize),
     /// Uncomditional jump to an offset. This is signed because you can jump in reverse.
-    Jump(isize),
+    Jump(SignedOffset),
     /// Conditional jump to an offset based on the value on the top of the stack. This is signed
     /// because you can jump in reverse.
-    JumpIfFalse(isize),
+    JumpIfFalse(SignedOffset),
     /// Create a function object from a code object, encapsulating the information needed to call
     /// the function later.
     MakeFunction,
+    /// Create a function from the code object on the top of the stack, popping off the specified
+    /// number of items from the stack to be free variables.
+    MakeClosure(usize),
     /// Call the function from the top of the stack with the specified number of arguments.
     /// Binding, if needed, should happen at runtime.
     Call(usize),
     /// Return the value on the stack to the caller.
     ReturnValue,
-    /// Print a constant from the pool.
-    PrintConst(ConstantIndex),
+    /// Import the module indicated by the specified index.
     ImportName(NonlocalIndex),
     /// Stop the VM
     Halt,
@@ -106,6 +113,7 @@ impl Display for Opcode {
             Opcode::StoreGlobal(i) => write!(f, "STORE_GLOBAL {}", i),
             Opcode::LoadFast(i) => write!(f, "LOAD_FAST {}", i),
             Opcode::LoadGlobal(i) => write!(f, "LOAD_GLOBAL {}", i),
+            Opcode::LoadFree(i) => write!(f, "LOAD_FREE {}", i),
             Opcode::LoadAttr(i) => write!(f, "LOAD_ATTR {}", i),
             Opcode::SetAttr(i) => write!(f, "SET_ATTR {}", i),
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
@@ -113,9 +121,9 @@ impl Display for Opcode {
             Opcode::Jump(i) => write!(f, "JUMP {}", i),
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
+            Opcode::MakeClosure(i) => write!(f, "MAKE_CLOSURE {}", i),
             Opcode::Call(i) => write!(f, "CALL {}", i),
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
-            Opcode::PrintConst(i) => write!(f, "PRINT_CONST {}", i),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {}", i),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),

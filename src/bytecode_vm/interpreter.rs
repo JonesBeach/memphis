@@ -366,6 +366,21 @@ x = [2,"Hello"]
     }
 
     #[test]
+    fn lists_builtin() {
+        let text = "list()";
+        assert_eval_eq!(text, VmValue::List(List::new(vec![])));
+
+        let text = "list([])";
+        assert_eval_eq!(text, VmValue::List(List::new(vec![])));
+
+        let text = "list([2,3])";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+    }
+
+    #[test]
     fn assignment_int() {
         let text = r#"
 a = 5 - 3
@@ -472,6 +487,21 @@ c = foo(2, 9)
 "#;
         let mut ctx = run(text);
         assert_read_eq!(ctx, "c", VmValue::Int(29));
+    }
+
+    #[test]
+    fn closures() {
+        let text = r#"
+def make_adder(x):
+    def inner_adder(y):
+        return x + y
+    return inner_adder
+
+adder = make_adder(10)
+a = adder(5)
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Int(15));
     }
 
     #[test]

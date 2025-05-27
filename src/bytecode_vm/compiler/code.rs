@@ -19,6 +19,8 @@ pub struct CodeObject {
     pub arg_count: usize,
     /// Local variable names
     pub varnames: Vec<String>,
+    /// Free variable names
+    pub freevars: Vec<String>,
     /// Non-local identifiers
     pub names: Vec<String>,
     pub constants: Vec<Constant>,
@@ -45,6 +47,7 @@ impl CodeObject {
             bytecode: vec![],
             arg_count: varnames.len(),
             varnames: varnames.to_vec(),
+            freevars: vec![],
             names: vec![],
             constants: vec![],
             source,

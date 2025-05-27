@@ -1,7 +1,13 @@
 use std::process::Command;
 
-fn test_script(script: &'static str) {
-    let output = Command::new("target/debug/memphis")
+fn run_output(binary: &str, script: &'static str, engine: Option<&str>) -> String {
+    let mut command = Command::new(binary);
+
+    if let Some(engine_name) = engine {
+        command.env("MEMPHIS_ENGINE", engine_name);
+    }
+
+    let output = command
         .arg(script)
         .output()
         .expect("Failed to run test script");
@@ -10,18 +16,15 @@ fn test_script(script: &'static str) {
         panic!("Running script {} failed.", script);
     }
 
-    let expected = Command::new("python3")
-        .arg(script)
-        .output()
-        .expect("Failed to run test script");
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
 
-    if !expected.status.success() {
-        panic!("Running script {} failed.", script);
-    }
+fn test_script(script: &'static str, engine: Option<&str>) {
+    let output = run_output("target/debug/memphis", script, engine);
+    let expected = run_output("python3", script, None);
 
     assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&expected.stdout),
+        output, expected,
         "Running script {} produced unexpected output.",
         script
     );
@@ -31,25 +34,32 @@ fn test_script(script: &'static str) {
 mod integration_tests {
     use super::*;
 
-    fn ui_tests() -> Vec<&'static str> {
-        vec![
-            "examples/test.py",
-            "examples/async/a.py",
-            "examples/async/b.py",
-            "examples/async/c.py",
-            "examples/async/d.py",
-            "examples/exceptions.py",
-            "examples/context_manager.py",
-            "examples/new_method.py",
-            "examples/builtins.py",
-            "examples/descriptor_protocol.py",
-        ]
+    static TREEWALK_UI_TESTS: [&'static str; 10] = [
+        "examples/test.py",
+        "examples/async/a.py",
+        "examples/async/b.py",
+        "examples/async/c.py",
+        "examples/async/d.py",
+        "examples/exceptions.py",
+        "examples/context_manager.py",
+        "examples/new_method.py",
+        "examples/builtins.py",
+        "examples/descriptor_protocol.py",
+    ];
+
+    static BYTECODE_VM_UI_TESTS: [&'static str; 1] = ["examples/test_vm.py"];
+
+    #[test]
+    fn run_treewalk_scripts() {
+        for ui_test in TREEWALK_UI_TESTS {
+            test_script(ui_test, None);
+        }
     }
 
     #[test]
-    fn run_scripts() {
-        for ui_test in ui_tests() {
-            test_script(ui_test);
+    fn run_bytecode_vm_scripts() {
+        for ui_test in BYTECODE_VM_UI_TESTS {
+            test_script(ui_test, Some("bytecode_vm"));
         }
     }
 }
