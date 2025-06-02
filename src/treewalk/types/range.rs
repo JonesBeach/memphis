@@ -10,10 +10,6 @@ use crate::{
     },
 };
 
-const DEFAULT_START: i64 = 0;
-const DEFAULT_STOP: i64 = 0;
-const DEFAULT_STEP: i64 = 1;
-
 #[derive(Clone, PartialEq)]
 pub struct Range {
     pub start: i64,
@@ -26,25 +22,29 @@ impl_method_provider!(Range, [NewBuiltin]);
 impl_iterable!(RangeIter);
 
 impl Range {
+    const DEFAULT_START: i64 = 0;
+    const DEFAULT_STOP: i64 = 0;
+    const DEFAULT_STEP: i64 = 1;
+
     fn new(start: i64, stop: i64, step: i64) -> Self {
         Self { start, stop, step }
     }
 
     fn with_stop(stop: i64) -> Self {
-        Self::new(DEFAULT_START, stop, DEFAULT_STEP)
+        Self::new(Self::DEFAULT_START, stop, Self::DEFAULT_STEP)
     }
 
     fn with_start_stop(start: i64, stop: i64) -> Self {
-        Self::new(start, stop, DEFAULT_STEP)
+        Self::new(start, stop, Self::DEFAULT_STEP)
     }
 }
 
 impl Default for Range {
     fn default() -> Self {
         Self {
-            start: DEFAULT_START,
-            stop: DEFAULT_STOP,
-            step: DEFAULT_STEP,
+            start: Self::DEFAULT_START,
+            stop: Self::DEFAULT_STOP,
+            step: Self::DEFAULT_STEP,
         }
     }
 }

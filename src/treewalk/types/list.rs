@@ -9,7 +9,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::{Callable, IndexRead, IndexWrite},
+        protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
         type_system::CloneableIterable,
         types::Slice,
         utils::{check_args, format_comma_separated, Args},
@@ -46,6 +46,10 @@ impl List {
 
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 
     pub fn cloned_items(&self) -> Vec<TreewalkValue> {
@@ -115,14 +119,13 @@ impl Add for List {
     }
 }
 
-impl TryFrom<TreewalkValue> for Container<List> {
-    type Error = ();
-
-    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        value
-            .into_iterable()
-            .map(|i| Container::new(List::new(i.collect())))
-            .ok_or(())
+impl TryEvalFrom for Container<List> {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        let iter = value.expect_iterator(interpreter)?;
+        Ok(Container::new(List::new(iter.collect())))
     }
 }
 
@@ -192,10 +195,7 @@ impl Callable for NewBuiltin {
 
         let list = match args.len() {
             1 => Container::new(List::default()),
-            2 => args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| interpreter.type_error("Expected a list"))?,
+            2 => Container::<List>::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 
@@ -227,7 +227,8 @@ impl Callable for ExtendBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-        list.borrow_mut().extend(args.get_arg(0).into_iter());
+        list.borrow_mut()
+            .extend(args.get_arg(0).expect_iterable(interpreter)?.into_iter());
 
         Ok(TreewalkValue::None)
     }

@@ -83,7 +83,7 @@ impl Callable for NewBuiltin {
                 iter.next();
 
                 let iters = iter
-                    .map(|a| a.expect_iterable(interpreter))
+                    .map(|a| a.expect_iterator(interpreter))
                     .collect::<Result<Vec<Box<dyn CloneableIterable>>, _>>()?;
 
                 let zip = ZipIterator::new(iters);

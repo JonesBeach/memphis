@@ -279,39 +279,6 @@ impl TreewalkValue {
         }
     }
 
-    /// Take ownership and convert to a user-facing value. These are the Python objects which are
-    /// returned from `iter()` and on which you can call `next()`.
-    pub fn into_iterator_value(self) -> Option<TreewalkValue> {
-        let value = match self {
-            TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
-            TreewalkValue::ListIter(_) => self,
-            TreewalkValue::Str(s) => TreewalkValue::StrIter(s.into_iter()),
-            TreewalkValue::StrIter(_) => self,
-            TreewalkValue::Set(set) => TreewalkValue::SetIter(set.into_iter()),
-            TreewalkValue::SetIter(_) => self,
-            TreewalkValue::Tuple(tuple) => TreewalkValue::TupleIter(tuple.into_iter()),
-            TreewalkValue::TupleIter(_) => self,
-            TreewalkValue::DictItems(dict) => TreewalkValue::DictItemsIter(dict.into_iter()),
-            TreewalkValue::DictItemsIter(_) => self,
-            TreewalkValue::DictKeys(dict) => TreewalkValue::DictKeysIter(dict.into_iter()),
-            TreewalkValue::DictKeysIter(_) => self,
-            TreewalkValue::DictValues(dict) => TreewalkValue::DictValuesIter(dict.into_iter()),
-            TreewalkValue::DictValuesIter(_) => self,
-            TreewalkValue::Bytes(b) => TreewalkValue::BytesIter(b),
-            TreewalkValue::BytesIter(_) => self,
-            TreewalkValue::ByteArray(b) => TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()),
-            TreewalkValue::ByteArrayIter(_) => self,
-            TreewalkValue::Range(r) => TreewalkValue::RangeIter(r.into_iter()),
-            TreewalkValue::RangeIter(_) => self,
-            TreewalkValue::Generator(_) => self,
-            TreewalkValue::ReversedIter(_) => self,
-            TreewalkValue::Zip(_) => self,
-            _ => return None,
-        };
-
-        Some(value)
-    }
-
     /// Check for object identity, as opposed to object value evaluated in `PartialEq` above.
     pub fn is(&self, other: &Self) -> bool {
         match (self, other) {
@@ -441,13 +408,86 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a callable"))
     }
 
-    pub fn expect_iterable(
+    /// Ensure this value *is already* an iterator (e.g. result of a prior `iter()` call).
+    ///
+    /// If not, raise a TypeError. This does not attempt to coerce an iterable into an iterator.
+    /// Use when `next()` is called directly — `next(x)` must fail if `x` is not an iterator.
+    pub fn expect_iterator_strict(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Box<dyn CloneableIterable>> {
+        self.clone().into_iterator().ok_or_else(|| {
+            interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
+        })
+    }
+
+    /// Ensure this value is iterable, then convert it to an iterator (if needed).
+    ///
+    /// This mimics the behavior of calling `iter(x)` in Python.
+    /// Used when interpreting `for x in y:` or any construct that expects an iterable.
+    /// Raises a TypeError if the object is not iterable.
+    pub fn expect_iterator(
         &self,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Box<dyn CloneableIterable>> {
         self.clone()
-            .into_iterable()
-            .ok_or_else(|| interpreter.type_error("Expected an iterable"))
+            .expect_iterable(interpreter)?
+            .into_iterator()
+            .ok_or_else(|| {
+                interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
+            })
+    }
+
+    /// Convert a value into its iterator form, consuming the value in the process.
+    ///
+    /// This corresponds to the behavior of Python’s `iter()`:
+    /// for a list, string, set, etc., it returns a corresponding iterator.
+    /// If the value is already an iterator, it is returned as-is.
+    /// If the value is not iterable, returns None.
+    pub fn into_iterable(self) -> Option<TreewalkValue> {
+        let value = match self {
+            TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
+            TreewalkValue::ListIter(_) => self,
+            TreewalkValue::Str(s) => TreewalkValue::StrIter(s.into_iter()),
+            TreewalkValue::StrIter(_) => self,
+            TreewalkValue::Set(set) => TreewalkValue::SetIter(set.into_iter()),
+            TreewalkValue::FrozenSet(set) => TreewalkValue::SetIter(set.into_iter()),
+            TreewalkValue::SetIter(_) => self,
+            TreewalkValue::Tuple(tuple) => TreewalkValue::TupleIter(tuple.into_iter()),
+            TreewalkValue::TupleIter(_) => self,
+            TreewalkValue::Dict(dict) => TreewalkValue::DictKeysIter(dict.into_iter()),
+            TreewalkValue::DictItems(dict) => TreewalkValue::DictItemsIter(dict.into_iter()),
+            TreewalkValue::DictItemsIter(_) => self,
+            TreewalkValue::DictKeys(dict) => TreewalkValue::DictKeysIter(dict.into_iter()),
+            TreewalkValue::DictKeysIter(_) => self,
+            TreewalkValue::DictValues(dict) => TreewalkValue::DictValuesIter(dict.into_iter()),
+            TreewalkValue::DictValuesIter(_) => self,
+            TreewalkValue::Bytes(b) => TreewalkValue::BytesIter(b),
+            TreewalkValue::BytesIter(_) => self,
+            TreewalkValue::ByteArray(b) => TreewalkValue::ByteArrayIter(b.borrow().raw().to_vec()),
+            TreewalkValue::ByteArrayIter(_) => self,
+            TreewalkValue::Range(r) => TreewalkValue::RangeIter(r.into_iter()),
+            TreewalkValue::RangeIter(_) => self,
+            TreewalkValue::Generator(_) => self,
+            TreewalkValue::ReversedIter(_) => self,
+            TreewalkValue::Zip(_) => self,
+            _ => return None,
+        };
+
+        Some(value)
+    }
+
+    /// Ensure this value is iterable, and convert it to its iterator form.
+    ///
+    /// If the value is not iterable, raise a TypeError.
+    /// This is a helper used by `expect_iterator()` to coerce iterables into iterators.
+    pub fn expect_iterable(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<TreewalkValue> {
+        self.clone().into_iterable().ok_or_else(|| {
+            interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
+        })
     }
 
     pub fn as_integer(&self) -> Option<i64> {
@@ -551,9 +591,10 @@ impl TreewalkValue {
     pub fn as_boolean(&self) -> bool {
         match self {
             TreewalkValue::Bool(i) => *i,
-            TreewalkValue::List(i) => i.borrow().len() > 0,
+            TreewalkValue::List(i) => !i.borrow().is_empty(),
             TreewalkValue::Str(i) => !i.is_empty(),
             TreewalkValue::Int(i) => *i != 0,
+            TreewalkValue::Float(i) => *i != 0.0,
             TreewalkValue::None => false,
             _ => true,
         }
@@ -591,7 +632,7 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a list"))
     }
 
-    /// Returns a `Container<Set>` with _no_ type coercion. Use `TryFrom<TreewalkValue>` for type
+    /// Returns a `Container<Set>` with _no_ type coercion. Use `TryEvalFrom` for type
     /// coercion.
     pub fn as_set(&self) -> Option<Container<Set>> {
         match self {
@@ -649,10 +690,18 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a symbol-table-like object"))
     }
 
+    /// Returns a `Tuple` with _no_ type coercion. Use `TryEvalFrom` for type
+    /// coercion.
+    pub fn as_tuple(&self) -> Option<Tuple> {
+        match self {
+            TreewalkValue::Tuple(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
     pub fn expect_tuple(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Tuple> {
-        self.clone()
-            .try_into()
-            .map_err(|_| interpreter.type_error("Expected a tuple"))
+        self.as_tuple()
+            .ok_or_else(|| interpreter.type_error("Expected a tuple"))
     }
 
     pub fn as_string(&self) -> Option<String> {
@@ -668,19 +717,16 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
 
-    pub fn negated(&self) -> Self {
+    pub fn negated(&self) -> Option<Self> {
         match self {
-            TreewalkValue::Float(i) => TreewalkValue::Float(-i),
-            TreewalkValue::Int(i) => TreewalkValue::Int(-i),
-            _ => unreachable!(),
+            TreewalkValue::Float(i) => Some(TreewalkValue::Float(-i)),
+            TreewalkValue::Int(i) => Some(TreewalkValue::Int(-i)),
+            _ => None,
         }
     }
 
-    pub fn inverted(&self) -> Self {
-        match self {
-            TreewalkValue::Bool(i) => TreewalkValue::Bool(!i),
-            _ => unreachable!(),
-        }
+    pub fn not(&self) -> Self {
+        TreewalkValue::Bool(!self.as_boolean())
     }
 
     pub fn is_integer(&self) -> bool {
@@ -735,8 +781,62 @@ impl From<TreewalkValue> for MemphisValue {
                     .collect::<Vec<MemphisValue>>();
                 MemphisValue::List(items)
             }
+            TreewalkValue::Ellipsis => MemphisValue::Unimplemented("ellipsis"),
+            TreewalkValue::NotImplemented => MemphisValue::Unimplemented("not_implemented"),
+            TreewalkValue::Class(_) => MemphisValue::Unimplemented("class"),
+            TreewalkValue::Object(_) => MemphisValue::Unimplemented("object"),
+            TreewalkValue::Module(_) => MemphisValue::Unimplemented("module"),
+            TreewalkValue::Super(_) => MemphisValue::Unimplemented("super"),
+            TreewalkValue::Classmethod(_) => MemphisValue::Unimplemented("classmethod"),
+            TreewalkValue::Staticmethod(_) => MemphisValue::Unimplemented("staticmethod"),
+            TreewalkValue::Property(_) => MemphisValue::Unimplemented("property"),
+            TreewalkValue::DataDescriptor(_) => MemphisValue::Unimplemented("data_descriptor"),
+            TreewalkValue::NonDataDescriptor(_) => {
+                MemphisValue::Unimplemented("non_data_descriptor")
+            }
+            TreewalkValue::Function(_) => MemphisValue::Unimplemented("function"),
+            TreewalkValue::Method(_) => MemphisValue::Unimplemented("method"),
+            TreewalkValue::BuiltinFunction(_) => MemphisValue::Unimplemented("builtin_func"),
+            TreewalkValue::BuiltinMethod(_) => MemphisValue::Unimplemented("builtin_method"),
+            TreewalkValue::Generator(_) => MemphisValue::Unimplemented("generator"),
             TreewalkValue::Coroutine(_) => MemphisValue::Unimplemented("coroutine"),
-            _ => unimplemented!("Conversion not implemented for type '{}'", value.get_type()),
+            TreewalkValue::Code(_) => MemphisValue::Unimplemented("code"),
+            TreewalkValue::Cell(_) => MemphisValue::Unimplemented("cell"),
+            TreewalkValue::Bytes(_) => MemphisValue::Unimplemented("bytes"),
+            TreewalkValue::ByteArray(_) => MemphisValue::Unimplemented("byte_array"),
+            TreewalkValue::Set(_) => MemphisValue::Unimplemented("set"),
+            TreewalkValue::FrozenSet(_) => MemphisValue::Unimplemented("frozenset"),
+            TreewalkValue::Zip(_) => MemphisValue::Unimplemented("zip"),
+            TreewalkValue::Slice(_) => MemphisValue::Unimplemented("slice"),
+            TreewalkValue::Complex(_) => MemphisValue::Unimplemented("complex"),
+            TreewalkValue::Dict(_) => MemphisValue::Unimplemented("dict"),
+            TreewalkValue::DictItems(_) => MemphisValue::Unimplemented("dict_items"),
+            TreewalkValue::DictKeys(_) => MemphisValue::Unimplemented("dict_keys"),
+            TreewalkValue::DictValues(_) => MemphisValue::Unimplemented("dict_values"),
+            TreewalkValue::MappingProxy(_) => MemphisValue::Unimplemented("mappingproxy"),
+            TreewalkValue::Range(_) => MemphisValue::Unimplemented("range"),
+            TreewalkValue::Tuple(_) => MemphisValue::Unimplemented("tuple"),
+            TreewalkValue::Exception(_) => MemphisValue::Unimplemented("exception"),
+            TreewalkValue::Traceback(_) => MemphisValue::Unimplemented("traceback"),
+            TreewalkValue::Frame => MemphisValue::Unimplemented("frame"),
+            TreewalkValue::ListIter(_) => MemphisValue::Unimplemented("list_iter"),
+            TreewalkValue::ReversedIter(_) => MemphisValue::Unimplemented("reversed_iter"),
+            TreewalkValue::SetIter(_) => MemphisValue::Unimplemented("set_iter"),
+            TreewalkValue::DictItemsIter(_) => MemphisValue::Unimplemented("dict_items_iter"),
+            TreewalkValue::DictKeysIter(_) => MemphisValue::Unimplemented("dict_keys_iter"),
+            TreewalkValue::DictValuesIter(_) => MemphisValue::Unimplemented("dict_values_iter"),
+            TreewalkValue::RangeIter(_) => MemphisValue::Unimplemented("range_iter"),
+            TreewalkValue::TupleIter(_) => MemphisValue::Unimplemented("tuple_iter"),
+            TreewalkValue::StrIter(_) => MemphisValue::Unimplemented("str_iter"),
+            TreewalkValue::BytesIter(_) => MemphisValue::Unimplemented("bytes_iter"),
+            TreewalkValue::ByteArrayIter(_) => MemphisValue::Unimplemented("bytes_array_iter"),
+            TreewalkValue::TypeNode(_) => MemphisValue::Unimplemented("type_node"),
+            #[cfg(feature = "c_stdlib")]
+            TreewalkValue::CPythonModule(_) => MemphisValue::Unimplemented("cpython_module"),
+            #[cfg(feature = "c_stdlib")]
+            TreewalkValue::CPythonObject(_) => MemphisValue::Unimplemented("cpython_object"),
+            #[cfg(feature = "c_stdlib")]
+            TreewalkValue::CPythonClass(_) => MemphisValue::Unimplemented("cpython_class"),
         }
     }
 }

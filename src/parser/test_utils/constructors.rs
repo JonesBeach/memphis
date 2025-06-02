@@ -85,7 +85,7 @@ macro_rules! bin_op {
     ($left:expr, $op:ident, $right:expr) => {
         $crate::parser::types::Expr::BinaryOperation {
             left: Box::new($left),
-            op: BinOp::$op,
+            op: $crate::parser::types::BinOp::$op,
             right: Box::new($right),
         }
     };
@@ -95,7 +95,7 @@ macro_rules! logic_op {
     ($left:expr, $op:ident, $right:expr) => {
         $crate::parser::types::Expr::LogicalOperation {
             left: Box::new($left),
-            op: LogicalOp::$op,
+            op: $crate::parser::types::LogicalOp::$op,
             right: Box::new($right),
         }
     };
@@ -104,7 +104,7 @@ macro_rules! logic_op {
 macro_rules! unary_op {
     ($op:ident, $right:expr) => {
         $crate::parser::types::Expr::UnaryOperation {
-            op: UnaryOp::$op,
+            op: $crate::parser::types::UnaryOp::$op,
             right: Box::new($right),
         }
     };

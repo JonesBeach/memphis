@@ -4,12 +4,10 @@ use std::{
 };
 
 use crate::{
+    analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
     core::{log, Container, LogLevel},
     domain::{DebugStackFrame, Dunder, ToDebugStackFrame, Type},
-    parser::{
-        static_analysis::{FunctionAnalysisVisitor, YieldDetector},
-        types::{Ast, Closure, Expr, Params},
-    },
+    parser::types::{Ast, Expr, Params, Variable},
     treewalk::{
         macros::*,
         protocols::{Callable, DataDescriptor, MemberRead, MemberWrite, NonDataDescriptor},
@@ -45,7 +43,7 @@ pub struct Function {
     is_async: bool,
     pub captured_env: Container<EnvironmentFrame>,
     scope: Scope,
-    closure: Closure,
+    free_vars: Vec<Variable>,
 }
 
 impl_typed!(Function, Type::Function);
@@ -109,7 +107,7 @@ impl Function {
             is_async,
             captured_env,
             scope: Scope::default(),
-            closure: visitor.into(),
+            free_vars: visitor.get_free_vars(),
         }
     }
 
@@ -154,14 +152,12 @@ impl Function {
     }
 
     fn get_closure(&self) -> TreewalkValue {
-        let free_vars = self.closure.free_vars();
-
-        if free_vars.is_empty() {
+        if self.free_vars.is_empty() {
             return TreewalkValue::None;
         }
 
         let mut items = vec![];
-        for key in free_vars {
+        for key in self.free_vars.iter() {
             let value = self.captured_env.borrow().read(key.as_str()).unwrap();
             items.push(TreewalkValue::Cell(Container::new(Cell::new(value))));
         }

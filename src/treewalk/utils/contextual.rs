@@ -8,10 +8,7 @@ use crate::{
     core::memphis_utils,
     domain::{Dunder, ExecutionError, ExecutionErrorKind},
     errors::MemphisError,
-    treewalk::{
-        utils::{args, Args},
-        TreewalkDisruption, TreewalkInterpreter, TreewalkValue,
-    },
+    treewalk::{utils::args, TreewalkDisruption, TreewalkInterpreter, TreewalkValue},
 };
 
 /// A wrapper which includes a reference to an `Interpreter`.

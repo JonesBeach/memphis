@@ -1,3 +1,4 @@
+mod analysis;
 mod bytecode_vm;
 mod context;
 mod core;

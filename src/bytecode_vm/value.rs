@@ -4,12 +4,14 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
         runtime::{
-            BuiltinFunction, Class, FunctionObject, List, Method, Module, Object, Reference,
+            BuiltinFunction, Class, FunctionObject, List, Method, Module, Object, Range, Reference,
         },
     },
     core::{Container, Voidable},
     domain::MemphisValue,
 };
+
+use super::{VirtualMachine, VmResult};
 
 #[derive(Clone, Debug)]
 pub enum VmValue {
@@ -26,6 +28,7 @@ pub enum VmValue {
     Module(Container<Module>),
     BuiltinFunction(BuiltinFunction),
     List(List),
+    Range(Range),
 }
 
 impl VmValue {
@@ -48,6 +51,7 @@ impl PartialEq for VmValue {
             (VmValue::String(a), VmValue::String(b)) => a == b,
             (VmValue::Bool(a), VmValue::Bool(b)) => a == b,
             (VmValue::List(a), VmValue::List(b)) => a == b,
+            (VmValue::Range(a), VmValue::Range(b)) => a == b,
             // Add Class/Object/Code/Function/etc handling later if needed
             _ => false,
         }
@@ -83,6 +87,8 @@ impl From<&Constant> for VmValue {
         match value {
             Constant::None => VmValue::None,
             Constant::Boolean(i) => VmValue::Bool(*i),
+            Constant::Int(i) => VmValue::Int(*i),
+            Constant::Float(i) => VmValue::Float(*i),
             Constant::String(i) => VmValue::String(i.to_string()),
             Constant::Code(i) => VmValue::Code(i.clone()),
         }
@@ -104,32 +110,48 @@ impl Display for VmValue {
 }
 
 impl VmValue {
-    pub fn as_integer(&self) -> i64 {
+    pub fn as_integer(&self) -> Option<i64> {
         match self {
-            VmValue::Int(i) => *i,
-            _ => panic!("expected integer"),
+            VmValue::Int(i) => Some(*i),
+            _ => None,
         }
     }
 
-    pub fn as_boolean(&self) -> bool {
+    pub fn to_boolean(&self) -> bool {
         match self {
+            VmValue::None => false,
             VmValue::Bool(i) => *i,
-            _ => panic!("expected boolean"),
+            VmValue::Int(i) => *i != 0,
+            VmValue::Float(f) => *f != 0.0,
+            VmValue::String(s) => !s.is_empty(),
+            VmValue::List(l) => !l.is_empty(),
+            // Most values in Python are truthy
+            _ => true,
         }
     }
 
-    pub fn as_code(&self) -> &CodeObject {
+    pub fn as_code(&self) -> Option<&CodeObject> {
         match self {
-            VmValue::Code(i) => i,
-            _ => panic!("expected code"),
+            VmValue::Code(i) => Some(i),
+            _ => None,
         }
     }
 
-    pub fn as_function(&self) -> &FunctionObject {
+    pub fn expect_code(&self, vm: &VirtualMachine) -> VmResult<&CodeObject> {
+        self.as_code()
+            .ok_or_else(|| vm.type_error("Expected a code object"))
+    }
+
+    pub fn as_function(&self) -> Option<&FunctionObject> {
         match self {
-            VmValue::Function(i) => i,
-            _ => panic!("expected method"),
+            VmValue::Function(i) => Some(i),
+            _ => None,
         }
+    }
+
+    pub fn expect_function(&self, vm: &VirtualMachine) -> VmResult<&FunctionObject> {
+        self.as_function()
+            .ok_or_else(|| vm.type_error("Expected a function object"))
     }
 
     pub fn as_list(&self) -> Option<&List> {
@@ -153,11 +175,16 @@ impl VmValue {
         }
     }
 
-    pub fn as_class(&self) -> &Class {
+    pub fn as_class(&self) -> Option<&Class> {
         match self {
-            VmValue::Class(i) => i,
-            _ => panic!("expected object"),
+            VmValue::Class(i) => Some(i),
+            _ => None,
         }
+    }
+
+    pub fn expect_class(&self, vm: &VirtualMachine) -> VmResult<&Class> {
+        self.as_class()
+            .ok_or_else(|| vm.type_error("Expected a class"))
     }
 }
 

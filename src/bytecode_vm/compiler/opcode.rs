@@ -39,10 +39,6 @@ pub enum Opcode {
     UnaryNot,
     /// Implements STACK[-1] = ~STACK[-1].
     UnaryInvert,
-    /// Push an integer value onto the stack. This is in preparation for another instruction.
-    PushInt(i64),
-    /// Push a float value onto the stack. This is in preparation for another instruction.
-    PushFloat(f64),
     /// Write the top value of the stack into the local variable indicated by the specified index.
     StoreFast(LocalIndex),
     /// Write the top value of the stack into the global variable indicated by the specified index.
@@ -106,8 +102,6 @@ impl Display for Opcode {
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
             Opcode::UnaryInvert => write!(f, "UNARY_INVERT"),
-            Opcode::PushInt(i) => write!(f, "PUSH_INT {}", i),
-            Opcode::PushFloat(i) => write!(f, "PUSH_FLOAT {}", i),
             Opcode::LoadConst(i) => write!(f, "LOAD_CONST {}", i),
             Opcode::StoreFast(i) => write!(f, "STORE_FAST {}", i),
             Opcode::StoreGlobal(i) => write!(f, "STORE_GLOBAL {}", i),

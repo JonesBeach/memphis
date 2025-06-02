@@ -59,7 +59,7 @@ mod tests_vm_interpreter {
 
     use crate::{
         bytecode_vm::{
-            runtime::{List, Reference},
+            runtime::{List, Range, Reference},
             test_utils::*,
             VmResult,
         },
@@ -340,7 +340,58 @@ mod tests_vm_interpreter {
     }
 
     #[test]
-    fn lists() {
+    fn unary_expression_negative() {
+        let input = "-2";
+        assert_eval_eq!(input, VmValue::Int(-2));
+
+        let input = "-2.5";
+        assert_eval_eq!(input, VmValue::Float(-2.5));
+
+        let input = "-(-2)";
+        assert_eval_eq!(input, VmValue::Int(2));
+
+        let input = "-(-2.5)";
+        assert_eval_eq!(input, VmValue::Float(2.5));
+    }
+
+    #[test]
+    fn unary_expression_not() {
+        let input = "not True";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "not False";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "not None";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "not 1";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "not 0";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "not 1.0";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "not 0.0";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "not [1]";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "not []";
+        assert_eval_eq!(input, VmValue::Bool(true));
+    }
+
+    #[test]
+    fn unary_expression_invert() {
+        let input = "~0b1101";
+        assert_eval_eq!(input, VmValue::Int(-14));
+    }
+
+    #[test]
+    fn list_literal() {
         let text = "[2,3]";
         assert_eval_eq!(
             text,
@@ -366,7 +417,7 @@ x = [2,"Hello"]
     }
 
     #[test]
-    fn lists_builtin() {
+    fn list_builtin() {
         let text = "list()";
         assert_eval_eq!(text, VmValue::List(List::new(vec![])));
 
@@ -378,6 +429,26 @@ x = [2,"Hello"]
             text,
             VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
         );
+    }
+
+    #[test]
+    fn range_builtin() {
+        let text = "range(5)";
+        assert_eval_eq!(text, VmValue::Range(Range::with_stop(5)));
+
+        let text = "range(2, 5)";
+        assert_eval_eq!(text, VmValue::Range(Range::with_start_stop(2, 5)));
+
+        let text = "range(2, 5, 3)";
+        assert_eval_eq!(text, VmValue::Range(Range::new(2, 5, 3)));
+
+        let text = "range()";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "range expected at least 1 argument, got 0");
+
+        let text = "range(1,1,1,1)";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "range expected at most 3 arguments, got 4");
     }
 
     #[test]

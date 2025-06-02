@@ -155,8 +155,8 @@ impl Compiler {
         match expr {
             Expr::None => self.compile_none(),
             Expr::Boolean(value) => self.compile_bool(*value),
-            Expr::Integer(value) => self.emit(Opcode::PushInt(*value)),
-            Expr::Float(i) => self.emit(Opcode::PushFloat(*i)),
+            Expr::Integer(value) => self.compile_int(*value),
+            Expr::Float(value) => self.compile_float(*value),
             Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
             Expr::List(items) => self.compile_list(items),
@@ -421,6 +421,14 @@ impl Compiler {
         self.compile_constant(Constant::Boolean(bool))
     }
 
+    fn compile_int(&mut self, int: i64) -> CompilerResult<()> {
+        self.compile_constant(Constant::Int(int))
+    }
+
+    fn compile_float(&mut self, float: f64) -> CompilerResult<()> {
+        self.compile_constant(Constant::Float(float))
+    }
+
     fn compile_code(&mut self, code: CodeObject) -> CompilerResult<()> {
         self.compile_constant(Constant::Code(code))
     }
@@ -669,9 +677,9 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(4),
-                Opcode::PushInt(2),
-                Opcode::PushInt(3),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::LoadConst(Index::new(2)),
                 Opcode::Add,
                 Opcode::Mul,
             ]
@@ -679,54 +687,111 @@ mod tests_bytecode {
     }
 
     #[test]
-    fn binary_operations() {
+    fn binary_expressions_mathematical_op() {
         let expr = bin_op!(int!(4), Add, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Add,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Add,
+            ]
         );
 
         let expr = bin_op!(int!(4), Sub, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Sub,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Sub,
+            ]
         );
 
         let expr = bin_op!(int!(4), Mul, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Mul,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Mul,
+            ]
         );
 
         let expr = bin_op!(int!(4), Div, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Div,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Div,
+            ]
         );
+    }
 
+    #[test]
+    fn binary_expressions_compare_op() {
         let expr = bin_op!(int!(4), Equals, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushFloat(5.1), Opcode::Eq,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Eq,
+            ]
         );
 
         let expr = bin_op!(int!(4), LessThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushInt(5), Opcode::LessThan,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::LessThan,
+            ]
         );
 
         let expr = bin_op!(int!(4), GreaterThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(4), Opcode::PushInt(5), Opcode::GreaterThan,]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::GreaterThan,
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn binary_expressions_logical_op() {
+        let expr = logic_op!(bool!(true), And, bool!(false));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Eq,
+            ]
+        );
+
+        let expr = logic_op!(bool!(true), Or, bool!(false));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Eq,
+            ]
         );
     }
 
@@ -734,11 +799,14 @@ mod tests_bytecode {
     fn unary_operations() {
         let expr = unary_op!(Minus, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::PushInt(4), Opcode::UnaryNegative]);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadConst(Index::new(0)), Opcode::UnaryNegative]
+        );
 
         let expr = unary_op!(Plus, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::PushInt(4)]);
+        assert_eq!(bytecode, &[Opcode::LoadConst(Index::new(0))]);
 
         let expr = unary_op!(Not, Expr::Boolean(false));
         let bytecode = compile_expr(expr);
@@ -749,7 +817,10 @@ mod tests_bytecode {
 
         let expr = unary_op!(BitwiseNot, int!(4));
         let bytecode = compile_expr(expr);
-        assert_eq!(bytecode, &[Opcode::PushInt(4), Opcode::UnaryInvert]);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadConst(Index::new(0)), Opcode::UnaryInvert]
+        );
     }
 
     #[test]
@@ -759,8 +830,8 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(5),
-                Opcode::PushInt(2),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::Sub,
                 Opcode::StoreGlobal(Index::new(0)),
             ]
@@ -791,7 +862,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(2),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Add,
             ]
@@ -804,7 +875,11 @@ mod tests_bytecode {
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::PushInt(2), Opcode::PushInt(3), Opcode::BuildList(2),]
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildList(2),
+            ]
         );
     }
 
@@ -816,7 +891,7 @@ mod tests_bytecode {
             bytecode,
             &[
                 Opcode::LoadGlobal(Index::new(0)),
-                Opcode::PushInt(4),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::SetAttr(Index::new(1))
             ]
         );
@@ -842,8 +917,8 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(4),
-                Opcode::PushInt(5),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(1),
                 Opcode::Jump(-5),
@@ -865,11 +940,11 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(4),
-                Opcode::PushInt(5),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(2),
-                Opcode::PushInt(-1),
+                Opcode::LoadConst(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -889,13 +964,13 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::PushInt(4),
-                Opcode::PushInt(5),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(2),
-                Opcode::PushInt(-3),
+                Opcode::LoadConst(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(0)),
-                Opcode::PushInt(3),
+                Opcode::LoadConst(Index::new(3)),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -919,19 +994,19 @@ mod tests_bytecode {
             bytecode,
             &[
                 // if: 0-2
-                Opcode::PushInt(4),
-                Opcode::PushInt(5),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::GreaterThan,
                 Opcode::JumpIfFalse(3), // jump to elif condition
-                Opcode::PushInt(-1),
+                Opcode::LoadConst(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Jump(6), // skip rest
                 // elif: 7-9
-                Opcode::PushInt(4),
-                Opcode::PushInt(4),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::GreaterThan,
                 Opcode::JumpIfFalse(2), // jump past elif block if false
-                Opcode::PushInt(-2),
+                Opcode::LoadConst(Index::new(3)),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -955,22 +1030,22 @@ mod tests_bytecode {
             bytecode,
             &[
                 // if: 0-2
-                Opcode::PushInt(4),
-                Opcode::PushInt(5),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::GreaterThan,
                 Opcode::JumpIfFalse(3), // jump to elif condition
-                Opcode::PushInt(-1),
+                Opcode::LoadConst(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Jump(9), // skip rest
                 // elif: 7-9
-                Opcode::PushInt(4),
-                Opcode::PushInt(4),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::GreaterThan,
                 Opcode::JumpIfFalse(3), // jump past elif block if false
-                Opcode::PushInt(-2),
+                Opcode::LoadConst(Index::new(3)),
                 Opcode::StoreGlobal(Index::new(0)),
                 Opcode::Jump(2), // skip else
-                Opcode::PushInt(3),
+                Opcode::LoadConst(Index::new(4)),
                 Opcode::StoreGlobal(Index::new(0)),
             ]
         );
@@ -1010,8 +1085,8 @@ mod tests_bytecode {
             &[
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
-                Opcode::PushInt(99),
-                Opcode::PushInt(88),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
                 Opcode::Call(2),
             ]
         );
@@ -1090,12 +1165,12 @@ def foo(a, b):
 
         let fn_inner = CodeObject {
             name: Some("inner".into()),
-            bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
+            bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
-            constants: vec![],
+            constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
         };
@@ -1144,17 +1219,27 @@ def foo(a, b):
         let text = r#"
 def foo():
     c = 10
+    d = 11.1
+    e = 11.1
 "#;
         let code = compile(text);
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),
-            bytecode: vec![Opcode::PushInt(10), Opcode::StoreFast(Index::new(0))],
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::StoreFast(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::StoreFast(Index::new(1)),
+                // this should still be index 1 because we should reuse the 11.1
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::StoreFast(Index::new(2)),
+            ],
             arg_count: 0,
-            varnames: vec!["c".into()],
+            varnames: vec!["c".into(), "d".into(), "e".into()],
             freevars: vec![],
             names: vec![],
-            constants: vec![],
+            constants: vec![Constant::Int(10), Constant::Float(11.1)],
             source: Source::default(),
             line_map: vec![],
         };
@@ -1191,7 +1276,7 @@ def foo():
         let fn_foo = CodeObject {
             name: Some("foo".into()),
             bytecode: vec![
-                Opcode::PushInt(10),
+                Opcode::LoadConst(Index::new(0)),
                 Opcode::StoreFast(Index::new(0)),
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::ReturnValue,
@@ -1200,7 +1285,7 @@ def foo():
             varnames: vec!["c".into()],
             freevars: vec![],
             names: vec![],
-            constants: vec![],
+            constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
         };
@@ -1375,12 +1460,12 @@ class Foo:
 
         let fn_bar = CodeObject {
             name: Some("bar".into()),
-            bytecode: vec![Opcode::PushInt(99), Opcode::ReturnValue],
+            bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 1,
             varnames: vec!["self".into()],
             freevars: vec![],
             names: vec![],
-            constants: vec![],
+            constants: vec![Constant::Int(99)],
             source: Source::default(),
             line_map: vec![],
         };
@@ -1552,12 +1637,12 @@ a = foo()
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),
-            bytecode: vec![Opcode::PushInt(10), Opcode::ReturnValue],
+            bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
-            constants: vec![],
+            constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
         };

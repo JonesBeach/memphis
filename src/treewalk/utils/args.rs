@@ -2,7 +2,11 @@ use std::{collections::HashMap, slice::Iter};
 
 use crate::{
     parser::types::{CallArgs, KwargsOperation},
-    treewalk::{types::Str, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        protocols::TryEvalFrom,
+        types::{Str, Tuple},
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 /// Represents the fully resolved parameter state for all positional and keyword arguments.
@@ -25,7 +29,7 @@ impl Args {
 
         if let Some(ref args_var) = call_args.args_var {
             let value = interpreter.evaluate_expr(args_var)?;
-            let args = value.expect_tuple(interpreter)?;
+            let args = Tuple::try_eval_from(value, interpreter)?;
             // Clone each item in place without an intermediate Vec
             positional.extend_from_slice(args.items());
         };
@@ -42,7 +46,7 @@ impl Args {
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
-                    for key in unpacked.clone() {
+                    for key in unpacked.expect_iterable(interpreter)? {
                         if kwargs.contains_key(&key) {
                             return Err(interpreter.key_error(key.to_string()));
                         }
@@ -161,7 +165,7 @@ macro_rules! args {
     // Double curly braces ensure that the entire macro expands into a single expression, which is
     // necessary since we are returning a value from this macro.
     ( $( $arg:expr ),* ) => {{
-        let mut args = Args::default();
+        let mut args = $crate::treewalk::utils::Args::default();
         $(
             args.add_arg($arg);
         )*

@@ -12,6 +12,13 @@ use crate::{
     },
 };
 
+pub trait TryEvalFrom: Sized {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self>;
+}
+
 pub trait Callable {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue>;
 

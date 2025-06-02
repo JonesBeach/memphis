@@ -139,18 +139,17 @@ impl TreewalkValue {
         Ok(Some(result))
     }
 
-    pub fn into_iterable(self) -> Option<Box<dyn CloneableIterable>> {
+    pub fn into_iterator(self) -> Option<Box<dyn CloneableIterable>> {
         let result: Box<dyn CloneableIterable> = match self {
-            TreewalkValue::List(i) => Box::new(i.into_iter()),
             TreewalkValue::ListIter(i) => Box::new(i),
-            TreewalkValue::Set(i) => Box::new(i.into_iter()),
-            TreewalkValue::FrozenSet(i) => Box::new(i.into_iter()),
-            TreewalkValue::Range(i) => Box::new(i.into_iter()),
+            TreewalkValue::SetIter(i) => Box::new(i),
+            TreewalkValue::TupleIter(i) => Box::new(i),
+            TreewalkValue::RangeIter(i) => Box::new(i),
             TreewalkValue::StrIter(i) => Box::new(i),
             TreewalkValue::ReversedIter(i) => Box::new(i),
-            TreewalkValue::Dict(i) => Box::new(i.into_iter()),
-            TreewalkValue::DictItems(i) => Box::new(i.into_iter()),
-            TreewalkValue::Tuple(i) => Box::new(i.into_iter()),
+            TreewalkValue::DictItemsIter(i) => Box::new(i),
+            TreewalkValue::DictKeysIter(i) => Box::new(i),
+            TreewalkValue::DictValuesIter(i) => Box::new(i),
             TreewalkValue::Generator(i) => Box::new(i),
             TreewalkValue::Zip(i) => Box::new(i),
             _ => return None,

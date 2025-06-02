@@ -225,7 +225,7 @@ impl VirtualMachine {
     pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> VmResult<Reference> {
         if let Some(object) = object.as_object() {
             object
-                .read(name, |r| self.deref(r))
+                .read(name, self)?
                 .ok_or_else(|| self.attribute_error(name))
         } else if let Some(module) = object.as_module() {
             module
@@ -377,6 +377,16 @@ impl VirtualMachine {
         Ok(VmValue::Bool(result))
     }
 
+    fn dynamic_negate(&self, value: &VmValue) -> VmResult<VmValue> {
+        let result = match value {
+            VmValue::Int(x) => VmValue::Int(-x),
+            VmValue::Float(x) => VmValue::Float(-x),
+            _ => return Err(self.type_error("Unsupported operand type for unary '-'")),
+        };
+
+        Ok(result)
+    }
+
     /// Run the top frame in the call stack until there are no more.
     fn run_loop(&mut self) -> VmResult<VmValue> {
         let mut result = VmValue::None;
@@ -463,19 +473,21 @@ impl VirtualMachine {
                         .map_err(|_| self.type_error("Unsupported operand types for >="))?;
                 }
                 Opcode::UnaryNegative => {
-                    let right = self.pop_value()?.as_integer();
-                    self.push(Reference::Int(-right))?;
+                    let value = self.pop_value()?;
+                    let result = self.dynamic_negate(&value)?;
+                    self.push_value(result)?;
                 }
                 Opcode::UnaryNot => {
-                    let right = self.pop_value()?.as_boolean();
+                    let right = self.pop_value()?.to_boolean();
                     self.push(Reference::Bool(!right))?;
                 }
                 Opcode::UnaryInvert => {
-                    let right = self.pop_value()?.as_integer();
+                    let right = self
+                        .pop_value()?
+                        .as_integer()
+                        .ok_or_else(|| self.type_error("Unsupported operand type for '~'"))?;
                     self.push(Reference::Int(!right))?;
                 }
-                Opcode::PushInt(val) => self.push(Reference::Int(val))?,
-                Opcode::PushFloat(val) => self.push(Reference::Float(val))?,
                 Opcode::LoadConst(index) => {
                     // After loading a constant for the first time, it becomes an object managed by
                     // the heap like any other object.
@@ -545,22 +557,23 @@ impl VirtualMachine {
                     self.call_stack.jump_to_offset(offset)?;
                 }
                 Opcode::JumpIfFalse(offset) => {
-                    let condition = self.pop_value()?.as_boolean();
-                    if !condition {
+                    if !self.pop_value()?.to_boolean() {
                         self.call_stack.jump_to_offset(offset)?;
                     }
                 }
                 Opcode::MakeFunction => {
-                    let code = self.pop_value()?.as_code().clone();
-                    let function = FunctionObject::new(code);
+                    let code_value = self.pop_value()?;
+                    let code = code_value.expect_code(self)?;
+                    let function = FunctionObject::new(code.clone());
                     self.push_value(VmValue::Function(function))?;
                 }
                 Opcode::MakeClosure(num_free) => {
                     let freevars = (0..num_free)
                         .map(|_| self.pop())
                         .collect::<Result<Vec<_>, _>>()?;
-                    let code = self.pop_value()?.as_code().clone();
-                    let function = FunctionObject::new_with_free(code, freevars);
+                    let code_value = self.pop_value()?;
+                    let code = code_value.expect_code(self)?;
+                    let function = FunctionObject::new_with_free(code.clone(), freevars);
                     self.push_value(VmValue::Function(function))?;
                 }
                 Opcode::Call(argc) => {
@@ -591,8 +604,9 @@ impl VirtualMachine {
                             let reference = self.heapify(object);
 
                             if let Some(init_method) = class.read(Dunder::Init) {
-                                let init = self.deref(init_method)?.as_function().clone();
-                                let method = Method::new(reference, init);
+                                let init_value = self.deref(init_method)?;
+                                let init_fn = init_value.expect_function(self)?;
+                                let method = Method::new(reference, init_fn.clone());
 
                                 // The object reference must be on the stack for
                                 // after the constructor executes.

@@ -5,10 +5,7 @@ use std::{
     slice::Iter,
 };
 
-use crate::{
-    domain::{Dunder, ExceptionLiteral},
-    parser::static_analysis::{FunctionAnalysisVisitor, Visitor},
-};
+use crate::domain::ExceptionLiteral;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ast {
@@ -35,13 +32,6 @@ impl Ast {
 
     pub fn push(&mut self, stmt: Statement) {
         self.statements.push(stmt);
-    }
-
-    pub fn accept<V: Visitor>(&self, visitor: &mut V) {
-        visitor.visit_ast(self);
-        for statement in self.iter() {
-            statement.accept(visitor);
-        }
     }
 
     pub fn iter(&self) -> Iter<'_, Statement> {
@@ -193,18 +183,6 @@ pub enum BinOp {
     Expo,
 }
 
-impl TryFrom<&BinOp> for Dunder {
-    type Error = ();
-
-    fn try_from(op: &BinOp) -> Result<Self, Self::Error> {
-        match op {
-            BinOp::Equals => Ok(Dunder::Eq),
-            BinOp::NotEquals => Ok(Dunder::Ne),
-            _ => Err(()),
-        }
-    }
-}
-
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub enum UnaryOp {
     Not,
@@ -219,29 +197,6 @@ pub enum UnaryOp {
 pub enum LogicalOp {
     And,
     Or,
-}
-
-/// A `FunctionContext` is needed to determine what variables are accessed from an outer scope as
-/// part of a closure.
-#[derive(Clone, PartialEq, Debug)]
-pub struct Closure {
-    free_vars: Vec<Variable>,
-}
-
-impl Closure {
-    pub fn new(free_vars: Vec<Variable>) -> Self {
-        Self { free_vars }
-    }
-
-    pub fn free_vars(&self) -> &[Variable] {
-        self.free_vars.as_ref()
-    }
-}
-
-impl From<FunctionAnalysisVisitor> for Closure {
-    fn from(visitor: FunctionAnalysisVisitor) -> Self {
-        Self::new(visitor.get_free_vars())
-    }
 }
 
 /// An individual function parameter and its optional default.
@@ -658,43 +613,6 @@ pub enum StatementKind {
         variable: Option<String>,
         block: Ast,
     },
-}
-
-impl Statement {
-    /// Visit this statement, then walk the AST to any nested blocks.
-    pub fn accept<V: Visitor>(&self, visitor: &mut V) {
-        visitor.visit_statement(self);
-
-        match &self.kind {
-            StatementKind::FunctionDef { body, .. } => {
-                body.accept(visitor);
-            }
-            StatementKind::WhileLoop(cond_ast) => {
-                cond_ast.ast.accept(visitor);
-            }
-            StatementKind::ForInLoop { body, .. } => {
-                body.accept(visitor);
-            }
-            StatementKind::ContextManager { block, .. } => {
-                block.accept(visitor);
-            }
-            StatementKind::IfElse {
-                if_part,
-                elif_parts,
-                else_part,
-            } => {
-                if_part.ast.accept(visitor);
-                for part in elif_parts {
-                    part.ast.accept(visitor);
-                }
-
-                if let Some(else_part) = else_part {
-                    else_part.accept(visitor);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 #[cfg(test)]

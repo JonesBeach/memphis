@@ -32,7 +32,7 @@ impl Display for MemphisValue {
                     .join(", ");
                 write!(f, "[{}]", items)
             }
-            MemphisValue::Unimplemented(msg) => write!(f, "{}", msg),
+            MemphisValue::Unimplemented(msg) => write!(f, "Unimplemented: {}", msg),
         }
     }
 }

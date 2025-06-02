@@ -5,30 +5,7 @@ use crate::{
     parser::types::{Ast, Expr, Statement, StatementKind, Variable},
 };
 
-pub trait Visitor {
-    fn visit_ast(&mut self, program: &Ast);
-    fn visit_statement(&mut self, statement: &Statement);
-}
-
-pub struct YieldDetector {
-    pub found_yield: bool,
-}
-
-impl YieldDetector {
-    pub fn new() -> Self {
-        Self { found_yield: false }
-    }
-}
-
-impl Visitor for YieldDetector {
-    fn visit_ast(&mut self, _program: &Ast) {}
-
-    fn visit_statement(&mut self, statement: &Statement) {
-        if matches!(statement.kind, StatementKind::Expression(Expr::Yield(_))) {
-            self.found_yield = true;
-        }
-    }
-}
+use super::visitor::Visitor;
 
 #[derive(Debug)]
 pub struct FunctionAnalysisVisitor {

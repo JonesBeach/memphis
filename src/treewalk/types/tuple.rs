@@ -4,7 +4,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::{Callable, IndexRead},
+        protocols::{Callable, IndexRead, TryEvalFrom},
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -56,14 +56,13 @@ impl IndexRead for Tuple {
     }
 }
 
-impl TryFrom<TreewalkValue> for Tuple {
-    type Error = ();
-
-    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        value
-            .into_iterable()
-            .map(|i| Tuple::new(i.collect()))
-            .ok_or(())
+impl TryEvalFrom for Tuple {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        let iter = value.expect_iterator(interpreter)?;
+        Ok(Tuple::new(iter.collect()))
     }
 }
 
@@ -115,9 +114,15 @@ struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 2, interpreter)?;
-        let tuple = args.get_arg(1).expect_tuple(interpreter)?;
-        Ok(TreewalkValue::Tuple(tuple))
+        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+
+        let set = match args.len() {
+            1 => Tuple::default(),
+            2 => Tuple::try_eval_from(args.get_arg(1), interpreter)?,
+            _ => unreachable!(),
+        };
+
+        Ok(TreewalkValue::Tuple(set))
     }
 
     fn name(&self) -> String {

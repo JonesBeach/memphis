@@ -7,7 +7,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::Callable,
+        protocols::{Callable, TryEvalFrom},
         types::iterators::SetIter,
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -34,14 +34,13 @@ impl FrozenSet {
     }
 }
 
-impl TryFrom<TreewalkValue> for FrozenSet {
-    type Error = ();
-
-    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        value
-            .into_iterable()
-            .map(|i| FrozenSet::new(i.collect()))
-            .ok_or(())
+impl TryEvalFrom for FrozenSet {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        let iter = value.expect_iterator(interpreter)?;
+        Ok(FrozenSet::new(iter.collect()))
     }
 }
 
@@ -73,10 +72,7 @@ impl Callable for NewBuiltin {
 
         let frozen_set = match args.len() {
             1 => FrozenSet::default(),
-            2 => args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| interpreter.type_error("Expected a set"))?,
+            2 => FrozenSet::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 

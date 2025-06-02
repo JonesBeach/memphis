@@ -8,7 +8,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::Callable,
+        protocols::{Callable, TryEvalFrom},
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -47,14 +47,13 @@ impl Set {
     }
 }
 
-impl TryFrom<TreewalkValue> for Container<Set> {
-    type Error = ();
-
-    fn try_from(value: TreewalkValue) -> Result<Self, Self::Error> {
-        value
-            .into_iterable()
-            .map(|i| Container::new(Set::new(i.collect())))
-            .ok_or(())
+impl TryEvalFrom for Container<Set> {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        let iter = value.expect_iterator(interpreter)?;
+        Ok(Container::new(Set::new(iter.collect())))
     }
 }
 
@@ -114,10 +113,7 @@ impl Callable for NewBuiltin {
 
         let set = match args.len() {
             1 => Container::new(Set::default()),
-            2 => args
-                .get_arg(1)
-                .try_into()
-                .map_err(|_| interpreter.type_error("Expected a set".to_string()))?,
+            2 => Container::<Set>::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 

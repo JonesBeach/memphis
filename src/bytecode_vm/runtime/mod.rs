@@ -11,5 +11,7 @@ mod vm;
 
 pub use call_stack::CallStack;
 pub use runtime::Runtime;
-pub use types::{BuiltinFunction, Class, FunctionObject, List, Method, Module, Object, Reference};
+pub use types::{
+    BuiltinFunction, Class, FunctionObject, List, Method, Module, Object, Range, Reference,
+};
 pub use vm::VirtualMachine;

@@ -6,7 +6,7 @@ use std::{
 use crate::bytecode_vm::{
     compiler::CodeObject,
     indices::{ConstantIndex, ObjectTableIndex},
-    VirtualMachine, VmResult, VmValue,
+    VirtualMachine, VmResult,
 };
 
 pub type Namespace = HashMap<String, Reference>;
@@ -39,6 +39,34 @@ pub struct List {
 impl List {
     pub fn new(items: Vec<Reference>) -> Self {
         Self { items }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Range {
+    pub start: i64,
+    pub stop: i64,
+    pub step: i64,
+}
+
+impl Range {
+    const DEFAULT_START: i64 = 0;
+    const DEFAULT_STEP: i64 = 1;
+
+    pub fn new(start: i64, stop: i64, step: i64) -> Self {
+        Self { start, stop, step }
+    }
+
+    pub fn with_stop(stop: i64) -> Self {
+        Self::new(Self::DEFAULT_START, stop, Self::DEFAULT_STEP)
+    }
+
+    pub fn with_start_stop(start: i64, stop: i64) -> Self {
+        Self::new(start, stop, Self::DEFAULT_STEP)
     }
 }
 
@@ -111,16 +139,13 @@ impl Object {
     }
 
     /// `deref` is needed to get the actual class in case the symbol is not found on the object.
-    pub fn read<T>(&self, name: &str, deref: T) -> Option<Reference>
-    where
-        T: FnOnce(Reference) -> VmResult<VmValue>,
-    {
+    pub fn read(&self, name: &str, vm: &VirtualMachine) -> VmResult<Option<Reference>> {
         if let Some(result) = self.namespace.get(name) {
-            return Some(*result);
+            return Ok(Some(*result));
         }
 
-        let class = deref(self.class).ok()?;
-        class.as_class().namespace.get(name).cloned()
+        let class = vm.deref(self.class)?;
+        Ok(class.expect_class(vm)?.namespace.get(name).cloned())
     }
 
     pub fn write(&mut self, name: &str, value: Reference) {

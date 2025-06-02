@@ -19,7 +19,7 @@ use crate::{
         Parser,
     },
     treewalk::{
-        protocols::MemberRead,
+        protocols::{MemberRead, TryEvalFrom},
         type_system::CloneableCallable,
         types::{
             function::FunctionType, iterators::GeneratorIter, Class, Coroutine, Dict, Function,
@@ -198,17 +198,19 @@ impl TreewalkInterpreter {
     // End of higher-order functions
     // -----------------------------
 
-    pub fn write_loop_index(&self, index: &LoopIndex, value: TreewalkValue) {
+    pub fn write_loop_index(&self, index: &LoopIndex, value: TreewalkValue) -> TreewalkResult<()> {
         match index {
             LoopIndex::Variable(var) => {
                 self.state.write(var, value);
             }
             LoopIndex::Tuple(tuple_index) => {
-                for (key, value) in tuple_index.iter().zip(value) {
+                for (key, value) in tuple_index.iter().zip(value.expect_iterable(self)?) {
                     self.state.write(key, value);
                 }
             }
         };
+
+        Ok(())
     }
 
     fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
@@ -233,70 +235,6 @@ impl TreewalkInterpreter {
             })?
             .getitem(self, index.clone())?
             .ok_or_else(|| self.key_error(index.to_string()))
-    }
-
-    fn evaluate_binary_operation_inner(
-        &self,
-        left: TreewalkValue,
-        op: &BinOp,
-        right: TreewalkValue,
-    ) -> TreewalkResult<TreewalkValue> {
-        use BinOp::*;
-
-        match op {
-            In => {
-                let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Bool(iterable.any(|i| i == left)));
-            }
-            NotIn => {
-                let mut iterable = right.expect_iterable(self)?;
-                return Ok(TreewalkValue::Bool(!iterable.any(|i| i == left)));
-            }
-            Add => {
-                // List concatenation takes priority
-                if left.as_list().is_some() && right.as_list().is_some() {
-                    let left_list = left.expect_list(self)?;
-                    let right_list = right.expect_list(self)?;
-                    let l = left_list.borrow().clone();
-                    let r = right_list.borrow().clone();
-                    return Ok(TreewalkValue::List(Container::new(l + r)));
-                }
-
-                // Fall back to numeric addition
-                return self
-                    .evaluate_numeric_op(left, right, |a, b| a + b, false)
-                    .map_err(|_| self.type_error("Unsupported operand types for +"));
-            }
-            _ => {}
-        };
-
-        // These clauses are left over from before we did dynamic typing properly. These should
-        // eventually all be incorporated in the `match op` above.
-        if left.is_integer() && right.is_integer() {
-            let left = left.expect_integer(self)?;
-            let right = right.expect_integer(self)?;
-            self.evaluate_integer_operation(left, op, right)
-        } else if left.is_fp() && right.is_fp() {
-            let left = left.expect_fp(self)?;
-            let right = right.expect_fp(self)?;
-            self.evaluate_floating_point_operation(left, op, right)
-        } else if left.as_list().is_some() && right.as_list().is_some() {
-            let left = left.expect_list(self)?;
-            let right = right.expect_list(self)?;
-            self.evaluate_list_operation(left, op, right)
-        } else if left.as_set().is_some() && right.as_set().is_some() {
-            let left = left.expect_set(self)?;
-            let right = right.expect_set(self)?;
-            self.evaluate_set_operation(left, op, right)
-        } else if left.as_object().is_some()
-            && right.as_object().is_some()
-            && Dunder::try_from(op).is_ok()
-        {
-            let dunder = Dunder::try_from(op).unwrap_or_else(|_| unreachable!());
-            self.invoke_method(&left, &dunder, args![right])
-        } else {
-            self.evaluate_object_comparison(left, op, right)
-        }
     }
 
     fn evaluate_member_access_inner<S>(
@@ -379,7 +317,7 @@ impl TreewalkInterpreter {
         let left = self.evaluate_expr(left)?;
         let right = self.evaluate_expr(right)?;
 
-        self.evaluate_binary_operation_inner(left, op, right)
+        self.evaluate_bin_op(left, op, right)
     }
 
     fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<TreewalkValue>
@@ -425,9 +363,7 @@ impl TreewalkInterpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    let list: Container<List> = evaluated
-                        .try_into()
-                        .map_err(|_| self.type_error("Expected a list"))?;
+                    let list = Container::<List>::try_eval_from(evaluated, self)?;
                     for elem in list {
                         results.push(elem);
                     }
@@ -463,7 +399,7 @@ impl TreewalkInterpreter {
                 }
                 DictOperation::Unpack(expr) => {
                     let unpacked = self.evaluate_expr(expr)?;
-                    for key in unpacked.clone() {
+                    for key in unpacked.expect_iterable(self)? {
                         let value = self.read_index(&unpacked, &key)?;
                         result.insert(key, value); // later keys overwrite earlier ones
                     }
@@ -691,7 +627,10 @@ impl TreewalkInterpreter {
 
     /// Python can unpack any iterables, not any index reads.
     fn evaluate_unpacking_assignment(&self, left: &[Expr], right: &Expr) -> TreewalkResult<()> {
-        let right_result = self.evaluate_expr(right)?.into_iter();
+        let right_result = self
+            .evaluate_expr(right)?
+            .expect_iterable(self)?
+            .into_iter();
 
         // Collect the items once so that we can get a length without clearing our iterator, some
         // of which (`ListIter`, etc) use interior mutability to track iterator state.
@@ -871,11 +810,14 @@ impl TreewalkInterpreter {
         if let Some((first_clause, remaining_clauses)) = clauses.split_first() {
             // Recursive case: Process the first ForClause
             let mut output = vec![];
-            for i in self.evaluate_expr(&first_clause.iterable)? {
+            for i in self
+                .evaluate_expr(&first_clause.iterable)?
+                .expect_iterable(self)?
+            {
                 if first_clause.indices.len() == 1 {
                     self.state.write(&first_clause.indices[0], i);
                 } else {
-                    for (key, value) in first_clause.indices.iter().zip(i) {
+                    for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
                         self.state.write(key, value);
                     }
                 }
@@ -906,10 +848,9 @@ impl TreewalkInterpreter {
         body: &Expr,
         clauses: &[ForClause],
     ) -> TreewalkResult<TreewalkValue> {
-        self.evaluate_list_comprehension(body, clauses)?
-            .try_into()
-            .map_err(|_| self.type_error("Expected a set"))
-            .map(TreewalkValue::Set)
+        let evaluated = self.evaluate_list_comprehension(body, clauses)?;
+        let set = Container::<Set>::try_eval_from(evaluated, self)?;
+        Ok(TreewalkValue::Set(set))
     }
 
     fn evaluate_dict_comprehension(
@@ -927,8 +868,11 @@ impl TreewalkInterpreter {
         // mutability which can lead to issues when used as a key for a `HashMap` or `HashSet`.
         #[allow(clippy::mutable_key_type)]
         let mut output = HashMap::new();
-        for i in self.evaluate_expr(&first_clause.iterable)? {
-            for (key, value) in first_clause.indices.iter().zip(i) {
+        for i in self
+            .evaluate_expr(&first_clause.iterable)?
+            .expect_iterable(self)?
+        {
+            for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
                 self.state.write(key, value);
             }
             let key_result = self.evaluate_expr(key_body)?;
@@ -945,11 +889,10 @@ impl TreewalkInterpreter {
         body: &Ast,
         else_block: &Option<Ast>,
     ) -> TreewalkResult<()> {
-        let range_expr = self.evaluate_expr(range)?;
         let mut encountered_break = false;
 
-        for val_for_iteration in range_expr {
-            self.write_loop_index(index, val_for_iteration);
+        for val_for_iteration in self.evaluate_expr(range)?.expect_iterable(self)? {
+            self.write_loop_index(index, val_for_iteration)?;
 
             match self.evaluate_ast(body) {
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
@@ -2219,6 +2162,7 @@ g = iter(())
 h = type(iter(()))
 i = (4,)
 j = 9, 10
+k = tuple()
 "#;
         let ctx = run(input);
 
@@ -2232,6 +2176,7 @@ j = 9, 10
         assert_type_eq!(ctx, "h", Type::TupleIter);
         assert_read_eq!(ctx, "i", tuple![int!(4),]);
         assert_read_eq!(ctx, "j", tuple![int!(9), int!(10),]);
+        assert_read_eq!(ctx, "k", tuple![]);
 
         let input = "tuple([1,2,3], [1,2])";
         let e = eval_expect_error(input);
@@ -2371,6 +2316,8 @@ for i in r:
     e += i
 for i in r:
     e += i
+
+f = next(iter(range(5)))
 "#;
         let ctx = run(input);
 
@@ -2379,6 +2326,14 @@ for i in r:
         assert_type_eq!(ctx, "c", Type::Range);
         assert_read_eq!(ctx, "d", int!(3));
         assert_read_eq!(ctx, "e", int!(6));
+        assert_read_eq!(ctx, "f", int!(0));
+
+        let input = r#"
+next(range(5))
+"#;
+        let e = eval_expect_error(input);
+
+        assert_type_error!(e, "'range' object is not an iterator");
     }
 
     #[test]

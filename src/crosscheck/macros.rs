@@ -22,10 +22,16 @@ macro_rules! crosscheck_expect_error {
 macro_rules! assert_crosscheck_eq {
     ($session:expr, $name:expr, $expected:expr) => {{
         let (tw_val, vm_val) = $session.read($name);
-        assert_eq!(tw_val, vm_val, "Engines did not return the same value");
+        assert_eq!(tw_val, vm_val, "Engines did not return the same value.");
 
         let tw_val = tw_val.expect(&format!("Variable not found: {}", $name));
-        assert_eq!(tw_val, $expected);
+        assert_eq!(tw_val, $expected, "Treewalk value did not match expected.");
+
+        let vm_val = vm_val.expect(&format!("Variable not found: {}", $name));
+        assert_eq!(
+            vm_val, $expected,
+            "Bytecode VM value did not match expected."
+        );
     }};
 }
 

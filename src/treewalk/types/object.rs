@@ -365,7 +365,7 @@ impl Callable for NeBuiltin {
         let receiver = args.expect_self(interpreter)?;
         let result = interpreter.invoke_method(&receiver, Dunder::Eq, args![args.get_arg(0)])?;
 
-        Ok(result.inverted())
+        Ok(result.not())
     }
 
     fn name(&self) -> String {

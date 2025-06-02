@@ -1,7 +1,10 @@
 use crate::{
     core::Container,
     parser::types::{Statement, StatementKind},
-    treewalk::{types::List, Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        protocols::TryEvalFrom, types::List, Scope, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
+    },
 };
 
 use super::{Frame, PausableContext, PausableState, PausableToken};
@@ -136,15 +139,13 @@ pub trait Pausable {
                 body,
                 ..
             } => {
-                let items: Container<List> = interpreter
-                    .evaluate_expr(iterable)?
-                    .try_into()
-                    .map_err(|_| interpreter.type_error("Expected an iterable"))?;
+                let evaluated = interpreter.evaluate_expr(iterable)?;
+                let items = Container::<List>::try_eval_from(evaluated, interpreter)?;
 
                 let mut queue = items.borrow().as_queue();
 
                 if let Some(item) = queue.pop_front() {
-                    interpreter.write_loop_index(index, item);
+                    interpreter.write_loop_index(index, item)?;
                     self.context_mut().push(PausableToken::new(
                         Frame::new(body.clone()),
                         PausableState::InForLoop {
@@ -197,7 +198,7 @@ pub trait Pausable {
                     if self.context().current_frame().is_finished() {
                         let item = queue.borrow_mut().pop_front();
                         if let Some(item) = item {
-                            interpreter.write_loop_index(&index, item);
+                            interpreter.write_loop_index(&index, item)?;
                             self.context_mut().restart_frame();
                         } else {
                             self.context_mut().pop();
