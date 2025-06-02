@@ -42,7 +42,7 @@ fn run_in_python(command: &str) -> io::Result<Vec<PathBuf>> {
     let output = Command::new("python3").args(["-c", command]).output()?;
 
     if !output.status.success() {
-        return Err(Error::new(ErrorKind::Other, "Failed to run command"));
+        return Err(Error::other("Failed to run command"));
     }
 
     let output_str =
