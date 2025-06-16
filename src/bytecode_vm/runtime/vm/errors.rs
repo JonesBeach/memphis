@@ -19,6 +19,10 @@ impl VirtualMachine {
         self.error(ExecutionErrorKind::TypeError(Some(msg.to_string())))
     }
 
+    pub fn stop_iteration(&self) -> ExecutionError {
+        self.error(ExecutionErrorKind::StopIteration)
+    }
+
     pub fn attribute_error(&self, attr: &str) -> ExecutionError {
         self.error(ExecutionErrorKind::AttributeError(
             "<TODO obj>".to_string(),

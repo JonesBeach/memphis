@@ -79,7 +79,7 @@ impl CallStack {
 
     pub fn advance_pc(&mut self) -> VmResult<()> {
         let frame = self.top_frame_mut()?;
-        log(LogLevel::Debug, || {
+        log(LogLevel::Trace, || {
             format!(
                 "Advancing PC in module: {}",
                 frame.function.code_object.name()

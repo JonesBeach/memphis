@@ -63,11 +63,23 @@ pub enum Opcode {
     LoadBuildClass,
     /// Pop the specified number of elements off the stack and built a list object.
     BuildList(usize),
+    /// Pops the top value off the stack, constructs an iterator from it by `iter()`, and
+    /// pushes the iterator onto the stack.
+    GetIter,
+    /// Pops an iterator from the top of the stack and calls `next()` on it.
+    /// If a value is returned, pushes the iterator back onto the stack, then the value.
+    /// If the iterator is exhausted, jumps forward by the given offset and does not push anything.
+    ForIter(SignedOffset),
     /// Uncomditional jump to an offset. This is signed because you can jump in reverse.
     Jump(SignedOffset),
     /// Conditional jump to an offset based on the value on the top of the stack. This is signed
     /// because you can jump in reverse.
     JumpIfFalse(SignedOffset),
+    /// Conditional jump to an offset based on the value on the top of the stack. This is signed
+    /// because you can jump in reverse.
+    JumpIfTrue(SignedOffset),
+    /// Discard the top value on the stack.
+    PopTop,
     /// Create a function object from a code object, encapsulating the information needed to call
     /// the function later.
     MakeFunction,
@@ -112,8 +124,12 @@ impl Display for Opcode {
             Opcode::SetAttr(i) => write!(f, "SET_ATTR {}", i),
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
             Opcode::BuildList(i) => write!(f, "BUILD_LIST {}", i),
+            Opcode::GetIter => write!(f, "GET_ITER"),
+            Opcode::ForIter(i) => write!(f, "FOR_ITER {}", i),
             Opcode::Jump(i) => write!(f, "JUMP {}", i),
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {}", i),
+            Opcode::JumpIfTrue(i) => write!(f, "JUMP_IF_TRUE {}", i),
+            Opcode::PopTop => write!(f, "POP_TOP"),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::MakeClosure(i) => write!(f, "MAKE_CLOSURE {}", i),
             Opcode::Call(i) => write!(f, "CALL {}", i),

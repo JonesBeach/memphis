@@ -10,8 +10,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, ConditionalAst, Expr, ImportPath, Params, RegularImport, Statement,
-        StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, ConditionalAst, Expr, ImportPath, LogicalOp, LoopIndex, Params,
+        RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -126,6 +126,12 @@ impl Compiler {
             StatementKind::Return(expr) => self.compile_return(expr)?,
             StatementKind::Assignment { left, right } => self.compile_assignment(left, right)?,
             StatementKind::WhileLoop(cond_ast) => self.compile_while_loop(cond_ast)?,
+            StatementKind::ForInLoop {
+                index,
+                iterable,
+                body,
+                else_block,
+            } => self.compile_for_in_loop(index, iterable, body, else_block)?,
             StatementKind::IfElse {
                 if_part,
                 elif_parts,
@@ -163,6 +169,9 @@ impl Compiler {
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.compile_binary_operation(left, op, right)
+            }
+            Expr::LogicalOperation { left, op, right } => {
+                self.compile_logical_operation(left, op, right)
             }
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { name, args, callee } => {
@@ -270,6 +279,41 @@ impl Compiler {
         let offset = self.forward_offset_to(post_condition_ph)?;
         self.emit_at(post_condition_ph, Opcode::JumpIfFalse(offset))?;
 
+        Ok(())
+    }
+
+    fn compile_for_in_loop(
+        &mut self,
+        index: &LoopIndex,
+        iterable: &Expr,
+        body: &Ast,
+        else_block: &Option<Ast>,
+    ) -> CompilerResult<()> {
+        if else_block.is_some() {
+            unimplemented!("'else' not yet supported for a for loop in bytecode VM.");
+        }
+        let LoopIndex::Variable(index) = index else {
+            unimplemented!("Tuple indicies not yet supported in bytecode VM.");
+        };
+        self.compile_expr(iterable)?;
+        self.emit(Opcode::GetIter)?;
+
+        // where FOR_ITER will live
+        let loop_header = self.current_offset()?;
+
+        // Emit placeholder FOR_ITER with dummy offset
+        let for_iter_placeholder = self.emit_placeholder()?;
+
+        self.compile_store(index)?;
+        self.compile_ast(body)?;
+
+        // jump back to loop_header
+        let jump_back_offset = self.backward_offset_from(loop_header)?;
+        self.emit(Opcode::Jump(jump_back_offset))?;
+
+        // patch FOR_ITER to jump to end_of_loop
+        let for_iter_offset = self.forward_offset_to(for_iter_placeholder)?;
+        self.emit_at(for_iter_placeholder, Opcode::ForIter(for_iter_offset))?;
         Ok(())
     }
 
@@ -509,6 +553,36 @@ impl Compiler {
         };
 
         self.emit(opcode)?;
+        Ok(())
+    }
+
+    fn compile_logical_operation(
+        &mut self,
+        left: &Expr,
+        op: &LogicalOp,
+        right: &Expr,
+    ) -> CompilerResult<()> {
+        // Compile the first operand.
+        self.compile_expr(left)?;
+
+        // This will be replaced with a jmp.
+        let ph = self.emit_placeholder()?;
+
+        // Discard the first operand if we got this far.
+        self.emit(Opcode::PopTop)?;
+
+        // Compile the second operand.
+        self.compile_expr(right)?;
+
+        // Calculate the offset which represents the position after this logical op, then update
+        // the placeholder.
+        let offset = self.forward_offset_to(ph)?;
+        let opcode = match op {
+            LogicalOp::And => Opcode::JumpIfFalse(offset),
+            LogicalOp::Or => Opcode::JumpIfTrue(offset),
+        };
+        self.emit_at(ph, opcode)?;
+
         Ok(())
     }
 
@@ -770,7 +844,6 @@ mod tests_bytecode {
     }
 
     #[test]
-    #[ignore]
     fn binary_expressions_logical_op() {
         let expr = logic_op!(bool!(true), And, bool!(false));
         let bytecode = compile_expr(expr);
@@ -778,8 +851,9 @@ mod tests_bytecode {
             bytecode,
             &[
                 Opcode::LoadConst(Index::new(0)),
+                Opcode::JumpIfFalse(2),
+                Opcode::PopTop,
                 Opcode::LoadConst(Index::new(1)),
-                Opcode::Eq,
             ]
         );
 
@@ -789,8 +863,9 @@ mod tests_bytecode {
             bytecode,
             &[
                 Opcode::LoadConst(Index::new(0)),
+                Opcode::JumpIfTrue(2),
+                Opcode::PopTop,
                 Opcode::LoadConst(Index::new(1)),
-                Opcode::Eq,
             ]
         );
     }
@@ -921,6 +996,31 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::LessThan,
                 Opcode::JumpIfFalse(1),
+                Opcode::Jump(-5),
+            ]
+        );
+    }
+
+    #[test]
+    fn for_in_loop() {
+        let s = stmt!(StatementKind::ForInLoop {
+            index: LoopIndex::Variable("i".to_string()),
+            iterable: list![int!(1), int!(2)],
+            body: ast![stmt_assign!(var!("a"), int!(-1))],
+            else_block: None
+        });
+        let bytecode = compile_stmt(s);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildList(2),
+                Opcode::GetIter,
+                Opcode::ForIter(4),
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::LoadConst(Index::new(2)),
+                Opcode::StoreGlobal(Index::new(1)),
                 Opcode::Jump(-5),
             ]
         );

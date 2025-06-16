@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    builtins::{build_class, register_builtins},
+    builtins::{self, register_builtins},
     error_builder::ErrorBuilder,
     frame::Frame,
     module_loader::ModuleLoader,
@@ -150,6 +150,16 @@ impl VirtualMachine {
         Ok(&self.current_frame()?.function.code_object.names[*index])
     }
 
+    fn peek(&mut self) -> VmResult<Reference> {
+        let frame = self.current_frame_mut()?;
+
+        if let Some(value) = frame.locals.last() {
+            return Ok(*value);
+        }
+
+        Err(self.runtime_error())
+    }
+
     fn pop(&mut self) -> VmResult<Reference> {
         let frame = self.current_frame_mut()?;
 
@@ -261,6 +271,12 @@ impl VirtualMachine {
             VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
         }
+    }
+
+    /// Dereferences the top value on the stack.
+    fn peek_value(&mut self) -> VmResult<VmValue> {
+        let reference = self.peek()?;
+        self.deref(reference)
     }
 
     /// Pops and dereferences a value.
@@ -538,7 +554,7 @@ impl VirtualMachine {
                 Opcode::LoadBuildClass => {
                     self.push_value(VmValue::BuiltinFunction(BuiltinFunction::new(
                         "load_build_class",
-                        build_class,
+                        builtins::build_class,
                     )))?;
                 }
                 Opcode::BuildList(n) => {
@@ -553,13 +569,37 @@ impl VirtualMachine {
 
                     self.push_value(VmValue::List(List::new(items)))?;
                 }
+                Opcode::GetIter => {
+                    let obj = self.pop_value()?;
+                    let iterator_ref = builtins::iter_internal(self, obj)?;
+                    self.push(iterator_ref)?;
+                }
+                Opcode::ForIter(offset) => {
+                    let mut iterator = self.pop_value()?;
+                    let next_ref = builtins::next_internal(self, &mut iterator)?;
+
+                    if let Some(next_ref) = next_ref {
+                        self.push_value(iterator)?;
+                        self.push(next_ref)?;
+                    } else {
+                        self.call_stack.jump_to_offset(offset)?;
+                    }
+                }
                 Opcode::Jump(offset) => {
                     self.call_stack.jump_to_offset(offset)?;
                 }
                 Opcode::JumpIfFalse(offset) => {
-                    if !self.pop_value()?.to_boolean() {
+                    if !self.peek_value()?.to_boolean() {
                         self.call_stack.jump_to_offset(offset)?;
                     }
+                }
+                Opcode::JumpIfTrue(offset) => {
+                    if self.peek_value()?.to_boolean() {
+                        self.call_stack.jump_to_offset(offset)?;
+                    }
+                }
+                Opcode::PopTop => {
+                    let _ = self.pop()?;
                 }
                 Opcode::MakeFunction => {
                     let code_value = self.pop_value()?;
@@ -584,7 +624,6 @@ impl VirtualMachine {
                     let callable = self.deref(callable_ref)?;
 
                     match callable {
-                        // TODO this is the placeholder for __build_class__ at the moment
                         VmValue::BuiltinFunction(builtin) => {
                             let reference = builtin.call(self, args)?;
                             self.push(reference)?;

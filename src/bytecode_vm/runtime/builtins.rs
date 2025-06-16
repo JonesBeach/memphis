@@ -5,10 +5,12 @@ use super::{
     VirtualMachine,
 };
 
-static BUILTINS: [(&str, BuiltinFunc); 3] = [
-    ("list", builtin_list),
-    ("range", builtin_range),
-    ("print", builtin_print),
+static BUILTINS: [(&str, BuiltinFunc); 5] = [
+    ("list", list),
+    ("range", range),
+    ("print", print),
+    ("iter", iter),
+    ("next", next),
 ];
 
 pub fn register_builtins(vm: &mut VirtualMachine, module: &mut Module) {
@@ -32,7 +34,7 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
 }
 
-fn builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let items = match args.len() {
         0 => vec![],
         1 => match vm.deref(args[0])? {
@@ -45,7 +47,7 @@ fn builtin_list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Refer
     Ok(vm.heapify(VmValue::List(List::new(items))))
 }
 
-fn builtin_range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let range = match args.len() {
         1 => {
             let stop = vm.deref(args[0])?.as_integer().ok_or_else(|| {
@@ -91,7 +93,54 @@ fn builtin_range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Refe
     Ok(vm.heapify(VmValue::Range(range)))
 }
 
-fn builtin_print(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+/// Internal method used by GET_ITER
+/// For the public-facing builtin `iter(obj)`, use `iter`.
+pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Reference> {
+    let iterator = match obj {
+        VmValue::List(list) => VmValue::ListIter(list.iter()),
+        VmValue::Range(range) => VmValue::RangeIter(range.iter()),
+        _ => return Err(vm.type_error("TODO object is not iterable")),
+    };
+
+    Ok(vm.heapify(iterator))
+}
+
+fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let iterable_ref = match args.len() {
+        1 => args[0],
+        _ => return Err(vm.type_error("iter expected exactly 1 argument")),
+    };
+
+    let iterable_value = vm.deref(iterable_ref)?;
+    let iterator = iter_internal(vm, iterable_value)?;
+    Ok(iterator)
+}
+
+/// Internal method used by FOR_ITER
+/// For the public-facing builtin `next(it)`, we must return a StopIterator error to the user.
+pub fn next_internal(vm: &mut VirtualMachine, iter: &mut VmValue) -> VmResult<Option<Reference>> {
+    match iter {
+        VmValue::ListIter(list_iter) => Ok(list_iter.next()),
+        VmValue::RangeIter(range_iter) => {
+            Ok(range_iter.next().map(|i| vm.heapify(VmValue::Int(i))))
+        }
+        _ => Err(vm.type_error("TODO object is not an iterator")),
+    }
+}
+
+fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    if args.len() != 1 {
+        return Err(vm.type_error("next() expected 1 argument"));
+    }
+
+    let mut iter_value = vm.deref(args[0])?;
+    match next_internal(vm, &mut iter_value)? {
+        Some(val) => Ok(val),
+        None => Err(vm.stop_iteration()), // You define this method
+    }
+}
+
+fn print(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     for arg in args.iter() {
         print!("{}", vm.deref(*arg)?);
     }

@@ -7,7 +7,7 @@
 |String literals|✅|✅|
 |Boolean operators|✅|✅|
 |Comparison operators|✅|✅|
-|Logical operators|✅||
+|Logical operators|✅|✅|
 |Variable assignment|✅|✅|
 |Comments|✅|✅|
 |REPL|✅|✅|

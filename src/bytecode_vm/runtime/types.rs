@@ -44,6 +44,25 @@ impl List {
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
+
+    pub fn iter(self) -> ListIter {
+        ListIter {
+            inner: self.items.into_iter(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ListIter {
+    inner: std::vec::IntoIter<Reference>,
+}
+
+impl Iterator for ListIter {
+    type Item = Reference;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +86,38 @@ impl Range {
 
     pub fn with_start_stop(start: i64, stop: i64) -> Self {
         Self::new(start, stop, Self::DEFAULT_STEP)
+    }
+
+    // Do not take ownership so we can reuse this Range if we like.
+    pub fn iter(&self) -> RangeIter {
+        RangeIter {
+            current: self.start,
+            stop: self.stop,
+            step: self.step,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RangeIter {
+    current: i64,
+    stop: i64,
+    step: i64,
+}
+
+impl Iterator for RangeIter {
+    type Item = i64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if (self.step > 0 && self.current >= self.stop)
+            || (self.step < 0 && self.current <= self.stop)
+        {
+            None
+        } else {
+            let result = self.current;
+            self.current += self.step;
+            Some(result)
+        }
     }
 }
 

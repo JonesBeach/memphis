@@ -355,6 +355,36 @@ mod tests_vm_interpreter {
     }
 
     #[test]
+    fn binary_logical_and() {
+        let input = "False and False";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "True and False";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "False and True";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "True and True";
+        assert_eval_eq!(input, VmValue::Bool(true));
+    }
+
+    #[test]
+    fn binary_logical_or() {
+        let input = "False or False";
+        assert_eval_eq!(input, VmValue::Bool(false));
+
+        let input = "True or False";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "False or True";
+        assert_eval_eq!(input, VmValue::Bool(true));
+
+        let input = "True or True";
+        assert_eval_eq!(input, VmValue::Bool(true));
+    }
+
+    #[test]
     fn unary_expression_not() {
         let input = "not True";
         assert_eval_eq!(input, VmValue::Bool(false));
@@ -503,6 +533,53 @@ while i < n:
 "#;
         let mut ctx = run(text);
         assert_read_eq!(ctx, "i", VmValue::Int(4));
+    }
+
+    #[test]
+    fn for_in_loop_list() {
+        let text = r#"
+s = 0
+for i in [2,3,11]:
+    s = s + i
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "i", VmValue::Int(11));
+        assert_read_eq!(ctx, "s", VmValue::Int(16));
+    }
+
+    #[test]
+    #[ignore]
+    fn next_builtin_list() {
+        let text = r#"
+it = iter([1, 2, 3])
+a = next(it)
+b = next(it)
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Int(1));
+        assert_read_eq!(ctx, "b", VmValue::Int(2));
+    }
+
+    #[test]
+    fn for_in_loop_range() {
+        let text = r#"
+s = 0
+for i in range(2,10,2):
+    s = s + i
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "i", VmValue::Int(8));
+        assert_read_eq!(ctx, "s", VmValue::Int(20));
+    }
+
+    #[test]
+    fn next_builtin_range() {
+        let text = "next(iter(range(5)))";
+        assert_eval_eq!(text, VmValue::Int(0));
+
+        let text = "next(range(5))";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "TODO object is not an iterator");
     }
 
     #[test]

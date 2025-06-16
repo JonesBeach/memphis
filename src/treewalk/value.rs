@@ -486,7 +486,7 @@ impl TreewalkValue {
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<TreewalkValue> {
         self.clone().into_iterable().ok_or_else(|| {
-            interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
+            interpreter.type_error(format!("'{}' object is not iterable", self.get_type()))
         })
     }
 
