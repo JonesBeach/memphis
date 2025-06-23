@@ -1,4 +1,7 @@
-use crate::bytecode_vm::{VmResult, VmValue};
+use crate::{
+    bytecode_vm::{VmResult, VmValue},
+    core::Container,
+};
 
 use super::{
     types::BuiltinFunc, BuiltinFunction, Class, FunctionObject, List, Module, Range, Reference,
@@ -97,8 +100,8 @@ fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 /// For the public-facing builtin `iter(obj)`, use `iter`.
 pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Reference> {
     let iterator = match obj {
-        VmValue::List(list) => VmValue::ListIter(list.iter()),
-        VmValue::Range(range) => VmValue::RangeIter(range.iter()),
+        VmValue::List(list) => VmValue::ListIter(Container::new(list.iter())),
+        VmValue::Range(range) => VmValue::RangeIter(Container::new(range.iter())),
         _ => return Err(vm.type_error("TODO object is not iterable")),
     };
 
@@ -112,18 +115,19 @@ fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     };
 
     let iterable_value = vm.deref(iterable_ref)?;
-    let iterator = iter_internal(vm, iterable_value)?;
-    Ok(iterator)
+    iter_internal(vm, iterable_value)
 }
 
 /// Internal method used by FOR_ITER
 /// For the public-facing builtin `next(it)`, we must return a StopIterator error to the user.
-pub fn next_internal(vm: &mut VirtualMachine, iter: &mut VmValue) -> VmResult<Option<Reference>> {
-    match iter {
-        VmValue::ListIter(list_iter) => Ok(list_iter.next()),
-        VmValue::RangeIter(range_iter) => {
-            Ok(range_iter.next().map(|i| vm.heapify(VmValue::Int(i))))
-        }
+pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<Option<Reference>> {
+    let iter_value = vm.deref(iter_ref)?;
+    match iter_value {
+        VmValue::ListIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
+        VmValue::RangeIter(ref range_iter) => Ok(range_iter
+            .borrow_mut()
+            .next()
+            .map(|i| vm.heapify(VmValue::Int(i)))),
         _ => Err(vm.type_error("TODO object is not an iterator")),
     }
 }
@@ -133,8 +137,7 @@ fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
         return Err(vm.type_error("next() expected 1 argument"));
     }
 
-    let mut iter_value = vm.deref(args[0])?;
-    match next_internal(vm, &mut iter_value)? {
+    match next_internal(vm, args[0])? {
         Some(val) => Ok(val),
         None => Err(vm.stop_iteration()), // You define this method
     }

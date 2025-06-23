@@ -19,13 +19,18 @@ use super::opcode::{SignedOffset, UnsignedOffset};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum CompilerError {
+    Unsupported(String),
     SyntaxError(String),
     Internal(String),
 }
 
 impl Display for CompilerError {
-    fn fmt(&self, _f: &mut Formatter) -> Result<(), Error> {
-        unimplemented!("Unsupported error type in bytecode VM")
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Self::Unsupported(msg) => write!(f, "Unsupported feature: {}", msg),
+            Self::SyntaxError(msg) => write!(f, "Syntax error: {}", msg),
+            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
+        }
     }
 }
 
@@ -151,7 +156,7 @@ impl Compiler {
                 body,
             } => self.compile_class_definition(name, parents, metaclass, body)?,
             StatementKind::RegularImport(items) => self.compile_regular_import(items)?,
-            _ => unimplemented!("Statement type {:?} not implemented for bytecode VM", stmt),
+            _ => return Err(unsupported(&format!("Statement type: {:?}", stmt))),
         };
 
         Ok(())
@@ -178,7 +183,7 @@ impl Compiler {
                 self.compile_function_call(name, args, callee)
             }
             Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
-            _ => unimplemented!("Expression type {:?} not implemented for bytecode VM", expr),
+            _ => Err(unsupported(&format!("Expression type: {:?}", expr))),
         }
     }
 
@@ -220,10 +225,13 @@ impl Compiler {
 
     fn compile_return(&mut self, expr: &[Expr]) -> CompilerResult<()> {
         if expr.len() > 1 {
-            unimplemented!("Multiple return values not yet supported in the bytecode VM.")
+            return Err(unsupported(
+                "Multiple return values not yet supported in the bytecode VM.",
+            ));
+        } else if expr.len() == 1 {
+            self.compile_expr(&expr[0])?;
         }
 
-        self.compile_expr(&expr[0])?;
         self.emit(Opcode::ReturnValue)?;
         Ok(())
     }
@@ -243,7 +251,9 @@ impl Compiler {
                 self.emit(Opcode::SetAttr(attr_index))?;
             }
             Expr::IndexAccess { .. } => {
-                unimplemented!("Index access assignment not yet supported in bytecode VM.");
+                return Err(unsupported(
+                    "Index access assignment not yet supported in bytecode VM.",
+                ))
             }
             _ => {
                 return Err(CompilerError::SyntaxError(
@@ -290,10 +300,14 @@ impl Compiler {
         else_block: &Option<Ast>,
     ) -> CompilerResult<()> {
         if else_block.is_some() {
-            unimplemented!("'else' not yet supported for a for loop in bytecode VM.");
+            return Err(unsupported(
+                "'else' not yet supported for a for loop in bytecode VM.",
+            ));
         }
         let LoopIndex::Variable(index) = index else {
-            unimplemented!("Tuple indicies not yet supported in bytecode VM.");
+            return Err(unsupported(
+                "Tuple indicies not yet supported in bytecode VM.",
+            ));
         };
         self.compile_expr(iterable)?;
         self.emit(Opcode::GetIter)?;
@@ -377,9 +391,9 @@ impl Compiler {
         is_async: &bool,
     ) -> CompilerResult<()> {
         if !decorators.is_empty() || *is_async {
-            unimplemented!(
-                "Decorators and async functions are not yet supported in the bytecode VM."
-            )
+            return Err(unsupported(
+                "Decorators and async functions are not yet supported in the bytecode VM.",
+            ));
         }
 
         let varnames = args
@@ -418,7 +432,7 @@ impl Compiler {
                     }
                 }
                 ImportPath::Relative(..) => {
-                    unimplemented!("Relative imports unsupported in bytecode VM.")
+                    return Err(unsupported("Relative imports unsupported in bytecode VM."))
                 }
             }
         }
@@ -433,10 +447,14 @@ impl Compiler {
         body: &Ast,
     ) -> CompilerResult<()> {
         if !parents.is_empty() {
-            unimplemented!("Inheritance not yet supported in the bytecode VM.")
+            return Err(unsupported(
+                "Inheritance not yet supported in the bytecode VM.",
+            ));
         }
         if metaclass.is_some() {
-            unimplemented!("Metaclasses are not yet supported in the bytecode VM.")
+            return Err(unsupported(
+                "Metaclasses are not yet supported in the bytecode VM.",
+            ));
         }
 
         let code_object = CodeObject::new(name, self.source.clone());
@@ -510,13 +528,7 @@ impl Compiler {
             UnaryOp::Plus => None,
             UnaryOp::Not => Some(Opcode::UnaryNot),
             UnaryOp::BitwiseNot => Some(Opcode::UnaryInvert),
-            _ => unimplemented!(
-                "{}",
-                format!(
-                    "Binary operation '{:?}' not yet supported in the bytecode VM.",
-                    op
-                )
-            ),
+            _ => return Err(unsupported(&format!("unary op: {:?}", op))),
         };
         if let Some(opcode) = opcode {
             self.emit(opcode)?;
@@ -543,13 +555,7 @@ impl Compiler {
             BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
             BinOp::GreaterThan => Opcode::GreaterThan,
             BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
-            _ => unimplemented!(
-                "{}",
-                format!(
-                    "Binary operation '{:?}' not yet supported in the bytecode VM.",
-                    op
-                )
-            ),
+            _ => return Err(unsupported(&format!("binary op: {:?}", op))),
         };
 
         self.emit(opcode)?;
@@ -593,7 +599,9 @@ impl Compiler {
         callee: &Option<Box<Expr>>,
     ) -> CompilerResult<()> {
         if callee.is_some() {
-            unimplemented!("Callees for function calls not yet supported in the bytecode VM.")
+            return Err(unsupported(
+                "Callees for function calls not yet supported in the bytecode VM.",
+            ));
         }
 
         self.compile_load(name)?;
@@ -615,9 +623,9 @@ impl Compiler {
         args: &CallArgs,
     ) -> CompilerResult<()> {
         if !args.kwargs.is_empty() {
-            unimplemented!(
-                "Method calls with kwargs not yet supported for print in the bytecode VM."
-            )
+            return Err(unsupported(
+                "Method calls with kwargs not yet supported for print in the bytecode VM.",
+            ));
         }
 
         self.compile_member_access(object, name)?;
@@ -724,6 +732,12 @@ impl Compiler {
 
 fn internal_error(msg: &str) -> CompilerError {
     CompilerError::Internal(msg.to_string())
+}
+
+// We previously used a panic macro for this, but using a type lets us display errors in other
+// clients.
+fn unsupported(msg: &str) -> CompilerError {
+    CompilerError::Unsupported(msg.to_string())
 }
 
 #[cfg(test)]
@@ -1208,6 +1222,46 @@ mod tests_compiler {
     use crate::bytecode_vm::{compiler::test_utils::*, VmContext};
 
     use super::*;
+
+    #[test]
+    fn function_definition_early_return() {
+        let text = r#"
+def foo():
+    return
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![Opcode::ReturnValue],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["foo".into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+        };
+
+        assert_code_eq!(code, expected);
+    }
 
     #[test]
     fn function_definition_with_parameters() {

@@ -548,16 +548,17 @@ for i in [2,3,11]:
     }
 
     #[test]
-    #[ignore]
     fn next_builtin_list() {
         let text = r#"
 it = iter([1, 2, 3])
 a = next(it)
 b = next(it)
+c = next(it)
 "#;
         let mut ctx = run(text);
         assert_read_eq!(ctx, "a", VmValue::Int(1));
         assert_read_eq!(ctx, "b", VmValue::Int(2));
+        assert_read_eq!(ctx, "c", VmValue::Int(3));
     }
 
     #[test]

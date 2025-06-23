@@ -8,7 +8,7 @@ use crate::{
     runtime::MemphisState,
 };
 
-use super::runtime::Module;
+use super::{compiler::CodeObject, runtime::Module};
 
 pub struct VmContext {
     lexer: Lexer,
@@ -73,19 +73,15 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.execute(&mut parser)
     }
-}
 
-#[cfg(test)]
-use super::compiler::CodeObject;
-
-#[cfg(test)]
-impl VmContext {
+    #[allow(dead_code)]
     pub fn add_line(&mut self, line: &str) {
         self.lexer
             .add_line(line)
             .expect("Failed to add line to lexer");
     }
 
+    #[allow(dead_code)]
     pub fn compile(&mut self) -> MemphisResult<CodeObject> {
         let VmContext {
             lexer, interpreter, ..
@@ -94,7 +90,10 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.compile(&mut parser)
     }
+}
 
+#[cfg(test)]
+impl VmContext {
     pub fn read(&mut self, name: &str) -> Option<VmValue> {
         self.interpreter.read_global(name)
     }

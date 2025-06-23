@@ -29,9 +29,9 @@ pub enum ParserError {
 impl Display for MemphisError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            MemphisError::Parser(e) => write!(f, "{}", e),
+            MemphisError::Parser(e) => write!(f, "Parser error: {}", e),
+            MemphisError::Compiler(e) => write!(f, "Compiler error: {}", e),
             MemphisError::Execution(e) => write!(f, "{}", e),
-            MemphisError::Compiler(e) => write!(f, "{}", e),
         }
     }
 }

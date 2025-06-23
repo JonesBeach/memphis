@@ -30,8 +30,8 @@ pub enum VmValue {
     BuiltinFunction(BuiltinFunction),
     List(List),
     Range(Range),
-    ListIter(ListIter),
-    RangeIter(RangeIter),
+    ListIter(Container<ListIter>),
+    RangeIter(Container<RangeIter>),
 }
 
 impl VmValue {

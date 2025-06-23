@@ -415,7 +415,7 @@ impl VirtualMachine {
     }
 
     fn return_val_for(&self, frame: &Frame) -> VmResult<VmValue> {
-        if let Some(v) = frame.return_val {
+        if let Some(v) = frame.return_val() {
             self.deref(v)
         } else {
             Ok(VmValue::None)
@@ -575,11 +575,11 @@ impl VirtualMachine {
                     self.push(iterator_ref)?;
                 }
                 Opcode::ForIter(offset) => {
-                    let mut iterator = self.pop_value()?;
-                    let next_ref = builtins::next_internal(self, &mut iterator)?;
+                    let iter_ref = self.pop()?;
+                    let next_ref = builtins::next_internal(self, iter_ref)?;
 
                     if let Some(next_ref) = next_ref {
-                        self.push_value(iterator)?;
+                        self.push(iter_ref)?;
                         self.push(next_ref)?;
                     } else {
                         self.call_stack.jump_to_offset(offset)?;
@@ -663,15 +663,14 @@ impl VirtualMachine {
                 Opcode::ReturnValue => {
                     let return_val_ref = self.pop()?;
                     let frame = self.call_stack.top_frame_mut()?;
-                    frame.return_val = Some(return_val_ref);
-                    frame.finished = true;
+                    frame.set_return_val(return_val_ref);
                 }
                 Opcode::ImportName(index) => {
                     self.load_and_register_module(index)?;
                 }
                 Opcode::Halt => {
                     let frame = self.call_stack.top_frame_mut()?;
-                    frame.finished = true;
+                    frame.set_finished();
                 }
                 // This is in an internal error that indicates a jump offset was not properly set
                 // by the compiler. This opcode should not leak into the VM.
@@ -732,7 +731,6 @@ f = Foo()
         let runtime = ctx.interpreter().vm().runtime.borrow();
         let objects: Vec<&VmValue> = runtime
             .heap
-            .storage
             .iter()
             .filter(|object| matches!(object, VmValue::Object(_)))
             .collect();

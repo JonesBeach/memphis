@@ -2,6 +2,8 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::bytecode_vm::indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex};
 
+use super::CodeObject;
+
 pub type Bytecode = Vec<Opcode>;
 pub type UnsignedOffset = usize;
 pub type SignedOffset = isize;
@@ -97,6 +99,23 @@ pub enum Opcode {
     Halt,
     /// Used internally to the compiler when constructing jump offsets.
     Placeholder,
+}
+
+impl Opcode {
+    pub fn display_annotated(&self, code: &CodeObject) -> String {
+        match self {
+            Opcode::StoreFast(i) => format!("STORE_FAST {} ({})", i, code.varnames[**i]),
+            Opcode::LoadFast(i) => format!("LOAD_FAST {} ({})", i, code.varnames[**i]),
+            Opcode::StoreGlobal(i) => format!("STORE_GLOBAL {} ({})", i, code.names[**i]),
+            Opcode::LoadGlobal(i) => format!("LOAD_GLOBAL {} ({})", i, code.names[**i]),
+            Opcode::LoadAttr(i) => format!("LOAD_ATTR {} ({})", i, code.names[**i]),
+            Opcode::SetAttr(i) => format!("SET_ATTR {} ({})", i, code.names[**i]),
+            Opcode::ImportName(i) => format!("IMPORT_NAME {} ({})", i, code.names[**i]),
+            Opcode::LoadFree(i) => format!("LOAD_FREE {} ({})", i, code.freevars[**i]),
+            Opcode::LoadConst(i) => format!("LOAD_CONST {} ({})", i, code.constants[**i]),
+            _ => self.to_string(), // fallback to Display
+        }
+    }
 }
 
 impl Display for Opcode {

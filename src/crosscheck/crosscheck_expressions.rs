@@ -27,8 +27,6 @@ fn binary_expression_compare_op() {
 }
 
 #[test]
-// need to support these in the bytecode VM
-#[ignore]
 fn binary_expression_logical_op() {
     let input = "True and False";
     assert_crosscheck_return!(input, MemphisValue::Boolean(false));

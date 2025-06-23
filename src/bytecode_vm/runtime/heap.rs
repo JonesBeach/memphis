@@ -3,7 +3,7 @@ use crate::bytecode_vm::{indices::Index, VmValue};
 use super::Reference;
 
 pub struct Heap {
-    pub storage: Vec<VmValue>,
+    storage: Vec<VmValue>,
 }
 
 impl Heap {
@@ -31,6 +31,10 @@ impl Heap {
             Reference::ObjectRef(index) => self.storage.get_mut(*index),
             _ => None,
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &VmValue> {
+        self.storage.iter()
     }
 }
 

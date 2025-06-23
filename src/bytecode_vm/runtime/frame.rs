@@ -26,9 +26,9 @@ pub struct Frame {
     pub locals: Vec<Reference>,
 
     /// This will be set by any return instructions.
-    pub return_val: Option<Reference>,
+    return_val: Option<Reference>,
 
-    pub finished: bool,
+    finished: bool,
 }
 
 impl Frame {
@@ -62,6 +62,19 @@ impl Frame {
 
     pub fn current_line(&self) -> usize {
         self.function.code_object.get_line_number(self.pc)
+    }
+
+    pub fn set_finished(&mut self) {
+        self.finished = true;
+    }
+
+    pub fn return_val(&self) -> Option<Reference> {
+        self.return_val
+    }
+
+    pub fn set_return_val(&mut self, value: Reference) {
+        self.return_val = Some(value);
+        self.finished = true;
     }
 }
 
