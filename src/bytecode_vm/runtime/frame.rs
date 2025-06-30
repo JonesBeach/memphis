@@ -11,7 +11,7 @@ use super::{
     Module,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Frame {
     pub function: FunctionObject,
 
@@ -24,11 +24,6 @@ pub struct Frame {
     /// The stack which holds all the local variables themselves, beginning with the function
     /// arguments.
     pub locals: Vec<Reference>,
-
-    /// This will be set by any return instructions.
-    return_val: Option<Reference>,
-
-    finished: bool,
 }
 
 impl Frame {
@@ -38,8 +33,6 @@ impl Frame {
             pc: 0,
             locals: args,
             module,
-            return_val: None,
-            finished: false,
         }
     }
 
@@ -48,7 +41,7 @@ impl Frame {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.finished || self.pc >= self.function.code_object.bytecode.len()
+        self.pc >= self.function.code_object.bytecode.len()
     }
 
     pub fn namespace(&self) -> Namespace {
@@ -62,19 +55,6 @@ impl Frame {
 
     pub fn current_line(&self) -> usize {
         self.function.code_object.get_line_number(self.pc)
-    }
-
-    pub fn set_finished(&mut self) {
-        self.finished = true;
-    }
-
-    pub fn return_val(&self) -> Option<Reference> {
-        self.return_val
-    }
-
-    pub fn set_return_val(&mut self, value: Reference) {
-        self.return_val = Some(value);
-        self.finished = true;
     }
 }
 

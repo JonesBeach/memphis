@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     bytecode_vm::compiler::{Bytecode, Constant},
-    domain::{Dunder, Source},
+    domain::{Dunder, FunctionType, Source},
 };
 
 /// Represents the bytecode and associated metadata for a block of Python code. It's a compiled
@@ -28,20 +28,26 @@ pub struct CodeObject {
     // this may not be the right thing here? We don't really need a full source
     pub source: Source,
     pub line_map: Vec<(usize, usize)>,
+    pub function_type: FunctionType,
 }
 
 impl CodeObject {
     const DEFAULT_NAME: Dunder = Dunder::Main;
 
     pub fn new_root(source: Source) -> Self {
-        Self::with_args(None, &[], source)
+        Self::new_function(None, &[], source, FunctionType::Regular)
     }
 
     pub fn new(name: &str, source: Source) -> Self {
-        Self::with_args(Some(name.to_string()), &[], source)
+        Self::new_function(Some(name.to_string()), &[], source, FunctionType::Regular)
     }
 
-    pub fn with_args(name: Option<String>, varnames: &[String], source: Source) -> Self {
+    pub fn new_function(
+        name: Option<String>,
+        varnames: &[String],
+        source: Source,
+        function_type: FunctionType,
+    ) -> Self {
         Self {
             name,
             bytecode: vec![],
@@ -52,6 +58,7 @@ impl CodeObject {
             constants: vec![],
             source,
             line_map: vec![],
+            function_type,
         }
     }
 

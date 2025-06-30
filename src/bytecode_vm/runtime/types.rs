@@ -3,11 +3,16 @@ use std::{
     fmt::{Display, Error, Formatter},
 };
 
-use crate::bytecode_vm::{
-    compiler::CodeObject,
-    indices::{ConstantIndex, ObjectTableIndex},
-    VirtualMachine, VmResult,
+use crate::{
+    bytecode_vm::{
+        compiler::CodeObject,
+        indices::{ConstantIndex, ObjectTableIndex},
+        VirtualMachine, VmResult,
+    },
+    domain::FunctionType,
 };
+
+use super::frame::Frame;
 
 pub type Namespace = HashMap<String, Reference>;
 
@@ -204,6 +209,19 @@ impl Object {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Generator {
+    pub frame: Frame,
+    #[allow(dead_code)]
+    done: bool,
+}
+
+impl Generator {
+    pub fn new(frame: Frame) -> Self {
+        Self { frame, done: false }
+    }
+}
+
 /// This encapsulates a [`CodeObject`] along with the execution environment in which the function
 /// was defined (closure/free variables). This is what gets created when you define a function in
 /// Python. This is not bound to any particular instance of a class when defined inside a class.
@@ -226,6 +244,10 @@ impl FunctionObject {
             code_object,
             freevars,
         }
+    }
+
+    pub fn function_type(&self) -> &FunctionType {
+        &self.code_object.function_type
     }
 }
 

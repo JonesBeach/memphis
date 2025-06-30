@@ -2,6 +2,8 @@ use crate::bytecode_vm::{indices::Index, VmValue};
 
 use super::Reference;
 
+const NONE_INDEX: usize = 0;
+
 pub struct Heap {
     storage: Vec<VmValue>,
 }
@@ -9,8 +11,12 @@ pub struct Heap {
 impl Heap {
     pub fn new() -> Self {
         Self {
-            storage: Vec::new(),
+            storage: vec![VmValue::None],
         }
+    }
+
+    pub fn none(&self) -> Reference {
+        Reference::ObjectRef(Index::new(NONE_INDEX))
     }
 
     pub fn allocate(&mut self, value: VmValue) -> Reference {

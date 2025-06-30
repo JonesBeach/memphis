@@ -163,6 +163,18 @@ pub mod test_utils {
         };
     }
 
+    macro_rules! assert_stop_iteration {
+        ($error:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::StopIteration => {}
+                _ => panic!(
+                    "Expected a StopIteration error, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+    }
+
     macro_rules! assert_div_by_zero_error {
         ($error:expr, $expected_message:expr) => {{
             match &$error.execution_error_kind {
@@ -282,6 +294,7 @@ pub mod test_utils {
     pub(crate) use assert_import_error;
     pub(crate) use assert_key_error;
     pub(crate) use assert_name_error;
+    pub(crate) use assert_stop_iteration;
     pub(crate) use assert_type_error;
     pub(crate) use assert_value_error;
 }

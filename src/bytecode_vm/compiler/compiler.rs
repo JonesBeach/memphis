@@ -1,5 +1,3 @@
-use std::fmt::{Display, Error, Formatter};
-
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant, Opcode},
@@ -8,31 +6,17 @@ use crate::{
         CompilerResult,
     },
     core::{log, LogLevel},
-    domain::{Context, Source},
+    domain::{Context, FunctionType, Source},
     parser::types::{
         Ast, BinOp, CallArgs, ConditionalAst, Expr, ImportPath, LogicalOp, LoopIndex, Params,
         RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
-use super::opcode::{SignedOffset, UnsignedOffset};
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum CompilerError {
-    Unsupported(String),
-    SyntaxError(String),
-    Internal(String),
-}
-
-impl Display for CompilerError {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self {
-            Self::Unsupported(msg) => write!(f, "Unsupported feature: {}", msg),
-            Self::SyntaxError(msg) => write!(f, "Syntax error: {}", msg),
-            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
-        }
-    }
-}
+use super::{
+    opcode::{SignedOffset, UnsignedOffset},
+    CompilerError,
+};
 
 /// A Python bytecode compiler. This operates on a single `Source`.
 pub struct Compiler {
@@ -183,6 +167,7 @@ impl Compiler {
                 self.compile_function_call(name, args, callee)
             }
             Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
+            Expr::Yield(value) => self.compile_yield(value),
             _ => Err(unsupported(&format!("Expression type: {:?}", expr))),
         }
     }
@@ -233,6 +218,15 @@ impl Compiler {
         }
 
         self.emit(Opcode::ReturnValue)?;
+        Ok(())
+    }
+
+    fn compile_yield(&mut self, expr: &Option<Box<Expr>>) -> CompilerResult<()> {
+        if let Some(expr) = expr {
+            self.compile_expr(expr)?;
+        }
+
+        self.emit(Opcode::YieldValue)?;
         Ok(())
     }
 
@@ -390,19 +384,36 @@ impl Compiler {
         decorators: &[Expr],
         is_async: &bool,
     ) -> CompilerResult<()> {
-        if !decorators.is_empty() || *is_async {
+        if !decorators.is_empty() {
             return Err(unsupported(
-                "Decorators and async functions are not yet supported in the bytecode VM.",
+                "Decorators are not yet supported in the bytecode VM.",
             ));
         }
+        if *is_async {
+            return Err(unsupported(
+                "Async functions are not yet supported in the bytecode VM.",
+            ));
+        }
+
+        let function_type = if body.has_yield() {
+            FunctionType::Generator
+        } else if *is_async {
+            FunctionType::Async
+        } else {
+            FunctionType::Regular
+        };
 
         let varnames = args
             .args
             .iter()
             .map(|p| p.arg.clone())
             .collect::<Vec<String>>();
-        let code_object =
-            CodeObject::with_args(Some(name.to_string()), &varnames, self.source.clone());
+        let code_object = CodeObject::new_function(
+            Some(name.to_string()),
+            &varnames,
+            self.source.clone(),
+            function_type,
+        );
 
         let code = self.compile_ast_with_code(body, code_object)?;
         let free_vars = code.freevars.clone();
@@ -1219,7 +1230,10 @@ mod tests_bytecode {
 
 #[cfg(test)]
 mod tests_compiler {
-    use crate::bytecode_vm::{compiler::test_utils::*, VmContext};
+    use crate::{
+        bytecode_vm::{compiler::test_utils::*, VmContext},
+        domain::FunctionType,
+    };
 
     use super::*;
 
@@ -1241,25 +1255,10 @@ def foo():
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["foo".into()],
-            constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_function("foo", fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1285,25 +1284,35 @@ def foo(a, b):
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
+        let expected = wrap_top_level_function("foo", fn_foo);
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn generator_definition() {
+        let text = r#"
+def foo():
+    yield 1
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::YieldValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
-            names: vec!["foo".into()],
-            constants: vec![Constant::Code(fn_foo)],
+            names: vec![],
+            constants: vec![Constant::Int(1)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Generator,
         };
 
+        let expected = wrap_top_level_function("foo", fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1327,6 +1336,7 @@ def foo(a, b):
             constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let fn_foo = CodeObject {
@@ -1346,25 +1356,10 @@ def foo(a, b):
             constants: vec![Constant::Code(fn_inner)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["foo".to_string()],
-            constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_function("foo", fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1396,25 +1391,10 @@ def foo():
             constants: vec![Constant::Int(10), Constant::Float(11.1)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["foo".into()],
-            constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_function("foo", fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1442,25 +1422,10 @@ def foo():
             constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["foo".into()],
-            constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_function("foo", fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1492,6 +1457,7 @@ world()
             constants: vec![Constant::String("Hello".into())],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let fn_world = CodeObject {
@@ -1508,6 +1474,7 @@ world()
             constants: vec![Constant::String("World".into())],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
@@ -1532,6 +1499,7 @@ world()
             constants: vec![Constant::Code(fn_hello), Constant::Code(fn_world)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);
@@ -1562,6 +1530,7 @@ def make_adder(x):
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let fn_make_adder = CodeObject {
@@ -1581,25 +1550,10 @@ def make_adder(x):
             constants: vec![Constant::Code(fn_inner_adder)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::MakeFunction,
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["make_adder".into()],
-            constants: vec![Constant::Code(fn_make_adder)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_function("make_adder", fn_make_adder);
         assert_code_eq!(code, expected);
     }
 
@@ -1622,6 +1576,7 @@ class Foo:
             constants: vec![Constant::Int(99)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let cls_foo = CodeObject {
@@ -1638,26 +1593,10 @@ class Foo:
             constants: vec![Constant::Code(fn_bar)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::Call(1),
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["Foo".into()],
-            constants: vec![Constant::Code(cls_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_class("Foo", cls_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1684,6 +1623,7 @@ class Foo:
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let cls_foo = CodeObject {
@@ -1700,26 +1640,10 @@ class Foo:
             constants: vec![Constant::Code(fn_bar)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
-        let expected = CodeObject {
-            name: None,
-            bytecode: vec![
-                Opcode::LoadBuildClass,
-                Opcode::LoadConst(Index::new(0)),
-                Opcode::Call(1),
-                Opcode::StoreGlobal(Index::new(0)),
-                Opcode::Halt,
-            ],
-            arg_count: 0,
-            varnames: vec![],
-            freevars: vec![],
-            names: vec!["Foo".to_string()],
-            constants: vec![Constant::Code(cls_foo)],
-            source: Source::default(),
-            line_map: vec![],
-        };
-
+        let expected = wrap_top_level_class("Foo", cls_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1745,13 +1669,14 @@ f = Foo()
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);
     }
 
     #[test]
-    fn class_instantiation_and_method_call() {
+    fn method_call() {
         let text = r#"
 b = f.bar()
 "#;
@@ -1773,6 +1698,7 @@ b = f.bar()
             constants: vec![],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);
@@ -1799,6 +1725,7 @@ a = foo()
             constants: vec![Constant::Int(10)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
@@ -1819,6 +1746,7 @@ a = foo()
             constants: vec![Constant::Code(fn_foo)],
             source: Source::default(),
             line_map: vec![],
+            function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);

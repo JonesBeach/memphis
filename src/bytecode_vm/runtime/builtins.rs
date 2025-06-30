@@ -33,7 +33,7 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     let function = FunctionObject::new(code.clone());
     let frame = vm.convert_function_to_frame(function, vec![])?;
 
-    let frame = vm.run_new_frame(frame)?;
+    let frame = vm.call_and_return_frame(frame)?;
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
 }
 
@@ -100,6 +100,7 @@ fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 /// For the public-facing builtin `iter(obj)`, use `iter`.
 pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Reference> {
     let iterator = match obj {
+        VmValue::Generator(_) => obj,
         VmValue::List(list) => VmValue::ListIter(Container::new(list.iter())),
         VmValue::Range(range) => VmValue::RangeIter(Container::new(range.iter())),
         _ => return Err(vm.type_error("TODO object is not iterable")),
@@ -123,6 +124,16 @@ fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<Option<Reference>> {
     let iter_value = vm.deref(iter_ref)?;
     match iter_value {
+        VmValue::Generator(ref gen_iter) => {
+            let frame = gen_iter.borrow_mut().frame.clone();
+            let resume_result = vm.resume_and_return_val(frame)?;
+            if let Some((val, new_frame)) = resume_result {
+                gen_iter.borrow_mut().frame = new_frame;
+                Ok(Some(val))
+            } else {
+                Ok(None)
+            }
+        }
         VmValue::ListIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
         VmValue::RangeIter(ref range_iter) => Ok(range_iter
             .borrow_mut()
@@ -139,7 +150,7 @@ fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 
     match next_internal(vm, args[0])? {
         Some(val) => Ok(val),
-        None => Err(vm.stop_iteration()), // You define this method
+        None => Err(vm.stop_iteration()),
     }
 }
 
@@ -149,9 +160,7 @@ fn print(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     }
     println!();
 
-    // TODO replace this with something like vm.none(), which could return a Reference to a
-    // heapified VmValue::None you allocate once during VM setup.
-    Ok(vm.heapify(VmValue::None))
+    Ok(vm.none())
 }
 
 #[cfg(test)]

@@ -25,8 +25,8 @@
 |Dictionaries (and dict comprehension)|✅||
 |Iterables|✅||
 |Tuples|✅||
-|Ranges|✅||
-|Generator functions|✅||
+|Ranges|✅|✅|
+|Generator functions|✅|✅|
 |Slices|✅||
 |Inheritance|✅||
 |Object creation and metaclasses|✅||

@@ -4,9 +4,8 @@ use std::{
 };
 
 use crate::{
-    analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
     core::{log, Container, LogLevel},
-    domain::{DebugStackFrame, Dunder, ToDebugStackFrame, Type},
+    domain::{DebugStackFrame, Dunder, FunctionType, ToDebugStackFrame, Type},
     parser::types::{Ast, Expr, Params, Variable},
     treewalk::{
         macros::*,
@@ -16,14 +15,6 @@ use crate::{
         Scope, SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
-
-/// How we evaluate a [`Function`] depends on whether it is async or a generator or a
-/// traditional function.
-pub enum FunctionType {
-    Regular,
-    Generator,
-    Async,
-}
 
 /// This is a placeholder for what is calcuated on a functions [`Dunder::Code`].
 /// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
@@ -40,7 +31,7 @@ pub struct Function {
     pub class_context: Option<Container<Class>>,
     line_number: usize,
     decorators: Vec<Expr>,
-    is_async: bool,
+    function_type: FunctionType,
     pub captured_env: Container<EnvironmentFrame>,
     scope: Scope,
     free_vars: Vec<Variable>,
@@ -93,10 +84,16 @@ impl Function {
         let class_context = state.current_class();
         let captured_env = state.get_environment_frame();
 
-        let mut visitor = FunctionAnalysisVisitor::new();
-        body.accept(&mut visitor);
+        let function_type = if is_async {
+            FunctionType::Async
+        } else if body.has_yield() {
+            FunctionType::Generator
+        } else {
+            FunctionType::Regular
+        };
 
         Self {
+            free_vars: body.free_vars(),
             name: name.to_string(),
             args,
             body,
@@ -104,10 +101,9 @@ impl Function {
             class_context,
             line_number,
             decorators: decorators.to_vec(),
-            is_async,
+            function_type,
             captured_env,
             scope: Scope::default(),
-            free_vars: visitor.get_free_vars(),
         }
     }
 
@@ -135,12 +131,6 @@ impl Function {
 
     pub fn line_number(&self) -> usize {
         self.line_number
-    }
-
-    pub fn is_generator(&self) -> bool {
-        let mut detector = YieldDetector::new();
-        self.body.accept(&mut detector);
-        detector.found_yield
     }
 
     fn get_globals(&self) -> TreewalkValue {
@@ -265,13 +255,7 @@ impl Callable for Container<Function> {
     }
 
     fn function_type(&self) -> FunctionType {
-        if self.borrow().is_async {
-            FunctionType::Async
-        } else if self.borrow().is_generator() {
-            FunctionType::Generator
-        } else {
-            FunctionType::Regular
-        }
+        self.borrow().function_type.clone()
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -7,7 +7,9 @@ use std::{
 use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
-    domain::{Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, MemphisValue},
+    domain::{
+        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, MemphisValue,
+    },
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
@@ -22,8 +24,8 @@ use crate::{
         protocols::{MemberRead, TryEvalFrom},
         type_system::CloneableCallable,
         types::{
-            function::FunctionType, iterators::GeneratorIter, Class, Coroutine, Dict, Function,
-            Generator, List, Module, Set, Slice, Str, Tuple,
+            iterators::GeneratorIter, Class, Coroutine, Dict, Function, Generator, List, Module,
+            Set, Slice, Str, Tuple,
         },
         utils::{args, Args},
         Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
@@ -2492,8 +2494,7 @@ c = next(a)
 "#;
 
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionErrorKind::StopIteration);
+        assert_stop_iteration!(e);
     }
 
     #[test]

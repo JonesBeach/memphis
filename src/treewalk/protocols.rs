@@ -5,11 +5,8 @@ use std::{
 
 use crate::{
     core::Container,
-    treewalk::{
-        types::{function::FunctionType, Class},
-        utils::Args,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
-    },
+    domain::FunctionType,
+    treewalk::{types::Class, utils::Args, TreewalkInterpreter, TreewalkResult, TreewalkValue},
 };
 
 pub trait TryEvalFrom: Sized {

@@ -5,7 +5,10 @@ use std::{
     slice::Iter,
 };
 
-use crate::domain::ExceptionLiteral;
+use crate::{
+    analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
+    domain::ExceptionLiteral,
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ast {
@@ -20,6 +23,18 @@ impl Ast {
     pub fn from_expr(expr: Expr) -> Self {
         // TODO we lose the line number here
         Self::new(vec![Statement::new(1, StatementKind::Expression(expr))])
+    }
+
+    pub fn has_yield(&self) -> bool {
+        let mut detector = YieldDetector::new();
+        self.accept(&mut detector);
+        detector.found_yield
+    }
+
+    pub fn free_vars(&self) -> Vec<String> {
+        let mut fa_visitor = FunctionAnalysisVisitor::new();
+        self.accept(&mut fa_visitor);
+        fa_visitor.get_free_vars()
     }
 
     pub fn len(&self) -> usize {

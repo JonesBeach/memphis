@@ -584,6 +584,49 @@ for i in range(2,10,2):
     }
 
     #[test]
+    fn next_builtin_generator() {
+        let text = r#"
+def gen():
+    yield 1
+    yield 2
+
+g = gen()
+a = next(g)
+b = next(g)
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "a", VmValue::Int(1));
+        assert_read_eq!(ctx, "b", VmValue::Int(2));
+
+        let text = r#"
+def gen():
+    yield 1
+
+g = gen()
+a = next(g)
+b = next(g)
+"#;
+        let e = run_expect_error(text);
+        assert_stop_iteration!(e);
+    }
+
+    #[test]
+    fn for_in_loop_generator() {
+        let text = r#"
+def gen():
+    yield 1
+    yield 2
+
+s = 11
+for i in gen():
+    s = s + i
+"#;
+        let mut ctx = run(text);
+        assert_read_eq!(ctx, "i", VmValue::Int(2));
+        assert_read_eq!(ctx, "s", VmValue::Int(14));
+    }
+
+    #[test]
     fn function_call_with_parameters() {
         let text = r#"
 def foo(a, b):

@@ -4,8 +4,8 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
         runtime::{
-            BuiltinFunction, Class, FunctionObject, List, ListIter, Method, Module, Object, Range,
-            RangeIter, Reference,
+            BuiltinFunction, Class, FunctionObject, Generator, List, ListIter, Method, Module,
+            Object, Range, RangeIter, Reference,
         },
     },
     core::{Container, Voidable},
@@ -25,6 +25,7 @@ pub enum VmValue {
     Object(Object),
     Code(CodeObject),
     Function(FunctionObject),
+    Generator(Container<Generator>),
     Method(Method),
     Module(Container<Module>),
     BuiltinFunction(BuiltinFunction),

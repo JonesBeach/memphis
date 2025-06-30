@@ -6,7 +6,7 @@ use crate::{
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
-    domain::Dunder,
+    domain::{Dunder, FunctionType},
     runtime::MemphisState,
 };
 
@@ -15,10 +15,18 @@ use super::{
     error_builder::ErrorBuilder,
     frame::Frame,
     module_loader::ModuleLoader,
-    BuiltinFunction, CallStack, Runtime,
+    BuiltinFunction, CallStack, Generator, Runtime,
 };
 
 mod errors;
+
+#[derive(Debug)]
+pub enum StepResult {
+    Return(Reference),
+    Yield(Reference),
+    Continue,
+    Halt,
+}
 
 pub struct VirtualMachine {
     runtime: Container<Runtime>,
@@ -273,6 +281,10 @@ impl VirtualMachine {
         }
     }
 
+    pub fn none(&self) -> Reference {
+        self.runtime.borrow_mut().heap.none()
+    }
+
     /// Dereferences the top value on the stack.
     fn peek_value(&mut self) -> VmResult<VmValue> {
         let reference = self.peek()?;
@@ -403,285 +415,335 @@ impl VirtualMachine {
         Ok(result)
     }
 
-    /// Run the top frame in the call stack until there are no more.
-    fn run_loop(&mut self) -> VmResult<VmValue> {
-        let mut result = VmValue::None;
-        while !self.call_stack.is_finished() {
-            let frame = self.run_frame()?;
-            result = self.return_val_for(&frame)?;
-        }
+    // === Declarative VM Call Interface ===
 
-        Ok(result)
-    }
-
-    fn return_val_for(&self, frame: &Frame) -> VmResult<VmValue> {
-        if let Some(v) = frame.return_val() {
-            self.deref(v)
-        } else {
-            Ok(VmValue::None)
+    /// Push a new `Frame` to the call stack and immediately execute it to completion, returning
+    /// its return value.
+    pub fn call_and_return_val(&mut self, frame: Frame) -> VmResult<Reference> {
+        let (step_result, _frame) = self.run_frame_and_capture(frame)?;
+        match step_result {
+            StepResult::Return(val) => Ok(val),
+            _ => Ok(self.none()),
         }
     }
 
-    /// Push a new `Frame` to the call stack and immediately execute it to completion.
-    fn run_new_frame_and_return(&mut self, frame: Frame) -> VmResult<VmValue> {
-        let frame = self.run_new_frame(frame)?;
-        self.return_val_for(&frame)
+    /// Push a new `Frame` to the call stack and immediately execute it to completion, returning
+    /// the frame.
+    pub fn call_and_return_frame(&mut self, frame: Frame) -> VmResult<Frame> {
+        let (_step_result, frame) = self.run_frame_and_capture(frame)?;
+        Ok(frame)
     }
 
-    pub fn run_new_frame(&mut self, frame: Frame) -> VmResult<Frame> {
+    pub fn resume_and_return_val(&mut self, frame: Frame) -> VmResult<Option<(Reference, Frame)>> {
+        let (step_result, frame) = self.run_frame_and_capture(frame)?;
+        match step_result {
+            StepResult::Yield(val) => Ok(Some((val, frame))),
+            StepResult::Return(_) | StepResult::Halt | StepResult::Continue => Ok(None),
+        }
+    }
+
+    /// Push a frame and run it, capturing the result and returning the frame.
+    /// We need to capture the frame when it is finished for creating new Classes.
+    fn run_frame_and_capture(&mut self, frame: Frame) -> VmResult<(StepResult, Frame)> {
         self.call_stack.push(frame);
-        self.run_frame()
+        self.run_top_frame_and_capture()
     }
 
-    /// This will run the top frame in the call stack to completion and then return.
-    fn run_frame(&mut self) -> VmResult<Frame> {
-        while let Some(frame) = self.call_stack.top() {
-            if self.current_frame()?.is_finished() {
-                break;
+    // === Internal Execution Flow ===
+
+    /// Executes all frames in the call stack to completion.
+    /// This is the main loop of the VM.
+    fn run_loop(&mut self) -> VmResult<VmValue> {
+        let mut result = self.none();
+        while !self.call_stack.is_finished() {
+            result = self.run_top_frame_and_return_val()?;
+        }
+
+        self.deref(result)
+    }
+
+    #[inline]
+    fn run_top_frame_and_return_val(&mut self) -> VmResult<Reference> {
+        let (step_result, _frame) = self.run_top_frame_and_capture()?;
+        match step_result {
+            StepResult::Return(val) => Ok(val),
+            _ => Ok(self.none()),
+        }
+    }
+
+    /// Run the top frame in the call stack to completion and then return.
+    fn run_top_frame_and_capture(&mut self) -> VmResult<(StepResult, Frame)> {
+        let mut step_result = StepResult::Continue;
+        while self.call_stack.top().is_some_and(|f| !f.is_finished()) {
+            let result = self.step_frame()?;
+            match result {
+                StepResult::Continue => {}
+                _ => {
+                    step_result = result;
+                    break;
+                }
             }
+        }
 
-            // Save this in case we encounter a runtime exception and need to record this info in
-            // the stack trace
-            self.state.set_line_number(frame.current_line());
-            let opcode = frame.get_inst();
+        let frame = self.call_stack.pop().ok_or_else(|| self.runtime_error())?;
+        Ok((step_result, frame))
+    }
 
-            log(LogLevel::Debug, || {
-                let code_name = &frame.function.code_object.name();
-                format!("{}: {:?}", code_name, opcode)
-            });
+    /// Run the next instruction on the top frame in the call stack.
+    fn step_frame(&mut self) -> VmResult<StepResult> {
+        let frame = self.current_frame()?;
 
-            match opcode {
-                Opcode::Add => {
-                    self.binary_op(opcode, |a, b| a + b, false)
-                        .map_err(|_| self.type_error("Unsupported operand types for +"))?;
-                }
-                Opcode::Sub => {
-                    self.binary_op(opcode, |a, b| a - b, false)
-                        .map_err(|_| self.type_error("Unsupported operand types for -"))?;
-                }
-                Opcode::Mul => {
-                    self.binary_op(opcode, |a, b| a * b, false)
-                        .map_err(|_| self.type_error("Unsupported operand types for *"))?;
-                }
-                Opcode::Div => {
-                    self.binary_op(opcode, |a, b| a / b, true)
-                        .map_err(|_| self.type_error("Unsupported operand types for /"))?;
-                }
-                Opcode::Eq => {
-                    let right = self.pop_value()?;
-                    let left = self.pop_value()?;
-                    self.push(Reference::Bool(left == right))?;
-                }
-                Opcode::LessThan => {
-                    self.cmp_op(|a, b| a < b)
-                        .map_err(|_| self.type_error("Unsupported operand types for <"))?;
-                }
-                Opcode::LessThanOrEq => {
-                    self.cmp_op(|a, b| a <= b)
-                        .map_err(|_| self.type_error("Unsupported operand types for <="))?;
-                }
-                Opcode::GreaterThan => {
-                    self.cmp_op(|a, b| a > b)
-                        .map_err(|_| self.type_error("Unsupported operand types for >"))?;
-                }
-                Opcode::GreaterThanOrEq => {
-                    self.cmp_op(|a, b| a >= b)
-                        .map_err(|_| self.type_error("Unsupported operand types for >="))?;
-                }
-                Opcode::UnaryNegative => {
-                    let value = self.pop_value()?;
-                    let result = self.dynamic_negate(&value)?;
-                    self.push_value(result)?;
-                }
-                Opcode::UnaryNot => {
-                    let right = self.pop_value()?.to_boolean();
-                    self.push(Reference::Bool(!right))?;
-                }
-                Opcode::UnaryInvert => {
-                    let right = self
-                        .pop_value()?
-                        .as_integer()
-                        .ok_or_else(|| self.type_error("Unsupported operand type for '~'"))?;
-                    self.push(Reference::Int(!right))?;
-                }
-                Opcode::LoadConst(index) => {
-                    // After loading a constant for the first time, it becomes an object managed by
-                    // the heap like any other object.
-                    let value = self
-                        .read_constant(index)?
-                        .ok_or_else(|| self.runtime_error())?;
-                    self.push_value(value)?;
-                }
-                Opcode::StoreFast(index) => {
+        // Save this in case we encounter a runtime exception and need to record this info in
+        // the stack trace
+        self.state.set_line_number(frame.current_line());
+        let opcode = frame.get_inst();
+
+        log(LogLevel::Debug, || {
+            let code_name = &frame.function.code_object.name();
+            format!("{}: {:?}", code_name, opcode)
+        });
+
+        match opcode {
+            Opcode::Add => {
+                self.binary_op(opcode, |a, b| a + b, false)
+                    .map_err(|_| self.type_error("Unsupported operand types for +"))?;
+            }
+            Opcode::Sub => {
+                self.binary_op(opcode, |a, b| a - b, false)
+                    .map_err(|_| self.type_error("Unsupported operand types for -"))?;
+            }
+            Opcode::Mul => {
+                self.binary_op(opcode, |a, b| a * b, false)
+                    .map_err(|_| self.type_error("Unsupported operand types for *"))?;
+            }
+            Opcode::Div => {
+                self.binary_op(opcode, |a, b| a / b, true)
+                    .map_err(|_| self.type_error("Unsupported operand types for /"))?;
+            }
+            Opcode::Eq => {
+                let right = self.pop_value()?;
+                let left = self.pop_value()?;
+                self.push(Reference::Bool(left == right))?;
+            }
+            Opcode::LessThan => {
+                self.cmp_op(|a, b| a < b)
+                    .map_err(|_| self.type_error("Unsupported operand types for <"))?;
+            }
+            Opcode::LessThanOrEq => {
+                self.cmp_op(|a, b| a <= b)
+                    .map_err(|_| self.type_error("Unsupported operand types for <="))?;
+            }
+            Opcode::GreaterThan => {
+                self.cmp_op(|a, b| a > b)
+                    .map_err(|_| self.type_error("Unsupported operand types for >"))?;
+            }
+            Opcode::GreaterThanOrEq => {
+                self.cmp_op(|a, b| a >= b)
+                    .map_err(|_| self.type_error("Unsupported operand types for >="))?;
+            }
+            Opcode::UnaryNegative => {
+                let value = self.pop_value()?;
+                let result = self.dynamic_negate(&value)?;
+                self.push_value(result)?;
+            }
+            Opcode::UnaryNot => {
+                let right = self.pop_value()?.to_boolean();
+                self.push(Reference::Bool(!right))?;
+            }
+            Opcode::UnaryInvert => {
+                let right = self
+                    .pop_value()?
+                    .as_integer()
+                    .ok_or_else(|| self.type_error("Unsupported operand type for '~'"))?;
+                self.push(Reference::Int(!right))?;
+            }
+            Opcode::LoadConst(index) => {
+                // After loading a constant for the first time, it becomes an object managed by
+                // the heap like any other object.
+                let value = self
+                    .read_constant(index)?
+                    .ok_or_else(|| self.runtime_error())?;
+                self.push_value(value)?;
+            }
+            Opcode::StoreFast(index) => {
+                let reference = self.pop()?;
+                self.store_local(index, reference)?;
+            }
+            Opcode::StoreGlobal(index) => {
+                let reference = self.pop()?;
+                self.store_global(index, reference)?;
+            }
+            Opcode::LoadFast(index) => {
+                let reference = self.load_local(index)?;
+                self.push(reference)?;
+            }
+            Opcode::LoadFree(index) => {
+                let reference = self.load_free(index)?;
+                self.push(reference)?;
+            }
+            Opcode::LoadGlobal(index) => {
+                let reference = self.load_global(index)?;
+                self.push(reference)?;
+            }
+            Opcode::LoadAttr(index) => {
+                let attr_name = self.resolve_name(index)?.to_owned();
+                let object_ref = self.pop()?;
+
+                let bound_attr = self.resolve_attr(object_ref, &attr_name)?;
+                self.push(bound_attr)?;
+            }
+            Opcode::SetAttr(index) => {
+                let value = self.pop()?;
+                let obj_ref = self.pop()?;
+
+                let name = self.resolve_name(index)?.to_owned();
+                self.update_fn(obj_ref, |object_value| {
+                    let VmValue::Object(object) = object_value else {
+                        todo!()
+                    };
+                    object.write(&name, value);
+                });
+            }
+            Opcode::LoadBuildClass => {
+                self.push_value(VmValue::BuiltinFunction(BuiltinFunction::new(
+                    "load_build_class",
+                    builtins::build_class,
+                )))?;
+            }
+            Opcode::BuildList(n) => {
+                let mut items = Vec::with_capacity(n);
+                for _ in 0..n {
                     let reference = self.pop()?;
-                    self.store_local(index, reference)?;
+                    items.push(reference);
                 }
-                Opcode::StoreGlobal(index) => {
-                    let reference = self.pop()?;
-                    self.store_global(index, reference)?;
-                }
-                Opcode::LoadFast(index) => {
-                    let reference = self.load_local(index)?;
-                    self.push(reference)?;
-                }
-                Opcode::LoadFree(index) => {
-                    let reference = self.load_free(index)?;
-                    self.push(reference)?;
-                }
-                Opcode::LoadGlobal(index) => {
-                    let reference = self.load_global(index)?;
-                    self.push(reference)?;
-                }
-                Opcode::LoadAttr(index) => {
-                    let attr_name = self.resolve_name(index)?.to_owned();
-                    let object_ref = self.pop()?;
 
-                    let bound_attr = self.resolve_attr(object_ref, &attr_name)?;
-                    self.push(bound_attr)?;
-                }
-                Opcode::SetAttr(index) => {
-                    let value = self.pop()?;
-                    let obj_ref = self.pop()?;
+                // Reverse the items because we pop them off in reverse order
+                items.reverse();
 
-                    let name = self.resolve_name(index)?.to_owned();
-                    self.update_fn(obj_ref, |object_value| {
-                        let VmValue::Object(object) = object_value else {
-                            todo!()
-                        };
-                        object.write(&name, value);
-                    });
-                }
-                Opcode::LoadBuildClass => {
-                    self.push_value(VmValue::BuiltinFunction(BuiltinFunction::new(
-                        "load_build_class",
-                        builtins::build_class,
-                    )))?;
-                }
-                Opcode::BuildList(n) => {
-                    let mut items = Vec::with_capacity(n);
-                    for _ in 0..n {
-                        let reference = self.pop()?;
-                        items.push(reference);
-                    }
+                self.push_value(VmValue::List(List::new(items)))?;
+            }
+            Opcode::GetIter => {
+                let obj = self.pop_value()?;
+                let iterator_ref = builtins::iter_internal(self, obj)?;
+                self.push(iterator_ref)?;
+            }
+            Opcode::ForIter(offset) => {
+                let iter_ref = self.pop()?;
+                let next_ref = builtins::next_internal(self, iter_ref)?;
 
-                    // Reverse the items because we pop them off in reverse order
-                    items.reverse();
-
-                    self.push_value(VmValue::List(List::new(items)))?;
-                }
-                Opcode::GetIter => {
-                    let obj = self.pop_value()?;
-                    let iterator_ref = builtins::iter_internal(self, obj)?;
-                    self.push(iterator_ref)?;
-                }
-                Opcode::ForIter(offset) => {
-                    let iter_ref = self.pop()?;
-                    let next_ref = builtins::next_internal(self, iter_ref)?;
-
-                    if let Some(next_ref) = next_ref {
-                        self.push(iter_ref)?;
-                        self.push(next_ref)?;
-                    } else {
-                        self.call_stack.jump_to_offset(offset)?;
-                    }
-                }
-                Opcode::Jump(offset) => {
+                if let Some(next_ref) = next_ref {
+                    self.push(iter_ref)?;
+                    self.push(next_ref)?;
+                } else {
                     self.call_stack.jump_to_offset(offset)?;
                 }
-                Opcode::JumpIfFalse(offset) => {
-                    if !self.peek_value()?.to_boolean() {
-                        self.call_stack.jump_to_offset(offset)?;
-                    }
+            }
+            Opcode::Jump(offset) => {
+                self.call_stack.jump_to_offset(offset)?;
+            }
+            Opcode::JumpIfFalse(offset) => {
+                if !self.peek_value()?.to_boolean() {
+                    self.call_stack.jump_to_offset(offset)?;
                 }
-                Opcode::JumpIfTrue(offset) => {
-                    if self.peek_value()?.to_boolean() {
-                        self.call_stack.jump_to_offset(offset)?;
-                    }
+            }
+            Opcode::JumpIfTrue(offset) => {
+                if self.peek_value()?.to_boolean() {
+                    self.call_stack.jump_to_offset(offset)?;
                 }
-                Opcode::PopTop => {
-                    let _ = self.pop()?;
-                }
-                Opcode::MakeFunction => {
-                    let code_value = self.pop_value()?;
-                    let code = code_value.expect_code(self)?;
-                    let function = FunctionObject::new(code.clone());
-                    self.push_value(VmValue::Function(function))?;
-                }
-                Opcode::MakeClosure(num_free) => {
-                    let freevars = (0..num_free)
-                        .map(|_| self.pop())
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let code_value = self.pop_value()?;
-                    let code = code_value.expect_code(self)?;
-                    let function = FunctionObject::new_with_free(code.clone(), freevars);
-                    self.push_value(VmValue::Function(function))?;
-                }
-                Opcode::Call(argc) => {
-                    let args = (0..argc)
-                        .map(|_| self.pop())
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let callable_ref = self.pop()?;
-                    let callable = self.deref(callable_ref)?;
+            }
+            Opcode::PopTop => {
+                let _ = self.pop()?;
+            }
+            Opcode::MakeFunction => {
+                let code_value = self.pop_value()?;
+                let code = code_value.expect_code(self)?;
+                let function = FunctionObject::new(code.clone());
+                self.push_value(VmValue::Function(function))?;
+            }
+            Opcode::MakeClosure(num_free) => {
+                let freevars = (0..num_free)
+                    .map(|_| self.pop())
+                    .collect::<Result<Vec<_>, _>>()?;
+                let code_value = self.pop_value()?;
+                let code = code_value.expect_code(self)?;
+                let function = FunctionObject::new_with_free(code.clone(), freevars);
+                self.push_value(VmValue::Function(function))?;
+            }
+            Opcode::Call(argc) => {
+                let args = (0..argc)
+                    .map(|_| self.pop())
+                    .collect::<Result<Vec<_>, _>>()?;
+                let callable_ref = self.pop()?;
+                let callable = self.deref(callable_ref)?;
 
-                    match callable {
-                        VmValue::BuiltinFunction(builtin) => {
-                            let reference = builtin.call(self, args)?;
+                match callable {
+                    VmValue::BuiltinFunction(builtin) => {
+                        let reference = builtin.call(self, args)?;
+                        self.push(reference)?;
+                    }
+                    VmValue::Function(ref function) => match function.function_type() {
+                        FunctionType::Regular => {
+                            let frame = self.convert_function_to_frame(function.clone(), args)?;
+                            let return_val_ref = self.call_and_return_val(frame)?;
+                            self.push(return_val_ref)?;
+                        }
+                        FunctionType::Generator => {
+                            let frame = self.convert_function_to_frame(function.clone(), args)?;
+                            let generator = Container::new(Generator::new(frame));
+                            self.push_value(VmValue::Generator(generator))?
+                        }
+                        FunctionType::Async => unimplemented!("Async functions"),
+                    },
+                    VmValue::Method(ref method) => {
+                        let frame = self.convert_method_to_frame(method.clone(), args)?;
+                        let return_val_ref = self.call_and_return_val(frame)?;
+                        self.push(return_val_ref)?;
+                    }
+                    VmValue::Class(ref class) => {
+                        let object = VmValue::Object(Object::new(callable_ref));
+                        let reference = self.heapify(object);
+
+                        if let Some(init_method) = class.read(Dunder::Init) {
+                            let init_value = self.deref(init_method)?;
+                            let init_fn = init_value.expect_function(self)?;
+                            let method = Method::new(reference, init_fn.clone());
+
+                            // The object reference must be on the stack for
+                            // after the constructor executes.
+                            self.push(reference)?;
+
+                            let frame = self.convert_method_to_frame(method, args)?;
+                            let _ = self.call_and_return_val(frame)?;
+                        } else {
                             self.push(reference)?;
                         }
-                        VmValue::Function(ref function) => {
-                            let frame = self.convert_function_to_frame(function.clone(), args)?;
-                            let ret = self.run_new_frame_and_return(frame)?;
-                            self.push_value(ret)?;
-                        }
-                        VmValue::Method(ref method) => {
-                            let frame = self.convert_method_to_frame(method.clone(), args)?;
-                            let ret = self.run_new_frame_and_return(frame)?;
-                            self.push_value(ret)?;
-                        }
-                        VmValue::Class(ref class) => {
-                            let object = VmValue::Object(Object::new(callable_ref));
-                            let reference = self.heapify(object);
-
-                            if let Some(init_method) = class.read(Dunder::Init) {
-                                let init_value = self.deref(init_method)?;
-                                let init_fn = init_value.expect_function(self)?;
-                                let method = Method::new(reference, init_fn.clone());
-
-                                // The object reference must be on the stack for
-                                // after the constructor executes.
-                                self.push(reference)?;
-
-                                let frame = self.convert_method_to_frame(method, args)?;
-                                self.run_new_frame(frame)?;
-                            } else {
-                                self.push(reference)?;
-                            }
-                        }
-                        _ => unimplemented!(),
-                    };
-                }
-                Opcode::ReturnValue => {
-                    let return_val_ref = self.pop()?;
-                    let frame = self.call_stack.top_frame_mut()?;
-                    frame.set_return_val(return_val_ref);
-                }
-                Opcode::ImportName(index) => {
-                    self.load_and_register_module(index)?;
-                }
-                Opcode::Halt => {
-                    let frame = self.call_stack.top_frame_mut()?;
-                    frame.set_finished();
-                }
-                // This is in an internal error that indicates a jump offset was not properly set
-                // by the compiler. This opcode should not leak into the VM.
-                Opcode::Placeholder => return Err(self.runtime_error()),
+                    }
+                    _ => unimplemented!(),
+                };
             }
-
-            // Increment PC for all instructions.
-            self.call_stack.advance_pc()?;
+            Opcode::ReturnValue => {
+                let return_val_ref = self.pop()?;
+                return Ok(StepResult::Return(return_val_ref));
+            }
+            Opcode::YieldValue => {
+                let yield_val_ref = self.pop()?;
+                self.call_stack.advance_pc()?;
+                return Ok(StepResult::Yield(yield_val_ref));
+            }
+            Opcode::ImportName(index) => {
+                self.load_and_register_module(index)?;
+            }
+            Opcode::Halt => {
+                return Ok(StepResult::Halt);
+            }
+            // This is in an internal error that indicates a jump offset was not properly set
+            // by the compiler. This opcode should not leak into the VM.
+            Opcode::Placeholder => return Err(self.runtime_error()),
         }
 
-        self.call_stack.pop().ok_or_else(|| self.runtime_error())
+        // Increment PC for all instructions.
+        self.call_stack.advance_pc()?;
+        Ok(StepResult::Continue)
     }
 
     fn load(&mut self, code: CodeObject) -> VmResult<()> {

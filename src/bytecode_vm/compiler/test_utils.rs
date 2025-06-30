@@ -1,13 +1,13 @@
 use crate::{
-    bytecode_vm::{compiler::Constant, VmContext},
-    domain::Source,
+    bytecode_vm::{compiler::Constant, indices::Index, VmContext},
+    domain::{FunctionType, Source},
     parser::{
         test_utils::*,
         types::{Expr, Statement},
     },
 };
 
-use super::{Bytecode, CodeObject, Compiler};
+use super::{Bytecode, CodeObject, Compiler, Opcode};
 
 fn init() -> Compiler {
     Compiler::new(Source::default())
@@ -29,6 +29,47 @@ pub fn compile(text: &str) -> CodeObject {
     VmContext::new(Source::from_text(text))
         .compile()
         .expect("Failed to compile test program!")
+}
+
+pub fn wrap_top_level_function(name: &str, func: CodeObject) -> CodeObject {
+    CodeObject {
+        name: None,
+        bytecode: vec![
+            Opcode::LoadConst(Index::new(0)),
+            Opcode::MakeFunction,
+            Opcode::StoreGlobal(Index::new(0)),
+            Opcode::Halt,
+        ],
+        arg_count: 0,
+        varnames: vec![],
+        freevars: vec![],
+        names: vec![name.into()],
+        constants: vec![Constant::Code(func)],
+        source: Source::default(),
+        line_map: vec![],
+        function_type: FunctionType::Regular,
+    }
+}
+
+pub fn wrap_top_level_class(name: &str, cls: CodeObject) -> CodeObject {
+    CodeObject {
+        name: None,
+        bytecode: vec![
+            Opcode::LoadBuildClass,
+            Opcode::LoadConst(Index::new(0)),
+            Opcode::Call(1),
+            Opcode::StoreGlobal(Index::new(0)),
+            Opcode::Halt,
+        ],
+        arg_count: 0,
+        varnames: vec![],
+        freevars: vec![],
+        names: vec![name.into()],
+        constants: vec![Constant::Code(cls)],
+        source: Source::default(),
+        line_map: vec![],
+        function_type: FunctionType::Regular,
+    }
 }
 
 macro_rules! assert_code_eq {
@@ -70,6 +111,10 @@ pub fn _assert_code_eq(actual: &CodeObject, expected: &CodeObject) {
     assert_eq!(
         actual.names, expected.names,
         "Code object names do not match"
+    );
+    assert_eq!(
+        actual.function_type, expected.function_type,
+        "Code object function types do not match"
     );
 
     assert_eq!(
