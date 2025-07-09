@@ -10,9 +10,9 @@ pub enum CompilerError {
 impl Display for CompilerError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Self::Unsupported(msg) => write!(f, "Unsupported feature: {}", msg),
-            Self::SyntaxError(msg) => write!(f, "Syntax error: {}", msg),
-            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
+            Self::Unsupported(msg) => write!(f, "Unsupported feature: {msg}"),
+            Self::SyntaxError(msg) => write!(f, "Syntax error: {msg}"),
+            Self::Internal(msg) => write!(f, "Internal error: {msg}"),
         }
     }
 }

@@ -107,7 +107,7 @@ impl Display for Slice {
         let stop = format_val(&self.stop);
         let step = format_val(&self.step);
 
-        write!(f, "slice({}, {}, {})", start, stop, step)
+        write!(f, "slice({start}, {stop}, {step})")
     }
 }
 

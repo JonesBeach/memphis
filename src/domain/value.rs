@@ -20,19 +20,19 @@ impl Display for MemphisValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             MemphisValue::None => write!(f, "None"),
-            MemphisValue::Integer(i) => write!(f, "{}", i),
-            MemphisValue::Float(i) => write!(f, "{}", i),
-            MemphisValue::String(s) => write!(f, "{}", s),
-            MemphisValue::Boolean(b) => write!(f, "{}", b),
+            MemphisValue::Integer(i) => write!(f, "{i}"),
+            MemphisValue::Float(i) => write!(f, "{i}"),
+            MemphisValue::String(s) => write!(f, "{s}"),
+            MemphisValue::Boolean(b) => write!(f, "{b}"),
             MemphisValue::List(i) => {
                 let items = i
                     .iter()
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>()
                     .join(", ");
-                write!(f, "[{}]", items)
+                write!(f, "[{items}]")
             }
-            MemphisValue::Unimplemented(msg) => write!(f, "Unimplemented: {}", msg),
+            MemphisValue::Unimplemented(msg) => write!(f, "Unimplemented: {msg}"),
         }
     }
 }

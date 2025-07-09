@@ -109,13 +109,11 @@ impl MemberRead for Container<Object> {
         interpreter: &TreewalkInterpreter,
         name: &str,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        log(LogLevel::Debug, || {
-            format!("Searching for: {}.{}", self, name)
-        });
+        log(LogLevel::Debug, || format!("Searching for: {self}.{name}"));
 
         if let Some(attr) = self.borrow().scope.get(name) {
             log(LogLevel::Debug, || {
-                format!("Found: {}.{} on instance", self, name)
+                format!("Found: {self}.{name} on instance")
             });
             return Ok(Some(attr));
         }
@@ -169,7 +167,7 @@ impl MemberWrite for Container<Object> {
         }
 
         log(LogLevel::Debug, || {
-            format!("Setting: {}.{} on instance", self, name)
+            format!("Setting: {self}.{name} on instance")
         });
         self.borrow_mut().scope.insert(name, value);
         Ok(())
@@ -214,7 +212,7 @@ impl MemberWrite for Container<Object> {
         }
 
         log(LogLevel::Debug, || {
-            format!("Deleting: {}.{} on instance", self, name)
+            format!("Deleting: {self}.{name} on instance")
         });
         self.borrow_mut().scope.delete(name);
         Ok(())

@@ -21,7 +21,7 @@ static CURRENT_LOG_LEVEL: LogLevel = LogLevel::Info;
 pub fn log<F: FnOnce() -> String>(level: LogLevel, message_fn: F) {
     if level <= CURRENT_LOG_LEVEL {
         let message = message_fn();
-        println!("[{:?}] {}", level, message);
+        println!("[{level:?}] {message}");
     }
 }
 

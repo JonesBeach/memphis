@@ -284,7 +284,7 @@ impl TypeRegistry {
     pub fn get_type_class(&self, type_: Type) -> Container<Class> {
         self.type_classes
             .get(&type_)
-            .unwrap_or_else(|| panic!("TypeRegistry initialization failed for <{}>!", type_))
+            .unwrap_or_else(|| panic!("TypeRegistry initialization failed for <{type_}>!"))
             .clone()
     }
 

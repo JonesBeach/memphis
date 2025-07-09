@@ -140,7 +140,7 @@ impl Compiler {
                 body,
             } => self.compile_class_definition(name, parents, metaclass, body)?,
             StatementKind::RegularImport(items) => self.compile_regular_import(items)?,
-            _ => return Err(unsupported(&format!("Statement type: {:?}", stmt))),
+            _ => return Err(unsupported(&format!("Statement type: {stmt:?}"))),
         };
 
         Ok(())
@@ -168,7 +168,7 @@ impl Compiler {
             }
             Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
             Expr::Yield(value) => self.compile_yield(value),
-            _ => Err(unsupported(&format!("Expression type: {:?}", expr))),
+            _ => Err(unsupported(&format!("Expression type: {expr:?}"))),
         }
     }
 
@@ -539,7 +539,7 @@ impl Compiler {
             UnaryOp::Plus => None,
             UnaryOp::Not => Some(Opcode::UnaryNot),
             UnaryOp::BitwiseNot => Some(Opcode::UnaryInvert),
-            _ => return Err(unsupported(&format!("unary op: {:?}", op))),
+            _ => return Err(unsupported(&format!("unary op: {op:?}"))),
         };
         if let Some(opcode) = opcode {
             self.emit(opcode)?;
@@ -566,7 +566,7 @@ impl Compiler {
             BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
             BinOp::GreaterThan => Opcode::GreaterThan,
             BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
-            _ => return Err(unsupported(&format!("binary op: {:?}", op))),
+            _ => return Err(unsupported(&format!("binary op: {op:?}"))),
         };
 
         self.emit(opcode)?;
@@ -656,7 +656,7 @@ impl Compiler {
 
     fn get_or_set_local_index(&mut self, name: &str) -> CompilerResult<LocalIndex> {
         log(LogLevel::Debug, || {
-            format!("Looking for '{}' in locals", name)
+            format!("Looking for '{name}' in locals")
         });
         if let Some(index) = self.get_local_index(name)? {
             Ok(index)
@@ -691,7 +691,7 @@ impl Compiler {
 
     fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
         log(LogLevel::Debug, || {
-            format!("Looking for '{}' in globals", name)
+            format!("Looking for '{name}' in globals")
         });
         let code = self.ensure_code_object_mut()?;
         let index = if let Some(index) = find_index(&code.names, name) {
@@ -706,7 +706,7 @@ impl Compiler {
 
     fn get_or_set_constant_index(&mut self, value: Constant) -> CompilerResult<ConstantIndex> {
         log(LogLevel::Debug, || {
-            format!("Looking for '{}' in constants", value)
+            format!("Looking for '{value}' in constants")
         });
         let code = self.ensure_code_object_mut()?;
         let index = if let Some(index) = find_index(&code.constants, &value) {

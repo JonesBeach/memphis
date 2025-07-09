@@ -59,12 +59,11 @@ pub fn bind_args(
         };
         let arg_names = missing_args
             .into_iter()
-            .map(|a| format!("'{}'", a))
+            .map(|a| format!("'{a}'"))
             .collect::<Vec<_>>()
             .join(" and ");
         return Err(interpreter.type_error(format!(
-            "{}() missing {} required positional {}: {}",
-            callee_name, num_missing, noun, arg_names
+            "{callee_name}() missing {num_missing} required positional {noun}: {arg_names}"
         )));
     }
 

@@ -79,7 +79,7 @@ impl VirtualMachine {
             .global_store
             .get(name)
             .copied()
-            .unwrap_or_else(|| panic!("Failed to find var: {}", name)))
+            .unwrap_or_else(|| panic!("Failed to find var: {name}")))
     }
 
     pub fn module(&self) -> VmResult<Container<Module>> {
@@ -176,7 +176,7 @@ impl VirtualMachine {
                 println!("After pop:");
                 let frame = self.current_frame().expect("No frame!");
                 for (index, local) in frame.locals.iter().rev().enumerate() {
-                    println!("{}: {}", index, local);
+                    println!("{index}: {local}");
                 }
             });
             return Ok(value);
@@ -193,7 +193,7 @@ impl VirtualMachine {
             println!("After push:");
             let frame = self.current_frame().expect("No frame!");
             for (index, local) in frame.locals.iter().rev().enumerate() {
-                println!("{}: {}", index, local);
+                println!("{index}: {local}");
             }
         });
 
@@ -500,7 +500,7 @@ impl VirtualMachine {
 
         log(LogLevel::Debug, || {
             let code_name = &frame.function.code_object.name();
-            format!("{}: {:?}", code_name, opcode)
+            format!("{code_name}: {opcode:?}")
         });
 
         match opcode {
@@ -747,7 +747,7 @@ impl VirtualMachine {
     }
 
     fn load(&mut self, code: CodeObject) -> VmResult<()> {
-        log(LogLevel::Debug, || format!("{:?}", code));
+        log(LogLevel::Debug, || format!("{code:?}"));
         let mut module = Module::new(code.source.name());
         register_builtins(self, &mut module);
         self.runtime

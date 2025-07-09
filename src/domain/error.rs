@@ -73,26 +73,25 @@ impl Display for ExecutionErrorKind {
         match self {
             ExecutionErrorKind::RuntimeError => write!(f, "RuntimeError"),
             ExecutionErrorKind::ImportError(name) => {
-                write!(f, "ImportError: No module named {}", name)
+                write!(f, "ImportError: No module named {name}")
             }
             ExecutionErrorKind::TypeError(message) => match message {
-                Some(message) => write!(f, "TypeError: {}", message),
+                Some(message) => write!(f, "TypeError: {message}"),
                 None => write!(f, "TypeError"),
             },
-            ExecutionErrorKind::KeyError(key) => write!(f, "KeyError: '{}'", key),
-            ExecutionErrorKind::ValueError(message) => write!(f, "ValueError: '{}'", message),
+            ExecutionErrorKind::KeyError(key) => write!(f, "KeyError: '{key}'"),
+            ExecutionErrorKind::ValueError(message) => write!(f, "ValueError: '{message}'"),
             ExecutionErrorKind::NameError(name) => {
-                write!(f, "NameError: name '{}' is not defined", name)
+                write!(f, "NameError: name '{name}' is not defined")
             }
             ExecutionErrorKind::AttributeError(class_name, field) => {
                 write!(
                     f,
-                    "AttributeError: '{}' object has no attribute '{}'",
-                    class_name, field
+                    "AttributeError: '{class_name}' object has no attribute '{field}'"
                 )
             }
             ExecutionErrorKind::DivisionByZero(message) => {
-                write!(f, "ZeroDivisionError: {}", message)
+                write!(f, "ZeroDivisionError: {message}")
             }
             ExecutionErrorKind::StopIteration => {
                 write!(f, "StopIteration")

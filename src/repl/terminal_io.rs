@@ -36,14 +36,14 @@ impl TerminalIO for CrosstermIO {
 
     /// Same as `write_output` but with a `\n` char at the end.
     fn writeln<T: Display>(&mut self, output: T) -> io::Result<()> {
-        self.write(format!("{}\n", output))
+        self.write(format!("{output}\n"))
     }
 }
 
 /// When the terminal is in raw mode, we must emit a carriage return in addition to a newline,
 /// because that does not happen automatically.
 fn normalize<T: Display>(err: T) -> String {
-    let formatted = format!("{}", err);
+    let formatted = format!("{err}");
     if terminal::is_raw_mode_enabled().expect("Failed to query terminal raw mode") {
         formatted.replace("\n", "\n\r")
     } else {

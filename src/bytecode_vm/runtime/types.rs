@@ -30,7 +30,7 @@ pub enum Reference {
 
 impl Display for Reference {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

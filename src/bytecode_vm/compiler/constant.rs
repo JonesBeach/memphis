@@ -18,11 +18,11 @@ impl Display for Constant {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
             Constant::None => write!(f, "None"),
-            Constant::Boolean(i) => write!(f, "{}", i),
-            Constant::Int(i) => write!(f, "{}", i),
-            Constant::Float(i) => write!(f, "{}", i),
-            Constant::String(i) => write!(f, "{}", i),
-            Constant::Code(i) => write!(f, "{}", i),
+            Constant::Boolean(i) => write!(f, "{i}"),
+            Constant::Int(i) => write!(f, "{i}"),
+            Constant::Float(i) => write!(f, "{i}"),
+            Constant::String(i) => write!(f, "{i}"),
+            Constant::Code(i) => write!(f, "{i}"),
         }
     }
 }

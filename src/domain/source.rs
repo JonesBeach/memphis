@@ -34,12 +34,12 @@ impl Source {
         P: AsRef<Path> + Display,
     {
         let text = std::fs::read_to_string(&filepath).unwrap_or_else(|_| {
-            eprintln!("Error reading file: {}", filepath);
+            eprintln!("Error reading file: {filepath}");
             process::exit(1);
         });
 
         let absolute_path = filepath.as_ref().canonicalize().unwrap_or_else(|_| {
-            eprintln!("Error resolving path: {}", filepath);
+            eprintln!("Error resolving path: {filepath}");
             process::exit(1);
         });
 

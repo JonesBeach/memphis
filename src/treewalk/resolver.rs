@@ -61,7 +61,7 @@ fn expand_path(path: &Path, segments: &[String]) -> [PathBuf; 2] {
     let base_path = rest
         .iter()
         .fold(path.to_path_buf(), append_segment)
-        .join(format!("{}.py", last));
+        .join(format!("{last}.py"));
 
     // Build the `../base/segment_one/segment_two/__init__.py` path
     let init_path = segments

@@ -34,7 +34,7 @@ impl VmInterpreter {
 
     pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<VmValue> {
         let code = self.compile(parser)?;
-        log(LogLevel::Trace, || format!("{}", code));
+        log(LogLevel::Trace, || format!("{code}"));
         self.vm.execute(code).map_err(MemphisError::Execution)
     }
 

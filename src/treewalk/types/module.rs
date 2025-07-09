@@ -27,7 +27,7 @@ impl Module {
         interpreter: &TreewalkInterpreter,
         import_path: &ImportPath,
     ) -> TreewalkResult<Container<Self>> {
-        log(LogLevel::Debug, || format!("Reading {}", import_path));
+        log(LogLevel::Debug, || format!("Reading {import_path}"));
         if let Some(module) = interpreter.state.fetch_module(import_path) {
             return Ok(module);
         }
@@ -57,7 +57,7 @@ impl Module {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
-                println!("{}", e);
+                println!("{e}");
                 return Err(interpreter.error(ExecutionErrorKind::SyntaxError));
             }
             _ => unreachable!(),

@@ -103,11 +103,11 @@ impl Display for VmValue {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
             VmValue::None => write!(f, "None"),
-            VmValue::Int(i) => write!(f, "{}", i),
-            VmValue::String(i) => write!(f, "{}", i),
-            VmValue::Bool(i) => write!(f, "{}", i),
-            VmValue::Code(i) => write!(f, "{}", i),
-            VmValue::BuiltinFunction(i) => write!(f, "{}", i),
+            VmValue::Int(i) => write!(f, "{i}"),
+            VmValue::String(i) => write!(f, "{i}"),
+            VmValue::Bool(i) => write!(f, "{i}"),
+            VmValue::Code(i) => write!(f, "{i}"),
+            VmValue::BuiltinFunction(i) => write!(f, "{i}"),
             _ => unimplemented!("Type {:?} unimplemented in the bytecode VM.", self),
         }
     }

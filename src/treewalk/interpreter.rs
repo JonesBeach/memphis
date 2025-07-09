@@ -154,7 +154,7 @@ impl TreewalkInterpreter {
             )
         });
         if let Some(class) = self.state.current_class() {
-            log(LogLevel::Trace, || format!("... from class: {}", class));
+            log(LogLevel::Trace, || format!("... from class: {class}"));
         }
 
         let method = self.resolve_method(receiver, name)?;
@@ -499,7 +499,7 @@ impl TreewalkInterpreter {
                 }
                 FStringPart::Expr(e) => {
                     let r = self.evaluate_expr(&e.expr)?;
-                    write!(result, "{}", r).unwrap();
+                    write!(result, "{r}").unwrap();
                 }
             }
         }
@@ -548,7 +548,7 @@ impl TreewalkInterpreter {
         name: &str,
         call_args: &CallArgs,
     ) -> TreewalkResult<TreewalkValue> {
-        log(LogLevel::Debug, || format!("Instantiating: {}", name));
+        log(LogLevel::Debug, || format!("Instantiating: {name}"));
         log(LogLevel::Trace, || {
             format!("... from module: {}", self.state.current_module())
         });
@@ -559,7 +559,7 @@ impl TreewalkInterpreter {
             )
         });
         if let Some(class) = self.state.current_class() {
-            log(LogLevel::Trace, || format!("... from class: {}", class));
+            log(LogLevel::Trace, || format!("... from class: {class}"));
         }
 
         let class = self.read_callable(name)?;
@@ -710,7 +710,7 @@ impl TreewalkInterpreter {
         metaclass: &Option<String>,
         body: &Ast,
     ) -> TreewalkResult<()> {
-        log(LogLevel::Debug, || format!("Defining class: {}", name));
+        log(LogLevel::Debug, || format!("Defining class: {name}"));
         let parent_classes = parents
             .iter()
             .map(|p| self.evaluate_expr(p))

@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
     fn consume(&mut self, expected: &Token) -> Result<(), ParserError> {
         let current = self.tokens.peek(0);
 
-        log(LogLevel::Trace, || format!("Token: {:?}", current));
+        log(LogLevel::Trace, || format!("Token: {current:?}"));
 
         if current != expected {
             return Err(ParserError::ExpectedToken(

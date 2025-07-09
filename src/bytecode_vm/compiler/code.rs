@@ -104,26 +104,26 @@ impl Debug for CodeObject {
         writeln!(f, "CodeObject: {}", self.name())?;
         writeln!(f, "names:")?;
         for (index, name) in self.names.iter().enumerate() {
-            writeln!(f, "{}: {:?}", name, index)?;
+            writeln!(f, "{name}: {index:?}")?;
         }
 
         writeln!(f, "\nconstants:")?;
         for (index, constant) in self.constants.iter().enumerate() {
-            writeln!(f, "{}: {}", index, constant)?;
+            writeln!(f, "{index}: {constant}")?;
         }
 
         for constant in self.constants.iter() {
             if let Constant::Code(code) = constant {
                 writeln!(f, "\n{}:", code.name())?;
                 for (index, opcode) in code.bytecode.iter().enumerate() {
-                    writeln!(f, "{}: {}", index, opcode)?;
+                    writeln!(f, "{index}: {opcode}")?;
                 }
             }
         }
 
         writeln!(f, "\n{}:", self.name())?;
         for (index, opcode) in self.bytecode.iter().enumerate() {
-            writeln!(f, "{}: {}", index, opcode)?;
+            writeln!(f, "{index}: {opcode}")?;
         }
 
         Ok(())

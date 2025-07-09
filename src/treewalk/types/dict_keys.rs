@@ -18,8 +18,8 @@ impl DictKeys {
 impl Display for DictKeys {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let items = self.items.clone();
-        let formatted = format_comma_separated_with(items, |key| format!("'{}'", key));
-        write!(f, "[{}]", formatted)
+        let formatted = format_comma_separated_with(items, |key| format!("'{key}'"));
+        write!(f, "[{formatted}]")
     }
 }
 

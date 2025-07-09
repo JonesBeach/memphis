@@ -213,7 +213,7 @@ impl Lexer {
         let mut chars = input.chars().peekable();
 
         while let Some(&c) = chars.peek() {
-            log(LogLevel::Trace, || format!("char: {}", c));
+            log(LogLevel::Trace, || format!("char: {c}"));
             if c == '#' {
                 // Comments cause the rest of the line to be ignored
                 break;

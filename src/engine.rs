@@ -22,7 +22,7 @@ impl Engine {
                 #[cfg(feature = "llvm_backend")]
                 "llvm_backend" => Engine::LlvmBackend,
                 "treewalk" => Engine::Treewalk,
-                _ => panic!("Unsupported engine: {}", mode),
+                _ => panic!("Unsupported engine: {mode}"),
             }
         } else {
             Self::DEFAULT_ENGINE

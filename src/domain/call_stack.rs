@@ -87,7 +87,7 @@ impl Display for DebugCallStack {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         writeln!(f, "Traceback (most recent call last):")?;
         for frame in &self.frames {
-            writeln!(f, "  {}", frame)?;
+            writeln!(f, "  {frame}")?;
         }
         Ok(())
     }

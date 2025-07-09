@@ -107,7 +107,7 @@ impl Visitor for FunctionAnalysisVisitor {
     fn visit_ast(&mut self, _program: &Ast) {}
 
     fn visit_statement(&mut self, statement: &Statement) {
-        log(LogLevel::Trace, || format!("Visiting {:?}", statement));
+        log(LogLevel::Trace, || format!("Visiting {statement:?}"));
 
         self.check_for_local_vars(&statement.kind);
         self.check_for_accessed_vars(&statement.kind);

@@ -154,7 +154,7 @@ impl CPythonModule {
         pyo3::prepare_freethreaded_python();
         let pymodule = Python::with_gil(|py| {
             py.import(name)
-                .unwrap_or_else(|_| panic!("Failed to import CPython module '{}'", name))
+                .unwrap_or_else(|_| panic!("Failed to import CPython module '{name}'"))
                 .into()
         });
 

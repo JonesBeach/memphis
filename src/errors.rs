@@ -29,9 +29,9 @@ pub enum ParserError {
 impl Display for MemphisError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            MemphisError::Parser(e) => write!(f, "Parser error: {}", e),
-            MemphisError::Compiler(e) => write!(f, "Compiler error: {}", e),
-            MemphisError::Execution(e) => write!(f, "{}", e),
+            MemphisError::Parser(e) => write!(f, "Parser error: {e}"),
+            MemphisError::Compiler(e) => write!(f, "Compiler error: {e}"),
+            MemphisError::Execution(e) => write!(f, "{e}"),
         }
     }
 }
@@ -39,9 +39,9 @@ impl Display for MemphisError {
 impl Display for LexerError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            LexerError::UnexpectedCharacter(c) => write!(f, "Unexpected character: {}", c),
-            LexerError::InvalidToken(t) => write!(f, "Invalid token: {}", t),
-            LexerError::InternalError(msg) => write!(f, "Internal Error: {}", msg),
+            LexerError::UnexpectedCharacter(c) => write!(f, "Unexpected character: {c}"),
+            LexerError::InvalidToken(t) => write!(f, "Invalid token: {t}"),
+            LexerError::InternalError(msg) => write!(f, "Internal Error: {msg}"),
         }
     }
 }
@@ -50,13 +50,13 @@ impl Display for ParserError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
             ParserError::ExpectedToken(expected, found) => {
-                write!(f, "Expected token {:?}, found {:?}", expected, found)
+                write!(f, "Expected token {expected:?}, found {found:?}")
             }
             ParserError::UnexpectedToken(token) => {
-                write!(f, "Unexpected token \"{:?}\"", token)
+                write!(f, "Unexpected token \"{token:?}\"")
             }
             ParserError::ExpectedException(s) => {
-                write!(f, "Expected exception: \"{:?}\" is not defined", s)
+                write!(f, "Expected exception: \"{s:?}\" is not defined")
             }
             ParserError::SyntaxError => {
                 write!(f, "SyntaxError")

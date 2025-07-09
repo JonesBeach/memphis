@@ -42,7 +42,7 @@ impl MemberRead for Super {
 
         if let Some(attr) = parent_class.get_member(interpreter, name)? {
             log(LogLevel::Debug, || {
-                format!("Found: {}::{} on class via super()", parent_class, name)
+                format!("Found: {parent_class}::{name} on class via super()")
             });
             return Ok(Some(attr.resolve_descriptor(
                 interpreter,

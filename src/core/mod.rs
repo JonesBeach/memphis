@@ -28,7 +28,7 @@ pub mod memphis_utils {
     /// top level of the `Memphis` runtime or inline in select cases where a hard interface
     /// constraits the caller from propagating an error upwards.
     pub fn exit(err: MemphisError) -> ! {
-        eprintln!("{}", err);
+        eprintln!("{err}");
         process::exit(1);
     }
 }

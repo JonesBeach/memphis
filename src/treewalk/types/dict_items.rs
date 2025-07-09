@@ -82,7 +82,7 @@ impl DictItems {
         let formatted = format_comma_separated_with(items, |pair| {
             format!("'{}': {}", pair.first_inner(), pair.second())
         });
-        write!(f, "{{{}}}", formatted)
+        write!(f, "{{{formatted}}}")
     }
 }
 
@@ -92,7 +92,7 @@ impl Display for DictItems {
         let formatted = format_comma_separated_with(items, |pair| {
             format!("('{}', {})", pair.first_inner(), pair.second())
         });
-        write!(f, "[{}]", formatted)
+        write!(f, "[{formatted}]")
     }
 }
 

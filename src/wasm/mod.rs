@@ -24,7 +24,7 @@ pub fn evaluate(code: String) -> String {
 
     let mut context = MemphisContext::new(Engine::Treewalk, Source::from_text(&code));
     let result = context.run().expect("Failed to evaluate.");
-    format!("{}", result)
+    format!("{result}")
 }
 
 use serde::Serialize;

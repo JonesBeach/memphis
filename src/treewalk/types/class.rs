@@ -231,9 +231,7 @@ impl Container<Class> {
     }
 
     pub fn get_from_class(&self, name: &str) -> Option<TreewalkValue> {
-        log(LogLevel::Debug, || {
-            format!("Searching for: {}::{}", self, name)
-        });
+        log(LogLevel::Debug, || format!("Searching for: {self}::{name}"));
 
         self.search_mro(name)
     }
@@ -266,7 +264,7 @@ impl MemberRead for Container<Class> {
     ) -> TreewalkResult<Option<TreewalkValue>> {
         if let Some(attr) = self.get_from_class(name) {
             log(LogLevel::Debug, || {
-                format!("Found: {}::{} on class [from class]", self, name)
+                format!("Found: {self}::{name} on class [from class]")
             });
             return Ok(Some(attr.resolve_descriptor(
                 interpreter,
@@ -277,7 +275,7 @@ impl MemberRead for Container<Class> {
 
         if let Some(attr) = self.get_from_metaclass(name) {
             log(LogLevel::Debug, || {
-                format!("Found: {}::{} on metaclass", self, name)
+                format!("Found: {self}::{name} on metaclass")
             });
             return Ok(Some(attr.resolve_descriptor(
                 interpreter,
