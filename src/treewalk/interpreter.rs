@@ -13,10 +13,10 @@ use crate::{
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
-            Ast, BinOp, CallArgs, CompoundOperator, ConditionalAst, DictOperation, ExceptClause,
-            ExceptionInstance, Expr, FStringPart, ForClause, ImportPath, ImportedItem, LogicalOp,
-            LoopIndex, Params, RegularImport, SliceParams, Statement, StatementKind, TypeNode,
-            UnaryOp, Variable,
+            Ast, BinOp, CallArgs, Callee, CompoundOperator, ConditionalAst, DictOperation,
+            ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause, ImportPath,
+            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -514,33 +514,17 @@ impl TreewalkInterpreter {
 
     fn evaluate_function_call(
         &self,
-        name: &str,
+        callee: &Callee,
         call_args: &CallArgs,
-        callee: &Option<Box<Expr>>,
     ) -> TreewalkResult<TreewalkValue> {
         let args = Args::from(self, call_args)?;
 
-        let function = if let Some(callee) = callee {
-            self.evaluate_expr(callee)?.expect_callable(self)?
-        } else {
-            self.read_callable(name)?
+        let function = match callee {
+            Callee::Expr(callee) => self.evaluate_expr(callee)?.expect_callable(self)?,
+            Callee::Symbol(name) => self.read_callable(name)?,
         };
 
         self.call_function_inner(function, args)
-    }
-
-    fn evaluate_method_call<S>(
-        &self,
-        obj: &Expr,
-        name: S,
-        call_args: &CallArgs,
-    ) -> TreewalkResult<TreewalkValue>
-    where
-        S: AsRef<str>,
-    {
-        let args = Args::from(self, call_args)?;
-        let result = self.evaluate_expr(obj)?;
-        self.invoke_method(&result, name, args)
     }
 
     fn evaluate_class_instantiation(
@@ -1179,9 +1163,7 @@ impl TreewalkInterpreter {
                 self.evaluate_binary_operation(left, op, right)
             }
             Expr::Await(right) => self.evaluate_await(right),
-            Expr::FunctionCall { name, args, callee } => {
-                self.evaluate_function_call(name, args, callee)
-            }
+            Expr::FunctionCall { callee, args } => self.evaluate_function_call(callee, args),
             Expr::ClassInstantiation { name, args } => {
                 self.evaluate_class_instantiation(name, args)
             }
@@ -1193,9 +1175,6 @@ impl TreewalkInterpreter {
                 if_value,
                 else_value,
             } => self.evaluate_ternary_operation(condition, if_value, else_value),
-            Expr::MethodCall { object, name, args } => {
-                self.evaluate_method_call(object, name, args)
-            }
             Expr::MemberAccess { object, field } => self.evaluate_member_access(object, field),
             Expr::IndexAccess { object, index } => self.evaluate_index_access(object, index),
             Expr::SliceOperation { object, params } => {
@@ -3455,7 +3434,7 @@ c = _cell_factory()
     }
 
     #[test]
-    fn decorators() {
+    fn function_call_with_callee() {
         let input = r#"
 def test_decorator(func):
     def wrapper():
@@ -3465,8 +3444,23 @@ def test_decorator(func):
 def get_val_undecorated():
     return 2
 
+a = test_decorator(get_val_undecorated)()
+"#;
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", int!(4));
+    }
+
+    #[test]
+    fn decorators() {
+        let input = r#"
+def test_decorator(func):
+    def wrapper():
+        return func() * 2
+    return wrapper
+
 @test_decorator
-def get_val_decorated():
+def once_decorated():
     return 2
 
 @test_decorator
@@ -3474,21 +3468,19 @@ def get_val_decorated():
 def twice_decorated():
     return 2
 
-a = test_decorator(get_val_undecorated)()
-b = get_val_decorated()
+b = once_decorated()
 c = twice_decorated()
 "#;
         let ctx = run(input);
 
-        assert_read_eq!(ctx, "a", int!(4));
         assert_read_eq!(ctx, "b", int!(4));
         assert_read_eq!(ctx, "c", int!(8));
 
         let input = r#"
 def multiply(factor):
     def decorator(func):
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs) * factor
+        def wrapper():
+            return func() * factor
         return wrapper
     return decorator
 

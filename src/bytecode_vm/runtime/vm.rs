@@ -496,12 +496,9 @@ impl VirtualMachine {
         // Save this in case we encounter a runtime exception and need to record this info in
         // the stack trace
         self.state.set_line_number(frame.current_line());
-        let opcode = frame.get_inst();
+        let opcode = frame.current_inst();
 
-        log(LogLevel::Debug, || {
-            let code_name = &frame.function.code_object.name();
-            format!("{code_name}: {opcode:?}")
-        });
+        log(LogLevel::Debug, || frame.current_inst_annotated());
 
         match opcode {
             Opcode::Add => {
@@ -681,19 +678,20 @@ impl VirtualMachine {
                         let reference = builtin.call(self, args)?;
                         self.push(reference)?;
                     }
-                    VmValue::Function(ref function) => match function.function_type() {
-                        FunctionType::Regular => {
-                            let frame = self.convert_function_to_frame(function.clone(), args)?;
-                            let return_val_ref = self.call_and_return_val(frame)?;
-                            self.push(return_val_ref)?;
+                    VmValue::Function(ref function) => {
+                        let frame = self.convert_function_to_frame(function.clone(), args)?;
+                        match function.function_type() {
+                            FunctionType::Regular => {
+                                let return_val_ref = self.call_and_return_val(frame)?;
+                                self.push(return_val_ref)?;
+                            }
+                            FunctionType::Generator => {
+                                let generator = Container::new(Generator::new(frame));
+                                self.push_value(VmValue::Generator(generator))?
+                            }
+                            FunctionType::Async => unimplemented!("Async functions"),
                         }
-                        FunctionType::Generator => {
-                            let frame = self.convert_function_to_frame(function.clone(), args)?;
-                            let generator = Container::new(Generator::new(frame));
-                            self.push_value(VmValue::Generator(generator))?
-                        }
-                        FunctionType::Async => unimplemented!("Async functions"),
-                    },
+                    }
                     VmValue::Method(ref method) => {
                         let frame = self.convert_method_to_frame(method.clone(), args)?;
                         let return_val_ref = self.call_and_return_val(frame)?;

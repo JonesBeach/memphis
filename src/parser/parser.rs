@@ -7,7 +7,7 @@ use crate::{
     lexer::{Lexer, Token},
     parser::{
         types::{
-            ast, Alias, Ast, BinOp, CallArg, CallArgs, CompoundOperator, ConditionalAst,
+            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompoundOperator, ConditionalAst,
             DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart,
             ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp,
             LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
@@ -256,20 +256,10 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Dot)?;
         let field = self.parse_identifier()?;
 
-        if self.current_token() == &Token::LParen {
-            let args = self.parse_function_call_args()?;
-
-            Ok(Expr::MethodCall {
-                object: Box::new(left),
-                name: field.clone(),
-                args,
-            })
-        } else {
-            Ok(Expr::MemberAccess {
-                object: Box::new(left),
-                field: field.clone(),
-            })
-        }
+        Ok(Expr::MemberAccess {
+            object: Box::new(left),
+            field: field.clone(),
+        })
     }
 
     fn parse_index_access(&mut self, left: Expr) -> Result<Expr, ParserError> {
@@ -377,9 +367,8 @@ impl<'a> Parser<'a> {
         if self.current_token() == &Token::LParen {
             let args = self.parse_function_call_args()?;
             left = Expr::FunctionCall {
-                name: "<anonymous_from_callee>".into(),
+                callee: Callee::Expr(Box::new(left)),
                 args,
-                callee: Some(Box::new(left)),
             }
         }
 
@@ -590,9 +579,8 @@ impl<'a> Parser<'a> {
                     let args = self.parse_function_call_args()?;
 
                     Ok(Expr::FunctionCall {
-                        name,
+                        callee: Callee::Symbol(name),
                         args,
-                        callee: None,
                     })
                 } else if self.current_token().is_type() {
                     let type_node = self.parse_type_node()?;
@@ -1841,7 +1829,7 @@ mod tests {
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "\"\".join([])";
-        let expected_ast = method_call!(str!(""), "join", call_args![list![]]);
+        let expected_ast = func_call_callee!(member_access!(str!(""), "join"), call_args![list![]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -1938,11 +1926,7 @@ def add(x, y):
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "(lambda: (yield))()";
-        let expected_ast = func_call!(
-            "<anonymous_from_callee>",
-            call_args![],
-            lambda!(params![], yield_expr!())
-        );
+        let expected_ast = func_call_callee!(lambda!(params![], yield_expr!()), call_args![]);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -2275,7 +2259,7 @@ class Foo:
     #[test]
     fn method_invocation() {
         let input = "foo.bar()";
-        let expected_ast = method_call!(var!("foo"), "bar");
+        let expected_ast = func_call_callee!(member_access!(var!("foo"), "bar"));
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2333,18 +2317,16 @@ pass
         assert_stmt_eq!(asts.get(1).unwrap(), stmt!(StatementKind::Pass));
 
         let input = "mypackage.myothermodule.add('1', '1')";
-        let expected_ast = method_call!(
-            member_access!(var!("mypackage"), "myothermodule"),
-            "add",
+        let expected_ast = func_call_callee!(
+            member_access!(member_access!(var!("mypackage"), "myothermodule"), "add"),
             call_args![str!("1"), str!("1")]
         );
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "cls._abc_registry.add(subclass)";
-        let expected_ast = method_call!(
-            member_access!(var!("cls"), "_abc_registry"),
-            "add",
+        let expected_ast = func_call_callee!(
+            member_access!(member_access!(var!("cls"), "_abc_registry"), "add"),
             call_args![var!("subclass")]
         );
 
@@ -2721,7 +2703,7 @@ for k, v in a.items():
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
-            iterable: method_call!(var!("a"), "items"),
+            iterable: func_call_callee!(member_access!(var!("a"), "items")),
             body: ast![stmt_expr!(func_call!("print", call_args![var!("v")]))],
             else_block: None,
         });
@@ -2930,9 +2912,8 @@ async def main():
             body: ast![
                 stmt_assign!(
                     var!("task_1"),
-                    method_call!(
-                        var!("asyncio"),
-                        "create_task",
+                    func_call_callee!(
+                        member_access!(var!("asyncio"), "create_task"),
                         call_args![func_call!("task1")]
                     )
                 ),
@@ -3268,7 +3249,7 @@ deprecated("collections.abc.ByteString",
     }
 
     #[test]
-    fn decorator() {
+    fn decorators() {
         let input = r#"
 @test_decorator
 def get_val():
@@ -3285,10 +3266,9 @@ def get_val():
         assert_ast_eq!(input, expected_ast);
 
         let input = "test_decorator(get_val_undecorated)()";
-        let expected_ast = func_call!(
-            "<anonymous_from_callee>",
-            call_args![],
-            func_call!("test_decorator", call_args![var!("get_val_undecorated")])
+        let expected_ast = func_call_callee!(
+            func_call!("test_decorator", call_args![var!("get_val_undecorated")]),
+            call_args![]
         );
 
         assert_ast_eq!(input, expected_ast, Expr);

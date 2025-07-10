@@ -94,7 +94,7 @@ impl VmContext {
 
 #[cfg(test)]
 impl VmContext {
-    pub fn read(&mut self, name: &str) -> Option<VmValue> {
+    pub fn read(&self, name: &str) -> Option<VmValue> {
         self.interpreter.read_global(name)
     }
 

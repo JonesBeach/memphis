@@ -183,42 +183,30 @@ macro_rules! lambda {
 macro_rules! func_call {
     ($name:expr) => {
         $crate::parser::types::Expr::FunctionCall {
-            name: $name.to_string(),
+            callee: $crate::parser::types::Callee::Symbol($name.to_string()),
             args: call_args![],
-            callee: None,
         }
     };
 
     ($name:expr, $args:expr) => {
         $crate::parser::types::Expr::FunctionCall {
-            name: $name.to_string(),
+            callee: $crate::parser::types::Callee::Symbol($name.to_string()),
             args: $args,
-            callee: None,
-        }
-    };
-
-    ($name:expr, $args:expr, $callee:expr) => {
-        $crate::parser::types::Expr::FunctionCall {
-            name: $name.to_string(),
-            args: $args,
-            callee: Some(Box::new($callee)),
         }
     };
 }
 
-macro_rules! method_call {
-    ($object:expr, $name:expr) => {
-        $crate::parser::types::Expr::MethodCall {
-            object: Box::new($object),
-            name: $name.to_string(),
+macro_rules! func_call_callee {
+    ($callee:expr) => {
+        $crate::parser::types::Expr::FunctionCall {
+            callee: $crate::parser::types::Callee::Expr(Box::new($callee)),
             args: call_args![],
         }
     };
 
-    ($object:expr, $name:expr, $args:expr) => {
-        $crate::parser::types::Expr::MethodCall {
-            object: Box::new($object),
-            name: $name.to_string(),
+    ($callee:expr, $args:expr) => {
+        $crate::parser::types::Expr::FunctionCall {
+            callee: $crate::parser::types::Callee::Expr(Box::new($callee)),
             args: $args,
         }
     };
@@ -229,12 +217,12 @@ pub(crate) use bool;
 pub(crate) use call_args;
 pub(crate) use float;
 pub(crate) use func_call;
+pub(crate) use func_call_callee;
 pub(crate) use int;
 pub(crate) use lambda;
 pub(crate) use list;
 pub(crate) use logic_op;
 pub(crate) use member_access;
-pub(crate) use method_call;
 pub(crate) use param;
 pub(crate) use params;
 pub(crate) use set;

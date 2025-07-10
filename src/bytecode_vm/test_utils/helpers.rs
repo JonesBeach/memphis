@@ -54,11 +54,11 @@ pub fn run_path_expect_error(path: &str) -> ExecutionError {
     };
 }
 
-pub fn read(context: &mut VmContext, name: &str) -> VmValue {
+pub fn read(context: &VmContext, name: &str) -> VmValue {
     context.read(name).expect("Failed to read variable.")
 }
 
-pub fn read_attr(context: &mut VmContext, name: &str, attr: &str) -> VmValue {
+pub fn read_attr(context: &VmContext, name: &str, attr: &str) -> VmValue {
     let object = read(context, name);
     let interpreter = context.interpreter();
     let reference = interpreter

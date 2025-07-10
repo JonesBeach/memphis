@@ -6,7 +6,7 @@ macro_rules! assert_eval_eq {
 
 macro_rules! assert_read_eq {
     ($ctx:expr, $input:expr, $expected:expr) => {
-        assert_eq!(read(&mut $ctx, $input), $expected);
+        assert_eq!(read(&$ctx, $input), $expected);
     };
 }
 

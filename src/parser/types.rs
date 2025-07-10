@@ -301,6 +301,12 @@ pub struct ForClause {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum Callee {
+    Symbol(String),
+    Expr(Box<Expr>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     None,
     NotImplemented,
@@ -351,16 +357,10 @@ pub enum Expr {
         params: SliceParams,
     },
     FunctionCall {
-        name: String,
+        callee: Callee,
         args: CallArgs,
-        callee: Option<Box<Expr>>,
     },
     ClassInstantiation {
-        name: String,
-        args: CallArgs,
-    },
-    MethodCall {
-        object: Box<Expr>,
         name: String,
         args: CallArgs,
     },

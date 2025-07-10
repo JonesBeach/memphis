@@ -36,8 +36,15 @@ impl Frame {
         }
     }
 
-    pub fn get_inst(&self) -> Opcode {
+    pub fn current_inst(&self) -> Opcode {
         self.function.code_object.bytecode[self.pc]
+    }
+
+    pub fn current_inst_annotated(&self) -> String {
+        let code = &self.function.code_object;
+        let code_name = &code.name();
+        let op = self.current_inst().display_annotated(code);
+        format!("{code_name}: {op}")
     }
 
     pub fn is_finished(&self) -> bool {

@@ -8,8 +8,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, FunctionType, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, ConditionalAst, Expr, ImportPath, LogicalOp, LoopIndex, Params,
-        RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, ConditionalAst, Expr, ImportPath, LogicalOp, LoopIndex,
+        Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -163,10 +163,7 @@ impl Compiler {
                 self.compile_logical_operation(left, op, right)
             }
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
-            Expr::FunctionCall { name, args, callee } => {
-                self.compile_function_call(name, args, callee)
-            }
-            Expr::MethodCall { object, name, args } => self.compile_method_call(object, name, args),
+            Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
             Expr::Yield(value) => self.compile_yield(value),
             _ => Err(unsupported(&format!("Expression type: {expr:?}"))),
         }
@@ -376,6 +373,24 @@ impl Compiler {
         Ok(())
     }
 
+    /// Load a CodeObject and turn it into a function or closure.
+    fn make_function(&mut self, code: CodeObject) -> CompilerResult<()> {
+        let free_vars = code.freevars.clone();
+        self.compile_code(code)?;
+
+        if free_vars.is_empty() {
+            self.emit(Opcode::MakeFunction)?;
+        } else {
+            // We push the free vars onto the stack in reverse order so that we will pop
+            // them off in order.
+            for free_var in free_vars.iter().rev() {
+                self.compile_load(free_var)?;
+            }
+            self.emit(Opcode::MakeClosure(free_vars.len()))?;
+        }
+        Ok(())
+    }
+
     fn compile_function_definition(
         &mut self,
         name: &str,
@@ -384,11 +399,6 @@ impl Compiler {
         decorators: &[Expr],
         is_async: &bool,
     ) -> CompilerResult<()> {
-        if !decorators.is_empty() {
-            return Err(unsupported(
-                "Decorators are not yet supported in the bytecode VM.",
-            ));
-        }
         if *is_async {
             return Err(unsupported(
                 "Async functions are not yet supported in the bytecode VM.",
@@ -416,19 +426,22 @@ impl Compiler {
         );
 
         let code = self.compile_ast_with_code(body, code_object)?;
-        let free_vars = code.freevars.clone();
-        self.compile_code(code)?;
 
-        if free_vars.is_empty() {
-            self.emit(Opcode::MakeFunction)?;
-        } else {
-            // We push the free vars onto the stack in reverse order so that we will pop
-            // them off in order.
-            for free_var in free_vars.iter().rev() {
-                self.compile_load(free_var)?;
-            }
-            self.emit(Opcode::MakeClosure(free_vars.len()))?;
+        // Compile decorators in reverse
+        for decorator in decorators.iter().rev() {
+            self.compile_expr(decorator)?;
         }
+
+        // Make the functino/closure itself out of the compiled code
+        self.make_function(code)?;
+
+        // Apply the decorators - innermost outward
+        for _ in decorators {
+            // The 1 is for the function we are wrapping
+            self.emit(Opcode::Call(1))?;
+        }
+
+        // Bind the final decorated function
         self.compile_store(name)?;
         Ok(())
     }
@@ -603,19 +616,11 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_function_call(
-        &mut self,
-        name: &str,
-        args: &CallArgs,
-        callee: &Option<Box<Expr>>,
-    ) -> CompilerResult<()> {
-        if callee.is_some() {
-            return Err(unsupported(
-                "Callees for function calls not yet supported in the bytecode VM.",
-            ));
-        }
-
-        self.compile_load(name)?;
+    fn compile_function_call(&mut self, callee: &Callee, args: &CallArgs) -> CompilerResult<()> {
+        match callee {
+            Callee::Expr(callee) => self.compile_expr(callee)?,
+            Callee::Symbol(name) => self.compile_load(name)?,
+        };
 
         // We push the args onto the stack in reverse call order so that we will pop
         // them off in call order.
@@ -623,26 +628,6 @@ impl Compiler {
             self.compile_expr(arg)?;
         }
 
-        self.emit(Opcode::Call(args.args.len()))?;
-        Ok(())
-    }
-
-    fn compile_method_call(
-        &mut self,
-        object: &Expr,
-        name: &str,
-        args: &CallArgs,
-    ) -> CompilerResult<()> {
-        if !args.kwargs.is_empty() {
-            return Err(unsupported(
-                "Method calls with kwargs not yet supported for print in the bytecode VM.",
-            ));
-        }
-
-        self.compile_member_access(object, name)?;
-        for arg in args.args.iter().rev() {
-            self.compile_expr(arg)?;
-        }
         self.emit(Opcode::Call(args.args.len()))?;
         Ok(())
     }
@@ -1203,7 +1188,10 @@ mod tests_bytecode {
 
     #[test]
     fn method_call() {
-        let expr = method_call!(var!("foo"), "bar", call_args![int!(88), int!(99)]);
+        let expr = func_call_callee!(
+            member_access!(var!("foo"), "bar"),
+            call_args![int!(88), int!(99)]
+        );
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -1213,6 +1201,24 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::Call(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn function_call_with_callee() {
+        let expr = func_call_callee!(
+            func_call!("test_decorator", call_args![var!("get_val_undecorated")]),
+            call_args![]
+        );
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadGlobal(Index::new(1)),
+                Opcode::Call(1),
+                Opcode::Call(0),
             ]
         );
     }
@@ -1258,7 +1264,7 @@ def foo():
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1287,7 +1293,98 @@ def foo(a, b):
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn function_definition_with_decorator() {
+        let text = r#"
+@decorate
+def foo():
+    pass
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::Call(1),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["decorate".into(), fn_foo.name().into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn function_definition_with_multiple_decorators() {
+        let text = r#"
+@outer
+@inner
+def foo():
+    pass
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        let expected = CodeObject {
+            name: None,
+            bytecode: vec![
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::LoadGlobal(Index::new(1)),
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::MakeFunction,
+                Opcode::Call(1),
+                Opcode::Call(1),
+                Opcode::StoreGlobal(Index::new(2)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["inner".into(), "outer".into(), fn_foo.name().into()],
+            constants: vec![Constant::Code(fn_foo)],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
         assert_code_eq!(code, expected);
     }
 
@@ -1312,7 +1409,7 @@ def foo():
             function_type: FunctionType::Generator,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1359,7 +1456,7 @@ def foo(a, b):
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1394,7 +1491,7 @@ def foo():
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1425,7 +1522,7 @@ def foo():
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("foo", fn_foo);
+        let expected = wrap_top_level_function(fn_foo);
         assert_code_eq!(code, expected);
     }
 
@@ -1553,7 +1650,7 @@ def make_adder(x):
             function_type: FunctionType::Regular,
         };
 
-        let expected = wrap_top_level_function("make_adder", fn_make_adder);
+        let expected = wrap_top_level_function(fn_make_adder);
         assert_code_eq!(code, expected);
     }
 

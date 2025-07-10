@@ -11,7 +11,7 @@
 |Variable assignment|✅|✅|
 |Comments|✅|✅|
 |REPL|✅|✅|
-|Error handling|✅|🔄|
+|Error handling|✅|✅|
 |Control flow statements|✅|✅|
 |Function defintion and function calls|✅|✅|
 |Class definition, instatiation, and method calls|✅|✅|
@@ -20,10 +20,13 @@
 |Floating point|✅|✅|
 |Negative numbers|✅|✅|
 |Stack traces|✅|✅|
-|Lists (and list comprehension)|✅||
-|Sets (and set comprehension)|✅||
-|Dictionaries (and dict comprehension)|✅||
-|Iterables|✅||
+|Lists|✅|✅|
+|List comprehension|✅||
+|Sets|✅||
+|Set comprehension|✅||
+|Dictionaries|✅||
+|Dict comprehension|✅||
+|Iterables|✅|🔄|
 |Tuples|✅||
 |Ranges|✅|✅|
 |Generator functions|✅|✅|
@@ -33,8 +36,8 @@
 |async/await|✅||
 |Try-except blocks|✅||
 |Args and kwargs|✅||
-|Closures|✅||
-|Decorators|✅||
+|Closures|✅|🔄|
+|Decorators|✅|✅|
 |Descriptor protocol|✅||
 |Interface to Python stdlib written in C|✅||
 |Context managers|✅||
@@ -131,6 +134,9 @@
 [Python Reference](https://docs.python.org/3/library/functions.html)
 
 ### Keywords
+
+The Memphis lexer supports all Python keywords.
+
 |keyword|supported?|
 |-|-|
 |`True`|✅|
@@ -172,81 +178,81 @@
 [Python Reference](https://docs.python.org/3/reference/lexical_analysis.html#keywords)
 
 ### Dunder Methods and Attributes
-|method|supported?|
-|-|-|
+|method|treewalk|bytecode VM|
+|-|-|-|
 Object Creation and Destruction
-\_\_new__(cls, [...])|✅
-\_\_init__(self, [...])|✅
-\_\_del__(self)
+\_\_new__(cls, [...])|✅|
+\_\_init__(self, [...])|✅|
+\_\_del__(self)||
 Representation
-\_\_repr__(self)
-\_\_str__(self)
-\_\_hash__(self)|✅
+\_\_repr__(self)||
+\_\_str__(self)||
+\_\_hash__(self)|✅|
 \_\_format__(self, format_spec)
 Comparison and Equality
-\_\_eq__(self, other)|✅
-\_\_ne__(self, other)|✅
-\_\_lt__(self, other)
-\_\_le__(self, other)
-\_\_gt__(self, other)
-\_\_ge__(self, other)
+\_\_eq__(self, other)|✅|
+\_\_ne__(self, other)|✅|
+\_\_lt__(self, other)||
+\_\_le__(self, other)||
+\_\_gt__(self, other)||
+\_\_ge__(self, other)||
 Numeric Operators
-\_\_add__(self, other)
-\_\_sub__(self, other)
-\_\_mul__(self, other)
-\_\_truediv__(self, other)
-\_\_floordiv__(self, other)
-\_\_mod__(self, other)
-\_\_divmod__(self, other)
-\_\_pow__(self, other[, modulo])
-\_\_lshift__(self, other)
-\_\_rshift__(self, other)
-\_\_and__(self, other)
-\_\_or__(self, other)
-\_\_xor__(self, other)
+\_\_add__(self, other)||
+\_\_sub__(self, other)||
+\_\_mul__(self, other)||
+\_\_truediv__(self, other)||
+\_\_floordiv__(self, other)||
+\_\_mod__(self, other)||
+\_\_divmod__(self, other)||
+\_\_pow__(self, other[, modulo])||
+\_\_lshift__(self, other)||
+\_\_rshift__(self, other)||
+\_\_and__(self, other)||
+\_\_or__(self, other)||
+\_\_xor__(self, other)||
 Unary Operators and Functions
-\_\_neg__(self)
-\_\_pos__(self)
-\_\_abs__(self)
-\_\_invert__(self)
+\_\_neg__(self)||
+\_\_pos__(self)||
+\_\_abs__(self)||
+\_\_invert__(self)||
 Type Conversion
-\_\_int__(self)
-\_\_float__(self)
-\_\_complex__(self)
-\_\_bool__(self)
+\_\_int__(self)||
+\_\_float__(self)||
+\_\_complex__(self)||
+\_\_bool__(self)||
 Container Types
-\_\_len__(self)
-\_\_getitem__(self, key)|✅
-\_\_setitem__(self, key, value)|✅
-\_\_delitem__(self, key)|✅
-\_\_iter__(self)
-\_\_reversed__(self)
-\_\_contains__(self, item)|✅
+\_\_len__(self)||
+\_\_getitem__(self, key)|✅|
+\_\_setitem__(self, key, value)|✅|
+\_\_delitem__(self, key)|✅|
+\_\_iter__(self)||
+\_\_reversed__(self)||
+\_\_contains__(self, item)|✅|
 Attribute Access
-\_\_getattr__(self, name)
-\_\_getattribute__(self, name)
-\_\_setattr__(self, name, value)
-\_\_delattr__(self, name)
+\_\_getattr__(self, name)||
+\_\_getattribute__(self, name)||
+\_\_setattr__(self, name, value)||
+\_\_delattr__(self, name)||
 Descriptors
-\_\_get__(self, instance, owner)|✅
-\_\_set__(self, instance, value)|✅
-\_\_delete__(self, instance)|✅
+\_\_get__(self, instance, owner)|✅|
+\_\_set__(self, instance, value)|✅|
+\_\_delete__(self, instance)|✅|
 Callable Objects
-\_\_call__(self, [...])
+\_\_call__(self, [...])||
 Context Managers
-\_\_enter__(self)|✅
-\_\_exit__(self, exc_type, exc_value, traceback)|✅
+\_\_enter__(self)|✅|
+\_\_exit__(self, exc_type, exc_value, traceback)|✅|
 Instance Creation and Destruction (for classes)
-\_\_init_subclass__(cls)
-\_\_instancecheck__(self, instance)
-\_\_subclasscheck__(self, subclass)
+\_\_init_subclass__(cls)||
+\_\_instancecheck__(self, instance)||
+\_\_subclasscheck__(self, subclass)||
 Metaclass Methods
-\_\_prepare__(cls, name, bases)
-\_\_class_getitem__(cls, item)
+\_\_prepare__(cls, name, bases)||
+\_\_class_getitem__(cls, item)||
 Customizing Module Import
-\_\_path__(self)
-\_\_loader__(self)
-\_\_package__(self)
-\_\_spec__(self)
+\_\_path__(self)||
+\_\_loader__(self)||
+\_\_package__(self)||
+\_\_spec__(self)||
 
 This list is a subset of the full spec found at the [Python Reference](https://docs.python.org/3/reference/datamodel.html).

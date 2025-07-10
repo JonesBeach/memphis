@@ -25,7 +25,7 @@ impl CallStack {
     }
 
     pub fn push(&mut self, frame: Frame) {
-        log(LogLevel::Debug, || {
+        log(LogLevel::Trace, || {
             format!("Pushing frame: {}", frame.function.code_object.name())
         });
         // If we don't save the current line number, we won't properly record where in the current
@@ -42,7 +42,7 @@ impl CallStack {
         self.state.pop_stack_frame();
 
         if let Some(frame) = self.stack.pop() {
-            log(LogLevel::Debug, || {
+            log(LogLevel::Trace, || {
                 format!("Popping frame: {}", frame.function.code_object.name())
             });
             Some(frame)

@@ -31,7 +31,7 @@ pub fn compile(text: &str) -> CodeObject {
         .expect("Failed to compile test program!")
 }
 
-pub fn wrap_top_level_function(name: &str, func: CodeObject) -> CodeObject {
+pub fn wrap_top_level_function(func: CodeObject) -> CodeObject {
     CodeObject {
         name: None,
         bytecode: vec![
@@ -43,7 +43,7 @@ pub fn wrap_top_level_function(name: &str, func: CodeObject) -> CodeObject {
         arg_count: 0,
         varnames: vec![],
         freevars: vec![],
-        names: vec![name.into()],
+        names: vec![func.name().into()],
         constants: vec![Constant::Code(func)],
         source: Source::default(),
         line_map: vec![],
