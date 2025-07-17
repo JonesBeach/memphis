@@ -13,7 +13,7 @@ pub use context::Context;
 pub use dunder::Dunder;
 #[cfg(test)]
 pub use error::test_utils;
-pub use error::{ExceptionLiteral, ExecutionError, ExecutionErrorKind};
+pub use error::{ExceptionLiteral, ExecutionError, ExecutionErrorKind, RuntimeValue};
 pub use function::FunctionType;
 pub use source::Source;
 pub use stack_frame::{DebugStackFrame, ToDebugStackFrame};

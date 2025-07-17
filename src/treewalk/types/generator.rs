@@ -1,21 +1,19 @@
 use crate::{
     core::Container,
-    domain::ExecutionErrorKind,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
-        macros::*,
-        pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
+        pausable::{Frame, Pausable, PausableContext, PausableStepResult},
+        protocols::Iterable,
         types::Function,
-        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkState,
-        TreewalkValue,
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
+        TreewalkState, TreewalkValue,
     },
 };
-
-impl_iterable!(GeneratorIter);
 
 pub struct Generator {
     scope: Container<Scope>,
     context: PausableContext,
+    delegated: Option<GeneratorIter>,
 }
 
 impl Generator {
@@ -25,6 +23,7 @@ impl Generator {
         Self {
             scope,
             context: PausableContext::new(frame),
+            delegated: None,
         }
     }
 
@@ -44,26 +43,23 @@ impl Generator {
     /// Only yield statements will cause a value to be returned, everything else will return
     /// `None`.
     fn execute_statement(
-        &self,
+        &mut self,
         interpreter: &TreewalkInterpreter,
         stmt: Statement,
-        control_flow: bool,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        if !control_flow {
-            match &stmt.kind {
-                StatementKind::Expression(Expr::Yield(None)) => Ok(None),
-                StatementKind::Expression(Expr::Yield(Some(expr))) => {
-                    Ok(Some(interpreter.evaluate_expr(expr)?))
-                }
-                StatementKind::Expression(Expr::YieldFrom(_)) => unimplemented!(),
-                _ => {
-                    // would we ever need to support a return statement here?
-                    let _ = interpreter.evaluate_statement(&stmt)?;
-                    Ok(None)
-                }
+        match interpreter.evaluate_statement(&stmt) {
+            Ok(_) => Ok(None),
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Return(val))) => {
+                Err(interpreter.stop_iteration_with(val))
             }
-        } else {
-            Ok(None)
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Yield(val))) => Ok(Some(val)),
+            Err(TreewalkDisruption::Signal(TreewalkSignal::YieldFrom(val))) => {
+                let mut gen = val.expect_generator(interpreter)?;
+                let val = gen.run_until_pause()?;
+                self.delegated = Some(gen);
+                Ok(Some(val))
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -129,15 +125,22 @@ impl Pausable for Generator {
         &mut self,
         interpreter: &TreewalkInterpreter,
         stmt: Statement,
-        control_flow: bool,
     ) -> TreewalkResult<PausableStepResult> {
-        match self.execute_statement(interpreter, stmt, control_flow)? {
+        match self.execute_statement(interpreter, stmt)? {
             Some(yielded) => {
                 self.on_exit(interpreter);
                 Ok(PausableStepResult::BreakAndReturn(yielded))
             }
             None => Ok(PausableStepResult::NoOp),
         }
+    }
+
+    fn clear_delegated(&mut self) {
+        self.delegated = None;
+    }
+
+    fn delegated(&self) -> Option<GeneratorIter> {
+        self.delegated.clone()
     }
 }
 
@@ -154,29 +157,22 @@ impl GeneratorIter {
             interpreter,
         }
     }
-}
 
-impl Iterator for GeneratorIter {
-    type Item = TreewalkValue;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.generator.borrow().context().current_state() == PausableState::Finished {
-            return None;
-        }
-
-        // we need a better way to surface error during a generator run
-        match self
-            .generator
+    pub fn run_until_pause(&mut self) -> TreewalkResult<TreewalkValue> {
+        self.generator
             .borrow_mut()
             .run_until_pause(&self.interpreter)
-        {
-            Ok(result) => Some(result),
-            Err(TreewalkDisruption::Error(e))
-                if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration) =>
-            {
-                None
-            }
-            _ => panic!("Unexpected error during generator run."),
+    }
+}
+
+impl Iterable for GeneratorIter {
+    // We cannot use the boilerplate impl_iterable! here because we want to surface any
+    // StopIteration errors, not swallow them the way Iterator::next does.
+    fn try_next(&mut self) -> TreewalkResult<Option<TreewalkValue>> {
+        match self.run_until_pause() {
+            // is this right?
+            Ok(r) => Ok(Some(r)),
+            Err(e) => Err(e),
         }
     }
 }

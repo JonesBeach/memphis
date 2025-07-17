@@ -1,6 +1,8 @@
 use std::fmt::{Debug, Display, Error, Formatter};
 
-use super::DebugCallStack;
+use crate::{bytecode_vm::VmValue, core::Voidable, treewalk::TreewalkValue};
+
+use super::{DebugCallStack, MemphisValue};
 
 #[derive(PartialEq, Clone)]
 pub struct ExecutionError {
@@ -50,6 +52,68 @@ impl ExecutionError {
     }
 }
 
+/// We need a runtime value which can be stored in a StopIteration.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum RuntimeValue {
+    Treewalk(TreewalkValue),
+    Vm(VmValue),
+}
+
+impl RuntimeValue {
+    pub fn unwrap_treewalk(self) -> TreewalkValue {
+        match self {
+            RuntimeValue::Treewalk(v) => v,
+            _ => panic!("Expected TreewalkValue"),
+        }
+    }
+
+    pub fn unwrap_vm(self) -> VmValue {
+        match self {
+            RuntimeValue::Vm(v) => v,
+            _ => panic!("Expected VmValue"),
+        }
+    }
+}
+
+impl From<RuntimeValue> for MemphisValue {
+    /// NOTE: This is a lossy conversion.
+    fn from(value: RuntimeValue) -> Self {
+        match value {
+            RuntimeValue::Treewalk(v) => MemphisValue::from(v),
+            RuntimeValue::Vm(v) => MemphisValue::from(v),
+        }
+    }
+}
+
+impl PartialEq for RuntimeValue {
+    /// NOTE: This uses a lossy conversion, and should only be used in the presentation/test layer.
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::Treewalk(v) => MemphisValue::from(v.clone()) == MemphisValue::from(other.clone()),
+            Self::Vm(v) => MemphisValue::from(v.clone()) == MemphisValue::from(other.clone()),
+        }
+    }
+}
+
+impl Voidable for RuntimeValue {
+    fn is_none(&self) -> bool {
+        match self {
+            Self::Treewalk(v) => v.is_none(),
+            Self::Vm(v) => v.is_none(),
+        }
+    }
+}
+
+impl Display for RuntimeValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Treewalk(v) => Display::fmt(&v, f),
+            Self::Vm(v) => Display::fmt(&v, f),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExecutionErrorKind {
     RuntimeError,
@@ -60,7 +124,7 @@ pub enum ExecutionErrorKind {
     NameError(String),
     AttributeError(String, String),
     DivisionByZero(String),
-    StopIteration,
+    StopIteration(Box<RuntimeValue>),
     AssertionError,
     MissingContextManagerProtocol,
     // TODO where this is used should really be moved into the parser but we currently don't have
@@ -93,8 +157,12 @@ impl Display for ExecutionErrorKind {
             ExecutionErrorKind::DivisionByZero(message) => {
                 write!(f, "ZeroDivisionError: {message}")
             }
-            ExecutionErrorKind::StopIteration => {
-                write!(f, "StopIteration")
+            ExecutionErrorKind::StopIteration(value) => {
+                if value.is_none() {
+                    write!(f, "StopIteration")
+                } else {
+                    write!(f, "StopIteration: {value}")
+                }
             }
             ExecutionErrorKind::AssertionError => {
                 write!(f, "AssertionError")
@@ -149,6 +217,7 @@ impl TryFrom<&ExecutionError> for ExceptionLiteral {
             ExecutionErrorKind::TypeError(..) => Ok(Self::TypeError),
             ExecutionErrorKind::AttributeError(..) => Ok(Self::AttributeError),
             ExecutionErrorKind::NameError(..) => Ok(Self::NameError),
+            ExecutionErrorKind::StopIteration(..) => Ok(Self::StopIteration),
             _ => Err(()),
         }
     }
@@ -165,7 +234,9 @@ pub mod test_utils {
     macro_rules! assert_stop_iteration {
         ($error:expr) => {{
             match &$error.execution_error_kind {
-                $crate::domain::ExecutionErrorKind::StopIteration => {}
+                $crate::domain::ExecutionErrorKind::StopIteration(value) => {
+                    assert!($crate::core::Voidable::is_none(&**value))
+                }
                 _ => panic!(
                     "Expected a StopIteration error, but got: {:?}",
                     &$error.execution_error_kind

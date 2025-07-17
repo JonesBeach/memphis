@@ -2,7 +2,7 @@ use crate::{
     core::Container,
     domain::Dunder,
     treewalk::{
-        protocols::Callable,
+        protocols::{Callable, Iterable},
         types::{List, Str},
         utils::{args, check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -226,7 +226,11 @@ impl Callable for NextBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
         let mut iterator = args.get_arg(0).expect_iterator_strict(interpreter)?;
-        iterator.next().ok_or_else(|| interpreter.stop_iteration())
+        match Iterable::try_next(&mut iterator) {
+            Ok(Some(val)) => Ok(val),
+            Ok(None) => Err(interpreter.stop_iteration()),
+            Err(e) => Err(e),
+        }
     }
 
     fn name(&self) -> String {

@@ -12,7 +12,7 @@ use crate::{
             iterators::{ReversedIter, ZipIterator},
             Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
             FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
-            Staticmethod, Str, Super, Traceback, Tuple, TypeClass,
+            Staticmethod, StopIteration, Str, Super, Traceback, Tuple, TypeClass,
         },
         TreewalkValue,
     },
@@ -68,6 +68,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 
     register_descriptors::<Function>(&mut methods);
     register_descriptors::<Exception>(&mut methods);
+    register_descriptors::<StopIteration>(&mut methods);
     register_descriptors::<Traceback>(&mut methods);
 
     methods
@@ -81,7 +82,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-static ALL_TYPES: [Type; 51] = [
+static ALL_TYPES: [Type; 52] = [
     Type::Super,
     Type::GetSetDescriptor,
     Type::MemberDescriptor,
@@ -125,6 +126,7 @@ static ALL_TYPES: [Type; 51] = [
     Type::SetIter,
     Type::TupleIter,
     Type::Exception,
+    Type::StopIteration,
     Type::Traceback,
     Type::Frame,
     Type::Module,
@@ -136,7 +138,7 @@ static ALL_TYPES: [Type; 51] = [
 ];
 
 /// These types are callable and behave like a builtin function.
-static CALLABLE_TYPES: [Type; 23] = [
+static CALLABLE_TYPES: [Type; 24] = [
     Type::Type,
     Type::Object,
     Type::Super,
@@ -164,6 +166,7 @@ static CALLABLE_TYPES: [Type; 23] = [
     // Technically not a builtin, but it is callable. We may need to handle builtin class such
     // as these separately.
     Type::Exception,
+    Type::StopIteration,
 ];
 
 /// Create the [`Type::Type`] class which is the metaclass to all classes, including itself.

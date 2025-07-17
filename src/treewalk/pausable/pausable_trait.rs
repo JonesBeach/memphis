@@ -1,9 +1,11 @@
 use crate::{
     core::Container,
+    domain::ExecutionErrorKind,
     parser::types::{Statement, StatementKind},
     treewalk::{
-        protocols::TryEvalFrom, types::List, Scope, TreewalkInterpreter, TreewalkResult,
-        TreewalkValue,
+        protocols::TryEvalFrom,
+        types::{iterators::GeneratorIter, List},
+        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -27,6 +29,15 @@ pub trait Pausable {
     /// A getter for the [`Scope`] of a pausable function.
     fn scope(&self) -> Container<Scope>;
 
+    fn delegated(&self) -> Option<GeneratorIter> {
+        // Only generators will need this. Coroutines use the executor instead.
+        None
+    }
+
+    fn clear_delegated(&mut self) {
+        unimplemented!("This Pausable does not support delegation.")
+    }
+
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
     fn finish(
@@ -42,7 +53,6 @@ pub trait Pausable {
         &mut self,
         interpreter: &TreewalkInterpreter,
         statement: Statement,
-        control_flow: bool,
     ) -> TreewalkResult<PausableStepResult>;
 
     /// The default behavior which selects the next [`Statement`] and manually evaluates any
@@ -55,7 +65,11 @@ pub trait Pausable {
         let encountered_control_flow =
             self.execute_control_flow_statement(&statement, interpreter)?;
 
-        self.handle_step(interpreter, statement, encountered_control_flow)
+        if encountered_control_flow {
+            return Ok(PausableStepResult::NoOp);
+        }
+
+        self.handle_step(interpreter, statement)
     }
 
     /// The default behavior required to perform the necessary context switching when entering a
@@ -166,6 +180,25 @@ pub trait Pausable {
         &mut self,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<TreewalkValue> {
+        // We must check this first to handle `yield from`. This is because generators do not have
+        // a parent executor the way coroutines do.
+        if let Some(delegated) = &mut self.delegated() {
+            match delegated.run_until_pause() {
+                Ok(val) => {
+                    // Yielded value from subgen → bubble up
+                    return Ok(val);
+                }
+                Err(TreewalkDisruption::Error(e))
+                    if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration(_)) =>
+                {
+                    // Sub-generator finished
+                    self.clear_delegated();
+                    // Fall through and resume parent generator
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         self.on_entry(interpreter);
 
         let mut result = TreewalkValue::None;

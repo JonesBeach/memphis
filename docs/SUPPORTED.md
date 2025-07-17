@@ -30,6 +30,7 @@
 |Tuples|✅||
 |Ranges|✅|✅|
 |Generator functions|✅|✅|
+|`yield from`|✅|🔄|
 |Slices|✅||
 |Inheritance|✅||
 |Object creation and metaclasses|✅||

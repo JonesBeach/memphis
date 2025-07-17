@@ -9,6 +9,8 @@ pub enum TreewalkDisruption {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreewalkSignal {
     Return(TreewalkValue),
+    Yield(TreewalkValue),
+    YieldFrom(TreewalkValue),
     Raise,
     Await,
     Sleep,

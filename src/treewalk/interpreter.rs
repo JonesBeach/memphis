@@ -25,7 +25,7 @@ use crate::{
         type_system::CloneableCallable,
         types::{
             iterators::GeneratorIter, Class, Coroutine, Dict, Function, Generator, List, Module,
-            Set, Slice, Str, Tuple,
+            Set, Slice, StopIteration, Str, Tuple,
         },
         utils::{args, Args},
         Executor, Scope, TreewalkDisruption, TreewalkResult, TreewalkSignal, TreewalkState,
@@ -1062,8 +1062,16 @@ impl TreewalkInterpreter {
                 .find(|clause| error.matches_except_clause(&clause.exception_types))
             {
                 if let Some(alias) = &except_clause.alias {
-                    self.state
-                        .write(alias, TreewalkValue::Exception(error.clone()));
+                    let exception = match &error.execution_error_kind {
+                        ExecutionErrorKind::StopIteration(v) => {
+                            let stop_iter_payload = v.clone().unwrap_treewalk();
+                            TreewalkValue::StopIteration(Box::new(StopIteration::new(
+                                stop_iter_payload,
+                            )))
+                        }
+                        _ => TreewalkValue::Exception(error.clone()),
+                    };
+                    self.state.write(alias, exception);
                 }
 
                 match self.evaluate_ast(&except_clause.block) {
@@ -1183,9 +1191,22 @@ impl TreewalkInterpreter {
             Expr::FString(parts) => self.evaluate_f_string(parts),
             Expr::Lambda { args, expr } => self.evaluate_lambda(args, expr),
             Expr::TypeNode(type_node) => self.evaluate_type_node(type_node),
-            // This is unreachable because it should be handled inside `GeneratorExecutor`.
-            Expr::Yield(_) | Expr::YieldFrom(_) => unreachable!(),
+            Expr::Yield(expr) => self.evaluate_yield(expr),
+            Expr::YieldFrom(expr) => self.evaluate_yield_from(expr),
         }
+    }
+
+    pub fn evaluate_yield(&self, expr: &Option<Box<Expr>>) -> TreewalkResult<TreewalkValue> {
+        let value = match expr {
+            None => TreewalkValue::None,
+            Some(e) => self.evaluate_expr(e)?,
+        };
+        Err(TreewalkDisruption::Signal(TreewalkSignal::Yield(value)))
+    }
+
+    pub fn evaluate_yield_from(&self, expr: &Expr) -> TreewalkResult<TreewalkValue> {
+        let gen = self.evaluate_expr(expr)?;
+        Err(TreewalkDisruption::Signal(TreewalkSignal::YieldFrom(gen)))
     }
 
     pub fn evaluate_statement(&self, stmt: &Statement) -> TreewalkResult<TreewalkValue> {
@@ -1593,17 +1614,10 @@ y = _f.__type_params__
         assert_variant!(ctx, "e", Generator);
         assert_type_eq!(ctx, "f", Type::Generator);
         assert_variant!(ctx, "h", Coroutine);
-        // I commented this out when we removed Clone from Class.
-        //assert!(matches!(
-        //    read(interpreter, "i").as_class().unwrap().borrow(),
-        //    Class { name, .. } if name == "coroutine"
-        //));
+        assert_type_eq!(ctx, "i", Type::Coroutine);
         // TODO add support for async generators, which will change the next two assertions
         assert_variant!(ctx, "k", Coroutine);
-        //assert!(matches!(
-        //    read_and_expect(interpreter, "l").as_class().unwrap().borrow().clone(),
-        //    Class { name, .. } if name == "coroutine"
-        //));
+        assert_type_eq!(ctx, "l", Type::Coroutine);
         assert_variant!(ctx, "m", Code);
         assert_type_eq!(ctx, "n", Type::Code);
         assert_type_eq!(ctx, "o", Type::GetSetDescriptor);
@@ -2575,6 +2589,45 @@ c = [ i for i in countdown(7) ]
         assert_read_eq!(ctx, "a", list![int!(4), int!(6),]);
         assert_read_eq!(ctx, "b", list![int!(3), int!(2), int!(1)]);
         assert_read_eq!(ctx, "c", list![int!(7), int!(8), int!(9)]);
+    }
+
+    #[test]
+    fn generator_with_return_iterator() {
+        let input = r#"
+def g():
+    yield 1
+    return 42
+
+gen = g()
+a = list(gen)
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", list![int!(1)]);
+    }
+
+    #[test]
+    fn generator_with_return_next_builtin() {
+        let input = r#"
+def g():
+    yield 1
+    return 42
+
+gen = g()
+a = next(gen)
+
+b = None
+try:
+    next(gen)
+except StopIteration as e:
+    b = e.value
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", int!(1));
+        assert_read_eq!(ctx, "b", int!(42));
     }
 
     #[test]
@@ -5260,15 +5313,9 @@ def countdown(n):
         yield n
         n -= 1
 
-# def countdown_from(x, y):
-#     yield from countdown(x)
-#     yield from countdown(y)
-
 def countdown_from(x, y):
-    for number in countdown(x):
-        yield number
-    for number in countdown(y):
-        yield number
+    yield from countdown(x)
+    yield from countdown(y)
 
 sum = 0
 for number in countdown_from(3, 2):
@@ -5279,6 +5326,27 @@ for number in countdown_from(3, 2):
         let ctx = run(input);
 
         assert_read_eq!(ctx, "sum", int!(9));
+    }
+
+    #[test]
+    #[ignore]
+    fn yield_from_with_return() {
+        let input = r#"
+def g1():
+    yield 1
+    yield 2
+    return 42
+
+def g2():
+    x = yield from g1()
+    yield x
+
+a = list(g2())
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", list![int!(1), int!(2), int!(42)]);
     }
 
     #[test]

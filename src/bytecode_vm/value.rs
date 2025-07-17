@@ -143,7 +143,7 @@ impl VmValue {
 
     pub fn expect_code(&self, vm: &VirtualMachine) -> VmResult<&CodeObject> {
         self.as_code()
-            .ok_or_else(|| vm.type_error("Expected a code object"))
+            .ok_or_else(|| vm.error_builder.type_error("Expected a code object"))
     }
 
     pub fn as_function(&self) -> Option<&FunctionObject> {
@@ -155,7 +155,7 @@ impl VmValue {
 
     pub fn expect_function(&self, vm: &VirtualMachine) -> VmResult<&FunctionObject> {
         self.as_function()
-            .ok_or_else(|| vm.type_error("Expected a function object"))
+            .ok_or_else(|| vm.error_builder.type_error("Expected a function object"))
     }
 
     pub fn as_list(&self) -> Option<&List> {
@@ -188,7 +188,7 @@ impl VmValue {
 
     pub fn expect_class(&self, vm: &VirtualMachine) -> VmResult<&Class> {
         self.as_class()
-            .ok_or_else(|| vm.type_error("Expected a class"))
+            .ok_or_else(|| vm.error_builder.type_error("Expected a class"))
     }
 }
 

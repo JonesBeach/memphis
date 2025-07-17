@@ -23,7 +23,7 @@ use crate::{
             },
             ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
             DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
-            Property, Range, Set, Slice, Staticmethod, Str, Super, Traceback, Tuple,
+            Property, Range, Set, Slice, Staticmethod, StopIteration, Str, Super, Traceback, Tuple,
         },
         typing::TypeExpr,
         utils::Args,
@@ -73,6 +73,9 @@ pub enum TreewalkValue {
     Range(Range),
     Tuple(Tuple),
     Exception(ExecutionError),
+    /// Only constructed when a `StopIteration` exception is caught and aliased,
+    /// e.g., `except StopIteration as e:`. Mirrors CPython behavior to expose `.value`.
+    StopIteration(Box<StopIteration>),
     Traceback(Traceback),
     Frame,
     ListIter(ListIter),
@@ -267,6 +270,7 @@ impl TreewalkValue {
             TreewalkValue::Cell(_) => write!(f, "<cell>"),
             TreewalkValue::Module(m) => write!(f, "{m}"),
             TreewalkValue::Exception(_) => write!(f, "<exception>"),
+            TreewalkValue::StopIteration(_) => write!(f, "<stop_iteration>"),
             TreewalkValue::Traceback(_) => write!(f, "<traceback>"),
             TreewalkValue::Frame => write!(f, "<frame>"),
             TreewalkValue::TypeNode(t) => write!(f, "<type {t:?}>"),
@@ -343,6 +347,7 @@ impl TreewalkValue {
             TreewalkValue::Code(_) => Type::Code,
             TreewalkValue::Module(_) => Type::Module,
             TreewalkValue::Exception(_) => Type::Exception,
+            TreewalkValue::StopIteration(_) => Type::StopIteration,
             TreewalkValue::Traceback(_) => Type::Traceback,
             TreewalkValue::Frame => Type::Frame,
             #[cfg(feature = "c_stdlib")]
@@ -571,6 +576,14 @@ impl TreewalkValue {
             TreewalkValue::Generator(i) => Some(i.clone()),
             _ => None,
         }
+    }
+
+    pub fn expect_generator(
+        &self,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<GeneratorIter> {
+        self.as_generator()
+            .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
     }
 
     pub fn as_coroutine(&self) -> Option<Container<Coroutine>> {
@@ -817,6 +830,7 @@ impl From<TreewalkValue> for MemphisValue {
             TreewalkValue::Range(_) => MemphisValue::Unimplemented("range"),
             TreewalkValue::Tuple(_) => MemphisValue::Unimplemented("tuple"),
             TreewalkValue::Exception(_) => MemphisValue::Unimplemented("exception"),
+            TreewalkValue::StopIteration(_) => MemphisValue::Unimplemented("stop_iteration"),
             TreewalkValue::Traceback(_) => MemphisValue::Unimplemented("traceback"),
             TreewalkValue::Frame => MemphisValue::Unimplemented("frame"),
             TreewalkValue::ListIter(_) => MemphisValue::Unimplemented("list_iter"),

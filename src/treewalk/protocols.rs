@@ -54,7 +54,7 @@ impl PartialEq for dyn Callable {
 ///
 /// For ergonomics, we implement both `Iterable` and `Iterator` for our builitin types.
 pub trait Iterable {
-    fn next(&mut self) -> TreewalkResult<Option<TreewalkValue>>;
+    fn try_next(&mut self) -> TreewalkResult<Option<TreewalkValue>>;
 }
 
 pub trait MemberRead {

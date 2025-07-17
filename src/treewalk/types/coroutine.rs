@@ -87,27 +87,20 @@ impl Coroutine {
         &mut self,
         interpreter: &TreewalkInterpreter,
         stmt: Statement,
-        control_flow: bool,
     ) -> TreewalkResult<Poll> {
-        if !control_flow {
-            match interpreter.evaluate_statement(&stmt) {
-                // We cannot return the default value here because certain statement types may
-                // actually have a return value (expression, return, etc).
-                Ok(result) => Ok(Poll::Ready(result)),
-                Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep)) => Ok(Poll::Waiting),
-                Err(TreewalkDisruption::Signal(TreewalkSignal::Await)) => {
-                    self.context_mut().step_back();
-                    Ok(Poll::Waiting)
-                }
-                Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => {
-                    Ok(Poll::Ready(result))
-                }
-                Err(e) => Err(e),
+        match interpreter.evaluate_statement(&stmt) {
+            // We cannot return the default value here because certain statement types may
+            // actually have a return value (expression, return, etc).
+            Ok(result) => Ok(Poll::Ready(result)),
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep)) => Ok(Poll::Waiting),
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Await)) => {
+                self.context_mut().step_back();
+                Ok(Poll::Waiting)
             }
-        } else {
-            // We return `None` here because this is the return type of all statements (with a few
-            // exceptions that we don't have to worry about here).
-            Ok(Poll::Ready(TreewalkValue::None))
+            Err(TreewalkDisruption::Signal(TreewalkSignal::Return(result))) => {
+                Ok(Poll::Ready(result))
+            }
+            Err(e) => Err(e),
         }
     }
 }
@@ -138,9 +131,8 @@ impl Pausable for Coroutine {
         &mut self,
         interpreter: &TreewalkInterpreter,
         stmt: Statement,
-        control_flow: bool,
     ) -> TreewalkResult<PausableStepResult> {
-        match self.execute_statement(interpreter, stmt, control_flow)? {
+        match self.execute_statement(interpreter, stmt)? {
             Poll::Ready(val) => Ok(PausableStepResult::Return(val)),
             Poll::Waiting => {
                 self.on_exit(interpreter);

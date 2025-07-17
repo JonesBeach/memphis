@@ -42,9 +42,13 @@ fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
         0 => vec![],
         1 => match vm.deref(args[0])? {
             VmValue::List(list) => list.items.clone(),
-            _ => return Err(vm.type_error("list() expects an iterable")),
+            _ => return Err(vm.error_builder.type_error("list() expects an iterable")),
         },
-        _ => return Err(vm.type_error("list() takes at most one argument")),
+        _ => {
+            return Err(vm
+                .error_builder
+                .type_error("list() takes at most one argument"))
+        }
     };
 
     Ok(vm.heapify(VmValue::List(List::new(items))))
@@ -54,39 +58,45 @@ fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let range = match args.len() {
         1 => {
             let stop = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             Range::with_stop(stop)
         }
         2 => {
             let start = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             let stop = vm.deref(args[1])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             Range::with_start_stop(start, stop)
         }
         3 => {
             let start = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             let stop = vm.deref(args[1])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             let step = vm.deref(args[2])?.as_integer().ok_or_else(|| {
-                vm.type_error("'<TODO>' object cannot be interpreted as an integer")
+                vm.error_builder
+                    .type_error("'<TODO>' object cannot be interpreted as an integer")
             })?;
             Range::new(start, stop, step)
         }
         0 => {
-            return Err(vm.type_error(&format!(
+            return Err(vm.error_builder.type_error(&format!(
                 "range expected at least 1 argument, got {}",
                 args.len()
             )))
         }
         _ => {
-            return Err(vm.type_error(&format!(
+            return Err(vm.error_builder.type_error(&format!(
                 "range expected at most 3 arguments, got {}",
                 args.len()
             )))
@@ -103,7 +113,7 @@ pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Referenc
         VmValue::Generator(_) => obj,
         VmValue::List(list) => VmValue::ListIter(Container::new(list.iter())),
         VmValue::Range(range) => VmValue::RangeIter(Container::new(range.iter())),
-        _ => return Err(vm.type_error("TODO object is not iterable")),
+        _ => return Err(vm.error_builder.type_error("TODO object is not iterable")),
     };
 
     Ok(vm.heapify(iterator))
@@ -112,7 +122,11 @@ pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Referenc
 fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let iterable_ref = match args.len() {
         1 => args[0],
-        _ => return Err(vm.type_error("iter expected exactly 1 argument")),
+        _ => {
+            return Err(vm
+                .error_builder
+                .type_error("iter expected exactly 1 argument"))
+        }
     };
 
     let iterable_value = vm.deref(iterable_ref)?;
@@ -139,18 +153,20 @@ pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<O
             .borrow_mut()
             .next()
             .map(|i| vm.heapify(VmValue::Int(i)))),
-        _ => Err(vm.type_error("TODO object is not an iterator")),
+        _ => Err(vm
+            .error_builder
+            .type_error("TODO object is not an iterator")),
     }
 }
 
 fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     if args.len() != 1 {
-        return Err(vm.type_error("next() expected 1 argument"));
+        return Err(vm.error_builder.type_error("next() expected 1 argument"));
     }
 
     match next_internal(vm, args[0])? {
         Some(val) => Ok(val),
-        None => Err(vm.stop_iteration()),
+        None => Err(vm.error_builder.stop_iteration()),
     }
 }
 

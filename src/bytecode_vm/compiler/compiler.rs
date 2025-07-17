@@ -399,12 +399,6 @@ impl Compiler {
         decorators: &[Expr],
         is_async: &bool,
     ) -> CompilerResult<()> {
-        if *is_async {
-            return Err(unsupported(
-                "Async functions are not yet supported in the bytecode VM.",
-            ));
-        }
-
         let function_type = if body.has_yield() {
             FunctionType::Generator
         } else if *is_async {
@@ -1407,6 +1401,31 @@ def foo():
             source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Generator,
+        };
+
+        let expected = wrap_top_level_function(fn_foo);
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn async_function_definition() {
+        let text = r#"
+async def foo():
+    pass
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Async,
         };
 
         let expected = wrap_top_level_function(fn_foo);

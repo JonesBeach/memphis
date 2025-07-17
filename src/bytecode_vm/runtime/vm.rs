@@ -18,8 +18,6 @@ use super::{
     BuiltinFunction, CallStack, Generator, Runtime,
 };
 
-mod errors;
-
 #[derive(Debug)]
 pub enum StepResult {
     Return(Reference),
@@ -35,7 +33,7 @@ pub struct VirtualMachine {
 
     module_loader: ModuleLoader,
 
-    error_builder: ErrorBuilder,
+    pub error_builder: ErrorBuilder,
 
     call_stack: CallStack,
 }
@@ -90,7 +88,7 @@ impl VirtualMachine {
         self.runtime
             .borrow()
             .read_module(name)
-            .ok_or_else(|| self.runtime_error())
+            .ok_or_else(|| self.error_builder.runtime_error())
     }
 
     fn current_frame(&self) -> VmResult<&Frame> {
@@ -151,7 +149,7 @@ impl VirtualMachine {
             .global_store
             .get(name)
             .copied()
-            .ok_or_else(|| self.name_error(name))
+            .ok_or_else(|| self.error_builder.name_error(name))
     }
 
     fn resolve_name(&self, index: NonlocalIndex) -> VmResult<&str> {
@@ -165,7 +163,7 @@ impl VirtualMachine {
             return Ok(*value);
         }
 
-        Err(self.runtime_error())
+        Err(self.error_builder.runtime_error())
     }
 
     fn pop(&mut self) -> VmResult<Reference> {
@@ -182,7 +180,7 @@ impl VirtualMachine {
             return Ok(value);
         }
 
-        Err(self.runtime_error())
+        Err(self.error_builder.runtime_error())
     }
 
     fn push(&mut self, value: Reference) -> VmResult<()> {
@@ -228,10 +226,10 @@ impl VirtualMachine {
                 .heap
                 .get(reference)
                 .cloned()
-                .ok_or_else(|| self.runtime_error())?,
+                .ok_or_else(|| self.error_builder.runtime_error())?,
             Reference::ConstantRef(index) => self
                 .read_constant(index)?
-                .ok_or_else(|| self.runtime_error())?,
+                .ok_or_else(|| self.error_builder.runtime_error())?,
             // convert primitives directly
             _ => reference.into(),
         };
@@ -244,12 +242,12 @@ impl VirtualMachine {
         if let Some(object) = object.as_object() {
             object
                 .read(name, self)?
-                .ok_or_else(|| self.attribute_error(name))
+                .ok_or_else(|| self.error_builder.attribute_error(name))
         } else if let Some(module) = object.as_module() {
             module
                 .borrow()
                 .read(name)
-                .ok_or_else(|| self.attribute_error(name))
+                .ok_or_else(|| self.error_builder.attribute_error(name))
         } else {
             unimplemented!()
         }
@@ -384,7 +382,11 @@ impl VirtualMachine {
             (VmValue::Float(x), VmValue::Float(y)) => VmValue::Float(op(*x, *y)),
             (VmValue::Int(x), VmValue::Float(y)) => VmValue::Float(op(*x as f64, *y)),
             (VmValue::Float(x), VmValue::Int(y)) => VmValue::Float(op(*x, *y as f64)),
-            _ => return Err(self.type_error("Unsupported operand types for binary operation")),
+            _ => {
+                return Err(self
+                    .error_builder
+                    .type_error("Unsupported operand types for binary operation"))
+            }
         };
 
         Ok(result)
@@ -399,7 +401,11 @@ impl VirtualMachine {
             (VmValue::Float(x), VmValue::Float(y)) => op(*x, *y),
             (VmValue::Int(x), VmValue::Float(y)) => op(*x as f64, *y),
             (VmValue::Float(x), VmValue::Int(y)) => op(*x, *y as f64),
-            _ => return Err(self.type_error("Unsupported operand types for comparison")),
+            _ => {
+                return Err(self
+                    .error_builder
+                    .type_error("Unsupported operand types for comparison"))
+            }
         };
 
         Ok(VmValue::Bool(result))
@@ -409,7 +415,11 @@ impl VirtualMachine {
         let result = match value {
             VmValue::Int(x) => VmValue::Int(-x),
             VmValue::Float(x) => VmValue::Float(-x),
-            _ => return Err(self.type_error("Unsupported operand type for unary '-'")),
+            _ => {
+                return Err(self
+                    .error_builder
+                    .type_error("Unsupported operand type for unary '-'"))
+            }
         };
 
         Ok(result)
@@ -485,7 +495,10 @@ impl VirtualMachine {
             }
         }
 
-        let frame = self.call_stack.pop().ok_or_else(|| self.runtime_error())?;
+        let frame = self
+            .call_stack
+            .pop()
+            .ok_or_else(|| self.error_builder.runtime_error())?;
         Ok((step_result, frame))
     }
 
@@ -502,20 +515,28 @@ impl VirtualMachine {
 
         match opcode {
             Opcode::Add => {
-                self.binary_op(opcode, |a, b| a + b, false)
-                    .map_err(|_| self.type_error("Unsupported operand types for +"))?;
+                self.binary_op(opcode, |a, b| a + b, false).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for +")
+                })?;
             }
             Opcode::Sub => {
-                self.binary_op(opcode, |a, b| a - b, false)
-                    .map_err(|_| self.type_error("Unsupported operand types for -"))?;
+                self.binary_op(opcode, |a, b| a - b, false).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for -")
+                })?;
             }
             Opcode::Mul => {
-                self.binary_op(opcode, |a, b| a * b, false)
-                    .map_err(|_| self.type_error("Unsupported operand types for *"))?;
+                self.binary_op(opcode, |a, b| a * b, false).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for *")
+                })?;
             }
             Opcode::Div => {
-                self.binary_op(opcode, |a, b| a / b, true)
-                    .map_err(|_| self.type_error("Unsupported operand types for /"))?;
+                self.binary_op(opcode, |a, b| a / b, true).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for /")
+                })?;
             }
             Opcode::Eq => {
                 let right = self.pop_value()?;
@@ -523,20 +544,28 @@ impl VirtualMachine {
                 self.push(Reference::Bool(left == right))?;
             }
             Opcode::LessThan => {
-                self.cmp_op(|a, b| a < b)
-                    .map_err(|_| self.type_error("Unsupported operand types for <"))?;
+                self.cmp_op(|a, b| a < b).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for <")
+                })?;
             }
             Opcode::LessThanOrEq => {
-                self.cmp_op(|a, b| a <= b)
-                    .map_err(|_| self.type_error("Unsupported operand types for <="))?;
+                self.cmp_op(|a, b| a <= b).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for <=")
+                })?;
             }
             Opcode::GreaterThan => {
-                self.cmp_op(|a, b| a > b)
-                    .map_err(|_| self.type_error("Unsupported operand types for >"))?;
+                self.cmp_op(|a, b| a > b).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for >")
+                })?;
             }
             Opcode::GreaterThanOrEq => {
-                self.cmp_op(|a, b| a >= b)
-                    .map_err(|_| self.type_error("Unsupported operand types for >="))?;
+                self.cmp_op(|a, b| a >= b).map_err(|_| {
+                    self.error_builder
+                        .type_error("Unsupported operand types for >=")
+                })?;
             }
             Opcode::UnaryNegative => {
                 let value = self.pop_value()?;
@@ -548,10 +577,10 @@ impl VirtualMachine {
                 self.push(Reference::Bool(!right))?;
             }
             Opcode::UnaryInvert => {
-                let right = self
-                    .pop_value()?
-                    .as_integer()
-                    .ok_or_else(|| self.type_error("Unsupported operand type for '~'"))?;
+                let right = self.pop_value()?.as_integer().ok_or_else(|| {
+                    self.error_builder
+                        .type_error("Unsupported operand type for '~'")
+                })?;
                 self.push(Reference::Int(!right))?;
             }
             Opcode::LoadConst(index) => {
@@ -559,7 +588,7 @@ impl VirtualMachine {
                 // the heap like any other object.
                 let value = self
                     .read_constant(index)?
-                    .ok_or_else(|| self.runtime_error())?;
+                    .ok_or_else(|| self.error_builder.runtime_error())?;
                 self.push_value(value)?;
             }
             Opcode::StoreFast(index) => {
@@ -736,7 +765,7 @@ impl VirtualMachine {
             }
             // This is in an internal error that indicates a jump offset was not properly set
             // by the compiler. This opcode should not leak into the VM.
-            Opcode::Placeholder => return Err(self.runtime_error()),
+            Opcode::Placeholder => return Err(self.error_builder.runtime_error()),
         }
 
         // Increment PC for all instructions.

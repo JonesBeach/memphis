@@ -1,3 +1,5 @@
+use crate::domain::RuntimeValue;
+
 use super::*;
 
 impl TreewalkInterpreter {
@@ -46,7 +48,15 @@ impl TreewalkInterpreter {
     }
 
     pub fn stop_iteration(&self) -> TreewalkDisruption {
-        self.error(ExecutionErrorKind::StopIteration)
+        self.error(ExecutionErrorKind::StopIteration(Box::new(
+            RuntimeValue::Treewalk(TreewalkValue::None),
+        )))
+    }
+
+    pub fn stop_iteration_with(&self, value: TreewalkValue) -> TreewalkDisruption {
+        self.error(ExecutionErrorKind::StopIteration(Box::new(
+            RuntimeValue::Treewalk(value),
+        )))
     }
 
     pub fn attribute_error(
