@@ -557,24 +557,14 @@ impl Compiler {
     fn compile_binary_operation(
         &mut self,
         left: &Expr,
-        op: &BinOp,
+        bin_op: &BinOp,
         right: &Expr,
     ) -> CompilerResult<()> {
         self.compile_expr(left)?;
         self.compile_expr(right)?;
 
-        let opcode = match op {
-            BinOp::Add => Opcode::Add,
-            BinOp::Sub => Opcode::Sub,
-            BinOp::Mul => Opcode::Mul,
-            BinOp::Div => Opcode::Div,
-            BinOp::Equals => Opcode::Eq,
-            BinOp::LessThan => Opcode::LessThan,
-            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
-            BinOp::GreaterThan => Opcode::GreaterThan,
-            BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
-            _ => return Err(unsupported(&format!("binary op: {op:?}"))),
-        };
+        let opcode = Opcode::try_from_bin_op(bin_op)
+            .ok_or_else(|| unsupported(&format!("binary op: {bin_op:?}")))?;
 
         self.emit(opcode)?;
         Ok(())
@@ -843,6 +833,30 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::GreaterThan,
+            ]
+        );
+
+        let expr = bin_op!(int!(4), In, list![int!(5)]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildList(1),
+                Opcode::In,
+            ]
+        );
+
+        let expr = bin_op!(int!(4), NotIn, list![int!(5)]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildList(1),
+                Opcode::NotIn,
             ]
         );
     }

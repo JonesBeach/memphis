@@ -23,7 +23,6 @@ pub type Namespace = HashMap<String, Reference>;
 pub enum Reference {
     Int(i64),
     Float(f64),
-    Bool(bool),
     ObjectRef(ObjectTableIndex),
     ConstantRef(ConstantIndex),
 }

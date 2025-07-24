@@ -1,6 +1,9 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::bytecode_vm::indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex};
+use crate::{
+    bytecode_vm::indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
+    parser::types::BinOp,
+};
 
 use super::CodeObject;
 
@@ -35,6 +38,12 @@ pub enum Opcode {
     /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is greater than or equal to the second value.
     GreaterThanOrEq,
+    /// Compare two values on the stack and push a boolean result back onto the stack based on
+    /// whether the first value is in the second value, as an iterable.
+    In,
+    /// Compare two values on the stack and push a boolean result back onto the stack based on
+    /// whether the first value is _not_ in the second value, as an iterable.
+    NotIn,
     /// Implements STACK[-1] = -STACK[-1].
     UnaryNegative,
     /// Implements STACK[-1] = not STACK[-1].
@@ -117,6 +126,23 @@ impl Opcode {
             _ => self.to_string(), // fallback to Display
         }
     }
+
+    pub fn try_from_bin_op(bin_op: &BinOp) -> Option<Opcode> {
+        Some(match bin_op {
+            BinOp::Add => Opcode::Add,
+            BinOp::Sub => Opcode::Sub,
+            BinOp::Mul => Opcode::Mul,
+            BinOp::Div => Opcode::Div,
+            BinOp::Equals => Opcode::Eq,
+            BinOp::LessThan => Opcode::LessThan,
+            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
+            BinOp::GreaterThan => Opcode::GreaterThan,
+            BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
+            BinOp::In => Opcode::In,
+            BinOp::NotIn => Opcode::NotIn,
+            _ => return None,
+        })
+    }
 }
 
 impl Display for Opcode {
@@ -131,6 +157,8 @@ impl Display for Opcode {
             Opcode::LessThanOrEq => write!(f, "LESS_THAN_OR_EQ"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
             Opcode::GreaterThanOrEq => write!(f, "GREATER_THAN_OR_EQ"),
+            Opcode::In => write!(f, "IN"),
+            Opcode::NotIn => write!(f, "NOT_IN"),
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
             Opcode::UnaryInvert => write!(f, "UNARY_INVERT"),

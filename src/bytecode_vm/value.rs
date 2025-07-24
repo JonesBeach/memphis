@@ -40,7 +40,6 @@ impl VmValue {
         match self {
             VmValue::Int(i) => Reference::Int(i),
             VmValue::Float(i) => Reference::Float(i),
-            VmValue::Bool(i) => Reference::Bool(i),
             _ => unimplemented!("Conversion to reference not supported for {:?}", self),
         }
     }
@@ -79,7 +78,6 @@ impl From<Reference> for VmValue {
         match value {
             Reference::Int(i) => VmValue::Int(i),
             Reference::Float(i) => VmValue::Float(i),
-            Reference::Bool(i) => VmValue::Bool(i),
             // These require a lookup using VM state and must be converted before this function.
             Reference::ObjectRef(_) | Reference::ConstantRef(_) => unreachable!(),
         }

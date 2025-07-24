@@ -274,13 +274,33 @@ impl VirtualMachine {
     /// all other types.
     pub fn heapify(&mut self, value: VmValue) -> Reference {
         match value {
-            VmValue::Int(_) | VmValue::Float(_) | VmValue::Bool(_) => value.into_ref(),
+            // This case is only needed when we receive a generic `VmValue`, i.e. loading a
+            // constant. For cases where we know we have a boolean, it is preferred to use
+            // `to_heapified_bool` directly.
+            VmValue::Bool(bool_val) => self.to_heapified_bool(bool_val),
+            VmValue::Int(_) | VmValue::Float(_) => value.into_ref(),
             _ => self.runtime.borrow_mut().heap.allocate(value),
         }
     }
 
     pub fn none(&self) -> Reference {
-        self.runtime.borrow_mut().heap.none()
+        self.runtime.borrow().heap.none()
+    }
+
+    pub fn true_(&self) -> Reference {
+        self.runtime.borrow().heap.true_()
+    }
+
+    pub fn false_(&self) -> Reference {
+        self.runtime.borrow().heap.false_()
+    }
+
+    pub fn to_heapified_bool(&self, value: bool) -> Reference {
+        if value {
+            self.true_()
+        } else {
+            self.false_()
+        }
     }
 
     /// Dereferences the top value on the stack.
@@ -355,8 +375,8 @@ impl VirtualMachine {
     {
         let b = self.pop_value()?;
         let a = self.pop_value()?;
-        let result = self.dynamic_cmp(&a, &b, op)?;
-        self.push_value(result)?;
+        let result_ref = self.dynamic_cmp(&a, &b, op)?;
+        self.push(result_ref)?;
         Ok(())
     }
 
@@ -392,7 +412,7 @@ impl VirtualMachine {
         Ok(result)
     }
 
-    fn dynamic_cmp<F>(&self, a: &VmValue, b: &VmValue, op: F) -> VmResult<VmValue>
+    fn dynamic_cmp<F>(&self, a: &VmValue, b: &VmValue, op: F) -> VmResult<Reference>
     where
         F: FnOnce(f64, f64) -> bool,
     {
@@ -408,7 +428,7 @@ impl VirtualMachine {
             }
         };
 
-        Ok(VmValue::Bool(result))
+        Ok(self.to_heapified_bool(result))
     }
 
     fn dynamic_negate(&self, value: &VmValue) -> VmResult<VmValue> {
@@ -423,6 +443,20 @@ impl VirtualMachine {
         };
 
         Ok(result)
+    }
+
+    fn value_in_iter(&mut self, needle: VmValue, haystack: VmValue) -> VmResult<bool> {
+        let iter = builtins::iter_internal(self, haystack)?;
+        loop {
+            match builtins::next_internal(self, iter)? {
+                Some(item_ref) => {
+                    if needle == self.deref(item_ref)? {
+                        return Ok(true);
+                    }
+                }
+                None => return Ok(false),
+            }
+        }
     }
 
     // === Declarative VM Call Interface ===
@@ -541,7 +575,7 @@ impl VirtualMachine {
             Opcode::Eq => {
                 let right = self.pop_value()?;
                 let left = self.pop_value()?;
-                self.push(Reference::Bool(left == right))?;
+                self.push(self.to_heapified_bool(left == right))?;
             }
             Opcode::LessThan => {
                 self.cmp_op(|a, b| a < b).map_err(|_| {
@@ -567,6 +601,20 @@ impl VirtualMachine {
                         .type_error("Unsupported operand types for >=")
                 })?;
             }
+            Opcode::In => {
+                let haystack = self.pop_value()?;
+                let needle = self.pop_value()?;
+
+                let in_result = self.value_in_iter(needle, haystack)?;
+                self.push(self.to_heapified_bool(in_result))?;
+            }
+            Opcode::NotIn => {
+                let haystack = self.pop_value()?;
+                let needle = self.pop_value()?;
+
+                let in_result = !self.value_in_iter(needle, haystack)?;
+                self.push(self.to_heapified_bool(in_result))?;
+            }
             Opcode::UnaryNegative => {
                 let value = self.pop_value()?;
                 let result = self.dynamic_negate(&value)?;
@@ -574,7 +622,7 @@ impl VirtualMachine {
             }
             Opcode::UnaryNot => {
                 let right = self.pop_value()?.to_boolean();
-                self.push(Reference::Bool(!right))?;
+                self.push(self.to_heapified_bool(!right))?;
             }
             Opcode::UnaryInvert => {
                 let right = self.pop_value()?.as_integer().ok_or_else(|| {

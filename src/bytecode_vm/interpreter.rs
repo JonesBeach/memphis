@@ -187,6 +187,41 @@ mod tests_vm_interpreter {
     }
 
     #[test]
+    fn comparison_in() {
+        let text = "4 in [1,2,3,4]";
+        assert_eval_eq!(text, VmValue::Bool(true));
+
+        let text = "4 in [1,2,3,5]";
+        assert_eval_eq!(text, VmValue::Bool(false));
+
+        let text = "not (4 in [1,2,3,5])";
+        assert_eval_eq!(text, VmValue::Bool(true));
+
+        let text = r#""a" in ["a"]"#;
+        assert_eval_eq!(text, VmValue::Bool(true));
+
+        let text = r#""a" in "a""#;
+        let e = eval_expect_error(text);
+        assert_type_error!(e, "TODO object is not iterable");
+    }
+
+    #[test]
+    fn comparison_not_in() {
+        let text = "4 not in [1,2,3,4]";
+        assert_eval_eq!(text, VmValue::Bool(false));
+
+        let text = "4 not in [1,2,3,5]";
+        assert_eval_eq!(text, VmValue::Bool(true));
+
+        let text = r#""a" not in ["a"]"#;
+        assert_eval_eq!(text, VmValue::Bool(false));
+
+        let text = r#""a" not in "a""#;
+        let e = eval_expect_error(text);
+        assert_type_error!(e, "TODO object is not iterable");
+    }
+
+    #[test]
     fn comparison_eq() {
         let text = "4 == 5";
         assert_eval_eq!(text, VmValue::Bool(false));
