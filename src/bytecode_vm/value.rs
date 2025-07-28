@@ -198,6 +198,15 @@ impl From<VmValue> for MemphisValue {
             VmValue::Float(val) => MemphisValue::Float(val),
             VmValue::String(val) => MemphisValue::String(val),
             VmValue::Bool(val) => MemphisValue::Boolean(val),
+            VmValue::List(i) => {
+                let items = i
+                    .items
+                    .into_iter()
+                    .map(VmValue::from)
+                    .map(|item| item.into())
+                    .collect::<Vec<MemphisValue>>();
+                MemphisValue::List(items)
+            }
             _ => unimplemented!("Conversion not implemented for type {:?}", value),
         }
     }

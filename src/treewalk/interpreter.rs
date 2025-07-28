@@ -5319,13 +5319,40 @@ def countdown_from(x, y):
 
 sum = 0
 for number in countdown_from(3, 2):
-    print(number)
     sum += number
 "#;
 
         let ctx = run(input);
 
         assert_read_eq!(ctx, "sum", int!(9));
+    }
+
+    #[test]
+    fn yield_from_list_builtin() {
+        let input = r#"
+def gen():
+    yield from [1, 2, 3]
+
+a = list(gen())
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", list![int!(1), int!(2), int!(3)]);
+    }
+
+    #[test]
+    fn yield_from_list_builtin_empty() {
+        let input = r#"
+def gen():
+    yield from []
+
+a = list(gen())
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", list![]);
     }
 
     #[test]

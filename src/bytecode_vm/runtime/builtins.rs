@@ -40,10 +40,17 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
 fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let items = match args.len() {
         0 => vec![],
-        1 => match vm.deref(args[0])? {
-            VmValue::List(list) => list.items.clone(),
-            _ => return Err(vm.error_builder.type_error("list() expects an iterable")),
-        },
+        1 => {
+            let obj = vm.deref(args[0])?.clone();
+            let iter_ref = iter_internal(vm, obj)?;
+            let mut collected = vec![];
+
+            while let Some(item_ref) = next_internal(vm, iter_ref)? {
+                collected.push(item_ref);
+            }
+
+            collected
+        }
         _ => {
             return Err(vm
                 .error_builder

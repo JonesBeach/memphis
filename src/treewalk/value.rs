@@ -583,7 +583,7 @@ impl TreewalkValue {
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<GeneratorIter> {
         self.as_generator()
-            .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
+            .ok_or_else(|| interpreter.type_error("Expected a generator"))
     }
 
     pub fn as_coroutine(&self) -> Option<Container<Coroutine>> {

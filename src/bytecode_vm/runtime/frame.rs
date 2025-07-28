@@ -12,6 +12,14 @@ use super::{
 };
 
 #[derive(Clone, Debug)]
+enum YieldFromState {
+    /// No sub-generator is active
+    None,
+    /// A `Reference` to any sub-generator currently yielding values
+    Delegating(Reference),
+}
+
+#[derive(Clone, Debug)]
 pub struct Frame {
     pub function: FunctionObject,
 
@@ -24,6 +32,8 @@ pub struct Frame {
     /// The stack which holds all the local variables themselves, beginning with the function
     /// arguments.
     pub locals: Vec<Reference>,
+
+    yield_from: YieldFromState,
 }
 
 impl Frame {
@@ -33,6 +43,7 @@ impl Frame {
             pc: 0,
             locals: args,
             module,
+            yield_from: YieldFromState::None,
         }
     }
 
@@ -62,6 +73,25 @@ impl Frame {
 
     pub fn current_line(&self) -> usize {
         self.function.code_object.get_line_number(self.pc)
+    }
+
+    pub fn has_subgenerator(&self) -> bool {
+        matches!(self.yield_from, YieldFromState::Delegating(_))
+    }
+
+    pub fn set_subgenerator(&mut self, iterator_ref: Reference) {
+        self.yield_from = YieldFromState::Delegating(iterator_ref);
+    }
+
+    pub fn clear_subgenerator(&mut self) {
+        self.yield_from = YieldFromState::None;
+    }
+
+    pub fn subgenerator_ref(&self) -> Option<Reference> {
+        match &self.yield_from {
+            YieldFromState::Delegating(sub_iter_ref) => Some(*sub_iter_ref),
+            _ => None,
+        }
     }
 }
 

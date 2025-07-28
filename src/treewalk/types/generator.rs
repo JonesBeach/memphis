@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         pausable::{Frame, Pausable, PausableContext, PausableStepResult},
         protocols::Iterable,
+        type_system::CloneableIterable,
         types::Function,
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
         TreewalkState, TreewalkValue,
@@ -13,7 +14,7 @@ use crate::{
 pub struct Generator {
     scope: Container<Scope>,
     context: PausableContext,
-    delegated: Option<GeneratorIter>,
+    delegated: Option<Box<dyn CloneableIterable>>,
 }
 
 impl Generator {
@@ -54,10 +55,20 @@ impl Generator {
             }
             Err(TreewalkDisruption::Signal(TreewalkSignal::Yield(val))) => Ok(Some(val)),
             Err(TreewalkDisruption::Signal(TreewalkSignal::YieldFrom(val))) => {
-                let mut gen = val.expect_generator(interpreter)?;
-                let val = gen.run_until_pause()?;
-                self.delegated = Some(gen);
-                Ok(Some(val))
+                if self.delegated.is_none() {
+                    let iter = val.expect_iterator(interpreter)?;
+                    self.delegated = Some(iter);
+                }
+
+                // This is a bit leaky because we not only initializing the delegation here, we're
+                // also kicking it off. Ideally, we'd do this step later.
+                match self.delegated.as_mut().unwrap().try_next()? {
+                    Some(val) => Ok(Some(val)),
+                    // We can only hit this if the iterable we are calling yield from on is
+                    // empty.
+                    // This matches Python's behavior for: `yield from []`
+                    None => Err(interpreter.stop_iteration()),
+                }
             }
             Err(e) => Err(e),
         }
@@ -139,8 +150,8 @@ impl Pausable for Generator {
         self.delegated = None;
     }
 
-    fn delegated(&self) -> Option<GeneratorIter> {
-        self.delegated.clone()
+    fn delegated(&mut self) -> Option<&mut Box<dyn CloneableIterable>> {
+        self.delegated.as_mut()
     }
 }
 

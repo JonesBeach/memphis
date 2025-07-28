@@ -288,9 +288,9 @@ pub struct CallArgs {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct SliceParams {
-    pub start: Option<Box<Expr>>,
-    pub stop: Option<Box<Expr>>,
-    pub step: Option<Box<Expr>>,
+    pub start: Option<Expr>,
+    pub stop: Option<Expr>,
+    pub step: Option<Expr>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -354,7 +354,7 @@ pub enum Expr {
     },
     SliceOperation {
         object: Box<Expr>,
-        params: SliceParams,
+        params: Box<SliceParams>,
     },
     FunctionCall {
         callee: Callee,

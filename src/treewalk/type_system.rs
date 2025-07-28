@@ -85,6 +85,10 @@ where
     T: Iterable + Clone + 'static,
 {
     fn clone_box(&self) -> Box<dyn CloneableIterable> {
+        // defensive: don't allow cloning Box<dyn Trait> directly
+        if std::any::type_name::<T>().contains("CloneableIterable") {
+            panic!("Attempted to clone a boxed trait object, which leads to infinite recursion");
+        }
         Box::new(self.clone())
     }
 }

@@ -165,6 +165,7 @@ impl Compiler {
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
             Expr::Yield(value) => self.compile_yield(value),
+            Expr::YieldFrom(value) => self.compile_yield_from(value),
             _ => Err(unsupported(&format!("Expression type: {expr:?}"))),
         }
     }
@@ -224,6 +225,12 @@ impl Compiler {
         }
 
         self.emit(Opcode::YieldValue)?;
+        Ok(())
+    }
+
+    fn compile_yield_from(&mut self, expr: &Expr) -> CompilerResult<()> {
+        self.compile_expr(expr)?;
+        self.emit(Opcode::YieldFrom)?;
         Ok(())
     }
 
@@ -1412,6 +1419,36 @@ def foo():
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(1)],
+            source: Source::default(),
+            line_map: vec![],
+            function_type: FunctionType::Generator,
+        };
+
+        let expected = wrap_top_level_function(fn_foo);
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn generator_definition_yield_from() {
+        let text = r#"
+def foo():
+    yield from [1, 2]
+"#;
+        let code = compile(text);
+
+        let fn_foo = CodeObject {
+            name: Some("foo".into()),
+            bytecode: vec![
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildList(2),
+                Opcode::YieldFrom,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec![],
+            constants: vec![Constant::Int(1), Constant::Int(2)],
             source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Generator,

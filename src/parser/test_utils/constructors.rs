@@ -101,6 +101,25 @@ macro_rules! logic_op {
     };
 }
 
+macro_rules! slice {
+    ($start:expr, $stop:expr, $step:expr) => {
+        $crate::parser::types::SliceParams {
+            start: $start,
+            stop: $stop,
+            step: $step,
+        }
+    };
+}
+
+macro_rules! slice_op {
+    ($object:expr, $params:expr) => {
+        $crate::parser::types::Expr::SliceOperation {
+            object: Box::new($object),
+            params: Box::new($params),
+        }
+    };
+}
+
 macro_rules! unary_op {
     ($op:ident, $right:expr) => {
         $crate::parser::types::Expr::UnaryOperation {
@@ -226,6 +245,8 @@ pub(crate) use member_access;
 pub(crate) use param;
 pub(crate) use params;
 pub(crate) use set;
+pub(crate) use slice;
+pub(crate) use slice_op;
 pub(crate) use stmt;
 pub(crate) use stmt_assign;
 pub(crate) use stmt_expr;

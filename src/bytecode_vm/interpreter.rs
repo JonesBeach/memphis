@@ -659,6 +659,70 @@ for i in gen():
     }
 
     #[test]
+    fn list_builtin_generator() {
+        let text = r#"
+def gen():
+    yield 1
+    yield 2
+
+a = list(gen())
+"#;
+        let ctx = run(text);
+        assert_read_eq!(
+            ctx,
+            "a",
+            VmValue::List(List::new(vec![Reference::Int(1), Reference::Int(2)]))
+        );
+    }
+
+    #[test]
+    fn yield_from_list_builtin_list_iterable() {
+        let text = r#"
+def gen():
+    yield from [1, 2, 3]
+
+a = list(gen())
+"#;
+
+        let ctx = run(text);
+        assert_read_eq!(
+            ctx,
+            "a",
+            VmValue::List(List::new(vec![
+                Reference::Int(1),
+                Reference::Int(2),
+                Reference::Int(3)
+            ]))
+        );
+    }
+
+    #[test]
+    fn yield_from_list_builtin_generator_iterable() {
+        let text = r#"
+def subgen():
+    yield 1
+    yield 2
+    yield 4
+
+def gen():
+    yield from subgen()
+
+a = list(gen())
+"#;
+
+        let ctx = run(text);
+        assert_read_eq!(
+            ctx,
+            "a",
+            VmValue::List(List::new(vec![
+                Reference::Int(1),
+                Reference::Int(2),
+                Reference::Int(4)
+            ]))
+        );
+    }
+
+    #[test]
     fn function_call_with_parameters() {
         let text = r#"
 def foo(a, b):

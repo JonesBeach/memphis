@@ -103,6 +103,7 @@ pub enum Opcode {
     /// Return the value on the stack to the caller.
     ReturnValue,
     YieldValue,
+    YieldFrom,
     /// Import the module indicated by the specified index.
     ImportName(NonlocalIndex),
     /// Stop the VM
@@ -183,6 +184,7 @@ impl Display for Opcode {
             Opcode::Call(i) => write!(f, "CALL {i}"),
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
             Opcode::YieldValue => write!(f, "YIELD_VALUE"),
+            Opcode::YieldFrom => write!(f, "YIELD_FROM"),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {i}"),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),

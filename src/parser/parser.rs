@@ -272,7 +272,7 @@ impl<'a> Parser<'a> {
         {
             self.consume(&Token::Colon)?;
             self.consume(&Token::Colon)?;
-            let step = Some(Box::new(self.parse_simple_expr()?));
+            let step = Some(self.parse_simple_expr()?);
             (true, None, None, step)
             // [:] - this syntax is useful to replace the items in a list without changing the
             // list's reference
@@ -285,14 +285,14 @@ impl<'a> Parser<'a> {
             // [:2]
         } else if self.tokens.peek_ahead_contains(&[Token::Colon]) {
             self.consume(&Token::Colon)?;
-            let stop = Some(Box::new(self.parse_simple_expr()?));
+            let stop = Some(self.parse_simple_expr()?);
             (true, None, stop, None)
             // [2:]
             // if there is a Colon immediately before the next RBracket
         } else if self.tokens.has(&Token::Colon)
             && self.tokens.num_away(&Token::Colon)? + 1 == self.tokens.num_away(&Token::RBracket)?
         {
-            let start = Some(Box::new(self.parse_simple_expr()?));
+            let start = Some(self.parse_simple_expr()?);
             self.consume(&Token::Colon)?;
             (true, start, None, None)
             // [1:1:1] or [2:5]
@@ -300,19 +300,19 @@ impl<'a> Parser<'a> {
         } else if self.tokens.has(&Token::Colon)
             && self.tokens.num_away(&Token::Colon)? < self.tokens.num_away(&Token::RBracket)?
         {
-            let start = Some(Box::new(self.parse_simple_expr()?));
+            let start = Some(self.parse_simple_expr()?);
             self.consume(&Token::Colon)?;
-            let stop = Some(Box::new(self.parse_simple_expr()?));
+            let stop = Some(self.parse_simple_expr()?);
             let step = if self.current_token() == &Token::Colon {
                 self.consume(&Token::Colon)?;
-                Some(Box::new(self.parse_simple_expr()?))
+                Some(self.parse_simple_expr()?)
             } else {
                 None
             };
             (true, start, stop, step)
             // [1]
         } else {
-            let index = Some(Box::new(self.parse_simple_expr()?));
+            let index = Some(self.parse_simple_expr()?);
             (false, index, None, None)
         };
         self.consume(&Token::RBracket)?;
@@ -320,16 +320,16 @@ impl<'a> Parser<'a> {
         if !params.0 {
             Ok(Expr::IndexAccess {
                 object: Box::new(left),
-                index: params.1.unwrap(),
+                index: Box::new(params.1.unwrap()),
             })
         } else {
             Ok(Expr::SliceOperation {
                 object: Box::new(left),
-                params: SliceParams {
+                params: Box::new(SliceParams {
                     start: params.1,
                     stop: params.2,
                     step: params.3,
-                },
+                }),
             })
         }
     }
@@ -2766,6 +2766,11 @@ def countdown(n):
         let expected_ast = yield_from!(var!("a"));
 
         assert_ast_eq!(input, expected_ast, Expr);
+
+        let input = "x = yield from a";
+        let expected_ast = stmt_assign!(var!("x"), yield_from!(var!("a")));
+
+        assert_ast_eq!(input, expected_ast);
     }
 
     #[test]
@@ -3711,86 +3716,47 @@ def add(x: str, y: str) -> str:
     #[test]
     fn slices() {
         let input = "a[1:1:1]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: Some(Box::new(int!(1))),
-                stop: Some(Box::new(int!(1))),
-                step: Some(Box::new(int!(1))),
-            },
-        };
+        let expected_ast = slice_op!(
+            var!("a"),
+            slice!(Some(int!(1)), Some(int!(1)), Some(int!(1)))
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a[2:5]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: Some(Box::new(int!(2))),
-                stop: Some(Box::new(int!(5))),
-                step: None,
-            },
-        };
+        let expected_ast = slice_op!(var!("a"), slice!(Some(int!(2)), Some(int!(5)), None));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a[:5]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: None,
-                stop: Some(Box::new(int!(5))),
-                step: None,
-            },
-        };
+        let expected_ast = slice_op!(var!("a"), slice!(None, Some(int!(5)), None));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a[3:]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: Some(Box::new(int!(3))),
-                stop: None,
-                step: None,
-            },
-        };
+        let expected_ast = slice_op!(var!("a"), slice!(Some(int!(3)), None, None));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a[::2]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: None,
-                stop: None,
-                step: Some(Box::new(int!(2))),
-            },
-        };
+        let expected_ast = slice_op!(var!("a"), slice!(None, None, Some(int!(2))));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "a[:]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("a")),
-            params: SliceParams {
-                start: None,
-                stop: None,
-                step: None,
-            },
-        };
+        let expected_ast = slice_op!(var!("a"), slice!(None, None, None));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "new_bases[i+shift:shift+1]";
-        let expected_ast = Expr::SliceOperation {
-            object: Box::new(var!("new_bases")),
-            params: SliceParams {
-                start: Some(Box::new(bin_op!(var!("i"), Add, var!("shift")))),
-                stop: Some(Box::new(bin_op!(var!("shift"), Add, int!(1)))),
-                step: None,
-            },
-        };
+        let expected_ast = slice_op!(
+            var!("new_bases"),
+            slice!(
+                Some(bin_op!(var!("i"), Add, var!("shift"))),
+                Some(bin_op!(var!("shift"), Add, int!(1))),
+                None
+            )
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -3950,14 +3916,10 @@ def foo(data=None):
             CallArgs {
                 args: vec![var!("a")],
                 kwargs: vec![],
-                args_var: Some(Box::new(Expr::SliceOperation {
-                    object: Box::new(var!("b")),
-                    params: SliceParams {
-                        start: Some(Box::new(int!(1))),
-                        stop: None,
-                        step: None,
-                    },
-                })),
+                args_var: Some(Box::new(slice_op!(
+                    var!("b"),
+                    slice!(Some(int!(1)), None, None)
+                ))),
             }
         );
 

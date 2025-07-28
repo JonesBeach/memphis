@@ -3,9 +3,8 @@ use crate::{
     domain::ExecutionErrorKind,
     parser::types::{Statement, StatementKind},
     treewalk::{
-        protocols::TryEvalFrom,
-        types::{iterators::GeneratorIter, List},
-        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::TryEvalFrom, type_system::CloneableIterable, types::List, Scope,
+        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -29,7 +28,7 @@ pub trait Pausable {
     /// A getter for the [`Scope`] of a pausable function.
     fn scope(&self) -> Container<Scope>;
 
-    fn delegated(&self) -> Option<GeneratorIter> {
+    fn delegated(&mut self) -> Option<&mut Box<dyn CloneableIterable>> {
         // Only generators will need this. Coroutines use the executor instead.
         None
     }
@@ -183,17 +182,20 @@ pub trait Pausable {
         // We must check this first to handle `yield from`. This is because generators do not have
         // a parent executor the way coroutines do.
         if let Some(delegated) = &mut self.delegated() {
-            match delegated.run_until_pause() {
-                Ok(val) => {
-                    // Yielded value from subgen → bubble up
+            match delegated.try_next() {
+                Ok(Some(val)) => {
+                    // Yielding a value from sub-generator, bubble it up
                     return Ok(val);
+                }
+                Ok(None) => {
+                    // Sub-generator finished, fall through and resume parent generator
+                    self.clear_delegated();
                 }
                 Err(TreewalkDisruption::Error(e))
                     if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration(_)) =>
                 {
-                    // Sub-generator finished
+                    // Sub-generator finished, fall through and resume parent generator
                     self.clear_delegated();
-                    // Fall through and resume parent generator
                 }
                 Err(e) => return Err(e),
             }

@@ -33,7 +33,7 @@ impl Slice {
         interpreter: &TreewalkInterpreter,
         params: &SliceParams,
     ) -> TreewalkResult<Self> {
-        let evaluate_to_integer = |expr_option: &Option<Box<Expr>>| -> TreewalkResult<Option<i64>> {
+        let evaluate_to_integer = |expr_option: &Option<Expr>| -> TreewalkResult<Option<i64>> {
             match expr_option {
                 Some(expr) => {
                     let integer = interpreter

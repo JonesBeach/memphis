@@ -51,3 +51,52 @@ b = next(g)
 
     assert_stop_iteration!(e);
 }
+
+#[test]
+fn yield_from_list_builtin_list_iterable() {
+    let mut session = crosscheck_eval!(
+        r#"
+def gen():
+    yield from [1, 2, 3]
+
+a = list(gen())
+"#
+    );
+
+    assert_crosscheck_eq!(
+        session,
+        "a",
+        MemphisValue::List(vec![
+            MemphisValue::Integer(1),
+            MemphisValue::Integer(2),
+            MemphisValue::Integer(3)
+        ])
+    );
+}
+
+#[test]
+fn yield_from_list_builtin_generator_iterable() {
+    let mut session = crosscheck_eval!(
+        r#"
+def subgen():
+    yield 1
+    yield 2
+    yield 4
+
+def gen():
+    yield from subgen()
+
+a = list(gen())
+"#
+    );
+
+    assert_crosscheck_eq!(
+        session,
+        "a",
+        MemphisValue::List(vec![
+            MemphisValue::Integer(1),
+            MemphisValue::Integer(2),
+            MemphisValue::Integer(4)
+        ])
+    );
+}

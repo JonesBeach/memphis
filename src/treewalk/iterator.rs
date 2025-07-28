@@ -1,5 +1,7 @@
 use crate::{
+    core::memphis_utils,
     domain::ExecutionErrorKind,
+    errors::MemphisError,
     treewalk::{
         protocols::Iterable, type_system::CloneableIterable, TreewalkDisruption, TreewalkResult,
         TreewalkValue,
@@ -25,7 +27,12 @@ impl Iterator for Box<dyn CloneableIterable> {
             {
                 None
             }
-            Err(_) => panic!("Unexpected error during generator run."),
+            Err(TreewalkDisruption::Error(e)) => {
+                // We must use the hard exit here because the Iterator trait doesn't give us
+                // an interface to surface a runtime error.
+                memphis_utils::exit(MemphisError::Execution(e));
+            }
+            Err(TreewalkDisruption::Signal(_)) => panic!("Unexpected signal during Iterator eval"),
         }
     }
 }

@@ -805,6 +805,33 @@ impl VirtualMachine {
                 self.call_stack.advance_pc()?;
                 return Ok(StepResult::Yield(yield_val_ref));
             }
+            Opcode::YieldFrom => {
+                if !self.current_frame()?.has_subgenerator() {
+                    // First time hitting this instruction: pop the iterable and store it
+                    let iterable = self.pop_value()?;
+                    let iterator_ref = builtins::iter_internal(self, iterable)?;
+                    self.current_frame_mut()?.set_subgenerator(iterator_ref);
+                }
+
+                // Extract iterator_ref in a separate scope to avoid borrow overlap
+                let iterator_ref = match self.current_frame()?.subgenerator_ref() {
+                    Some(r) => r,
+                    None => unreachable!("YieldFrom without a sub-generator"),
+                };
+
+                // Actually try the next() call
+                match builtins::next_internal(self, iterator_ref)? {
+                    Some(val) => {
+                        return Ok(StepResult::Yield(val)); // yield and don't advance PC
+                    }
+                    None => {
+                        // Sub-generator is done, clean up and continue
+                        self.current_frame_mut()?.clear_subgenerator();
+                        self.call_stack.advance_pc()?; // advance past YieldFrom
+                        return Ok(StepResult::Continue);
+                    }
+                }
+            }
             Opcode::ImportName(index) => {
                 self.load_and_register_module(index)?;
             }
