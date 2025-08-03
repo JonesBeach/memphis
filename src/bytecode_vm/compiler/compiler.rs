@@ -166,6 +166,7 @@ impl Compiler {
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
             Expr::Yield(value) => self.compile_yield(value),
             Expr::YieldFrom(value) => self.compile_yield_from(value),
+            Expr::Await(expr) => self.compile_await(expr),
             _ => Err(unsupported(&format!("Expression type: {expr:?}"))),
         }
     }
@@ -231,6 +232,12 @@ impl Compiler {
     fn compile_yield_from(&mut self, expr: &Expr) -> CompilerResult<()> {
         self.compile_expr(expr)?;
         self.emit(Opcode::YieldFrom)?;
+        Ok(())
+    }
+
+    fn compile_await(&mut self, expr: &Expr) -> CompilerResult<()> {
+        self.compile_expr(expr)?;
+        self.emit(Opcode::Await)?;
         Ok(())
     }
 
@@ -980,6 +987,16 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::BuildList(2),
             ]
+        );
+    }
+
+    #[test]
+    fn await_expr() {
+        let expr = await_expr!(var!("x"));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadGlobal(Index::new(0)), Opcode::Await,]
         );
     }
 

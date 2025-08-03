@@ -832,6 +832,7 @@ impl VirtualMachine {
                     }
                 }
             }
+            Opcode::Await => todo!(),
             Opcode::ImportName(index) => {
                 self.load_and_register_module(index)?;
             }
