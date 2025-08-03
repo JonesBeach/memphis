@@ -60,7 +60,7 @@ impl Executor {
             let to_run = take(&mut self.running);
             for c in &to_run {
                 if c.borrow().has_work() {
-                    let _ = self.step_coroutine(interpreter, c.clone())?;
+                    self.step_coroutine(interpreter, c.clone())?;
                 }
             }
             // Push them back in for the next round
@@ -78,7 +78,7 @@ impl Executor {
             // Same pattern for spawned, which we also don't need to push back
             let new_spawns = take(&mut self.spawned);
             for c in &new_spawns {
-                let _ = self.step_coroutine(interpreter, c.clone())?;
+                self.step_coroutine(interpreter, c.clone())?;
                 self.running.push(c.clone());
             }
 
@@ -109,17 +109,16 @@ impl Executor {
         &mut self,
         interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
-    ) -> TreewalkResult<TreewalkValue> {
+    ) -> TreewalkResult<()> {
         self.current_coroutine = Some(coroutine.clone());
         coroutine.borrow_mut().run_until_pause(interpreter)?;
 
-        if let Some(duration) = self.sleep_indicator {
+        if let Some(duration) = self.sleep_indicator.take() {
             coroutine.borrow_mut().sleep(duration);
         }
 
-        self.sleep_indicator = None;
         self.current_coroutine = None;
-        Ok(TreewalkValue::None)
+        Ok(())
     }
 }
 
