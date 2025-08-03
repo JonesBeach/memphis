@@ -56,16 +56,20 @@ impl Coroutine {
         self.wake_at.is_some_and(|t| t > Instant::now())
             || self
                 .wait_on
-                .clone()
-                .is_some_and(|coroutine| coroutine.borrow().is_finished().is_none())
+                .as_ref()
+                .is_some_and(|coroutine| !coroutine.borrow().is_finished())
     }
 
-    pub fn is_finished(&self) -> Option<TreewalkValue> {
+    pub fn is_finished(&self) -> bool {
+        self.return_val.is_some()
+    }
+
+    pub fn is_finished_with(&self) -> Option<TreewalkValue> {
         self.return_val.clone()
     }
 
     pub fn has_work(&self) -> bool {
-        !(self.is_blocked() || self.is_finished().is_some())
+        !(self.is_blocked() || self.is_finished())
     }
 
     pub fn wait_on(&mut self, coroutine: Container<Coroutine>) {
