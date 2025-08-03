@@ -129,6 +129,12 @@ macro_rules! unary_op {
     };
 }
 
+macro_rules! await_expr {
+    ($right:expr) => {
+        $crate::parser::types::Expr::Await(Box::new($right))
+    };
+}
+
 macro_rules! yield_expr {
     () => {
         $crate::parser::types::Expr::Yield(None)
@@ -231,6 +237,7 @@ macro_rules! func_call_callee {
     };
 }
 
+pub(crate) use await_expr;
 pub(crate) use bin_op;
 pub(crate) use bool;
 pub(crate) use call_args;
