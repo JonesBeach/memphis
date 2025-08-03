@@ -46,8 +46,8 @@ impl Executor {
         self.to_wait.push((first.clone(), second.clone()));
     }
 
-    /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once the
-    /// coroutine has resolved.
+    /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once
+    /// the coroutine has resolved.
     fn run(
         &mut self,
         interpreter: &TreewalkInterpreter,
@@ -90,7 +90,8 @@ impl Executor {
         }
     }
 
-    /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the event loop.
+    /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the
+    /// event loop.
     fn spawn(&mut self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
         coroutine.borrow_mut().context_mut().start();
         self.spawned.push(coroutine.clone());
