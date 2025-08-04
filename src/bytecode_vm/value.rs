@@ -4,15 +4,14 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
         runtime::{
-            BuiltinFunction, Class, FunctionObject, Generator, List, ListIter, Method, Module,
-            Object, Range, RangeIter, Reference,
+            BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method,
+            Module, Object, Range, RangeIter, Reference,
         },
+        VirtualMachine, VmResult,
     },
     core::{Container, Voidable},
     domain::MemphisValue,
 };
-
-use super::{VirtualMachine, VmResult};
 
 #[derive(Clone, Debug)]
 pub enum VmValue {
@@ -26,6 +25,7 @@ pub enum VmValue {
     Code(CodeObject),
     Function(FunctionObject),
     Generator(Container<Generator>),
+    Coroutine(Container<Coroutine>),
     Method(Method),
     Module(Container<Module>),
     BuiltinFunction(BuiltinFunction),

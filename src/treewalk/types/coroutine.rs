@@ -6,7 +6,7 @@ use crate::{
     parser::types::Statement,
     treewalk::{
         macros::*,
-        pausable::{Frame, Pausable, PausableContext, PausableState, PausableStepResult},
+        pausable::{Frame, Pausable, PausableStack, PausableState, PausableStepResult},
         protocols::Callable,
         types::Function,
         utils::{check_args, Args},
@@ -24,7 +24,7 @@ pub enum Poll {
 /// `Executor`.
 pub struct Coroutine {
     scope: Container<Scope>,
-    context: PausableContext,
+    context: PausableStack,
     wait_on: Option<Container<Coroutine>>,
     wake_at: Option<Instant>,
     return_val: Option<TreewalkValue>,
@@ -39,7 +39,7 @@ impl Coroutine {
 
         Self {
             scope,
-            context: PausableContext::new(frame),
+            context: PausableStack::new(frame),
             wait_on: None,
             wake_at: None,
             return_val: None,
@@ -110,11 +110,11 @@ impl Coroutine {
 }
 
 impl Pausable for Coroutine {
-    fn context(&self) -> &PausableContext {
+    fn context(&self) -> &PausableStack {
         &self.context
     }
 
-    fn context_mut(&mut self) -> &mut PausableContext {
+    fn context_mut(&mut self) -> &mut PausableStack {
         &mut self.context
     }
 

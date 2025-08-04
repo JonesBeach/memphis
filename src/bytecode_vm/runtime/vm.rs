@@ -15,7 +15,7 @@ use super::{
     error_builder::ErrorBuilder,
     frame::Frame,
     module_loader::ModuleLoader,
-    BuiltinFunction, CallStack, Generator, Runtime,
+    BuiltinFunction, CallStack, Coroutine, Generator, Runtime,
 };
 
 #[derive(Debug)]
@@ -765,7 +765,10 @@ impl VirtualMachine {
                                 let generator = Container::new(Generator::new(frame));
                                 self.push_value(VmValue::Generator(generator))?
                             }
-                            FunctionType::Async => unimplemented!("Async functions"),
+                            FunctionType::Async => {
+                                let coroutine = Container::new(Coroutine::new(frame));
+                                self.push_value(VmValue::Coroutine(coroutine))?;
+                            }
                         }
                     }
                     VmValue::Method(ref method) => {

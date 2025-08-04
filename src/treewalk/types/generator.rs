@@ -2,7 +2,7 @@ use crate::{
     core::Container,
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
-        pausable::{Frame, Pausable, PausableContext, PausableStepResult},
+        pausable::{Frame, Pausable, PausableStack, PausableStepResult},
         protocols::Iterable,
         type_system::CloneableIterable,
         types::Function,
@@ -13,7 +13,7 @@ use crate::{
 
 pub struct Generator {
     scope: Container<Scope>,
-    context: PausableContext,
+    context: PausableStack,
     delegated: Option<Box<dyn CloneableIterable>>,
 }
 
@@ -23,7 +23,7 @@ impl Generator {
 
         Self {
             scope,
-            context: PausableContext::new(frame),
+            context: PausableStack::new(frame),
             delegated: None,
         }
     }
@@ -112,11 +112,11 @@ impl Generator {
 }
 
 impl Pausable for Generator {
-    fn context(&self) -> &PausableContext {
+    fn context(&self) -> &PausableStack {
         &self.context
     }
 
-    fn context_mut(&mut self) -> &mut PausableContext {
+    fn context_mut(&mut self) -> &mut PausableStack {
         &mut self.context
     }
 
