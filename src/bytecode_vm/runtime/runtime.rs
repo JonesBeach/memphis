@@ -17,9 +17,14 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
+        let mut module_store = HashMap::new();
+
+        let asyncio_ref = Container::new(Module::new("asyncio"));
+        module_store.insert("asyncio".to_string(), asyncio_ref);
+
         Self {
             heap: Heap::new(),
-            module_store: HashMap::new(),
+            module_store,
         }
     }
 

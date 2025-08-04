@@ -324,12 +324,10 @@ impl VirtualMachine {
     /// This ensures that newly created frames can resolve their originating module.
     fn load_and_register_module(&mut self, index: NonlocalIndex) -> VmResult<()> {
         let name = self.resolve_name(index)?.to_owned();
-        let module = self.module_loader.import(&name, None)?;
 
+        let module = self.module_loader.resolve_or_import_module(&name)?;
         let module_ref = self.heapify(VmValue::Module(module.clone()));
         self.store_global(index, module_ref)?;
-
-        self.runtime.borrow_mut().store_module(module);
 
         Ok(())
     }

@@ -26,13 +26,24 @@ impl ModuleLoader {
         }
     }
 
-    pub fn import(
+    fn import_from_source(
         &mut self,
         name: &str,
         _caller_path: Option<&Path>,
     ) -> VmResult<Container<Module>> {
         let source = self.expect_source(name)?;
         VmContext::import(source, self.state.clone(), self.runtime.clone())
+    }
+
+    /// Check if the module is already present (e.g. Rust-backed or previously imported).
+    pub fn resolve_or_import_module(&mut self, name: &str) -> VmResult<Container<Module>> {
+        if let Some(module) = self.runtime.borrow().read_module(name) {
+            return Ok(module);
+        }
+
+        let module = self.import_from_source(name, None)?;
+        self.runtime.borrow_mut().store_module(module.clone());
+        Ok(module)
     }
 
     fn resolve_source(&self, name: &str) -> Option<Source> {

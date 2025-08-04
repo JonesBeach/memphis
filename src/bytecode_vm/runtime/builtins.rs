@@ -18,13 +18,9 @@ static BUILTINS: [(&str, BuiltinFunc); 5] = [
 
 pub fn register_builtins(vm: &mut VirtualMachine, module: &mut Module) {
     for (name, func) in BUILTINS {
-        let builtin_obj = BuiltinFunction::new(name, func);
-        let reference = vm.heapify(VmValue::BuiltinFunction(builtin_obj));
-        module.write(name, reference);
+        let func_ref = vm.heapify(VmValue::BuiltinFunction(BuiltinFunction::new(name, func)));
+        module.write(name, func_ref);
     }
-
-    let asyncio_ref = vm.heapify(VmValue::Module(Container::new(Module::new("asyncio"))));
-    module.write("asyncio", asyncio_ref);
 }
 
 /// This is intended to be functionally equivalent to `__build_class__` in CPython.
