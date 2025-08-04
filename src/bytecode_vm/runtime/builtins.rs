@@ -20,8 +20,11 @@ pub fn register_builtins(vm: &mut VirtualMachine, module: &mut Module) {
     for (name, func) in BUILTINS {
         let builtin_obj = BuiltinFunction::new(name, func);
         let reference = vm.heapify(VmValue::BuiltinFunction(builtin_obj));
-        module.global_store.insert(name.to_string(), reference);
+        module.write(name, reference);
     }
+
+    let asyncio_ref = vm.heapify(VmValue::Module(Container::new(Module::new("asyncio"))));
+    module.write("asyncio", asyncio_ref);
 }
 
 /// This is intended to be functionally equivalent to `__build_class__` in CPython.
@@ -195,7 +198,7 @@ mod tests {
         let mut vm = VirtualMachine::default();
         let mut module = Module::new("test_module");
         register_builtins(&mut vm, &mut module);
-        assert!(module.global_store.contains_key("list"));
-        assert!(!module.global_store.contains_key("dict"));
+        assert!(module.global_store().contains_key("list"));
+        assert!(!module.global_store().contains_key("dict"));
     }
 }

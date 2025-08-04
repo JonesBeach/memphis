@@ -72,11 +72,9 @@ impl VirtualMachine {
             .read_module(&Dunder::Main)
             .unwrap_or_else(|| panic!("Failed to read module: {}", Dunder::Main));
 
-        let binding = module.borrow();
-        Ok(binding
-            .global_store
-            .get(name)
-            .copied()
+        let module_binding = module.borrow();
+        Ok(module_binding
+            .read(name)
             .unwrap_or_else(|| panic!("Failed to find var: {name}")))
     }
 
@@ -119,8 +117,8 @@ impl VirtualMachine {
     }
 
     fn store_global(&mut self, index: NonlocalIndex, value: Reference) -> VmResult<()> {
-        let name = self.resolve_name(index)?.to_owned();
-        self.module()?.borrow_mut().global_store.insert(name, value);
+        let name = self.resolve_name(index)?;
+        self.module()?.borrow_mut().write(name, value);
         Ok(())
     }
 
@@ -146,9 +144,7 @@ impl VirtualMachine {
         let name = self.resolve_name(index)?;
         self.module()?
             .borrow()
-            .global_store
-            .get(name)
-            .copied()
+            .read(name)
             .ok_or_else(|| self.error_builder.name_error(name))
     }
 

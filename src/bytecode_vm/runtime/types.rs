@@ -267,7 +267,7 @@ pub struct Module {
     pub name: String,
 
     /// The runtime mapping of global variables to their values.
-    pub global_store: HashMap<String, Reference>,
+    global_store: HashMap<String, Reference>,
 }
 
 impl Module {
@@ -280,5 +280,14 @@ impl Module {
 
     pub fn read(&self, name: &str) -> Option<Reference> {
         self.global_store.get(name).cloned()
+    }
+
+    pub fn write(&mut self, name: &str, value: Reference) {
+        self.global_store.insert(name.to_string(), value);
+    }
+
+    #[cfg(test)]
+    pub fn global_store(&self) -> &HashMap<String, Reference> {
+        &self.global_store
     }
 }
