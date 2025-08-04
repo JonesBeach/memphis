@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::core::Container;
 
-use super::{heap::Heap, Module};
+use super::{asyncio, heap::Heap, Module};
 
 pub struct Runtime {
     /// This is kind of similar to the heap. When an object is created, it will live here and a
@@ -17,15 +17,14 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        let mut module_store = HashMap::new();
-
-        let asyncio_ref = Container::new(Module::new("asyncio"));
-        module_store.insert("asyncio".to_string(), asyncio_ref);
-
         Self {
             heap: Heap::new(),
-            module_store,
+            module_store: HashMap::new(),
         }
+    }
+
+    pub fn init(&mut self) {
+        asyncio::init_module(self);
     }
 
     pub fn read_module(&self, name: &str) -> Option<Container<Module>> {

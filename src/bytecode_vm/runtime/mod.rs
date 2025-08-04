@@ -1,3 +1,4 @@
+mod asyncio;
 mod builtins;
 mod call_stack;
 mod error_builder;

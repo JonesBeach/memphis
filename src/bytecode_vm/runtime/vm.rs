@@ -44,6 +44,8 @@ impl VirtualMachine {
         let error_builder = ErrorBuilder::new(state.clone());
         let call_stack = CallStack::new(state.clone());
 
+        runtime.borrow_mut().init();
+
         Self {
             state,
             runtime,
