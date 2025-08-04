@@ -63,8 +63,10 @@ impl VirtualMachine {
         self.deref(reference).ok()
     }
 
+    /// Read a global variable from the `__main__` module.
     // TODO this should really only be available in test/repl mode, but we currently call this in
-    // the Interpreter trait
+    // the Interpreter trait. The other option is splitting Interpreter into two traits and putting
+    // the read one behind a test/repl flag.
     fn load_global_by_name(&self, name: &str) -> VmResult<Reference> {
         let module = self
             .runtime

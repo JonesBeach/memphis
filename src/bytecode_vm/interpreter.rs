@@ -19,14 +19,14 @@ impl VmInterpreter {
         source: Source,
     ) -> Self {
         Self {
-            compiler: Compiler::new(source.clone()),
+            compiler: Compiler::new(source),
             vm: VirtualMachine::new(state, runtime),
         }
     }
 
     pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
         let mut ast = parser.parse().map_err(MemphisError::Parser)?;
-        // This simulations CPython `eval` mode, which we assume to be for the tests and REPL.
+        // This simulates CPython `eval` mode, which we assume to be for the tests and REPL.
         // TODO make this explicit with `CompileMode` or similar.
         ast.rewrite_last_expr_to_return();
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
