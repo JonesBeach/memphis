@@ -80,7 +80,7 @@ impl VirtualMachine {
             .unwrap_or_else(|| panic!("Failed to find var: {name}")))
     }
 
-    pub fn module(&self) -> VmResult<Container<Module>> {
+    pub fn current_module(&self) -> VmResult<Container<Module>> {
         Ok(self.current_frame()?.module.clone())
     }
 
@@ -120,7 +120,7 @@ impl VirtualMachine {
 
     fn store_global(&mut self, index: NonlocalIndex, value: Reference) -> VmResult<()> {
         let name = self.resolve_name(index)?;
-        self.module()?.borrow_mut().write(name, value);
+        self.current_module()?.borrow_mut().write(name, value);
         Ok(())
     }
 
@@ -144,7 +144,7 @@ impl VirtualMachine {
 
     fn load_global(&self, index: NonlocalIndex) -> VmResult<Reference> {
         let name = self.resolve_name(index)?;
-        self.module()?
+        self.current_module()?
             .borrow()
             .read(name)
             .ok_or_else(|| self.error_builder.name_error(name))
@@ -208,6 +208,7 @@ impl VirtualMachine {
         function: FunctionObject,
         args: Vec<Reference>,
     ) -> VmResult<Frame> {
+        // We must associate this Frame with its Module in order to read and write global variables.
         let module_name = function.code_object.source.name();
         let module = self.resolve_module(module_name)?;
 
