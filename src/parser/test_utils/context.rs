@@ -39,7 +39,7 @@ impl ParseContext {
         Ok(statements)
     }
 
-    pub fn init_parser(&mut self) -> Parser {
+    pub fn init_parser(&mut self) -> Parser<'_> {
         Parser::new(&mut self.lexer)
     }
 }

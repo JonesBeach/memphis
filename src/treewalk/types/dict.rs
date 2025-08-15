@@ -54,7 +54,7 @@ impl Dict {
         Self::new_inner(new_hash)
     }
 
-    pub fn keys(&self) -> Keys<Contextual<TreewalkValue>, TreewalkValue> {
+    pub fn keys(&self) -> Keys<'_, Contextual<TreewalkValue>, TreewalkValue> {
         self.items.keys()
     }
 

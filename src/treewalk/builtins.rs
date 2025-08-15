@@ -249,24 +249,6 @@ impl Callable for IterBuiltin {
     }
 }
 
-/// This can be used when you need something that implements `Callable` to compile, but you don't
-/// plan on ever running with this. A placeholder.
-pub struct NoopCallable;
-
-impl Callable for NoopCallable {
-    fn call(
-        &self,
-        _interpreter: &TreewalkInterpreter,
-        _args: Args,
-    ) -> TreewalkResult<TreewalkValue> {
-        unimplemented!()
-    }
-
-    fn name(&self) -> String {
-        unimplemented!()
-    }
-}
-
 pub fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
     vec1.iter().any(|item| vec2.contains(item))
 }
