@@ -104,7 +104,7 @@ impl Module {
     // Should this return an actual dict? We chose not to do that right now because a
     // `Container<Dict>` requires a reference to the interpreter.
     #[cfg(feature = "c_stdlib")]
-    pub fn dict(&self) -> Iter<String, TreewalkValue> {
+    pub fn dict(&self) -> Iter<'_, String, TreewalkValue> {
         self.scope.into_iter()
     }
 
