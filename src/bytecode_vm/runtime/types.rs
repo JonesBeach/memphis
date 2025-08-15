@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Display, Error, Formatter},
+    time::Instant,
 };
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
         indices::{ConstantIndex, ObjectTableIndex},
         VirtualMachine, VmResult,
     },
+    core::Container,
     domain::FunctionType,
 };
 
@@ -209,13 +211,31 @@ impl Object {
 }
 
 #[derive(Clone, Debug)]
+pub enum CoroutineState {
+    Ready,
+    Waiting,
+    Sleeping,
+    Finished,
+}
+
+#[derive(Clone, Debug)]
 pub struct Coroutine {
     pub frame: Frame,
+    pub state: CoroutineState,
+    pub waiting_on: Option<Container<Coroutine>>,
+    pub sleep_until: Option<Instant>,
+    pub result: Option<Reference>,
 }
 
 impl Coroutine {
     pub fn new(frame: Frame) -> Self {
-        Self { frame }
+        Self {
+            frame,
+            state: CoroutineState::Ready,
+            waiting_on: None,
+            sleep_until: None,
+            result: None,
+        }
     }
 }
 

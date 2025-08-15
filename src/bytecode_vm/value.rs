@@ -188,6 +188,18 @@ impl VmValue {
         self.as_class()
             .ok_or_else(|| vm.error_builder.type_error("Expected a class"))
     }
+
+    pub fn as_coroutine(&self) -> Option<&Container<Coroutine>> {
+        match self {
+            VmValue::Coroutine(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn expect_coroutine(&self, vm: &VirtualMachine) -> VmResult<&Container<Coroutine>> {
+        self.as_coroutine()
+            .ok_or_else(|| vm.error_builder.type_error("Expected a coroutine"))
+    }
 }
 
 impl From<VmValue> for MemphisValue {

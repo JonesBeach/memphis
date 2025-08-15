@@ -2,6 +2,7 @@ mod asyncio;
 mod builtins;
 mod call_stack;
 mod error_builder;
+mod executor;
 mod frame;
 mod heap;
 mod module_loader;

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
@@ -13,6 +15,7 @@ use crate::{
 use super::{
     builtins::{self, register_builtins},
     error_builder::ErrorBuilder,
+    executor::VmExecutor,
     frame::Frame,
     module_loader::ModuleLoader,
     BuiltinFunction, CallStack, Coroutine, Generator, Runtime,
@@ -22,6 +25,8 @@ use super::{
 pub enum StepResult {
     Return(Reference),
     Yield(Reference),
+    YieldTo(Container<Coroutine>),
+    Sleep(Duration),
     Continue,
     Halt,
 }
@@ -32,6 +37,8 @@ pub struct VirtualMachine {
     state: Container<MemphisState>,
 
     module_loader: ModuleLoader,
+
+    pub executor: VmExecutor,
 
     pub error_builder: ErrorBuilder,
 
@@ -50,6 +57,7 @@ impl VirtualMachine {
             state,
             runtime,
             module_loader,
+            executor: VmExecutor::default(),
             error_builder,
             call_stack,
         }
@@ -482,12 +490,13 @@ impl VirtualMachine {
         match step_result {
             StepResult::Yield(val) => Ok(Some((val, frame))),
             StepResult::Return(_) | StepResult::Halt | StepResult::Continue => Ok(None),
+            StepResult::Sleep(_) | StepResult::YieldTo(_) => todo!("I don't know what to do here."),
         }
     }
 
     /// Push a frame and run it, capturing the result and returning the frame.
     /// We need to capture the frame when it is finished for creating new Classes.
-    fn run_frame_and_capture(&mut self, frame: Frame) -> VmResult<(StepResult, Frame)> {
+    pub fn run_frame_and_capture(&mut self, frame: Frame) -> VmResult<(StepResult, Frame)> {
         self.call_stack.push(frame);
         self.run_top_frame_and_capture()
     }
