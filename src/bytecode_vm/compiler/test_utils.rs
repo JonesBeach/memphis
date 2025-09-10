@@ -14,7 +14,15 @@ fn init() -> Compiler {
 }
 
 pub fn compile_expr(expr: Expr) -> Bytecode {
-    compile_stmt(stmt_expr!(expr))
+    let mut bytecode = compile_stmt(stmt_expr!(expr));
+
+    // Some expressions end with a PopTop since we are not saving their value here, we are safe to
+    // strip that away for tests.
+    if let Some(&Opcode::PopTop) = bytecode.last() {
+        bytecode.pop();
+    }
+
+    bytecode
 }
 
 pub fn compile_stmt(stmt: Statement) -> Bytecode {

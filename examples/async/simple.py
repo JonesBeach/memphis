@@ -2,10 +2,8 @@ import asyncio
 
 async def simple_task(id, n):
     for i in range(n):
-        print(f"Task {id} - Step {i + 1}")
-        await asyncio.sleep(0.01)
-
-    return f"Task {id} Completed"
+        print("Task", id, "Step", i + 1)
+        await asyncio.sleep(0.05)
 
 async def main():
     task_1 = asyncio.create_task(simple_task(1, 5))

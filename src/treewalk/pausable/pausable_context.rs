@@ -24,12 +24,12 @@ pub enum PausableState {
 /// The context that allows a `Pausable` to be paused and resumed. This represents an individual
 /// `Frame` and its current `PausableState`.
 #[derive(Clone)]
-pub struct PausableToken {
+pub struct PausableFrame {
     frame: Frame,
     state: PausableState,
 }
 
-impl PausableToken {
+impl PausableFrame {
     pub fn new(frame: Frame, state: PausableState) -> Self {
         Self { frame, state }
     }
@@ -37,18 +37,18 @@ impl PausableToken {
 
 /// The context that allows a `Pausable` to be paused and resumed. This represents a stack of
 /// `PausableToken` objects.
-pub struct PausableContext(Vec<PausableToken>);
+pub struct PausableStack(Vec<PausableFrame>);
 
-impl PausableContext {
+impl PausableStack {
     pub fn new(frame: Frame) -> Self {
-        Self(vec![PausableToken::new(frame, PausableState::Created)])
+        Self(vec![PausableFrame::new(frame, PausableState::Created)])
     }
 
-    pub fn push(&mut self, context: PausableToken) {
+    pub fn push(&mut self, context: PausableFrame) {
         self.0.push(context);
     }
 
-    pub fn pop(&mut self) -> Option<PausableToken> {
+    pub fn pop(&mut self) -> Option<PausableFrame> {
         self.0.pop()
     }
 

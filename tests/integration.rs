@@ -34,12 +34,13 @@ fn test_script(script: &'static str, engine: Option<&str>) {
 mod integration_tests {
     use super::*;
 
-    static TREEWALK_UI_TESTS: [&'static str; 10] = [
+    static TREEWALK_UI_TESTS: [&'static str; 11] = [
         "examples/test.py",
         "examples/async/a.py",
         "examples/async/b.py",
         "examples/async/c.py",
         "examples/async/d.py",
+        "examples/async/simple.py",
         "examples/exceptions.py",
         "examples/context_manager.py",
         "examples/new_method.py",
@@ -47,7 +48,8 @@ mod integration_tests {
         "examples/descriptor_protocol.py",
     ];
 
-    static BYTECODE_VM_UI_TESTS: [&'static str; 1] = ["examples/test_vm.py"];
+    static BYTECODE_VM_UI_TESTS: [&'static str; 2] =
+        ["examples/test_vm.py", "examples/async/simple.py"];
 
     #[test]
     fn run_treewalk_scripts() {

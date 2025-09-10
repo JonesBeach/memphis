@@ -111,7 +111,20 @@ impl Compiler {
 
         match &stmt.kind {
             StatementKind::Pass => {}
-            StatementKind::Expression(expr) => self.compile_expr(expr)?,
+            StatementKind::Expression(expr) => {
+                self.compile_expr(expr)?;
+
+                match expr {
+                    // Yield and YieldFrom are special cases where they don't leave a value on the
+                    // stack. This still feels a bit odd to me.
+                    Expr::Yield(_) | Expr::YieldFrom(_) | Expr::Await(_) => {}
+                    _ => {
+                        // If an expression is used as a statement, we must tell the VM to discard
+                        // the result from the stack.
+                        self.emit(Opcode::PopTop)?;
+                    }
+                }
+            }
             StatementKind::Return(expr) => self.compile_return(expr)?,
             StatementKind::Assignment { left, right } => self.compile_assignment(left, right)?,
             StatementKind::WhileLoop(cond_ast) => self.compile_while_loop(cond_ast)?,
@@ -166,6 +179,7 @@ impl Compiler {
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
             Expr::Yield(value) => self.compile_yield(value),
             Expr::YieldFrom(value) => self.compile_yield_from(value),
+            Expr::Await(expr) => self.compile_await(expr),
             _ => Err(unsupported(&format!("Expression type: {expr:?}"))),
         }
     }
@@ -231,6 +245,12 @@ impl Compiler {
     fn compile_yield_from(&mut self, expr: &Expr) -> CompilerResult<()> {
         self.compile_expr(expr)?;
         self.emit(Opcode::YieldFrom)?;
+        Ok(())
+    }
+
+    fn compile_await(&mut self, expr: &Expr) -> CompilerResult<()> {
+        self.compile_expr(expr)?;
+        self.emit(Opcode::Await)?;
         Ok(())
     }
 
@@ -631,7 +651,7 @@ impl Compiler {
     }
 
     fn get_or_set_local_index(&mut self, name: &str) -> CompilerResult<LocalIndex> {
-        log(LogLevel::Debug, || {
+        log(LogLevel::Trace, || {
             format!("Looking for '{name}' in locals")
         });
         if let Some(index) = self.get_local_index(name)? {
@@ -666,7 +686,7 @@ impl Compiler {
     }
 
     fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
-        log(LogLevel::Debug, || {
+        log(LogLevel::Trace, || {
             format!("Looking for '{name}' in globals")
         });
         let code = self.ensure_code_object_mut()?;
@@ -681,7 +701,7 @@ impl Compiler {
     }
 
     fn get_or_set_constant_index(&mut self, value: Constant) -> CompilerResult<ConstantIndex> {
-        log(LogLevel::Debug, || {
+        log(LogLevel::Trace, || {
             format!("Looking for '{value}' in constants")
         });
         let code = self.ensure_code_object_mut()?;
@@ -984,6 +1004,16 @@ mod tests_bytecode {
     }
 
     #[test]
+    fn await_expr() {
+        let expr = await_expr!(var!("x"));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::LoadGlobal(Index::new(0)), Opcode::Await,]
+        );
+    }
+
+    #[test]
     fn member_access() {
         let s = stmt_assign!(member_access!(var!("foo"), "x"), int!(4));
         let bytecode = compile_stmt(s);
@@ -1003,6 +1033,20 @@ mod tests_bytecode {
             &[
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1))
+            ]
+        );
+    }
+
+    #[test]
+    fn expression_as_statement() {
+        let s = stmt_expr!(func_call!("print"));
+        let bytecode = compile_stmt(s);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadGlobal(Index::new(0)),
+                Opcode::Call(0),
+                Opcode::PopTop,
             ]
         );
     }
@@ -1287,17 +1331,13 @@ def foo():
     fn function_definition_with_parameters() {
         let text = r#"
 def foo(a, b):
-    a + b
+    pass
 "#;
         let code = compile(text);
 
         let fn_foo = CodeObject {
             name: Some("foo".into()),
-            bytecode: vec![
-                Opcode::LoadFast(Index::new(0)),
-                Opcode::LoadFast(Index::new(1)),
-                Opcode::Add,
-            ],
+            bytecode: vec![],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into()],
             freevars: vec![],
@@ -1489,7 +1529,7 @@ async def foo():
 def foo(a, b):
     def inner():
         return 10
-    a + b
+    return a + b
 "#;
         let code = compile(text);
 
@@ -1515,6 +1555,7 @@ def foo(a, b):
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::LoadFast(Index::new(1)),
                 Opcode::Add,
+                Opcode::ReturnValue,
             ],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into(), "inner".into()],
@@ -1616,6 +1657,7 @@ world()
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::Call(1),
+                Opcode::PopTop,
             ],
             arg_count: 0,
             varnames: vec![],
@@ -1633,6 +1675,7 @@ world()
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::Call(1),
+                Opcode::PopTop,
             ],
             arg_count: 0,
             varnames: vec![],
@@ -1655,8 +1698,10 @@ world()
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Call(0),
+                Opcode::PopTop,
                 Opcode::LoadGlobal(Index::new(1)),
                 Opcode::Call(0),
+                Opcode::PopTop,
                 Opcode::Halt,
             ],
             arg_count: 0,

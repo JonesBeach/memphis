@@ -1,6 +1,8 @@
+mod asyncio;
 mod builtins;
 mod call_stack;
 mod error_builder;
+mod executor;
 mod frame;
 mod heap;
 mod module_loader;
@@ -12,7 +14,7 @@ mod vm;
 pub use call_stack::CallStack;
 pub use runtime::Runtime;
 pub use types::{
-    BuiltinFunction, Class, FunctionObject, Generator, List, ListIter, Method, Module, Object,
-    Range, RangeIter, Reference,
+    BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method, Module,
+    Object, Range, RangeIter, Reference,
 };
 pub use vm::VirtualMachine;

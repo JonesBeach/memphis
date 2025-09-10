@@ -104,6 +104,7 @@ pub enum Opcode {
     ReturnValue,
     YieldValue,
     YieldFrom,
+    Await,
     /// Import the module indicated by the specified index.
     ImportName(NonlocalIndex),
     /// Stop the VM
@@ -185,6 +186,7 @@ impl Display for Opcode {
             Opcode::ReturnValue => write!(f, "RETURN_VALUE"),
             Opcode::YieldValue => write!(f, "YIELD_VALUE"),
             Opcode::YieldFrom => write!(f, "YIELD_FROM"),
+            Opcode::Await => write!(f, "AWAIT"),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {i}"),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),

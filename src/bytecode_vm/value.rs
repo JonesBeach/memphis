@@ -1,18 +1,20 @@
-use std::fmt::{Display, Error, Formatter};
+use std::{
+    fmt::{Display, Error, Formatter},
+    time::Duration,
+};
 
 use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
         runtime::{
-            BuiltinFunction, Class, FunctionObject, Generator, List, ListIter, Method, Module,
-            Object, Range, RangeIter, Reference,
+            BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method,
+            Module, Object, Range, RangeIter, Reference,
         },
+        VirtualMachine, VmResult,
     },
     core::{Container, Voidable},
-    domain::MemphisValue,
+    domain::{MemphisValue, Type},
 };
-
-use super::{VirtualMachine, VmResult};
 
 #[derive(Clone, Debug)]
 pub enum VmValue {
@@ -26,6 +28,8 @@ pub enum VmValue {
     Code(CodeObject),
     Function(FunctionObject),
     Generator(Container<Generator>),
+    Coroutine(Container<Coroutine>),
+    SleepFuture(Duration),
     Method(Method),
     Module(Container<Module>),
     BuiltinFunction(BuiltinFunction),
@@ -78,8 +82,8 @@ impl From<Reference> for VmValue {
         match value {
             Reference::Int(i) => VmValue::Int(i),
             Reference::Float(i) => VmValue::Float(i),
-            // These require a lookup using VM state and must be converted before this function.
-            Reference::ObjectRef(_) | Reference::ConstantRef(_) => unreachable!(),
+            // This requires a lookup using VM state and must be converted before this function.
+            Reference::ObjectRef(_) => unreachable!(),
         }
     }
 }
@@ -104,19 +108,60 @@ impl Display for VmValue {
             VmValue::Int(i) => write!(f, "{i}"),
             VmValue::String(i) => write!(f, "{i}"),
             VmValue::Bool(i) => write!(f, "{i}"),
+            VmValue::Range(i) => write!(f, "{i}"),
+            VmValue::RangeIter(_) => write!(f, "<rangeiter>"),
             VmValue::Code(i) => write!(f, "{i}"),
             VmValue::BuiltinFunction(i) => write!(f, "{i}"),
-            _ => unimplemented!("Type {:?} unimplemented in the bytecode VM.", self),
+            VmValue::Function(i) => write!(f, "{i}"),
+            VmValue::Module(i) => write!(f, "{}", i.borrow()),
+            VmValue::Coroutine(i) => write!(f, "{}", i.borrow()),
+            VmValue::SleepFuture(_) => write!(f, "<sleepfuture>"),
+            _ => unimplemented!(
+                "Trait Display for type {:?} unimplemented in the bytecode VM.",
+                self
+            ),
         }
     }
 }
 
 impl VmValue {
+    pub fn get_type(&self) -> Type {
+        match self {
+            VmValue::None => Type::None,
+            VmValue::Int(_) => Type::Int,
+            VmValue::Float(_) => Type::Float,
+            VmValue::String(_) => Type::Str,
+            VmValue::Bool(_) => Type::Bool,
+            VmValue::Range(_) => Type::Range,
+            _ => unimplemented!(
+                "get_type for type {:?} unimplemented in the bytecode VM.",
+                self
+            ),
+        }
+    }
+
     pub fn as_integer(&self) -> Option<i64> {
         match self {
             VmValue::Int(i) => Some(*i),
             _ => None,
         }
+    }
+
+    pub fn expect_integer(&self, vm: &VirtualMachine) -> VmResult<i64> {
+        self.as_integer()
+            .ok_or_else(|| vm.error_builder.type_error("Expected an integer"))
+    }
+
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            VmValue::Float(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn expect_float(&self, vm: &VirtualMachine) -> VmResult<f64> {
+        self.as_float()
+            .ok_or_else(|| vm.error_builder.type_error("Expected a float"))
     }
 
     pub fn to_boolean(&self) -> bool {
@@ -187,6 +232,18 @@ impl VmValue {
     pub fn expect_class(&self, vm: &VirtualMachine) -> VmResult<&Class> {
         self.as_class()
             .ok_or_else(|| vm.error_builder.type_error("Expected a class"))
+    }
+
+    pub fn as_coroutine(&self) -> Option<&Container<Coroutine>> {
+        match self {
+            VmValue::Coroutine(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn expect_coroutine(&self, vm: &VirtualMachine) -> VmResult<&Container<Coroutine>> {
+        self.as_coroutine()
+            .ok_or_else(|| vm.error_builder.type_error("Expected a coroutine"))
     }
 }
 

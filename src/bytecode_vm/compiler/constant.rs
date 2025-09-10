@@ -21,7 +21,7 @@ impl Display for Constant {
             Constant::Boolean(i) => write!(f, "{i}"),
             Constant::Int(i) => write!(f, "{i}"),
             Constant::Float(i) => write!(f, "{i}"),
-            Constant::String(i) => write!(f, "{i}"),
+            Constant::String(i) => write!(f, "\"{i}\""),
             Constant::Code(i) => write!(f, "{i}"),
         }
     }

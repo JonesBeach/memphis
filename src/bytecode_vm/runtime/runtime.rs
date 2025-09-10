@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use crate::core::Container;
+use crate::{bytecode_vm::VmValue, core::Container, domain::Dunder};
 
-use super::{heap::Heap, Module};
+use super::{asyncio, builtins, heap::Heap, types::BuiltinFunc, BuiltinFunction, Module};
 
+#[derive(Default)]
 pub struct Runtime {
     /// This is kind of similar to the heap. When an object is created, it will live here and a
     /// reference to it will be placed on the stack. Objects here can be from any function context.
@@ -17,10 +18,14 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        Self {
-            heap: Heap::new(),
-            module_store: HashMap::new(),
-        }
+        let mut runtime = Self::default();
+
+        let _ = runtime.create_module(&Dunder::Main);
+
+        builtins::init_module(&mut runtime);
+        asyncio::init_module(&mut runtime);
+
+        runtime
     }
 
     pub fn read_module(&self, name: &str) -> Option<Container<Module>> {
@@ -31,10 +36,24 @@ impl Runtime {
         let name = module.borrow().name.to_owned();
         self.module_store.insert(name, module);
     }
+
+    /// Create a new empty `Module` of a given name and store it in the `Runtime`.
+    pub fn create_module(&mut self, name: &str) -> Container<Module> {
+        let module = Container::new(Module::new(name));
+        self.store_module(module.clone());
+        module
+    }
 }
 
-impl Default for Runtime {
-    fn default() -> Self {
-        Self::new()
+pub fn register_builtin_funcs(
+    runtime: &mut Runtime,
+    module: &mut Module,
+    builtins: &[(&str, BuiltinFunc)],
+) {
+    for (name, func) in builtins {
+        let func_ref = runtime
+            .heap
+            .allocate(VmValue::BuiltinFunction(BuiltinFunction::new(name, *func)));
+        module.write(name, func_ref);
     }
 }

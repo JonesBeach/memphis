@@ -1,11 +1,12 @@
 use crate::{
     bytecode_vm::{VmResult, VmValue},
     core::Container,
+    domain::Dunder,
 };
 
 use super::{
-    types::BuiltinFunc, BuiltinFunction, Class, FunctionObject, List, Module, Range, Reference,
-    VirtualMachine,
+    frame::Frame, runtime::register_builtin_funcs, types::BuiltinFunc, Class, FunctionObject, List,
+    Module, Range, Reference, Runtime, VirtualMachine,
 };
 
 static BUILTINS: [(&str, BuiltinFunc); 5] = [
@@ -16,12 +17,10 @@ static BUILTINS: [(&str, BuiltinFunc); 5] = [
     ("next", next),
 ];
 
-pub fn register_builtins(vm: &mut VirtualMachine, module: &mut Module) {
-    for (name, func) in BUILTINS {
-        let builtin_obj = BuiltinFunction::new(name, func);
-        let reference = vm.heapify(VmValue::BuiltinFunction(builtin_obj));
-        module.global_store.insert(name.to_string(), reference);
-    }
+pub fn init_module(runtime: &mut Runtime) {
+    let mut asyncio_mod = Module::new(&Dunder::Builtins);
+    register_builtin_funcs(runtime, &mut asyncio_mod, &BUILTINS);
+    runtime.store_module(Container::new(asyncio_mod));
 }
 
 /// This is intended to be functionally equivalent to `__build_class__` in CPython.
@@ -31,7 +30,7 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     let name = code.name().to_string();
 
     let function = FunctionObject::new(code.clone());
-    let frame = vm.convert_function_to_frame(function, vec![])?;
+    let frame = Frame::from_function(vm, function, vec![])?;
 
     let frame = vm.call_and_return_frame(frame)?;
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
@@ -64,36 +63,18 @@ fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let range = match args.len() {
         1 => {
-            let stop = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
+            let stop = vm.deref(args[0])?.expect_integer(vm)?;
             Range::with_stop(stop)
         }
         2 => {
-            let start = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
-            let stop = vm.deref(args[1])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
+            let start = vm.deref(args[0])?.expect_integer(vm)?;
+            let stop = vm.deref(args[1])?.expect_integer(vm)?;
             Range::with_start_stop(start, stop)
         }
         3 => {
-            let start = vm.deref(args[0])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
-            let stop = vm.deref(args[1])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
-            let step = vm.deref(args[2])?.as_integer().ok_or_else(|| {
-                vm.error_builder
-                    .type_error("'<TODO>' object cannot be interpreted as an integer")
-            })?;
+            let start = vm.deref(args[0])?.expect_integer(vm)?;
+            let stop = vm.deref(args[1])?.expect_integer(vm)?;
+            let step = vm.deref(args[2])?.expect_integer(vm)?;
             Range::new(start, stop, step)
         }
         0 => {
@@ -145,24 +126,16 @@ fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<Option<Reference>> {
     let iter_value = vm.deref(iter_ref)?;
     match iter_value {
-        VmValue::Generator(ref gen_iter) => {
-            let frame = gen_iter.borrow_mut().frame.clone();
-            let resume_result = vm.resume_and_return_val(frame)?;
-            if let Some((val, new_frame)) = resume_result {
-                gen_iter.borrow_mut().frame = new_frame;
-                Ok(Some(val))
-            } else {
-                Ok(None)
-            }
-        }
+        VmValue::Generator(ref generator) => vm.resume_generator(generator.clone()),
         VmValue::ListIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
         VmValue::RangeIter(ref range_iter) => Ok(range_iter
             .borrow_mut()
             .next()
             .map(|i| vm.heapify(VmValue::Int(i)))),
-        _ => Err(vm
-            .error_builder
-            .type_error("TODO object is not an iterator")),
+        _ => Err(vm.error_builder.type_error(&format!(
+            "'{}' object is not an iterator",
+            iter_value.get_type()
+        ))),
     }
 }
 
@@ -178,24 +151,31 @@ fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 }
 
 fn print(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    for arg in args.iter() {
-        print!("{}", vm.deref(*arg)?);
-    }
-    println!();
+    let rendered: Vec<String> = args
+        .iter()
+        .map(|arg| {
+            let value = vm.deref(*arg)?;
+            Ok(value.to_string())
+        })
+        .collect::<VmResult<_>>()?;
+
+    println!("{}", rendered.join(" "));
 
     Ok(vm.none())
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::bytecode_vm::runtime::runtime::register_builtin_funcs;
+
     use super::*;
 
     #[test]
     fn register_builtins_inserts_list() {
-        let mut vm = VirtualMachine::default();
+        let mut runtime = Runtime::default();
         let mut module = Module::new("test_module");
-        register_builtins(&mut vm, &mut module);
-        assert!(module.global_store.contains_key("list"));
-        assert!(!module.global_store.contains_key("dict"));
+        register_builtin_funcs(&mut runtime, &mut module, &BUILTINS);
+        assert!(module.global_store().contains_key("list"));
+        assert!(!module.global_store().contains_key("dict"));
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{Runtime, VmInterpreter, VmResult, VmValue},
     core::Container,
-    domain::Source,
+    domain::{Dunder, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
@@ -36,17 +36,18 @@ impl VmContext {
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
     ) -> VmResult<Container<Module>> {
-        let module_name = source.name().to_owned();
+        assert_ne!(
+            Dunder::Main,
+            source.name(),
+            "`VmContext::import` should only be used for non-main modules."
+        );
+        let module = runtime.borrow_mut().create_module(source.name());
+
         let mut context = VmContext::from_state(source, state.clone(), runtime.clone());
 
         // TODO we shouldn't squash this error, but it's currently a MemphisError
-        let _ = context.run();
+        let _ = context.run().expect("VM run failed");
 
-        // TODO same with this error
-        let module = runtime
-            .borrow()
-            .read_module(&module_name)
-            .expect("Failed to read newly created module");
         Ok(module)
     }
 

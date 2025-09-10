@@ -2922,7 +2922,7 @@ async def main():
                         call_args![func_call!("task1")]
                     )
                 ),
-                stmt_return![Expr::Await(Box::new(var!("task_1")))],
+                stmt_return![await_expr!(var!("task_1"))],
             ],
             decorators: vec![],
             is_async: true,

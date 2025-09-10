@@ -26,7 +26,16 @@ impl ModuleLoader {
         }
     }
 
-    pub fn import(
+    /// Check if the module is already present (e.g. Rust-backed or previously imported).
+    pub fn resolve_module(&mut self, name: &str) -> VmResult<Container<Module>> {
+        if let Some(module) = self.runtime.borrow().read_module(name) {
+            return Ok(module);
+        }
+
+        self.import_from_source(name, None)
+    }
+
+    fn import_from_source(
         &mut self,
         name: &str,
         _caller_path: Option<&Path>,

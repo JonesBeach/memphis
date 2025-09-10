@@ -1,3 +1,5 @@
+use std::mem::take;
+
 use crate::{
     core::Container,
     treewalk::{
@@ -44,8 +46,8 @@ impl Executor {
         self.to_wait.push((first.clone(), second.clone()));
     }
 
-    /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once the
-    /// coroutine has resolved.
+    /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once
+    /// the coroutine has resolved.
     fn run(
         &mut self,
         interpreter: &TreewalkInterpreter,
@@ -55,17 +57,17 @@ impl Executor {
 
         loop {
             // Take the current queue of running coroutines
-            let to_run = std::mem::take(&mut self.running);
+            let to_run = take(&mut self.running);
             for c in &to_run {
                 if c.borrow().has_work() {
-                    let _ = self.step_coroutine(interpreter, c.clone())?;
+                    self.step_coroutine(interpreter, c.clone())?;
                 }
             }
             // Push them back in for the next round
             self.running.extend(to_run);
 
             // Same pattern for to_wait, except we don't need to push them back
-            let to_wait = std::mem::take(&mut self.to_wait);
+            let to_wait = take(&mut self.to_wait);
             for (first, second) in &to_wait {
                 first.borrow_mut().wait_on(second.clone());
                 if !second.borrow().has_started() {
@@ -74,21 +76,22 @@ impl Executor {
             }
 
             // Same pattern for spawned, which we also don't need to push back
-            let new_spawns = std::mem::take(&mut self.spawned);
+            let new_spawns = take(&mut self.spawned);
             for c in &new_spawns {
-                let _ = self.step_coroutine(interpreter, c.clone())?;
+                self.step_coroutine(interpreter, c.clone())?;
                 self.running.push(c.clone());
             }
 
             // The event loop exits when its original coroutine has completed all its work. Other
             // spawned coroutines may or may not be finished by this time.
-            if let Some(result) = coroutine.borrow().is_finished() {
+            if let Some(result) = coroutine.borrow().is_finished_with() {
                 return Ok(result);
             }
         }
     }
 
-    /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the event loop.
+    /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the
+    /// event loop.
     fn spawn(&mut self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
         coroutine.borrow_mut().context_mut().start();
         self.spawned.push(coroutine.clone());
@@ -106,17 +109,16 @@ impl Executor {
         &mut self,
         interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
-    ) -> TreewalkResult<TreewalkValue> {
+    ) -> TreewalkResult<()> {
         self.current_coroutine = Some(coroutine.clone());
         coroutine.borrow_mut().run_until_pause(interpreter)?;
 
-        if let Some(duration) = self.sleep_indicator {
+        if let Some(duration) = self.sleep_indicator.take() {
             coroutine.borrow_mut().sleep(duration);
         }
 
-        self.sleep_indicator = None;
         self.current_coroutine = None;
-        Ok(TreewalkValue::None)
+        Ok(())
     }
 }
 

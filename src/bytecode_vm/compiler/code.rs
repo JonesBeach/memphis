@@ -116,14 +116,14 @@ impl Debug for CodeObject {
             if let Constant::Code(code) = constant {
                 writeln!(f, "\n{}:", code.name())?;
                 for (index, opcode) in code.bytecode.iter().enumerate() {
-                    writeln!(f, "{index}: {opcode}")?;
+                    writeln!(f, "{index}: {}", opcode.display_annotated(code))?;
                 }
             }
         }
 
         writeln!(f, "\n{}:", self.name())?;
         for (index, opcode) in self.bytecode.iter().enumerate() {
-            writeln!(f, "{index}: {opcode}")?;
+            writeln!(f, "{index}: {}", opcode.display_annotated(self))?;
         }
 
         Ok(())

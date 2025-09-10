@@ -40,6 +40,7 @@ pub enum Dunder {
     Str,
     Traceback,
     Class,
+    Builtins,
 }
 
 impl Dunder {
@@ -75,6 +76,7 @@ impl Dunder {
             Dunder::Str => "__str__",
             Dunder::Traceback => "__traceback__",
             Dunder::Class => "__class__",
+            Dunder::Builtins => "__builtins__",
         }
     }
 }
@@ -129,6 +131,13 @@ impl From<Dunder> for &str {
     /// Converts a `Dunder` value into a static string slice.
     fn from(value: Dunder) -> Self {
         value.value()
+    }
+}
+
+impl PartialEq<&str> for Dunder {
+    fn eq(&self, other: &&str) -> bool {
+        // this is a bit cryptic but avoid an extra allocation
+        **self == **other
     }
 }
 

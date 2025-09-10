@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use super::{Frame, PausableContext, PausableState, PausableToken};
+use super::{Frame, PausableFrame, PausableStack, PausableState};
 
 /// This instructs [`Pausable::run_until_pause`] what action should happen next.
 pub enum PausableStepResult {
@@ -21,9 +21,9 @@ pub enum PausableStepResult {
 /// The interface for generators and coroutines, which share the ability to be paused and resumed.
 pub trait Pausable {
     /// A getter for the [`PausableContext`] of a pausable function.
-    fn context(&self) -> &PausableContext;
+    fn context(&self) -> &PausableStack;
 
-    fn context_mut(&mut self) -> &mut PausableContext;
+    fn context_mut(&mut self) -> &mut PausableStack;
 
     /// A getter for the [`Scope`] of a pausable function.
     fn scope(&self) -> Container<Scope>;
@@ -101,7 +101,7 @@ pub trait Pausable {
         match &stmt.kind {
             StatementKind::WhileLoop(cond_ast) => {
                 if interpreter.evaluate_expr(&cond_ast.condition)?.as_boolean() {
-                    self.context_mut().push(PausableToken::new(
+                    self.context_mut().push(PausableFrame::new(
                         Frame::new(cond_ast.ast.clone()),
                         PausableState::InWhileLoop(cond_ast.condition.clone()),
                     ));
@@ -115,7 +115,7 @@ pub trait Pausable {
                 else_part,
             } => {
                 if interpreter.evaluate_expr(&if_part.condition)?.as_boolean() {
-                    self.context_mut().push(PausableToken::new(
+                    self.context_mut().push(PausableFrame::new(
                         Frame::new(if_part.ast.clone()),
                         PausableState::InBlock,
                     ));
@@ -128,7 +128,7 @@ pub trait Pausable {
                         .evaluate_expr(&elif_part.condition)?
                         .as_boolean()
                     {
-                        self.context_mut().push(PausableToken::new(
+                        self.context_mut().push(PausableFrame::new(
                             Frame::new(elif_part.ast.clone()),
                             PausableState::InBlock,
                         ));
@@ -138,7 +138,7 @@ pub trait Pausable {
                 }
 
                 if let Some(else_body) = else_part {
-                    self.context_mut().push(PausableToken::new(
+                    self.context_mut().push(PausableFrame::new(
                         Frame::new(else_body.clone()),
                         PausableState::InBlock,
                     ));
@@ -159,7 +159,7 @@ pub trait Pausable {
 
                 if let Some(item) = queue.pop_front() {
                     interpreter.write_loop_index(index, item)?;
-                    self.context_mut().push(PausableToken::new(
+                    self.context_mut().push(PausableFrame::new(
                         Frame::new(body.clone()),
                         PausableState::InForLoop {
                             index: index.clone(),

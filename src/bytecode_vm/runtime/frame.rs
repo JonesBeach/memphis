@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode_vm::compiler::Opcode,
+    bytecode_vm::{compiler::Opcode, VmResult},
     core::Container,
     domain::{DebugStackFrame, ToDebugStackFrame},
 };
 
 use super::{
     types::{FunctionObject, Namespace, Reference},
-    Module,
+    Method, Module, VirtualMachine,
 };
 
 #[derive(Clone, Debug)]
@@ -31,16 +31,45 @@ pub struct Frame {
 
     /// The stack which holds all the local variables themselves, beginning with the function
     /// arguments.
+    pub stack: Vec<Reference>,
+
+    /// The local variables themselves, beginning with the function arguments.
     pub locals: Vec<Reference>,
 
     yield_from: YieldFromState,
 }
 
 impl Frame {
-    pub fn new(function: FunctionObject, args: Vec<Reference>, module: Container<Module>) -> Self {
+    /// Create a new `Frame` for a top-level function call.
+    /// This associates the frame with the correct module so it can read/write globals.
+    pub fn from_function(
+        vm: &mut VirtualMachine,
+        function: FunctionObject,
+        args: Vec<Reference>,
+    ) -> VmResult<Self> {
+        // We must associate this Frame with its Module in order to read and write global variables.
+        let module_name = function.code_object.source.name();
+        let module = vm.resolve_module(module_name)?;
+
+        Ok(Frame::new(function, args, module))
+    }
+
+    pub fn from_method(
+        vm: &mut VirtualMachine,
+        method: Method,
+        args: Vec<Reference>,
+    ) -> VmResult<Self> {
+        let mut bound_args = vec![method.receiver];
+        bound_args.extend(args);
+
+        Self::from_function(vm, method.function, bound_args)
+    }
+
+    fn new(function: FunctionObject, args: Vec<Reference>, module: Container<Module>) -> Self {
         Frame {
             function,
             pc: 0,
+            stack: vec![],
             locals: args,
             module,
             yield_from: YieldFromState::None,
@@ -92,6 +121,21 @@ impl Frame {
             YieldFromState::Delegating(sub_iter_ref) => Some(*sub_iter_ref),
             _ => None,
         }
+    }
+
+    pub fn name(&self) -> String {
+        let func_name = self.function.name();
+        let arg_count = self.function.code_object.arg_count;
+
+        // Turn the first few locals into strings for display.
+        let args_preview: Vec<String> = self
+            .locals
+            .iter()
+            .take(arg_count) // only the actual args, not all locals
+            .map(|r| format!("{}", r))
+            .collect();
+
+        format!("{}({})", func_name, args_preview.join(", "))
     }
 }
 

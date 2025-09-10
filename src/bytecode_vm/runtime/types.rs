@@ -1,18 +1,16 @@
 use std::{
     collections::HashMap,
-    fmt::{Display, Error, Formatter},
+    fmt::{Debug, Display, Error, Formatter},
+    time::Instant,
 };
 
 use crate::{
-    bytecode_vm::{
-        compiler::CodeObject,
-        indices::{ConstantIndex, ObjectTableIndex},
-        VirtualMachine, VmResult,
-    },
+    bytecode_vm::{compiler::CodeObject, indices::ObjectTableIndex, VirtualMachine, VmResult},
+    core::Container,
     domain::FunctionType,
 };
 
-use super::frame::Frame;
+use super::{frame::Frame, heap::Heap};
 
 pub type Namespace = HashMap<String, Reference>;
 
@@ -24,7 +22,19 @@ pub enum Reference {
     Int(i64),
     Float(f64),
     ObjectRef(ObjectTableIndex),
-    ConstantRef(ConstantIndex),
+}
+
+impl Reference {
+    pub fn display_annotated(&self, heap: &Heap) -> String {
+        match self {
+            Self::ObjectRef(index) => format!(
+                "ObjectRef({}) => {}",
+                index,
+                heap.get(*self).expect("Heap lookup failed")
+            ),
+            _ => format!("{}", self),
+        }
+    }
 }
 
 impl Display for Reference {
@@ -102,6 +112,16 @@ impl Range {
     }
 }
 
+impl Display for Range {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        if self.step == 1 {
+            write!(f, "range({}, {})", self.start, self.stop)
+        } else {
+            write!(f, "range({}, {}, {})", self.start, self.stop, self.step)
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RangeIter {
     current: i64,
@@ -152,7 +172,7 @@ impl BuiltinFunction {
 
 impl Display for BuiltinFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<builtin function {}>", self.name())
+        write!(f, "<builtin function '{}'>", self.name())
     }
 }
 
@@ -209,6 +229,43 @@ impl Object {
 }
 
 #[derive(Clone, Debug)]
+pub enum CoroutineState {
+    Ready,
+    WaitingOn(Container<Coroutine>),
+    SleepingUntil(Instant),
+    Finished(Reference),
+}
+
+#[derive(Clone)]
+pub struct Coroutine {
+    pub frame: Frame,
+    pub state: CoroutineState,
+    pub waiters: Vec<Container<Coroutine>>,
+}
+
+impl Display for Coroutine {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "<coroutine '{}'>", self.frame.function.name())
+    }
+}
+
+impl Debug for Coroutine {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{} (state: {:?})", self.frame.name(), self.state)
+    }
+}
+
+impl Coroutine {
+    pub fn new(frame: Frame) -> Self {
+        Self {
+            frame,
+            state: CoroutineState::Ready,
+            waiters: vec![],
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Generator {
     pub frame: Frame,
     #[allow(dead_code)]
@@ -248,6 +305,16 @@ impl FunctionObject {
     pub fn function_type(&self) -> &FunctionType {
         &self.code_object.function_type
     }
+
+    pub fn name(&self) -> &str {
+        self.code_object.name()
+    }
+}
+
+impl Display for FunctionObject {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "<function '{}'>", self.name())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -267,7 +334,7 @@ pub struct Module {
     pub name: String,
 
     /// The runtime mapping of global variables to their values.
-    pub global_store: HashMap<String, Reference>,
+    global_store: HashMap<String, Reference>,
 }
 
 impl Module {
@@ -280,5 +347,20 @@ impl Module {
 
     pub fn read(&self, name: &str) -> Option<Reference> {
         self.global_store.get(name).cloned()
+    }
+
+    pub fn write(&mut self, name: &str, value: Reference) {
+        self.global_store.insert(name.to_string(), value);
+    }
+
+    #[cfg(test)]
+    pub fn global_store(&self) -> &HashMap<String, Reference> {
+        &self.global_store
+    }
+}
+
+impl Display for Module {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "<module '{}'>", self.name)
     }
 }

@@ -414,7 +414,7 @@ impl TreewalkInterpreter {
     fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<TreewalkValue> {
         let coroutine_to_await = self.evaluate_expr(expr)?.expect_coroutine(self)?;
 
-        if let Some(result) = coroutine_to_await.clone().borrow().is_finished() {
+        if let Some(result) = coroutine_to_await.clone().borrow().is_finished_with() {
             Ok(result)
         } else if let Some(ref current_coroutine) =
             self.with_executor(|exec| exec.current_coroutine().clone())

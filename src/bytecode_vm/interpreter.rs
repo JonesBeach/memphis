@@ -19,14 +19,14 @@ impl VmInterpreter {
         source: Source,
     ) -> Self {
         Self {
-            compiler: Compiler::new(source.clone()),
+            compiler: Compiler::new(source),
             vm: VirtualMachine::new(state, runtime),
         }
     }
 
     pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
         let mut ast = parser.parse().map_err(MemphisError::Parser)?;
-        // This simulations CPython `eval` mode, which we assume to be for the tests and REPL.
+        // This simulates CPython `eval` mode, which we assume to be for the tests and REPL.
         // TODO make this explicit with `CompileMode` or similar.
         ast.rewrite_last_expr_to_return();
         self.compiler.compile(&ast).map_err(MemphisError::Compiler)
@@ -606,13 +606,28 @@ for i in range(2,10,2):
     }
 
     #[test]
+    fn for_in_loop_range_with_inner_function() {
+        let text = r#"
+def test():
+    x = 10
+    for i in range(3):
+        print(i, x)
+
+test()
+"#;
+        // No output to check here. This test previously failed before we emitted a PopTop after a
+        // function call, and before we properly split stack vs local handling inside a Frame.
+        let _ = run(text);
+    }
+
+    #[test]
     fn next_builtin_range() {
         let text = "next(iter(range(5)))";
         assert_eval_eq!(text, int!(0));
 
         let text = "next(range(5))";
         let e = run_expect_error(text);
-        assert_type_error!(e, "TODO object is not an iterator");
+        assert_type_error!(e, "'range' object is not an iterator");
     }
 
     #[test]
