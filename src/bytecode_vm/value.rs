@@ -7,8 +7,11 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Constant},
         runtime::{
-            BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method,
-            Module, Object, Range, RangeIter, Reference, Tuple, TupleIter,
+            types::{
+                Class, Coroutine, FunctionObject, Generator, List, ListIter, Method, Module,
+                Object, Range, RangeIter, Tuple, TupleIter,
+            },
+            BuiltinFunction, Reference,
         },
         VirtualMachine, VmResult,
     },

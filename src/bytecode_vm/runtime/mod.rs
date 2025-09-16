@@ -9,14 +9,12 @@ mod module_loader;
 mod reference;
 #[allow(clippy::module_inception)]
 mod runtime;
-mod types;
+pub mod types;
 mod vm;
 
 pub use call_stack::CallStack;
-pub use reference::Reference;
+pub use frame::Frame;
+pub use heap::Heap;
+pub use reference::{BuiltinFunc, BuiltinFunction, Reference};
 pub use runtime::Runtime;
-pub use types::{
-    BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method, Module,
-    Object, Range, RangeIter, Tuple, TupleIter,
-};
 pub use vm::VirtualMachine;

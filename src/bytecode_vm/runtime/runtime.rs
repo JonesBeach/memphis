@@ -1,8 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{bytecode_vm::VmValue, core::Container, domain::Dunder};
+use crate::{
+    bytecode_vm::{
+        runtime::{types::Module, BuiltinFunc, BuiltinFunction, Heap},
+        VmValue,
+    },
+    core::Container,
+    domain::Dunder,
+};
 
-use super::{asyncio, builtins, heap::Heap, types::BuiltinFunc, BuiltinFunction, Module};
+use super::{asyncio, builtins};
 
 #[derive(Default)]
 pub struct Runtime {

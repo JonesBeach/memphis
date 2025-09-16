@@ -1,13 +1,16 @@
 use crate::{
-    bytecode_vm::{VmResult, VmValue},
+    bytecode_vm::{
+        runtime::{
+            types::{Class, FunctionObject, List, Module, Range, Tuple},
+            BuiltinFunc, Frame, Reference,
+        },
+        VmResult, VmValue,
+    },
     core::Container,
     domain::Dunder,
 };
 
-use super::{
-    frame::Frame, runtime::register_builtin_funcs, types::BuiltinFunc, Class, FunctionObject, List,
-    Module, Range, Reference, Runtime, Tuple, VirtualMachine,
-};
+use super::{runtime::register_builtin_funcs, Runtime, VirtualMachine};
 
 static BUILTINS: [(&str, BuiltinFunc); 7] = [
     ("bool", bool),

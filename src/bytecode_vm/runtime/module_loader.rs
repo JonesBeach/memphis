@@ -1,14 +1,14 @@
 use std::path::Path;
 
 use crate::{
-    bytecode_vm::{VmContext, VmResult},
+    bytecode_vm::{runtime::types::Module, VmContext, VmResult},
     core::Container,
     domain::Source,
     parser::types::ImportPath,
     runtime::MemphisState,
 };
 
-use super::{error_builder::ErrorBuilder, Module, Runtime};
+use super::{error_builder::ErrorBuilder, Runtime};
 
 pub struct ModuleLoader {
     state: Container<MemphisState>,

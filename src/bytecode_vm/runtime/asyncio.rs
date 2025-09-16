@@ -1,13 +1,14 @@
 use std::time::Duration;
 
 use crate::{
-    bytecode_vm::{VmResult, VmValue},
+    bytecode_vm::{
+        runtime::{types::Module, BuiltinFunc, Reference},
+        Runtime, VirtualMachine, VmResult, VmValue,
+    },
     core::Container,
 };
 
-use super::{
-    runtime::register_builtin_funcs, types::BuiltinFunc, Module, Reference, Runtime, VirtualMachine,
-};
+use super::runtime::register_builtin_funcs;
 
 fn asyncio_run(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let co_binding = vm.deref(args[0])?;

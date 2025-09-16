@@ -4,7 +4,10 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
-        runtime::{FunctionObject, List, Method, Module, Object, Reference, Tuple},
+        runtime::{
+            types::{Coroutine, FunctionObject, Generator, List, Method, Module, Object, Tuple},
+            BuiltinFunction, Frame, Reference,
+        },
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -13,8 +16,8 @@ use crate::{
 };
 
 use super::{
-    builtins, error_builder::ErrorBuilder, executor::VmExecutor, frame::Frame,
-    module_loader::ModuleLoader, BuiltinFunction, CallStack, Coroutine, Generator, Runtime,
+    builtins, error_builder::ErrorBuilder, executor::VmExecutor, module_loader::ModuleLoader,
+    CallStack, Runtime,
 };
 
 #[derive(Debug)]

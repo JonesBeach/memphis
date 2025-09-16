@@ -59,7 +59,10 @@ mod tests_vm_interpreter {
 
     use crate::{
         bytecode_vm::{
-            runtime::{List, Range, Reference, Tuple},
+            runtime::{
+                types::{List, Range, Tuple},
+                Reference,
+            },
             test_utils::*,
         },
         domain::test_utils::*,
