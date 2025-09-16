@@ -5,20 +5,18 @@ use crate::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
         runtime::{
+            modules::builtins,
             types::{Coroutine, FunctionObject, Generator, List, Method, Module, Object, Tuple},
-            BuiltinFunction, Frame, Reference,
+            BuiltinFunction, Frame, Reference, VmExecutor,
         },
-        VmResult, VmValue,
+        Runtime, VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
     domain::{Dunder, FunctionType},
     runtime::MemphisState,
 };
 
-use super::{
-    builtins, error_builder::ErrorBuilder, executor::VmExecutor, module_loader::ModuleLoader,
-    CallStack, Runtime,
-};
+use super::{error_builder::ErrorBuilder, module_loader::ModuleLoader, CallStack};
 
 #[derive(Debug)]
 pub enum StepResult {

@@ -9,16 +9,16 @@ use super::{heap::Heap, VirtualMachine};
 
 pub type Namespace = HashMap<String, Reference>;
 
-pub type BuiltinFunc = fn(&mut VirtualMachine, Vec<Reference>) -> VmResult<Reference>;
+pub type BuiltinFn = fn(&mut VirtualMachine, Vec<Reference>) -> VmResult<Reference>;
 
 #[derive(Clone, Debug)]
 pub struct BuiltinFunction {
     name: String,
-    func: BuiltinFunc,
+    func: BuiltinFn,
 }
 
 impl BuiltinFunction {
-    pub fn new(name: &str, func: BuiltinFunc) -> Self {
+    pub fn new(name: &str, func: BuiltinFn) -> Self {
         Self {
             name: name.to_string(),
             func,
