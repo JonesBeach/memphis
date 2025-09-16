@@ -1,6 +1,6 @@
 use crate::{
     bytecode_vm::{
-        compiler::{CodeObject, Constant, Opcode},
+        compiler::{CodeObject, CompilerError, Constant, Opcode},
         find_index,
         indices::{ConstantIndex, FreeIndex, Index, LocalIndex, NonlocalIndex},
         CompilerResult,
@@ -13,10 +13,7 @@ use crate::{
     },
 };
 
-use super::{
-    opcode::{SignedOffset, UnsignedOffset},
-    CompilerError,
-};
+use super::opcode::{SignedOffset, UnsignedOffset};
 
 /// A Python bytecode compiler. This operates on a single `Source`.
 pub struct Compiler {

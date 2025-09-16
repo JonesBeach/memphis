@@ -1,13 +1,15 @@
 use crate::{
-    bytecode_vm::{compiler::Constant, indices::Index, VmContext},
+    bytecode_vm::{
+        compiler::{Bytecode, CodeObject, Compiler, Constant, Opcode},
+        indices::Index,
+        VmContext,
+    },
     domain::{FunctionType, Source},
     parser::{
         test_utils::*,
         types::{Expr, Statement},
     },
 };
-
-use super::{Bytecode, CodeObject, Compiler, Opcode};
 
 fn init() -> Compiler {
     Compiler::new(Source::default())
