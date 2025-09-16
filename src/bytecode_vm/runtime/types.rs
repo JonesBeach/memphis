@@ -5,45 +5,12 @@ use std::{
 };
 
 use crate::{
-    bytecode_vm::{
-        compiler::CodeObject, indices::ObjectTableIndex, VirtualMachine, VmResult, VmValue,
-    },
+    bytecode_vm::{compiler::CodeObject, Reference, VirtualMachine, VmResult, VmValue},
     core::Container,
     domain::FunctionType,
 };
 
-use super::{frame::Frame, heap::Heap};
-
-pub type Namespace = HashMap<String, Reference>;
-
-/// Primitive values live directly on the stack.
-/// [`Reference::ObjectRef`] items reference an object in the object table.
-/// [`Reference::ConstantRef`] items reference an immutable object in the constant pool.
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Reference {
-    Int(i64),
-    Float(f64),
-    ObjectRef(ObjectTableIndex),
-}
-
-impl Reference {
-    pub fn display_annotated(&self, heap: &Heap) -> String {
-        match self {
-            Self::ObjectRef(index) => format!(
-                "ObjectRef({}) => {}",
-                index,
-                heap.get(*self).expect("Heap lookup failed")
-            ),
-            _ => format!("{}", self),
-        }
-    }
-}
-
-impl Display for Reference {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{self:?}")
-    }
-}
+use super::{frame::Frame, reference::Namespace};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct List {
