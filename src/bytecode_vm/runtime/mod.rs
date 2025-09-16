@@ -1,3 +1,4 @@
+mod builtin;
 mod call_stack;
 mod error_builder;
 mod executor;
@@ -11,10 +12,11 @@ mod runtime;
 pub mod types;
 mod vm;
 
+pub use builtin::{BuiltinFn, BuiltinFunction};
 pub use call_stack::CallStack;
 pub use executor::VmExecutor;
 pub use frame::Frame;
 pub use heap::Heap;
-pub use reference::{BuiltinFn, BuiltinFunction, Reference};
+pub use reference::Reference;
 pub use runtime::Runtime;
 pub use vm::VirtualMachine;
