@@ -605,6 +605,7 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Bool(i) => *i,
             TreewalkValue::List(i) => !i.borrow().is_empty(),
+            TreewalkValue::Tuple(i) => !i.is_empty(),
             TreewalkValue::Str(i) => !i.is_empty(),
             TreewalkValue::Int(i) => *i != 0,
             TreewalkValue::Float(i) => *i != 0.0,

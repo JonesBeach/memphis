@@ -26,15 +26,15 @@
 |Set comprehension|✅||
 |Dictionaries|✅||
 |Dict comprehension|✅||
-|Iterables|✅|🔄|
-|Tuples|✅||
+|Iterables|✅|✅|
+|Tuples|✅|✅|
 |Ranges|✅|✅|
 |Generator functions|✅|✅|
 |`yield from`|✅|✅|
 |Slices|✅||
 |Inheritance|✅||
 |Object creation and metaclasses|✅||
-|async/await|✅||
+|async/await|✅|✅|
 |Try-except blocks|✅||
 |Args and kwargs|✅||
 |Closures|✅|🔄|
@@ -67,7 +67,7 @@
 |`any`|||
 |`ascii`|||
 |`bin`|||
-|`bool`|✅||
+|`bool`|✅|✅|
 |`breakpoint`|||
 |`bytearray`|✅||
 |`bytes`|✅||
@@ -98,7 +98,7 @@
 |`int`|✅||
 |`isinstance`|✅||
 |`issubclass`|✅||
-|`iter`|✅||
+|`iter`|✅|✅|
 |`len`|✅||
 |`list`|✅|✅|
 |`locals`|||
@@ -106,7 +106,7 @@
 |`max`|||
 |`memoryview`|✅||
 |`min`|||
-|`next`|✅||
+|`next`|✅|✅|
 |`object`|✅||
 |`oct`|||
 |`open`|||
@@ -114,7 +114,7 @@
 |`pow`|||
 |`print`|✅|✅|
 |`property`|✅||
-|`range`|✅||
+|`range`|✅|✅|
 |`repr`|||
 |`reversed`|✅||
 |`round`|||
@@ -126,7 +126,7 @@
 |`str`|✅||
 |`sum`|||
 |`super`|✅||
-|`tuple`|✅||
+|`tuple`|✅|✅|
 |`type`|✅||
 |`vars`|||
 |`zip`|✅||

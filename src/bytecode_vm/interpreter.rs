@@ -59,9 +59,8 @@ mod tests_vm_interpreter {
 
     use crate::{
         bytecode_vm::{
-            runtime::{List, Range, Reference},
+            runtime::{List, Range, Reference, Tuple},
             test_utils::*,
-            VmResult,
         },
         domain::test_utils::*,
     };
@@ -148,16 +147,16 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, int!(-12));
 
         let text = "4 * 'a'";
-        assert_eval_eq!(text, VmValue::String("aaaa".to_string()));
+        assert_eval_eq!(text, str!("aaaa"));
 
         let text = "'b' * 3";
-        assert_eval_eq!(text, VmValue::String("bbb".to_string()));
+        assert_eval_eq!(text, str!("bbb"));
 
         let text = "-4 * 'a'";
-        assert_eval_eq!(text, VmValue::String("".to_string()));
+        assert_eval_eq!(text, str!(""));
 
         let text = "'b' * -3";
-        assert_eval_eq!(text, VmValue::String("".to_string()));
+        assert_eval_eq!(text, str!(""));
 
         let text = "4.1 * 'a'";
         let e = eval_expect_error(text);
@@ -202,7 +201,8 @@ mod tests_vm_interpreter {
 
         let text = r#""a" in "a""#;
         let e = eval_expect_error(text);
-        assert_type_error!(e, "TODO object is not iterable");
+        // TODO this shouldn't actually fail
+        assert_type_error!(e, "'str' object is not iterable");
     }
 
     #[test]
@@ -218,7 +218,8 @@ mod tests_vm_interpreter {
 
         let text = r#""a" not in "a""#;
         let e = eval_expect_error(text);
-        assert_type_error!(e, "TODO object is not iterable");
+        // TODO this shouldn't actually fail
+        assert_type_error!(e, "'str' object is not iterable");
     }
 
     #[test]
@@ -462,20 +463,17 @@ mod tests_vm_interpreter {
             text,
             VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
         );
+    }
 
+    #[test]
+    fn list_literal_with_dereference() {
         let text = r#"
 x = [2,"Hello"]
 "#;
         let ctx = run(text);
-        let binding = read(&ctx, "x");
-        let list = binding.as_list().unwrap();
-        let values = list
-            .items
-            .iter()
-            .map(|r| ctx.interpreter().vm().deref(*r))
-            .collect::<VmResult<Vec<_>>>()
-            .unwrap();
-        assert_eq!(values, vec![int!(2), VmValue::String("Hello".to_string())]);
+        let list = extract!(ctx, "x", List);
+        let values = list.resolved_items(ctx.interpreter().vm()).unwrap();
+        assert_eq!(values, vec![int!(2), str!("Hello")]);
     }
 
     #[test]
@@ -491,6 +489,73 @@ x = [2,"Hello"]
             text,
             VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
         );
+
+        let text = "list((2,3))";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+
+        let text = "list(range(2))";
+        assert_eval_eq!(
+            text,
+            VmValue::List(List::new(vec![Reference::Int(0), Reference::Int(1)]))
+        );
+
+        let text = "list(1,2)";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "list expected at most 1 argument, got 2");
+    }
+
+    #[test]
+    fn tuple_literal() {
+        let text = "(2,3)";
+        assert_eval_eq!(
+            text,
+            VmValue::Tuple(Tuple::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+    }
+
+    #[test]
+    fn tuple_literal_with_dereference() {
+        let text = r#"
+x = (2,"Hello")
+"#;
+        let ctx = run(text);
+        let tuple = extract!(ctx, "x", Tuple);
+        let values = tuple.resolved_items(ctx.interpreter().vm()).unwrap();
+        assert_eq!(values, vec![int!(2), str!("Hello")]);
+    }
+
+    #[test]
+    fn tuple_builtin() {
+        let text = "tuple()";
+        assert_eval_eq!(text, VmValue::Tuple(Tuple::new(vec![])));
+
+        let text = "tuple([])";
+        assert_eval_eq!(text, VmValue::Tuple(Tuple::new(vec![])));
+
+        let text = "tuple([2,3])";
+        assert_eval_eq!(
+            text,
+            VmValue::Tuple(Tuple::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+
+        let text = "tuple((2,3))";
+        assert_eval_eq!(
+            text,
+            VmValue::Tuple(Tuple::new(vec![Reference::Int(2), Reference::Int(3)]))
+        );
+
+        let text = "tuple(range(2))";
+        assert_eval_eq!(
+            text,
+            VmValue::Tuple(Tuple::new(vec![Reference::Int(0), Reference::Int(1)]))
+        );
+
+        let text = "tuple(1,2)";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "tuple expected at most 1 argument, got 2");
     }
 
     #[test]
@@ -528,7 +593,7 @@ a = 5 - 3
 a = "Hello World"
 "#;
         let ctx = run(text);
-        assert_read_eq!(ctx, "a", VmValue::String("Hello World".into()));
+        assert_read_eq!(ctx, "a", str!("Hello World"));
     }
 
     #[test]
@@ -568,6 +633,37 @@ while i < n:
     }
 
     #[test]
+    fn bool_builtin() {
+        let input = r#"
+a = bool()
+b = bool(True)
+c = bool(False)
+d = bool([])
+e = bool([1])
+f = bool('')
+g = bool('hello')
+h = bool(0)
+i = bool(5)
+j = bool(())
+k = bool((1))
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", bool!(false));
+        assert_read_eq!(ctx, "b", bool!(true));
+        assert_read_eq!(ctx, "c", bool!(false));
+        assert_read_eq!(ctx, "d", bool!(false));
+        assert_read_eq!(ctx, "e", bool!(true));
+        assert_read_eq!(ctx, "f", bool!(false));
+        assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "h", bool!(false));
+        assert_read_eq!(ctx, "i", bool!(true));
+        assert_read_eq!(ctx, "j", bool!(false));
+        assert_read_eq!(ctx, "k", bool!(true));
+    }
+
+    #[test]
     fn for_in_loop_list() {
         let text = r#"
 s = 0
@@ -591,6 +687,40 @@ c = next(it)
         assert_read_eq!(ctx, "a", int!(1));
         assert_read_eq!(ctx, "b", int!(2));
         assert_read_eq!(ctx, "c", int!(3));
+
+        let text = "next([1])";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "'list' object is not an iterator");
+    }
+
+    #[test]
+    fn for_in_loop_tuple() {
+        let text = r#"
+s = 0
+for i in (2,3,11):
+    s = s + i
+"#;
+        let ctx = run(text);
+        assert_read_eq!(ctx, "i", int!(11));
+        assert_read_eq!(ctx, "s", int!(16));
+    }
+
+    #[test]
+    fn next_builtin_tuple() {
+        let text = r#"
+it = iter((1, 2, 3))
+a = next(it)
+b = next(it)
+c = next(it)
+"#;
+        let ctx = run(text);
+        assert_read_eq!(ctx, "a", int!(1));
+        assert_read_eq!(ctx, "b", int!(2));
+        assert_read_eq!(ctx, "c", int!(3));
+
+        let text = "next((1,))";
+        let e = run_expect_error(text);
+        assert_type_error!(e, "'tuple' object is not an iterator");
     }
 
     #[test]

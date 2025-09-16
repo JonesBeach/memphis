@@ -5279,6 +5279,8 @@ f = bool('')
 g = bool('hello')
 h = bool(0)
 i = bool(5)
+j = bool(())
+k = bool((1))
 "#;
 
         let ctx = run(input);
@@ -5292,6 +5294,8 @@ i = bool(5)
         assert_read_eq!(ctx, "g", bool!(true));
         assert_read_eq!(ctx, "h", bool!(false));
         assert_read_eq!(ctx, "i", bool!(true));
+        assert_read_eq!(ctx, "j", bool!(false));
+        assert_read_eq!(ctx, "k", bool!(true));
     }
 
     #[test]

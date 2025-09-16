@@ -8,7 +8,7 @@ use crate::{
         compiler::{CodeObject, Constant},
         runtime::{
             BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method,
-            Module, Object, Range, RangeIter, Reference,
+            Module, Object, Range, RangeIter, Reference, Tuple, TupleIter,
         },
         VirtualMachine, VmResult,
     },
@@ -34,8 +34,10 @@ pub enum VmValue {
     Module(Container<Module>),
     BuiltinFunction(BuiltinFunction),
     List(List),
+    Tuple(Tuple),
     Range(Range),
     ListIter(Container<ListIter>),
+    TupleIter(Container<TupleIter>),
     RangeIter(Container<RangeIter>),
 }
 
@@ -58,6 +60,7 @@ impl PartialEq for VmValue {
             (VmValue::String(a), VmValue::String(b)) => a == b,
             (VmValue::Bool(a), VmValue::Bool(b)) => a == b,
             (VmValue::List(a), VmValue::List(b)) => a == b,
+            (VmValue::Tuple(a), VmValue::Tuple(b)) => a == b,
             (VmValue::Range(a), VmValue::Range(b)) => a == b,
             // Add Class/Object/Code/Function/etc handling later if needed
             _ => false,
@@ -132,7 +135,12 @@ impl VmValue {
             VmValue::Float(_) => Type::Float,
             VmValue::String(_) => Type::Str,
             VmValue::Bool(_) => Type::Bool,
+            VmValue::List(_) => Type::List,
+            VmValue::Tuple(_) => Type::Tuple,
             VmValue::Range(_) => Type::Range,
+            VmValue::ListIter(_) => Type::ListIter,
+            VmValue::TupleIter(_) => Type::TupleIter,
+            VmValue::RangeIter(_) => Type::RangeIter,
             _ => unimplemented!(
                 "get_type for type {:?} unimplemented in the bytecode VM.",
                 self
@@ -169,9 +177,10 @@ impl VmValue {
             VmValue::None => false,
             VmValue::Bool(i) => *i,
             VmValue::Int(i) => *i != 0,
-            VmValue::Float(f) => *f != 0.0,
-            VmValue::String(s) => !s.is_empty(),
-            VmValue::List(l) => !l.is_empty(),
+            VmValue::Float(i) => *i != 0.0,
+            VmValue::String(i) => !i.is_empty(),
+            VmValue::List(i) => !i.is_empty(),
+            VmValue::Tuple(i) => !i.is_empty(),
             // Most values in Python are truthy
             _ => true,
         }
@@ -199,13 +208,6 @@ impl VmValue {
     pub fn expect_function(&self, vm: &VirtualMachine) -> VmResult<&FunctionObject> {
         self.as_function()
             .ok_or_else(|| vm.error_builder.type_error("Expected a function object"))
-    }
-
-    pub fn as_list(&self) -> Option<&List> {
-        match self {
-            VmValue::List(i) => Some(i),
-            _ => None,
-        }
     }
 
     pub fn as_object(&self) -> Option<&Object> {

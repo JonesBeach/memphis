@@ -22,7 +22,7 @@ impl Callable for NewBuiltin {
             let input = args.get_arg(1).as_boolean();
             Ok(TreewalkValue::Bool(input))
         } else {
-            Err(interpreter.type_error(format!("Expected {} found {} args", 1, args.len())))
+            Err(interpreter.type_error(format!("Expected 1 found {} args", args.len())))
         }
     }
 

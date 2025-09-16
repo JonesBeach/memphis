@@ -4,7 +4,7 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
-        runtime::{FunctionObject, List, Method, Module, Object, Reference},
+        runtime::{FunctionObject, List, Method, Module, Object, Reference, Tuple},
         VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
@@ -332,6 +332,16 @@ impl VirtualMachine {
         self.store_global(index, module_ref)?;
 
         Ok(())
+    }
+
+    fn collect_n(&mut self, n: usize) -> VmResult<Vec<Reference>> {
+        let mut items = Vec::with_capacity(n);
+        for _ in 0..n {
+            items.push(self.pop()?);
+        }
+        // Reverse the items since we pop them off in reverse order
+        items.reverse();
+        Ok(items)
     }
 
     fn try_string_multiplication(a: &VmValue, b: &VmValue) -> Option<VmValue> {
@@ -720,16 +730,12 @@ impl VirtualMachine {
                     builtins::build_class,
                 )))?;
             }
+            Opcode::BuildTuple(n) => {
+                let items = self.collect_n(n)?;
+                self.push_value(VmValue::Tuple(Tuple::new(items)))?;
+            }
             Opcode::BuildList(n) => {
-                let mut items = Vec::with_capacity(n);
-                for _ in 0..n {
-                    let reference = self.pop()?;
-                    items.push(reference);
-                }
-
-                // Reverse the items because we pop them off in reverse order
-                items.reverse();
-
+                let items = self.collect_n(n)?;
                 self.push_value(VmValue::List(List::new(items)))?;
             }
             Opcode::GetIter => {

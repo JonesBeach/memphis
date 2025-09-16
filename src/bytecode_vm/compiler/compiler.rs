@@ -168,6 +168,7 @@ impl Compiler {
             Expr::StringLiteral(value) => self.compile_string_literal(value),
             Expr::Variable(name) => self.compile_load(name),
             Expr::List(items) => self.compile_list(items),
+            Expr::Tuple(items) => self.compile_tuple(items),
             Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
             Expr::BinaryOperation { left, op, right } => {
                 self.compile_binary_operation(left, op, right)
@@ -556,11 +557,22 @@ impl Compiler {
         self.emit(store)
     }
 
-    fn compile_list(&mut self, items: &[Expr]) -> CompilerResult<()> {
+    fn compile_expr_slice(&mut self, items: &[Expr]) -> CompilerResult<()> {
         for item in items {
             self.compile_expr(item)?;
         }
+        Ok(())
+    }
+
+    fn compile_list(&mut self, items: &[Expr]) -> CompilerResult<()> {
+        self.compile_expr_slice(items)?;
         self.emit(Opcode::BuildList(items.len()))?;
+        Ok(())
+    }
+
+    fn compile_tuple(&mut self, items: &[Expr]) -> CompilerResult<()> {
+        self.compile_expr_slice(items)?;
+        self.emit(Opcode::BuildTuple(items.len()))?;
         Ok(())
     }
 
@@ -999,6 +1011,20 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::BuildList(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn tuples() {
+        let expr = tuple![int!(2), int!(3)];
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildTuple(2),
             ]
         );
     }

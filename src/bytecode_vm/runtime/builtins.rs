@@ -6,11 +6,13 @@ use crate::{
 
 use super::{
     frame::Frame, runtime::register_builtin_funcs, types::BuiltinFunc, Class, FunctionObject, List,
-    Module, Range, Reference, Runtime, VirtualMachine,
+    Module, Range, Reference, Runtime, Tuple, VirtualMachine,
 };
 
-static BUILTINS: [(&str, BuiltinFunc); 5] = [
+static BUILTINS: [(&str, BuiltinFunc); 7] = [
+    ("bool", bool),
     ("list", list),
+    ("tuple", tuple),
     ("range", range),
     ("print", print),
     ("iter", iter),
@@ -36,28 +38,62 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
 }
 
+/// Given a reference to an object, build a collection over its iterator.
+fn collect_iterable(vm: &mut VirtualMachine, obj_ref: Reference) -> VmResult<Vec<Reference>> {
+    let obj = vm.deref(obj_ref)?;
+    let iter_ref = iter_internal(vm, obj)?;
+
+    let mut collected = vec![];
+    while let Some(item_ref) = next_internal(vm, iter_ref)? {
+        collected.push(item_ref);
+    }
+
+    Ok(collected)
+}
+
 fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let items = match args.len() {
         0 => vec![],
-        1 => {
-            let obj = vm.deref(args[0])?.clone();
-            let iter_ref = iter_internal(vm, obj)?;
-            let mut collected = vec![];
-
-            while let Some(item_ref) = next_internal(vm, iter_ref)? {
-                collected.push(item_ref);
-            }
-
-            collected
-        }
+        1 => collect_iterable(vm, args[0])?,
         _ => {
-            return Err(vm
-                .error_builder
-                .type_error("list() takes at most one argument"))
+            return Err(vm.error_builder.type_error(&format!(
+                "list expected at most 1 argument, got {}",
+                args.len()
+            )))
         }
     };
 
     Ok(vm.heapify(VmValue::List(List::new(items))))
+}
+
+fn tuple(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let items = match args.len() {
+        0 => vec![],
+        1 => collect_iterable(vm, args[0])?,
+        _ => {
+            return Err(vm.error_builder.type_error(&format!(
+                "tuple expected at most 1 argument, got {}",
+                args.len()
+            )))
+        }
+    };
+
+    Ok(vm.heapify(VmValue::Tuple(Tuple::new(items))))
+}
+
+fn bool(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let value = match args.len() {
+        0 => false,
+        1 => vm.deref(args[0])?.to_boolean(),
+        _ => {
+            return Err(vm.error_builder.type_error(&format!(
+                "bool expected at most 1 argument, got {}",
+                args.len()
+            )))
+        }
+    };
+
+    Ok(vm.to_heapified_bool(value))
 }
 
 fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
@@ -100,8 +136,13 @@ pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Referenc
     let iterator = match obj {
         VmValue::Generator(_) => obj,
         VmValue::List(list) => VmValue::ListIter(Container::new(list.iter())),
+        VmValue::Tuple(tuple) => VmValue::TupleIter(Container::new(tuple.iter())),
         VmValue::Range(range) => VmValue::RangeIter(Container::new(range.iter())),
-        _ => return Err(vm.error_builder.type_error("TODO object is not iterable")),
+        _ => {
+            return Err(vm
+                .error_builder
+                .type_error(&format!("'{}' object is not iterable", obj.get_type())))
+        }
     };
 
     Ok(vm.heapify(iterator))
@@ -128,6 +169,7 @@ pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<O
     match iter_value {
         VmValue::Generator(ref generator) => vm.resume_generator(generator.clone()),
         VmValue::ListIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
+        VmValue::TupleIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
         VmValue::RangeIter(ref range_iter) => Ok(range_iter
             .borrow_mut()
             .next()

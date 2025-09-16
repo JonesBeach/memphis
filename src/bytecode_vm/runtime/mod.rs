@@ -15,6 +15,6 @@ pub use call_stack::CallStack;
 pub use runtime::Runtime;
 pub use types::{
     BuiltinFunction, Class, Coroutine, FunctionObject, Generator, List, ListIter, Method, Module,
-    Object, Range, RangeIter, Reference,
+    Object, Range, RangeIter, Reference, Tuple, TupleIter,
 };
 pub use vm::VirtualMachine;

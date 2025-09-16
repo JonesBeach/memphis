@@ -72,8 +72,10 @@ pub enum Opcode {
     /// Pushes `__build_class__` onto the stack. It is later called by the VM to construct a class,
     /// NOT instantiate an object of that class. This is directly inspired by how CPython does it.
     LoadBuildClass,
-    /// Pop the specified number of elements off the stack and built a list object.
+    /// Pop the specified number of elements off the stack and build a list object.
     BuildList(usize),
+    /// Pop the specified number of elements off the stack and build a tuple object.
+    BuildTuple(usize),
     /// Pops the top value off the stack, constructs an iterator from it by `iter()`, and
     /// pushes the iterator onto the stack.
     GetIter,
@@ -174,6 +176,7 @@ impl Display for Opcode {
             Opcode::SetAttr(i) => write!(f, "SET_ATTR {i}"),
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
             Opcode::BuildList(i) => write!(f, "BUILD_LIST {i}"),
+            Opcode::BuildTuple(i) => write!(f, "BUILD_TUPLE {i}"),
             Opcode::GetIter => write!(f, "GET_ITER"),
             Opcode::ForIter(i) => write!(f, "FOR_ITER {i}"),
             Opcode::Jump(i) => write!(f, "JUMP {i}"),
