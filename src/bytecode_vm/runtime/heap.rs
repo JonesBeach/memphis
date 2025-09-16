@@ -1,6 +1,4 @@
-use crate::bytecode_vm::{indices::Index, VmValue};
-
-use super::Reference;
+use crate::bytecode_vm::{indices::Index, runtime::Reference, VmValue};
 
 const NONE_INDEX: usize = 0;
 const TRUE_INDEX: usize = 1;

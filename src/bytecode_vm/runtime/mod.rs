@@ -20,3 +20,10 @@ pub use heap::Heap;
 pub use reference::Reference;
 pub use runtime::Runtime;
 pub use vm::VirtualMachine;
+
+pub mod components {
+    use super::*;
+
+    pub use error_builder::ErrorBuilder;
+    pub use module_loader::ModuleLoader;
+}

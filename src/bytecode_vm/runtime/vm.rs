@@ -5,9 +5,10 @@ use crate::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
         runtime::{
+            components::{ErrorBuilder, ModuleLoader},
             modules::builtins,
             types::{Coroutine, FunctionObject, Generator, List, Method, Module, Object, Tuple},
-            BuiltinFunction, Frame, Reference, VmExecutor,
+            BuiltinFunction, CallStack, Frame, Reference, VmExecutor,
         },
         Runtime, VmResult, VmValue,
     },
@@ -15,8 +16,6 @@ use crate::{
     domain::{Dunder, FunctionType},
     runtime::MemphisState,
 };
-
-use super::{error_builder::ErrorBuilder, module_loader::ModuleLoader, CallStack};
 
 #[derive(Debug)]
 pub enum StepResult {

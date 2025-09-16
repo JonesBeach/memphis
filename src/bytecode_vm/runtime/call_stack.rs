@@ -1,10 +1,11 @@
 use crate::{
-    bytecode_vm::{runtime::Frame, VmResult},
+    bytecode_vm::{
+        runtime::{components::ErrorBuilder, Frame},
+        VmResult,
+    },
     core::{log, Container, LogLevel},
     runtime::MemphisState,
 };
-
-use super::error_builder::ErrorBuilder;
 
 /// All code which is executed lives inside a [`Frame`] on this call stack.
 pub struct CallStack {
