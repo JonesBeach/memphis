@@ -1513,6 +1513,16 @@ d = type(str.maketrans)
         let input = "4 not in range(3)";
         assert_eval_eq!(input, bool!(true));
 
+        let input = r#""a" in "abc""#;
+        assert_eval_eq!(input, bool!(true));
+
+        let input = r#""a" in "bcd""#;
+        assert_eval_eq!(input, bool!(false));
+
+        // TODO still fixing this one
+        // let input = r#""cd" in "bcd""#;
+        // assert_eval_eq!(input, bool!(false));
+
         let input = "4 is None";
         assert_eval_eq!(input, bool!(false));
 

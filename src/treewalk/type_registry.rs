@@ -82,7 +82,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-static ALL_TYPES: [Type; 52] = [
+static ALL_TYPES: [Type; 53] = [
     Type::Super,
     Type::GetSetDescriptor,
     Type::MemberDescriptor,
@@ -97,6 +97,7 @@ static ALL_TYPES: [Type; 52] = [
     Type::NotImplemented,
     Type::Bool,
     Type::Int,
+    Type::Float,
     Type::Str,
     Type::List,
     Type::Set,

@@ -23,7 +23,10 @@ impl Display for MemphisValue {
             MemphisValue::Integer(i) => write!(f, "{i}"),
             MemphisValue::Float(i) => write!(f, "{i}"),
             MemphisValue::String(s) => write!(f, "{s}"),
-            MemphisValue::Boolean(b) => write!(f, "{b}"),
+            MemphisValue::Boolean(b) => match b {
+                true => write!(f, "True"),
+                false => write!(f, "False"),
+            },
             MemphisValue::List(i) => {
                 let items = i
                     .iter()

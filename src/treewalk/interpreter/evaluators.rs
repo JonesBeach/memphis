@@ -88,16 +88,10 @@ impl TreewalkInterpreter {
                 return Ok(TreewalkValue::Bool(!iterable.any(|i| i == left)));
             }
             Equals => {
-                if left.as_object().is_some() && right.as_object().is_some() {
-                    return self.invoke_method(&left, &Dunder::Eq, args![right]);
-                }
-                return Ok(TreewalkValue::Bool(left == right));
+                return self.invoke_method(&left, &Dunder::Eq, args![right]);
             }
             NotEquals => {
-                if left.as_object().is_some() && right.as_object().is_some() {
-                    return self.invoke_method(&left, &Dunder::Ne, args![right]);
-                }
-                return Ok(TreewalkValue::Bool(left != right));
+                return self.invoke_method(&left, &Dunder::Ne, args![right]);
             }
             Add => {
                 // List concatenation takes priority
