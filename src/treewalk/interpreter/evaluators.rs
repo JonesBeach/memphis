@@ -80,12 +80,11 @@ impl TreewalkInterpreter {
 
         match op {
             In => {
-                let mut iterable = right.expect_iterator(self)?;
-                return Ok(TreewalkValue::Bool(iterable.any(|i| i == left)));
+                return self.invoke_method(&left, &Dunder::Contains, args![right]);
             }
             NotIn => {
-                let mut iterable = right.expect_iterator(self)?;
-                return Ok(TreewalkValue::Bool(!iterable.any(|i| i == left)));
+                let contains = self.invoke_method(&left, &Dunder::Contains, args![right])?;
+                return Ok(contains.not());
             }
             Equals => {
                 return self.invoke_method(&left, &Dunder::Eq, args![right]);

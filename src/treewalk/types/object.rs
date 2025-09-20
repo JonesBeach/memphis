@@ -28,6 +28,7 @@ impl_method_provider!(
         NewBuiltin,
         InitBuiltin,
         EqBuiltin,
+        ContainsBuiltin,
         NeBuiltin,
         HashBuiltin,
         StrBuiltin
@@ -294,6 +295,8 @@ struct InitBuiltin;
 #[derive(Clone)]
 struct EqBuiltin;
 #[derive(Clone)]
+struct ContainsBuiltin;
+#[derive(Clone)]
 struct HashBuiltin;
 #[derive(Clone)]
 struct NeBuiltin;
@@ -341,6 +344,25 @@ impl Callable for EqBuiltin {
 
     fn name(&self) -> String {
         Dunder::Eq.into()
+    }
+}
+
+impl Callable for ContainsBuiltin {
+    /// The default behavior in Python for the "in" operator is to iterate and compare element by
+    /// element. This is used when `Dunder::Contains` is not overridden by another type or
+    /// user-defined class.
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let left = args.expect_self(interpreter)?;
+        let right = args.get_arg(0);
+
+        let mut iterable = right.expect_iterator(interpreter)?;
+        Ok(TreewalkValue::Bool(iterable.any(|i| i == left)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Contains.into()
     }
 }
 
