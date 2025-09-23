@@ -29,6 +29,15 @@ impl_method_provider!(
         InitBuiltin,
         EqBuiltin,
         NeBuiltin,
+        AddBuiltin,
+        SubBuiltin,
+        MulBuiltin,
+        TruedivBuiltin,
+        LtBuiltin,
+        LeBuiltin,
+        GtBuiltin,
+        GeBuiltin,
+        ContainsBuiltin,
         HashBuiltin,
         StrBuiltin
     ]
@@ -294,9 +303,27 @@ struct InitBuiltin;
 #[derive(Clone)]
 struct EqBuiltin;
 #[derive(Clone)]
-struct HashBuiltin;
-#[derive(Clone)]
 struct NeBuiltin;
+#[derive(Clone)]
+struct AddBuiltin;
+#[derive(Clone)]
+struct SubBuiltin;
+#[derive(Clone)]
+struct MulBuiltin;
+#[derive(Clone)]
+struct TruedivBuiltin;
+#[derive(Clone)]
+struct LeBuiltin;
+#[derive(Clone)]
+struct LtBuiltin;
+#[derive(Clone)]
+struct GeBuiltin;
+#[derive(Clone)]
+struct GtBuiltin;
+#[derive(Clone)]
+struct ContainsBuiltin;
+#[derive(Clone)]
+struct HashBuiltin;
 #[derive(Clone)]
 struct StrBuiltin;
 
@@ -344,6 +371,25 @@ impl Callable for EqBuiltin {
     }
 }
 
+impl Callable for ContainsBuiltin {
+    /// The default behavior in Python for the "in" operator is to iterate and compare element by
+    /// element. This is used when `Dunder::Contains` is not overridden by another type or
+    /// user-defined class.
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let left = args.expect_self(interpreter)?;
+        let right = args.get_arg(0);
+
+        let mut iterable = right.expect_iterator(interpreter)?;
+        Ok(TreewalkValue::Bool(iterable.any(|i| i == left)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Contains.into()
+    }
+}
+
 impl Callable for HashBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
@@ -368,6 +414,158 @@ impl Callable for NeBuiltin {
 
     fn name(&self) -> String {
         Dunder::Ne.into()
+    }
+}
+
+impl Callable for AddBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for +: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Add.into()
+    }
+}
+
+impl Callable for SubBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for -: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Sub.into()
+    }
+}
+
+impl Callable for MulBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for *: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Mul.into()
+    }
+}
+
+impl Callable for TruedivBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for /: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Truediv.into()
+    }
+}
+
+impl Callable for LtBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for <: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Lt.into()
+    }
+}
+
+impl Callable for LeBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for <=: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Le.into()
+    }
+}
+
+impl Callable for GtBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for >: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Gt.into()
+    }
+}
+
+impl Callable for GeBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a_type = args.expect_self(interpreter)?.get_type();
+        let b_type = args.get_arg(0).get_type();
+
+        // This is only implemented for int and float
+        Err(interpreter.type_error(format!(
+            "unsupported operand type(s) for >=: '{}' and '{}'",
+            a_type, b_type
+        )))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Ge.into()
     }
 }
 

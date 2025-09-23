@@ -1,11 +1,16 @@
 use std::{collections::VecDeque, time::Instant};
 
 use crate::{
-    bytecode_vm::{runtime::vm::StepResult, VmResult},
+    bytecode_vm::{
+        runtime::{
+            types::{Coroutine, CoroutineState},
+            vm::StepResult,
+            Reference,
+        },
+        VirtualMachine, VmResult,
+    },
     core::{log, log_impure, Container, LogLevel},
 };
-
-use super::{types::CoroutineState, Coroutine, Reference, VirtualMachine};
 
 #[derive(Default)]
 pub struct VmExecutor {

@@ -234,7 +234,15 @@ impl TreewalkValue {
             }
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
             TreewalkValue::Int(i) => write!(f, "{i}"),
-            TreewalkValue::Float(i) => write!(f, "{i}"),
+            TreewalkValue::Float(i) => {
+                // We should probably move this onto Float eventually
+                if i.fract() == 0.0 {
+                    // integer-like float, force ".0"
+                    write!(f, "{}.0", i.trunc())
+                } else {
+                    write!(f, "{}", i)
+                }
+            }
             TreewalkValue::Str(s) => write!(f, "{s}"),
             TreewalkValue::Bytes(b) => write!(f, "b'{b:?}'"),
             TreewalkValue::ByteArray(b) => write!(f, "bytearray(b'{b:?}')"),
@@ -508,7 +516,7 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected an integer"))
     }
 
-    pub fn as_fp(&self) -> Option<f64> {
+    pub fn as_float(&self) -> Option<f64> {
         match self {
             TreewalkValue::Float(i) => Some(*i),
             TreewalkValue::Int(i) => Some(*i as f64),
@@ -516,8 +524,8 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_fp(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<f64> {
-        self.as_fp()
+    pub fn expect_float(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<f64> {
+        self.as_float()
             .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
 
@@ -748,7 +756,7 @@ impl TreewalkValue {
     }
 
     pub fn is_fp(&self) -> bool {
-        self.as_fp().is_some()
+        self.as_float().is_some()
     }
 
     pub fn is_class(&self) -> bool {

@@ -1,15 +1,19 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode_vm::{compiler::Opcode, VmResult},
+    bytecode_vm::{
+        compiler::Opcode,
+        runtime::{
+            types::{FunctionObject, Method, Module},
+            Reference,
+        },
+        VirtualMachine, VmResult,
+    },
     core::Container,
     domain::{DebugStackFrame, ToDebugStackFrame},
 };
 
-use super::{
-    types::{FunctionObject, Namespace, Reference},
-    Method, Module, VirtualMachine,
-};
+use super::reference::Namespace;
 
 #[derive(Clone, Debug)]
 enum YieldFromState {

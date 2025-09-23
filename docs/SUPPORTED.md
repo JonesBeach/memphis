@@ -15,7 +15,7 @@
 |Control flow statements|✅|✅|
 |Function defintion and function calls|✅|✅|
 |Class definition, instatiation, and method calls|✅|✅|
-|Lexical scoping|✅|🔄|
+|Lexical scoping|✅|✅|
 |Module imports|✅|🔄|
 |Floating point|✅|✅|
 |Negative numbers|✅|✅|
@@ -33,11 +33,12 @@
 |`yield from`|✅|✅|
 |Slices|✅||
 |Inheritance|✅||
+|Operator overloading|✅||
 |Object creation and metaclasses|✅||
 |async/await|✅|✅|
 |Try-except blocks|✅||
 |Args and kwargs|✅||
-|Closures|✅|🔄|
+|Closures|✅|✅|
 |Decorators|✅|✅|
 |Descriptor protocol|✅||
 |Interface to Python stdlib written in C|✅||
@@ -84,7 +85,7 @@
 |`eval`|||
 |`exec`|||
 |`filter`|||
-|`float`|||
+|`float`|✅||
 |`format`|||
 |`frozenset`|✅||
 |`getattr`|✅||
@@ -193,24 +194,24 @@ Representation
 Comparison and Equality
 \_\_eq__(self, other)|✅|
 \_\_ne__(self, other)|✅|
-\_\_lt__(self, other)||
-\_\_le__(self, other)||
-\_\_gt__(self, other)||
-\_\_ge__(self, other)||
+\_\_lt__(self, other)|✅|
+\_\_le__(self, other)|✅|
+\_\_gt__(self, other)|✅|
+\_\_ge__(self, other)|✅|
 Numeric Operators
-\_\_add__(self, other)||
-\_\_sub__(self, other)||
-\_\_mul__(self, other)||
-\_\_truediv__(self, other)||
-\_\_floordiv__(self, other)||
-\_\_mod__(self, other)||
+\_\_add__(self, other)|✅|
+\_\_sub__(self, other)|✅|
+\_\_mul__(self, other)|✅|
+\_\_truediv__(self, other)|✅|
+\_\_floordiv__(self, other)|✅|
+\_\_mod__(self, other)|✅|
 \_\_divmod__(self, other)||
-\_\_pow__(self, other[, modulo])||
-\_\_lshift__(self, other)||
-\_\_rshift__(self, other)||
-\_\_and__(self, other)||
-\_\_or__(self, other)||
-\_\_xor__(self, other)||
+\_\_pow__(self, other[, modulo])|✅|
+\_\_lshift__(self, other)|✅|
+\_\_rshift__(self, other)|✅|
+\_\_and__(self, other)|✅|
+\_\_or__(self, other)|✅|
+\_\_xor__(self, other)|✅|
 Unary Operators and Functions
 \_\_neg__(self)||
 \_\_pos__(self)||

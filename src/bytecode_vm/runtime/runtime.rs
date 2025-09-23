@@ -1,8 +1,17 @@
 use std::collections::HashMap;
 
-use crate::{bytecode_vm::VmValue, core::Container, domain::Dunder};
-
-use super::{asyncio, builtins, heap::Heap, types::BuiltinFunc, BuiltinFunction, Module};
+use crate::{
+    bytecode_vm::{
+        runtime::{
+            modules::{asyncio, builtins},
+            types::Module,
+            BuiltinFn, BuiltinFunction, Heap,
+        },
+        VmValue,
+    },
+    core::Container,
+    domain::Dunder,
+};
 
 #[derive(Default)]
 pub struct Runtime {
@@ -48,7 +57,7 @@ impl Runtime {
 pub fn register_builtin_funcs(
     runtime: &mut Runtime,
     module: &mut Module,
-    builtins: &[(&str, BuiltinFunc)],
+    builtins: &[(&str, BuiltinFn)],
 ) {
     for (name, func) in builtins {
         let func_ref = runtime

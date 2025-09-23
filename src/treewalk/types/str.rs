@@ -4,12 +4,12 @@ use std::{
 };
 
 use crate::{
-    domain::Type,
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
         types::Slice,
-        utils::Args,
+        utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -18,7 +18,16 @@ use crate::{
 pub struct Str(String);
 
 impl_typed!(Str, Type::Str);
-impl_method_provider!(Str, [JoinBuiltin, MaketransBuiltin]);
+impl_method_provider!(
+    Str,
+    [
+        AddBuiltin,
+        MulBuiltin,
+        ContainsBuiltin,
+        JoinBuiltin,
+        MaketransBuiltin
+    ]
+);
 impl_iterable!(StrIter);
 
 impl Str {
@@ -73,9 +82,62 @@ impl IndexRead for Str {
 }
 
 #[derive(Clone)]
+struct AddBuiltin;
+#[derive(Clone)]
+struct MulBuiltin;
+#[derive(Clone)]
+struct ContainsBuiltin;
+#[derive(Clone)]
 struct JoinBuiltin;
 #[derive(Clone)]
 struct MaketransBuiltin;
+
+impl Callable for AddBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        // implements a + b
+        let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let b = args.get_arg(0).expect_string(interpreter)?;
+
+        Ok(TreewalkValue::Str(Str::new(a + &b)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Add.into()
+    }
+}
+
+impl Callable for MulBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let n = args.get_arg(0).expect_integer(interpreter)?;
+
+        Ok(TreewalkValue::Str(Str::new(a.repeat(n as usize))))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Mul.into()
+    }
+}
+
+impl Callable for ContainsBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        // implements b in a
+        let b = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let a = args.get_arg(0).expect_string(interpreter)?;
+
+        Ok(TreewalkValue::Bool(a.contains(&b)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Contains.into()
+    }
+}
 
 impl Callable for JoinBuiltin {
     fn call(

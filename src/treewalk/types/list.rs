@@ -23,7 +23,10 @@ pub struct List {
 }
 
 impl_typed!(List, Type::List);
-impl_method_provider!(List, [NewBuiltin, AppendBuiltin, ExtendBuiltin,]);
+impl_method_provider!(
+    List,
+    [NewBuiltin, AddBuiltin, AppendBuiltin, ExtendBuiltin,]
+);
 impl_iterable!(ListIter);
 
 impl List {
@@ -185,6 +188,8 @@ impl ExactSizeIterator for ListIter {
 #[derive(Clone)]
 struct NewBuiltin;
 #[derive(Clone)]
+struct AddBuiltin;
+#[derive(Clone)]
 struct AppendBuiltin;
 #[derive(Clone)]
 struct ExtendBuiltin;
@@ -204,6 +209,23 @@ impl Callable for NewBuiltin {
 
     fn name(&self) -> String {
         Dunder::New.into()
+    }
+}
+
+impl Callable for AddBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let left_list = args.expect_self(interpreter)?.expect_list(interpreter)?;
+        let right_list = args.get_arg(0).expect_list(interpreter)?;
+        let l = left_list.borrow().clone();
+        let r = right_list.borrow().clone();
+
+        Ok(TreewalkValue::List(Container::new(l + r)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Add.into()
     }
 }
 

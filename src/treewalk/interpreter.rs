@@ -1346,6 +1346,25 @@ mod tests {
         let input = "1 / 0";
         let e = eval_expect_error(input);
         assert_div_by_zero_error!(e, "integer division or modulo by zero");
+
+        let input = "1 / 0.0";
+        let e = eval_expect_error(input);
+        assert_div_by_zero_error!(e, "integer division or modulo by zero");
+
+        let input = "1.0 / 0";
+        let e = eval_expect_error(input);
+        assert_div_by_zero_error!(e, "float division by zero");
+
+        let input = "1.0 / 0.0";
+        let e = eval_expect_error(input);
+        assert_div_by_zero_error!(e, "float division by zero");
+    }
+
+    #[test]
+    fn unsupported_operand() {
+        let input = r#""a" / 0"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(e, "unsupported operand type(s) for /: 'str' and 'int'");
     }
 
     #[test]
@@ -1370,7 +1389,7 @@ mod tests {
 
         let input = "4.1 + 'a'";
         let e = eval_expect_error(input);
-        assert_type_error!(e, "Unsupported operand types for +");
+        assert_type_error!(e, "unsupported operand type(s) for +");
     }
 
     #[test]
@@ -1380,6 +1399,15 @@ mod tests {
 
         let input = "5 // 3";
         assert_eval_eq!(input, int!(1));
+
+        let input = "5 // 3.0";
+        assert_eval_eq!(input, float!(1.0));
+
+        let input = "5 // 2.9";
+        assert_eval_eq!(input, float!(1.0));
+
+        let input = "5 // 2.1";
+        assert_eval_eq!(input, float!(2.0));
 
         let input = "5 // 0";
         let e = eval_expect_error(input);
@@ -1451,6 +1479,12 @@ d = type(str.maketrans)
         assert_type_eq!(ctx, "b", Type::BuiltinMethod);
         assert_type_eq!(ctx, "c", Type::Method);
         assert_type_eq!(ctx, "d", Type::BuiltinMethod);
+
+        let input = r#""abc" + "def""#;
+        assert_eval_eq!(input, str!("abcdef"));
+
+        let input = r#""abc" * 3"#;
+        assert_eval_eq!(input, str!("abcabcabc"));
     }
 
     #[test]
@@ -1511,6 +1545,15 @@ d = type(str.maketrans)
         assert_eval_eq!(input, bool!(false));
 
         let input = "4 not in range(3)";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = r#""a" in "abc""#;
+        assert_eval_eq!(input, bool!(true));
+
+        let input = r#""a" in "bcd""#;
+        assert_eval_eq!(input, bool!(false));
+
+        let input = r#""cd" in "bcd""#;
         assert_eval_eq!(input, bool!(true));
 
         let input = "4 is None";
@@ -1911,6 +1954,9 @@ c = 4 + 2.1
 d = 1.9 + 4
 e = d == 5.9
 f = d != 5.9
+g = float()
+h = float(3.99)
+i = float(3)
 "#;
         let ctx = run(input);
 
@@ -1920,6 +1966,9 @@ f = d != 5.9
         assert_read_eq!(ctx, "d", float!(5.9));
         assert_read_eq!(ctx, "e", bool!(true));
         assert_read_eq!(ctx, "f", bool!(false));
+        assert_read_eq!(ctx, "g", float!(0.0));
+        assert_read_eq!(ctx, "h", float!(3.99));
+        assert_read_eq!(ctx, "i", float!(3.0));
 
         let input = r#"
 def add(x, y):
@@ -1930,6 +1979,13 @@ z = add(2.1, 3)
         let ctx = run(input);
 
         assert_read_eq!(ctx, "z", float!(5.1));
+
+        let input = r#"
+float(1, 1)
+"#;
+        let e = eval_expect_error(input);
+
+        assert_type_error!(e, "Found 3 args");
     }
 
     #[test]

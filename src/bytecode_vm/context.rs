@@ -1,5 +1,7 @@
 use crate::{
-    bytecode_vm::{Runtime, VmInterpreter, VmResult, VmValue},
+    bytecode_vm::{
+        compiler::CodeObject, runtime::types::Module, Runtime, VmInterpreter, VmResult, VmValue,
+    },
     core::Container,
     domain::{Dunder, Source},
     errors::MemphisResult,
@@ -7,8 +9,6 @@ use crate::{
     parser::Parser,
     runtime::MemphisState,
 };
-
-use super::{compiler::CodeObject, runtime::Module};
 
 pub struct VmContext {
     lexer: Lexer,

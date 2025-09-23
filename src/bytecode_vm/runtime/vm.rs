@@ -4,17 +4,17 @@ use crate::{
     bytecode_vm::{
         compiler::{CodeObject, Opcode},
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
-        runtime::{FunctionObject, List, Method, Module, Object, Reference, Tuple},
-        VmResult, VmValue,
+        runtime::{
+            components::{ErrorBuilder, ModuleLoader},
+            modules::builtins,
+            types::{Coroutine, FunctionObject, Generator, List, Method, Module, Object, Tuple},
+            BuiltinFunction, CallStack, Frame, Reference, VmExecutor,
+        },
+        Runtime, VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
     domain::{Dunder, FunctionType},
     runtime::MemphisState,
-};
-
-use super::{
-    builtins, error_builder::ErrorBuilder, executor::VmExecutor, frame::Frame,
-    module_loader::ModuleLoader, BuiltinFunction, CallStack, Coroutine, Generator, Runtime,
 };
 
 #[derive(Debug)]

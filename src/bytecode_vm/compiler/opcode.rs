@@ -1,11 +1,12 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    bytecode_vm::indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
+    bytecode_vm::{
+        compiler::CodeObject,
+        indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
+    },
     parser::types::BinOp,
 };
-
-use super::CodeObject;
 
 pub type Bytecode = Vec<Opcode>;
 pub type UnsignedOffset = usize;

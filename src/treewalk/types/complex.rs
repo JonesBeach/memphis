@@ -75,7 +75,7 @@ impl Callable for NewBuiltin {
 
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
-            2 => match args.get_arg(1).as_fp() {
+            2 => match args.get_arg(1).as_float() {
                 Some(re) => Complex::new(re, DEFAULT_IM),
                 None => {
                     let input = &args.get_arg(1).as_string().ok_or_else(|| {
@@ -89,8 +89,8 @@ impl Callable for NewBuiltin {
                 }
             },
             3 => {
-                let re = args.get_arg(1).expect_fp(interpreter)?;
-                let im = args.get_arg(2).expect_fp(interpreter)?;
+                let re = args.get_arg(1).expect_float(interpreter)?;
+                let im = args.get_arg(2).expect_float(interpreter)?;
                 Complex::new(re, im)
             }
             _ => unreachable!(),

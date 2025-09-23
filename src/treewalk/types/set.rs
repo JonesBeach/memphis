@@ -20,7 +20,7 @@ pub struct Set {
 }
 
 impl_typed!(Set, Type::Set);
-impl_method_provider!(Set, [AddBuiltin, NewBuiltin]);
+impl_method_provider!(Set, [AddBuiltin, LeBuiltin, NewBuiltin]);
 impl_iterable!(SetIter);
 
 impl Set {
@@ -106,6 +106,8 @@ impl Iterator for SetIter {
 struct NewBuiltin;
 #[derive(Clone)]
 struct AddBuiltin;
+#[derive(Clone)]
+struct LeBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -137,5 +139,22 @@ impl Callable for AddBuiltin {
 
     fn name(&self) -> String {
         "add".into()
+    }
+}
+
+impl Callable for LeBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let left_set = args.expect_self(interpreter)?.expect_set(interpreter)?;
+        let right_set = args.get_arg(0).expect_set(interpreter)?;
+        let l = left_set.borrow().clone();
+        let r = right_set.borrow().clone();
+
+        Ok(TreewalkValue::Bool(l.subset(r)))
+    }
+
+    fn name(&self) -> String {
+        Dunder::Le.into()
     }
 }

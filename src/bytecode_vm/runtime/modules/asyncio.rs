@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use crate::{
-    bytecode_vm::{VmResult, VmValue},
+    bytecode_vm::{
+        runtime::runtime::register_builtin_funcs,
+        runtime::{types::Module, BuiltinFn, Reference},
+        Runtime, VirtualMachine, VmResult, VmValue,
+    },
     core::Container,
-};
-
-use super::{
-    runtime::register_builtin_funcs, types::BuiltinFunc, Module, Reference, Runtime, VirtualMachine,
 };
 
 fn asyncio_run(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
@@ -45,7 +45,7 @@ pub fn init_module(runtime: &mut Runtime) {
     runtime.store_module(Container::new(asyncio_mod));
 }
 
-static BUILTINS: [(&str, BuiltinFunc); 3] = [
+static BUILTINS: [(&str, BuiltinFn); 3] = [
     ("run", asyncio_run),
     ("create_task", asyncio_create_task),
     ("sleep", asyncio_sleep),

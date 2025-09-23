@@ -10,7 +10,7 @@ use crate::{
         },
         types::{
             iterators::{ReversedIter, ZipIterator},
-            Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception,
+            Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception, Float,
             FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
             Staticmethod, StopIteration, Str, Super, Traceback, Tuple, TypeClass,
         },
@@ -39,6 +39,7 @@ fn builtin_methods() -> HashMap<Type, Vec<Box<dyn CloneableCallable>>> {
     register_methods::<Super>(&mut methods);
     register_methods::<Bool>(&mut methods);
     register_methods::<Int>(&mut methods);
+    register_methods::<Float>(&mut methods);
     register_methods::<Str>(&mut methods);
     register_methods::<List>(&mut methods);
     register_methods::<Set>(&mut methods);
@@ -82,7 +83,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-static ALL_TYPES: [Type; 52] = [
+static ALL_TYPES: [Type; 53] = [
     Type::Super,
     Type::GetSetDescriptor,
     Type::MemberDescriptor,
@@ -97,6 +98,7 @@ static ALL_TYPES: [Type; 52] = [
     Type::NotImplemented,
     Type::Bool,
     Type::Int,
+    Type::Float,
     Type::Str,
     Type::List,
     Type::Set,
@@ -138,7 +140,7 @@ static ALL_TYPES: [Type; 52] = [
 ];
 
 /// These types are callable and behave like a builtin function.
-static CALLABLE_TYPES: [Type; 24] = [
+static CALLABLE_TYPES: [Type; 25] = [
     Type::Type,
     Type::Object,
     Type::Super,
@@ -153,7 +155,7 @@ static CALLABLE_TYPES: [Type; 24] = [
     Type::Range,
     Type::Slice,
     Type::Complex,
-    //Type::Float,
+    Type::Float,
     Type::Bytes,
     Type::ByteArray,
     Type::Memoryview,
