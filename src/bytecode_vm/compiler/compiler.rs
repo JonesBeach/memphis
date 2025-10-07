@@ -8,8 +8,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, FunctionType, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, ConditionalAst, DictOperation, Expr, ImportPath, LogicalOp,
-        LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, ImportPath,
+        LogicalOp, LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -169,6 +169,7 @@ impl Compiler {
             Expr::Dict(dict_op) => self.compile_dict(dict_op),
             Expr::UnaryOperation { op, right } => self.compile_unary_op(op, right),
             Expr::BinaryOperation { left, op, right } => self.compile_binary_op(left, op, right),
+            Expr::ComparisonChain { left, ops } => self.compile_comparison_chain(left, ops),
             Expr::LogicalOperation { left, op, right } => self.compile_logical_op(left, op, right),
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
@@ -611,6 +612,27 @@ impl Compiler {
 
         let opcode = Opcode::try_from_bin_op(bin_op)
             .ok_or_else(|| unsupported(&format!("binary op: {bin_op:?}")))?;
+
+        self.emit(opcode)?;
+        Ok(())
+    }
+
+    fn compile_comparison_chain(
+        &mut self,
+        left: &Expr,
+        ops: &[(CompareOp, Expr)],
+    ) -> CompilerResult<()> {
+        self.compile_expr(left)?;
+        let (op, right) = if ops.len() == 1 {
+            ops[0].clone()
+        } else {
+            unimplemented!("Operating chaining");
+        };
+
+        self.compile_expr(&right)?;
+
+        let opcode = Opcode::try_from_cmp_op(&op)
+            .ok_or_else(|| unsupported(&format!("binary op: {op:?}")))?;
 
         self.emit(opcode)?;
         Ok(())
