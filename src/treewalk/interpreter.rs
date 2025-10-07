@@ -3163,7 +3163,7 @@ c = dict(zip(['one', 'two', 'three'], [1, 2, 3]))
 d = dict([('two', 2), ('one', 1), ('three', 3)])
 e = dict({'three': 3, 'one': 1, 'two': 2})
 f = dict({'one': 1, 'three': 3}, two=2)
-#g = a == b == c == d == e == f
+g = a == b == c == d == e == f
 "#;
         let ctx = run(input);
 
@@ -3203,8 +3203,7 @@ f = dict({'one': 1, 'three': 3}, two=2)
             dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
         );
 
-        // TODO enable this once we support operator chaining
-        // assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "g", bool!(true));
 
         let input = r#"dict([('a',)])"#;
         let e = eval_expect_error(input);
