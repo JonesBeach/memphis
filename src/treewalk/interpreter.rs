@@ -1564,6 +1564,13 @@ d = type(str.maketrans)
     }
 
     #[test]
+    #[ignore]
+    fn operator_chaining() {
+        let input = "2 == 2 == 2";
+        assert_eval_eq!(input, bool!(true));
+    }
+
+    #[test]
     fn print_builtin() {
         // this test has no assertions because output capture only works in the integration tests
         // and not the unit tests at the moment.
@@ -2995,6 +3002,8 @@ b = a.items()
 c = { key: value * 2  for key, value in a.items() }
 d = dict({ "b": 4, 'c': 5 })
 e = dict([('b', 4), ('c', 5)])
+ee = dict([['a', 1], ['b', 2]])
+eee = dict((k, k*k) for k in range(3))
 f = a["b"]
 g = {}
 h = {}.items()
@@ -3047,6 +3056,16 @@ w = { key for key, value in a.items() }
             ctx,
             "e",
             dict!(ctx.interpreter(), { str!("b") => int!(4), str!("c") => int!(5) })
+        );
+        assert_read_eq!(
+            ctx,
+            "ee",
+            dict!(ctx.interpreter(), { str!("a") => int!(1), str!("b") => int!(2) })
+        );
+        assert_read_eq!(
+            ctx,
+            "eee",
+            dict!(ctx.interpreter(), { int!(0) => int!(0), int!(1) => int!(1), int!(2) => int!(4) })
         );
         assert_read_eq!(ctx, "f", int!(4));
         assert_read_eq!(ctx, "g", dict!(ctx.interpreter(), {}));
@@ -3107,6 +3126,75 @@ c = { **inner, 'key': 'outer' }
             ctx,
             "c",
             dict!(ctx.interpreter(), { str!("key") => str!("outer") })
+        );
+    }
+
+    #[test]
+    fn dict_builtin() {
+        // This example is from the Python docs.
+        // https://docs.python.org/3/library/stdtypes.html#typesmapping
+        let input = r#"
+a = dict(one=1, two=2, three=3)
+b = {'one': 1, 'two': 2, 'three': 3}
+c = dict(zip(['one', 'two', 'three'], [1, 2, 3]))
+d = dict([('two', 2), ('one', 1), ('three', 3)])
+e = dict({'three': 3, 'one': 1, 'two': 2})
+f = dict({'one': 1, 'three': 3}, two=2)
+#g = a == b == c == d == e == f
+"#;
+        let ctx = run(input);
+
+        assert_read_eq!(
+            ctx,
+            "a",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        assert_read_eq!(
+            ctx,
+            "b",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        assert_read_eq!(
+            ctx,
+            "c",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        assert_read_eq!(
+            ctx,
+            "d",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        assert_read_eq!(
+            ctx,
+            "e",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        assert_read_eq!(
+            ctx,
+            "f",
+            dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
+        );
+
+        // TODO enable this once we support operator chaining
+        // assert_read_eq!(ctx, "g", bool!(true));
+
+        let input = r#"dict([('a',)])"#;
+        let e = eval_expect_error(input);
+        assert_value_error!(
+            e,
+            "dictionary update sequence element #0 has length 1; 2 is required"
+        );
+
+        let input = r#"dict([('a', 1, 2)])"#;
+        let e = eval_expect_error(input);
+        assert_value_error!(
+            e,
+            "dictionary update sequence element #0 has length 3; 2 is required"
         );
     }
 

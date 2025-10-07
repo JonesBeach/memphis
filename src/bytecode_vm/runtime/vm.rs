@@ -7,7 +7,9 @@ use crate::{
         runtime::{
             components::{ErrorBuilder, ModuleLoader},
             modules::builtins,
-            types::{Coroutine, FunctionObject, Generator, List, Method, Module, Object, Tuple},
+            types::{
+                Coroutine, Dict, FunctionObject, Generator, List, Method, Module, Object, Tuple,
+            },
             BuiltinFunction, CallStack, Frame, Reference, VmExecutor,
         },
         Runtime, VmResult, VmValue,
@@ -730,13 +732,23 @@ impl VirtualMachine {
                     builtins::build_class,
                 )))?;
             }
+            Opcode::BuildList(n) => {
+                let items = self.collect_n(n)?;
+                self.push_value(VmValue::List(List::new(items)))?;
+            }
             Opcode::BuildTuple(n) => {
                 let items = self.collect_n(n)?;
                 self.push_value(VmValue::Tuple(Tuple::new(items)))?;
             }
-            Opcode::BuildList(n) => {
-                let items = self.collect_n(n)?;
-                self.push_value(VmValue::List(List::new(items)))?;
+            Opcode::BuildMap(n) => {
+                let mut items = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let value = self.pop()?;
+                    let key = self.pop()?;
+                    items.push((key, value));
+                }
+                items.reverse(); // to preserve left-to-right source order
+                self.push_value(VmValue::Dict(Dict::new(items)))?;
             }
             Opcode::GetIter => {
                 let obj = self.pop_value()?;

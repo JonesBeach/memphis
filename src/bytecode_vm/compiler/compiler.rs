@@ -8,8 +8,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, FunctionType, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, ConditionalAst, Expr, ImportPath, LogicalOp, LoopIndex,
-        Params, RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, ConditionalAst, DictOperation, Expr, ImportPath, LogicalOp,
+        LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -166,13 +166,10 @@ impl Compiler {
             Expr::Variable(name) => self.compile_load(name),
             Expr::List(items) => self.compile_list(items),
             Expr::Tuple(items) => self.compile_tuple(items),
-            Expr::UnaryOperation { op, right } => self.compile_unary_operation(op, right),
-            Expr::BinaryOperation { left, op, right } => {
-                self.compile_binary_operation(left, op, right)
-            }
-            Expr::LogicalOperation { left, op, right } => {
-                self.compile_logical_operation(left, op, right)
-            }
+            Expr::Dict(dict_op) => self.compile_dict(dict_op),
+            Expr::UnaryOperation { op, right } => self.compile_unary_op(op, right),
+            Expr::BinaryOperation { left, op, right } => self.compile_binary_op(left, op, right),
+            Expr::LogicalOperation { left, op, right } => self.compile_logical_op(left, op, right),
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
             Expr::Yield(value) => self.compile_yield(value),
@@ -573,7 +570,20 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_unary_operation(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
+    fn compile_dict(&mut self, dict_ops: &[DictOperation]) -> CompilerResult<()> {
+        for dict_op in dict_ops.iter() {
+            let (key, value) = match dict_op {
+                DictOperation::Pair(key, value) => (key, value),
+                DictOperation::Unpack(_) => unimplemented!("Unpacking not yet supported."),
+            };
+            self.compile_expr(key)?;
+            self.compile_expr(value)?;
+        }
+        self.emit(Opcode::BuildMap(dict_ops.len()))?;
+        Ok(())
+    }
+
+    fn compile_unary_op(&mut self, op: &UnaryOp, right: &Expr) -> CompilerResult<()> {
         self.compile_expr(right)?;
 
         let opcode = match op {
@@ -590,7 +600,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_binary_operation(
+    fn compile_binary_op(
         &mut self,
         left: &Expr,
         bin_op: &BinOp,
@@ -606,7 +616,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_logical_operation(
+    fn compile_logical_op(
         &mut self,
         left: &Expr,
         op: &LogicalOp,
@@ -1022,6 +1032,20 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::BuildTuple(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn dictionaries() {
+        let expr = dict![dict_pair!(str!("a"), int!(1))];
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::BuildMap(1),
             ]
         );
     }

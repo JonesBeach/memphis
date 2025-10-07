@@ -44,6 +44,7 @@
 |Interface to Python stdlib written in C|✅||
 |Context managers|✅||
 |Compound assignment (`+=`) for integers|✅||
+|Operator chaining|||
 |Unpacking assignment|✅||
 |Multiple assignment|✅||
 |f-strings (without escape characters)|✅||

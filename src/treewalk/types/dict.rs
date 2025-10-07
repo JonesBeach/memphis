@@ -58,6 +58,10 @@ impl Dict {
         self.items.keys()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     fn get(
         &self,
         interpreter: TreewalkInterpreter,
@@ -105,6 +109,12 @@ impl Dict {
         }
 
         Ok(table)
+    }
+
+    pub fn extend(&mut self, other: &Dict) {
+        for (key, value) in &other.items {
+            self.items.insert(key.clone(), value.clone());
+        }
     }
 }
 
@@ -247,11 +257,19 @@ impl Callable for NewBuiltin {
 
 impl Callable for InitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
 
-        let input = args.get_arg(0).expect_dict(interpreter)?;
         let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
-        *output.borrow_mut() = input.borrow().clone();
+
+        if let Some(pos_arg) = args.get_arg_optional(0) {
+            let input = pos_arg.expect_dict(interpreter)?;
+            output.borrow_mut().extend(&input.borrow());
+        }
+
+        if args.has_kwargs() {
+            let kwargs = args.get_kwargs(interpreter);
+            output.borrow_mut().extend(&kwargs);
+        }
 
         Ok(TreewalkValue::None)
     }

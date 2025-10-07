@@ -211,7 +211,7 @@ impl Callable for CPythonObject {
                         panic!()
                     })?;
                     Ok(utils::from_pyobject(py, result))
-                } else if args.get_kwargs().is_empty() {
+                } else if !args.has_kwargs() {
                     let result = py_attr.call1(utils::to_args(py, args));
                     let result = result.map_err(|e| {
                         dbg!(&e);

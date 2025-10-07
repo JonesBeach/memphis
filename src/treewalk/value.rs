@@ -137,8 +137,9 @@ impl PartialEq for TreewalkValue {
         }
     }
 }
-// For some reason, we have to create this here for the Eq trait to be
-// satisfied for f64.
+
+// This is a marker trait. We are confirming that PartialEq fully satisfies equality semantics.
+// We cannot derive Eq because it is not implemented for f64 because of NaN weirdness.
 impl Eq for TreewalkValue {}
 
 impl Hash for TreewalkValue {
@@ -490,6 +491,11 @@ impl TreewalkValue {
         Some(value)
     }
 
+    pub fn is_iterable(&self) -> bool {
+        // The clone here shouldn't be necessary
+        self.clone().into_iterable().is_some()
+    }
+
     /// Ensure this value is iterable, and convert it to its iterator form.
     ///
     /// If the value is not iterable, raise a TypeError.
@@ -674,8 +680,9 @@ impl TreewalkValue {
     ) -> TreewalkResult<Option<Container<Dict>>> {
         let result = match self {
             TreewalkValue::Dict(i) => Some(i.clone()),
-            TreewalkValue::List(list) => {
-                let dict_items = DictItems::from_vec(list.borrow().cloned_items(), interpreter)?;
+            val if val.is_iterable() => {
+                let iter = val.expect_iterator(interpreter)?;
+                let dict_items = DictItems::from_iterable(iter, interpreter)?;
                 Some(Container::new(dict_items.to_dict()))
             }
             _ => None,

@@ -4,7 +4,7 @@ use crate::{
     parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         protocols::TryEvalFrom,
-        types::{Str, Tuple},
+        types::{Dict, Str, Tuple},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -116,10 +116,12 @@ impl Args {
         self.args.get(index).cloned()
     }
 
-    /// Return a `Dict` of all the keyword arguments.
-    #[allow(clippy::mutable_key_type)]
-    pub fn get_kwargs(&self) -> HashMap<TreewalkValue, TreewalkValue> {
-        self.kwargs.clone()
+    pub fn has_kwargs(&self) -> bool {
+        !self.kwargs.is_empty()
+    }
+
+    pub fn get_kwargs(&self, interpreter: &TreewalkInterpreter) -> Dict {
+        Dict::new(interpreter, self.kwargs.clone())
     }
 
     /// Access a keyword argument by key.

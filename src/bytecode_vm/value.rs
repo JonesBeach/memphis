@@ -8,7 +8,7 @@ use crate::{
         compiler::{CodeObject, Constant},
         runtime::{
             types::{
-                Class, Coroutine, FunctionObject, Generator, List, ListIter, Method, Module,
+                Class, Coroutine, Dict, FunctionObject, Generator, List, ListIter, Method, Module,
                 Object, Range, RangeIter, Tuple, TupleIter,
             },
             BuiltinFunction, Reference,
@@ -38,6 +38,7 @@ pub enum VmValue {
     BuiltinFunction(BuiltinFunction),
     List(List),
     Tuple(Tuple),
+    Dict(Dict),
     Range(Range),
     ListIter(Container<ListIter>),
     TupleIter(Container<TupleIter>),
@@ -64,6 +65,7 @@ impl PartialEq for VmValue {
             (VmValue::Bool(a), VmValue::Bool(b)) => a == b,
             (VmValue::List(a), VmValue::List(b)) => a == b,
             (VmValue::Tuple(a), VmValue::Tuple(b)) => a == b,
+            (VmValue::Dict(a), VmValue::Dict(b)) => a == b,
             (VmValue::Range(a), VmValue::Range(b)) => a == b,
             // Add Class/Object/Code/Function/etc handling later if needed
             _ => false,

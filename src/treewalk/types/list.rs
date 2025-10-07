@@ -55,10 +55,6 @@ impl List {
         self.items.is_empty()
     }
 
-    pub fn cloned_items(&self) -> Vec<TreewalkValue> {
-        self.items.clone()
-    }
-
     pub fn slice(&self, interpreter: &TreewalkInterpreter, slice: &Slice) -> Self {
         let len = self.items.len() as i64;
         let receiver = Container::new(self.clone());

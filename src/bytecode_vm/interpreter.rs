@@ -60,7 +60,7 @@ mod tests_vm_interpreter {
     use crate::{
         bytecode_vm::{
             runtime::{
-                types::{List, Range, Tuple},
+                types::{Dict, List, Range, Tuple},
                 Reference,
             },
             test_utils::*,
@@ -528,6 +528,26 @@ x = (2,"Hello")
         let tuple = extract!(ctx, "x", Tuple);
         let values = tuple.resolved_items(ctx.interpreter().vm()).unwrap();
         assert_eq!(values, vec![int!(2), str!("Hello")]);
+    }
+
+    #[test]
+    fn dict_literal() {
+        let text = r#"{ 2: 1 }"#;
+        assert_eval_eq!(
+            text,
+            VmValue::Dict(Dict::new(vec![(Reference::Int(2), Reference::Int(1))]))
+        );
+    }
+
+    #[test]
+    fn dict_literal_with_dereference() {
+        let text = r#"
+x = {"a": 22}
+"#;
+        let ctx = run(text);
+        let dict = extract!(ctx, "x", Dict);
+        let values = dict.resolved_items(ctx.interpreter().vm()).unwrap();
+        assert_eq!(values, vec![(str!("a"), int!(22))]);
     }
 
     #[test]

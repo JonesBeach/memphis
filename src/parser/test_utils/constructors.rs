@@ -28,6 +28,26 @@ macro_rules! bool {
     };
 }
 
+macro_rules! dict_pair {
+    ($key:expr, $val:expr) => {
+        $crate::parser::types::DictOperation::Pair($key, $val)
+    };
+}
+
+macro_rules! dict_unpack {
+    ($val:expr) => {
+        $crate::parser::types::DictOperation::Unpack($val)
+    };
+}
+
+macro_rules! dict {
+    ($($expr:expr),* $(,)?) => {
+        $crate::parser::types::Expr::Dict(vec![
+            $($expr),*
+        ])
+    };
+}
+
 macro_rules! list {
     ($($expr:expr),* $(,)?) => {
         $crate::parser::types::Expr::List(vec![
@@ -241,6 +261,9 @@ pub(crate) use await_expr;
 pub(crate) use bin_op;
 pub(crate) use bool;
 pub(crate) use call_args;
+pub(crate) use dict;
+pub(crate) use dict_pair;
+pub(crate) use dict_unpack;
 pub(crate) use float;
 pub(crate) use func_call;
 pub(crate) use func_call_callee;

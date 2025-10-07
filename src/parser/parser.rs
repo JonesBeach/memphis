@@ -2830,16 +2830,13 @@ class InterfaceMeta(type):
 
     #[test]
     fn dictionaries() {
-        let input = r#"a = { "b": 4, 'c': 5 }"#;
-        let expected_ast = stmt_assign!(
-            var!("a"),
-            Expr::Dict(vec![
-                DictOperation::Pair(str!("b"), int!(4)),
-                DictOperation::Pair(str!("c"), int!(5)),
-            ])
-        );
+        let input = r#"{ "b": 4, 'c': 5 }"#;
+        let expected_ast = dict![
+            dict_pair!(str!("b"), int!(4)),
+            dict_pair!(str!("c"), int!(5)),
+        ];
 
-        assert_ast_eq!(input, expected_ast);
+        assert_ast_eq!(input, expected_ast, Expr);
 
         let input = r#"
 namespace = {
@@ -2848,24 +2845,18 @@ namespace = {
 "#;
         let expected_ast = stmt_assign!(
             var!("namespace"),
-            Expr::Dict(vec![DictOperation::Pair(str!("__name__"), int!(4))])
+            dict![dict_pair!(str!("__name__"), int!(4))]
         );
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"{ **first, **second }"#;
-        let expected_ast = Expr::Dict(vec![
-            DictOperation::Unpack(var!("first")),
-            DictOperation::Unpack(var!("second")),
-        ]);
+        let expected_ast = dict![dict_unpack!(var!("first")), dict_unpack!(var!("second")),];
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = r#"{ **first, **second, }"#;
-        let expected_ast = Expr::Dict(vec![
-            DictOperation::Unpack(var!("first")),
-            DictOperation::Unpack(var!("second")),
-        ]);
+        let expected_ast = dict![dict_unpack!(var!("first")), dict_unpack!(var!("second")),];
 
         assert_ast_eq!(input, expected_ast, Expr);
 
@@ -2876,7 +2867,10 @@ namespace = {
         let input = "{ 2, **second, }";
         let e = expect_error!(input, Expr);
         assert_eq!(e, ParserError::SyntaxError);
+    }
 
+    #[test]
+    fn dict_comprehension() {
         let input = r#"{ key: val * 2 for key, val in d }"#;
         let expected_ast = Expr::DictComprehension {
             clauses: vec![ForClause {

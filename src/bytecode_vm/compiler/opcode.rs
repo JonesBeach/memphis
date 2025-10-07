@@ -77,6 +77,9 @@ pub enum Opcode {
     BuildList(usize),
     /// Pop the specified number of elements off the stack and build a tuple object.
     BuildTuple(usize),
+    /// Pop the specified number of keys, then values, off the stack and build a dict object. This
+    /// will result in 2 * n pops.
+    BuildMap(usize),
     /// Pops the top value off the stack, constructs an iterator from it by `iter()`, and
     /// pushes the iterator onto the stack.
     GetIter,
@@ -178,6 +181,7 @@ impl Display for Opcode {
             Opcode::LoadBuildClass => write!(f, "LOAD_BUILD_CLASS"),
             Opcode::BuildList(i) => write!(f, "BUILD_LIST {i}"),
             Opcode::BuildTuple(i) => write!(f, "BUILD_TUPLE {i}"),
+            Opcode::BuildMap(i) => write!(f, "BUILD_MAP {i}"),
             Opcode::GetIter => write!(f, "GET_ITER"),
             Opcode::ForIter(i) => write!(f, "FOR_ITER {i}"),
             Opcode::Jump(i) => write!(f, "JUMP {i}"),

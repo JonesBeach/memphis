@@ -2,9 +2,7 @@ use crate::bytecode_vm::{runtime::Reference, VirtualMachine, VmResult, VmValue};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tuple {
-    // TODO this is currently public because we need it in some tests to call deference on the
-    // elements. We'll eventually make this a slice accessor or an iterator or something.
-    pub items: Vec<Reference>,
+    items: Vec<Reference>,
 }
 
 impl Tuple {
