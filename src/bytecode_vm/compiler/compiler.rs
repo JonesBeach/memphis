@@ -635,18 +635,57 @@ impl Compiler {
         ops: &[(CompareOp, Expr)],
     ) -> CompilerResult<()> {
         self.compile_expr(left)?;
-        let (op, right) = if ops.len() == 1 {
-            ops[0].clone()
-        } else {
-            unimplemented!("Operating chaining");
-        };
 
-        self.compile_expr(&right)?;
+        match ops.len() {
+            1 => {
+                let (op, right) = ops[0].clone();
+                self.compile_expr(&right)?;
+                let cmp_opcode = Opcode::try_from_cmp_op(&op)
+                    .ok_or_else(|| unsupported(&format!("compare op: {op:?}")))?;
+                self.emit(cmp_opcode)?;
+            }
+            0 => unreachable!(),
+            _ => {
+                let mut fail_jumps = vec![];
+                for (i, (op, right)) in ops.iter().enumerate() {
+                    self.compile_expr(right)?;
 
-        let opcode = Opcode::try_from_cmp_op(&op)
-            .ok_or_else(|| unsupported(&format!("binary op: {op:?}")))?;
+                    // preserve the right-hand side for the next comparison
+                    if i != ops.len() - 1 {
+                        self.emit(Opcode::DupTop)?;
+                        self.emit(Opcode::RotThree)?;
+                    }
 
-        self.emit(opcode)?;
+                    let cmp_opcode = Opcode::try_from_cmp_op(op)
+                        .ok_or_else(|| unsupported(&format!("compare op: {op:?}")))?;
+                    self.emit(cmp_opcode)?;
+
+                    fail_jumps.push(self.emit_placeholder()?);
+
+                    // only pop in between comparisons
+                    if i != ops.len() - 1 {
+                        self.emit(Opcode::PopTop)?;
+                    }
+                }
+
+                self.compile_bool(true)?;
+                let goto_end_ph = self.emit_placeholder()?;
+
+                // Patch all fail jumps to here
+                for ph in fail_jumps {
+                    let offset = self.forward_offset_to(ph)?;
+                    self.emit_at(ph, Opcode::JumpIfFalse(offset))?;
+                }
+
+                // label fail:
+                self.compile_bool(false)?;
+
+                // label end:
+                let offset = self.forward_offset_to(goto_end_ph)?;
+                self.emit_at(goto_end_ph, Opcode::Jump(offset))?;
+            }
+        }
+
         Ok(())
     }
 
@@ -937,6 +976,41 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::BuildList(1),
                 Opcode::NotIn,
+            ]
+        );
+    }
+
+    #[test]
+    fn operator_chaining() {
+        let expr = cmp_chain!(int!(4), [(Equals, float!(5.1))]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Eq,
+            ]
+        );
+
+        let expr = cmp_chain!(int!(4), [(Equals, float!(5.1)), (Equals, int!(4))]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::DupTop,
+                Opcode::RotThree,
+                Opcode::Eq,
+                Opcode::JumpIfFalse(6),
+                Opcode::PopTop,
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::Eq,
+                Opcode::JumpIfFalse(2),
+                Opcode::LoadConst(Index::new(2)), // true
+                Opcode::Jump(1),
+                Opcode::LoadConst(Index::new(3)) // false
             ]
         );
     }

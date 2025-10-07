@@ -379,12 +379,14 @@ mod tests_vm_interpreter {
     }
 
     #[test]
-    #[ignore]
     fn operator_chaining() {
         let input = "2 == 2 == 2";
         assert_eval_eq!(input, bool!(true));
 
         let input = "2 == 2 == 3";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 == 2 == 3 == 3";
         assert_eval_eq!(input, bool!(false));
     }
 

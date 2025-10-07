@@ -785,6 +785,18 @@ impl VirtualMachine {
             Opcode::PopTop => {
                 let _ = self.pop()?;
             }
+            Opcode::DupTop => {
+                let x = self.peek()?;
+                self.push(x)?;
+            }
+            Opcode::RotThree => {
+                let c = self.pop()?;
+                let b = self.pop()?;
+                let a = self.pop()?;
+                self.push(b)?;
+                self.push(c)?;
+                self.push(a)?;
+            }
             Opcode::MakeFunction => {
                 let code_value = self.pop_value()?;
                 let code = code_value.expect_code(self)?;

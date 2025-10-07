@@ -97,6 +97,20 @@ pub enum Opcode {
     JumpIfTrue(SignedOffset),
     /// Discard the top value on the stack.
     PopTop,
+    /// Duplicate the top value on the stack.
+    DupTop,
+    /// Rotate the top 3 values on the stack down one.
+    ///
+    /// Before:
+    /// c <- TOS
+    /// b
+    /// a
+    ///
+    /// After:
+    /// b <- TOS
+    /// a
+    /// c
+    RotThree,
     /// Create a function object from a code object, encapsulating the information needed to call
     /// the function later.
     MakeFunction,
@@ -194,6 +208,8 @@ impl Display for Opcode {
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {i}"),
             Opcode::JumpIfTrue(i) => write!(f, "JUMP_IF_TRUE {i}"),
             Opcode::PopTop => write!(f, "POP_TOP"),
+            Opcode::DupTop => write!(f, "DUP_TOP"),
+            Opcode::RotThree => write!(f, "ROT_THREE"),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::MakeClosure(i) => write!(f, "MAKE_CLOSURE {i}"),
             Opcode::Call(i) => write!(f, "CALL {i}"),

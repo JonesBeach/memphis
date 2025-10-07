@@ -1591,6 +1591,9 @@ d = type(str.maketrans)
 
         let input = "2 == 2 == 3";
         assert_eval_eq!(input, bool!(false));
+
+        let input = "2 == 2 == 3 == 3";
+        assert_eval_eq!(input, bool!(false));
     }
 
     #[test]
