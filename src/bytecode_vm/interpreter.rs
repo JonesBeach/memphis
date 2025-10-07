@@ -94,13 +94,13 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, int!(7));
 
         let text = "4.1 + 3.01";
-        assert_eval_eq!(text, VmValue::Float(7.11));
+        assert_eval_eq!(text, float!(7.11));
 
         let text = "4 + 3.01";
-        assert_eval_eq!(text, VmValue::Float(7.01));
+        assert_eval_eq!(text, float!(7.01));
 
         let text = "4.1 + 3";
-        assert_eval_eq!(text, VmValue::Float(7.1));
+        assert_eval_eq!(text, float!(7.1));
 
         let text = "-4 + 3";
         assert_eval_eq!(text, int!(-1));
@@ -116,13 +116,13 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, int!(1));
 
         let text = "4.1 - 3.01";
-        assert_eval_eq!(text, VmValue::Float(1.09));
+        assert_eval_eq!(text, float!(1.09));
 
         let text = "4 - 3.01";
-        assert_eval_eq!(text, VmValue::Float(0.99));
+        assert_eval_eq!(text, float!(0.99));
 
         let text = "4.1 - 3";
-        assert_eval_eq!(text, VmValue::Float(1.1));
+        assert_eval_eq!(text, float!(1.1));
 
         let text = "-4 - 3";
         assert_eval_eq!(text, int!(-7));
@@ -138,13 +138,13 @@ mod tests_vm_interpreter {
         assert_eval_eq!(text, int!(12));
 
         let text = "4.1 * 3.01";
-        assert_eval_eq!(text, VmValue::Float(12.341));
+        assert_eval_eq!(text, float!(12.341));
 
         let text = "4 * 3.01";
-        assert_eval_eq!(text, VmValue::Float(12.04));
+        assert_eval_eq!(text, float!(12.04));
 
         let text = "4.1 * 3";
-        assert_eval_eq!(text, VmValue::Float(12.3));
+        assert_eval_eq!(text, float!(12.3));
 
         let text = "-4 * 3";
         assert_eval_eq!(text, int!(-12));
@@ -169,19 +169,19 @@ mod tests_vm_interpreter {
     #[test]
     fn binary_division() {
         let text = "4 / 3";
-        assert_eval_eq!(text, VmValue::Float(1.33333333333));
+        assert_eval_eq!(text, float!(1.33333333333));
 
         let text = "-4 / 3";
-        assert_eval_eq!(text, VmValue::Float(-1.33333333333));
+        assert_eval_eq!(text, float!(-1.33333333333));
 
         let text = "4.1 / 3.01";
-        assert_eval_eq!(text, VmValue::Float(1.36212624585));
+        assert_eval_eq!(text, float!(1.36212624585));
 
         let text = "4 / 3.01";
-        assert_eval_eq!(text, VmValue::Float(1.32890365449));
+        assert_eval_eq!(text, float!(1.32890365449));
 
         let text = "4.1 / 3";
-        assert_eval_eq!(text, VmValue::Float(1.36666666667));
+        assert_eval_eq!(text, float!(1.36666666667));
 
         let text = "4.1 / 'a'";
         let e = eval_expect_error(text);
@@ -191,16 +191,16 @@ mod tests_vm_interpreter {
     #[test]
     fn comparison_in() {
         let text = "4 in [1,2,3,4]";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4 in [1,2,3,5]";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "not (4 in [1,2,3,5])";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = r#""a" in ["a"]"#;
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = r#""a" in "a""#;
         let e = eval_expect_error(text);
@@ -211,13 +211,13 @@ mod tests_vm_interpreter {
     #[test]
     fn comparison_not_in() {
         let text = "4 not in [1,2,3,4]";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4 not in [1,2,3,5]";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = r#""a" not in ["a"]"#;
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = r#""a" not in "a""#;
         let e = eval_expect_error(text);
@@ -228,154 +228,164 @@ mod tests_vm_interpreter {
     #[test]
     fn comparison_eq() {
         let text = "4 == 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4 == 4";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4.1 == 4.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4 == 4.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = r#""a" == "a""#;
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = r#""a" == "b""#;
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
     }
 
     #[test]
     fn comparison_less_than() {
         let text = "4 < 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6 < 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "5 < 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4.1 < 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 < 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4 < 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6 < 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4.1 < 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 < 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 < 6.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
     }
 
     #[test]
     fn comparison_less_than_or_equal() {
         let text = "4 <= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6 <= 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "5 <= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4.1 <= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 <= 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4 <= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6 <= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4.1 <= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 <= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 <= 6.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
     }
 
     #[test]
     fn comparison_greater_than() {
         let text = "4 > 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6 > 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "5 > 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "4.1 > 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 > 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4 > 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6 > 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4.1 > 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 > 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 > 6.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
     }
 
     #[test]
     fn comparison_greater_than_or_equal() {
         let text = "4 >= 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6 >= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "5 >= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4.1 >= 5";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 >= 5";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4 >= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6 >= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "4.1 >= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(false));
+        assert_eval_eq!(text, bool!(false));
 
         let text = "6.1 >= 5.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
 
         let text = "6.1 >= 6.1";
-        assert_eval_eq!(text, VmValue::Bool(true));
+        assert_eval_eq!(text, bool!(true));
+    }
+
+    #[test]
+    #[ignore]
+    fn operator_chaining() {
+        let input = "2 == 2 == 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 == 2 == 3";
+        assert_eval_eq!(input, bool!(false));
     }
 
     #[test]
@@ -384,73 +394,73 @@ mod tests_vm_interpreter {
         assert_eval_eq!(input, int!(-2));
 
         let input = "-2.5";
-        assert_eval_eq!(input, VmValue::Float(-2.5));
+        assert_eval_eq!(input, float!(-2.5));
 
         let input = "-(-2)";
         assert_eval_eq!(input, int!(2));
 
         let input = "-(-2.5)";
-        assert_eval_eq!(input, VmValue::Float(2.5));
+        assert_eval_eq!(input, float!(2.5));
     }
 
     #[test]
     fn binary_logical_and() {
         let input = "False and False";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "True and False";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "False and True";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "True and True";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
     }
 
     #[test]
     fn binary_logical_or() {
         let input = "False or False";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "True or False";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "False or True";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "True or True";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
     }
 
     #[test]
     fn unary_expression_not() {
         let input = "not True";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "not False";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not None";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not 1";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "not 0";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not 1.0";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "not 0.0";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
 
         let input = "not [1]";
-        assert_eval_eq!(input, VmValue::Bool(false));
+        assert_eval_eq!(input, bool!(false));
 
         let input = "not []";
-        assert_eval_eq!(input, VmValue::Bool(true));
+        assert_eval_eq!(input, bool!(true));
     }
 
     #[test]
@@ -959,7 +969,7 @@ def get_val_undecorated():
 a = test_decorator(get_val_undecorated)()
 "#;
         let ctx = run(text);
-        assert_read_eq!(ctx, "a", VmValue::Float(5.0));
+        assert_read_eq!(ctx, "a", float!(5.0));
     }
 
     #[test]

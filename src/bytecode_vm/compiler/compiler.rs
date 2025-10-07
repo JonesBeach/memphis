@@ -617,6 +617,18 @@ impl Compiler {
         Ok(())
     }
 
+    /// Pseudocode for an operator chain:
+    /// evaluate left
+    /// for each (op, right):
+    ///     evaluate right
+    ///     compare
+    ///     if false: goto fail
+    ///     pop_true
+    /// push true
+    /// goto end
+    /// fail:
+    /// push false
+    /// end:
     fn compile_comparison_chain(
         &mut self,
         left: &Expr,
