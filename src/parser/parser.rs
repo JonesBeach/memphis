@@ -7,11 +7,11 @@ use crate::{
     lexer::{Lexer, Token},
     parser::{
         types::{
-            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompoundOperator, ConditionalAst,
-            DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart,
-            ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp,
-            LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
-            TypeNode, UnaryOp, Variable,
+            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
+            ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
+            FStringPart, ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation,
+            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         TokenBuffer,
     },
@@ -411,6 +411,7 @@ impl<'a> Parser<'a> {
             };
         }
 
+        let mut cmp_ops = vec![];
         while matches!(
             self.current_token(),
             Token::LessThan
@@ -429,22 +430,28 @@ impl<'a> Parser<'a> {
             let op = if self.tokens.peek_ahead_contains(&[Token::Not, Token::In]) {
                 self.consume(&Token::Not)?;
                 self.consume(&Token::In)?;
-                BinOp::NotIn
+                CompareOp::NotIn
             } else if self.tokens.peek_ahead_contains(&[Token::Is, Token::Not]) {
                 self.consume(&Token::Is)?;
                 self.consume(&Token::Not)?;
-                BinOp::IsNot
+                CompareOp::IsNot
             } else {
-                let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+                let op =
+                    CompareOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
                 self.consume_current()?;
                 op
             };
 
-            let right = self.parse_term()?;
-            left = Expr::BinaryOperation {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
+            // Since we are building a flat loop of compare ops, we call the next level down, NOT
+            // parse_term again.
+            let right = self.parse_access_operations()?;
+            cmp_ops.push((op, right));
+        }
+
+        if !cmp_ops.is_empty() {
+            left = Expr::ComparisonChain {
+                first: Box::new(left),
+                ops: cmp_ops,
             };
         }
 
@@ -3643,6 +3650,20 @@ with open('test.txt'):
             BitwiseAnd,
             int!(205)
         );
+
+        assert_ast_eq!(input, expected_ast, Expr);
+    }
+
+    #[test]
+    fn operator_chaining() {
+        let input = "a == b == c";
+        let expected_ast = Expr::ComparisonChain {
+            first: Box::new(var!("a")),
+            ops: vec![
+                (CompareOp::Equals, var!("b")),
+                (CompareOp::Equals, var!("c")),
+            ],
+        };
 
         assert_ast_eq!(input, expected_ast, Expr);
     }

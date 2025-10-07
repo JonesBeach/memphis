@@ -198,6 +198,20 @@ pub enum BinOp {
     Expo,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum CompareOp {
+    In,
+    NotIn,
+    Is,
+    IsNot,
+    GreaterThan,
+    LessThan,
+    GreaterThanOrEqual,
+    LessThanOrEqual,
+    Equals,
+    NotEquals,
+}
+
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub enum UnaryOp {
     Not,
@@ -329,6 +343,10 @@ pub enum Expr {
         left: Box<Expr>,
         op: BinOp,
         right: Box<Expr>,
+    },
+    ComparisonChain {
+        first: Box<Expr>,
+        ops: Vec<(CompareOp, Expr)>,
     },
     UnaryOperation {
         op: UnaryOp,

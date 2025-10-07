@@ -1170,6 +1170,7 @@ impl TreewalkInterpreter {
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
             }
+            Expr::ComparisonChain { first: _first, ops: _ops } => todo!(),
             Expr::Await(right) => self.evaluate_await(right),
             Expr::FunctionCall { callee, args } => self.evaluate_function_call(callee, args),
             Expr::ClassInstantiation { name, args } => {
