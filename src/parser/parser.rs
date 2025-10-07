@@ -450,7 +450,7 @@ impl<'a> Parser<'a> {
 
         if !cmp_ops.is_empty() {
             left = Expr::ComparisonChain {
-                first: Box::new(left),
+                left: Box::new(left),
                 ops: cmp_ops,
             };
         }

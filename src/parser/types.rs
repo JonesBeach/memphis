@@ -335,7 +335,7 @@ pub enum Expr {
         right: Box<Expr>,
     },
     ComparisonChain {
-        first: Box<Expr>,
+        left: Box<Expr>,
         ops: Vec<(CompareOp, Expr)>,
     },
     UnaryOperation {

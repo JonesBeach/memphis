@@ -114,7 +114,7 @@ macro_rules! bin_op {
 macro_rules! cmp_op {
     ($left:expr, $op:ident, $right:expr) => {
         $crate::parser::types::Expr::ComparisonChain {
-            first: Box::new($left),
+            left: Box::new($left),
             ops: vec![($crate::parser::types::CompareOp::$op, $right)],
         }
     };
@@ -123,7 +123,7 @@ macro_rules! cmp_op {
 macro_rules! cmp_chain {
     ($left:expr, [ $( ($op:ident, $right:expr) ),+ $(,)? ]) => {
         Expr::ComparisonChain {
-            first: Box::new($left),
+            left: Box::new($left),
             ops: vec![ $( ($crate::parser::types::CompareOp::$op, $right) ),+ ],
         }
     };
