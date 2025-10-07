@@ -3657,13 +3657,19 @@ with open('test.txt'):
     #[test]
     fn operator_chaining() {
         let input = "a == b == c";
-        let expected_ast = Expr::ComparisonChain {
-            first: Box::new(var!("a")),
-            ops: vec![
-                (CompareOp::Equals, var!("b")),
-                (CompareOp::Equals, var!("c")),
-            ],
-        };
+        let expected_ast = cmp_chain!(var!("a"), [(Equals, var!("b")), (Equals, var!("c")),]);
+
+        assert_ast_eq!(input, expected_ast, Expr);
+
+        let input = "a == b < c > d";
+        let expected_ast = cmp_chain!(
+            var!("a"),
+            [
+                (Equals, var!("b")),
+                (LessThan, var!("c")),
+                (GreaterThan, var!("d")),
+            ]
+        );
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
