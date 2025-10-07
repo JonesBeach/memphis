@@ -13,10 +13,10 @@ use crate::{
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
-            Ast, BinOp, CallArgs, Callee, CompoundOperator, ConditionalAst, DictOperation,
-            ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause, ImportPath,
-            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp, Variable,
+            Ast, BinOp, CallArgs, Callee, CompareOp, CompoundOperator, ConditionalAst,
+            DictOperation, ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause,
+            ImportPath, ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams,
+            Statement, StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -320,6 +320,26 @@ impl TreewalkInterpreter {
         let right = self.evaluate_expr(right)?;
 
         self.evaluate_bin_op(left, op, right)
+    }
+
+    fn evaluate_comparison_chain(
+        &self,
+        first: &Expr,
+        ops: &[(CompareOp, Expr)],
+    ) -> TreewalkResult<TreewalkValue> {
+        let mut left = self.evaluate_expr(first)?;
+
+        for (op, right) in ops {
+            let right = self.evaluate_expr(right)?;
+            // is cloning really necessary here?
+            let result = self.evaluate_compare_op(left, op, right.clone())?;
+            if !result.as_boolean() {
+                return Ok(TreewalkValue::Bool(false));
+            }
+            left = right;
+        }
+
+        Ok(TreewalkValue::Bool(true))
     }
 
     fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<TreewalkValue>
@@ -1170,7 +1190,7 @@ impl TreewalkInterpreter {
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
             }
-            Expr::ComparisonChain { first: _first, ops: _ops } => todo!(),
+            Expr::ComparisonChain { first, ops } => self.evaluate_comparison_chain(first, ops),
             Expr::Await(right) => self.evaluate_await(right),
             Expr::FunctionCall { callee, args } => self.evaluate_function_call(callee, args),
             Expr::ClassInstantiation { name, args } => {
@@ -1565,10 +1585,12 @@ d = type(str.maketrans)
     }
 
     #[test]
-    #[ignore]
     fn operator_chaining() {
         let input = "2 == 2 == 2";
         assert_eval_eq!(input, bool!(true));
+
+        let input = "2 == 2 == 3";
+        assert_eval_eq!(input, bool!(false));
     }
 
     #[test]

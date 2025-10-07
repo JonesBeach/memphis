@@ -120,14 +120,6 @@ impl TryFrom<&Token> for BinOp {
             Token::DoubleSlash => BinOp::IntegerDiv,
             Token::Modulo => BinOp::Mod,
             Token::AtSign => BinOp::MatMul,
-            Token::LessThan => BinOp::LessThan,
-            Token::LessThanOrEqual => BinOp::LessThanOrEqual,
-            Token::GreaterThan => BinOp::GreaterThan,
-            Token::GreaterThanOrEqual => BinOp::GreaterThanOrEqual,
-            Token::Equal => BinOp::Equals,
-            Token::NotEqual => BinOp::NotEquals,
-            Token::In => BinOp::In,
-            Token::Is => BinOp::Is,
             _ => return Err(()),
         };
 

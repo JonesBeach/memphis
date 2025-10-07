@@ -849,7 +849,7 @@ mod tests_bytecode {
 
     #[test]
     fn binary_expressions_compare_op() {
-        let expr = bin_op!(int!(4), Equals, float!(5.1));
+        let expr = cmp_op!(int!(4), Equals, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -860,7 +860,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), LessThan, int!(5));
+        let expr = cmp_op!(int!(4), LessThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -871,7 +871,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), GreaterThan, int!(5));
+        let expr = cmp_op!(int!(4), GreaterThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -882,7 +882,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), In, list![int!(5)]);
+        let expr = cmp_op!(int!(4), In, list![int!(5)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -894,7 +894,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), NotIn, list![int!(5)]);
+        let expr = cmp_op!(int!(4), NotIn, list![int!(5)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -1101,7 +1101,7 @@ mod tests_bytecode {
     #[test]
     fn while_loop() {
         let s = stmt!(StatementKind::WhileLoop(ConditionalAst {
-            condition: bin_op!(int!(4), LessThan, int!(5)),
+            condition: cmp_op!(int!(4), LessThan, int!(5)),
             ast: ast![],
         }));
         let bytecode = compile_stmt(s);
@@ -1146,7 +1146,7 @@ mod tests_bytecode {
     fn if_else_only_if() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), LessThan, int!(5)),
+                condition: cmp_op!(int!(4), LessThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![],
@@ -1170,7 +1170,7 @@ mod tests_bytecode {
     fn if_else_with_else() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), LessThan, int!(5)),
+                condition: cmp_op!(int!(4), LessThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-3))],
             },
             elif_parts: vec![],
@@ -1196,11 +1196,11 @@ mod tests_bytecode {
     fn if_else_with_elif() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(4)),
                 ast: ast![stmt_assign!(var!("a"), int!(-2))],
             }],
             else_part: None,
@@ -1232,11 +1232,11 @@ mod tests_bytecode {
     fn if_else_with_elif_and_else() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(4)),
                 ast: ast![stmt_assign!(var!("a"), int!(-2))],
             }],
             else_part: Some(ast![stmt_assign!(var!("a"), int!(3))]),

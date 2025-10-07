@@ -5,7 +5,7 @@ use crate::{
         compiler::CodeObject,
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
     },
-    parser::types::BinOp,
+    parser::types::{BinOp, CompareOp},
 };
 
 pub type Bytecode = Vec<Opcode>;
@@ -141,13 +141,19 @@ impl Opcode {
             BinOp::Sub => Opcode::Sub,
             BinOp::Mul => Opcode::Mul,
             BinOp::Div => Opcode::Div,
-            BinOp::Equals => Opcode::Eq,
-            BinOp::LessThan => Opcode::LessThan,
-            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
-            BinOp::GreaterThan => Opcode::GreaterThan,
-            BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
-            BinOp::In => Opcode::In,
-            BinOp::NotIn => Opcode::NotIn,
+            _ => return None,
+        })
+    }
+
+    pub fn try_from_cmp_op(cmp_op: &CompareOp) -> Option<Opcode> {
+        Some(match cmp_op {
+            CompareOp::Equals => Opcode::Eq,
+            CompareOp::LessThan => Opcode::LessThan,
+            CompareOp::LessThanOrEqual => Opcode::LessThanOrEq,
+            CompareOp::GreaterThan => Opcode::GreaterThan,
+            CompareOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
+            CompareOp::In => Opcode::In,
+            CompareOp::NotIn => Opcode::NotIn,
             _ => return None,
         })
     }

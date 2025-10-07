@@ -1,6 +1,6 @@
 use crate::{
     domain::Dunder,
-    parser::types::{BinOp, LogicalOp, UnaryOp},
+    parser::types::{BinOp, CompareOp, LogicalOp, UnaryOp},
     treewalk::{utils::args, TreewalkInterpreter, TreewalkResult, TreewalkValue},
 };
 
@@ -26,13 +26,6 @@ impl TreewalkInterpreter {
         use BinOp::*;
 
         match op {
-            In => self.invoke_method(&left, &Dunder::Contains, args![right]),
-            NotIn => {
-                let contains = self.invoke_method(&left, &Dunder::Contains, args![right])?;
-                Ok(contains.not())
-            }
-            Equals => self.invoke_method(&left, &Dunder::Eq, args![right]),
-            NotEquals => self.invoke_method(&left, &Dunder::Ne, args![right]),
             Add => self.invoke_method(&left, &Dunder::Add, args![right]),
             Sub => self.invoke_method(&left, &Dunder::Sub, args![right]),
             Mul => self.invoke_method(&left, &Dunder::Mul, args![right]),
@@ -45,13 +38,32 @@ impl TreewalkInterpreter {
             LeftShift => self.invoke_method(&left, &Dunder::Lshift, args![right]),
             RightShift => self.invoke_method(&left, &Dunder::Rshift, args![right]),
             Expo => self.invoke_method(&left, &Dunder::Pow, args![right]),
+            MatMul => todo!(),
+        }
+    }
+
+    pub fn evaluate_compare_op(
+        &self,
+        left: TreewalkValue,
+        op: &CompareOp,
+        right: TreewalkValue,
+    ) -> TreewalkResult<TreewalkValue> {
+        use CompareOp::*;
+
+        match op {
+            In => self.invoke_method(&left, &Dunder::Contains, args![right]),
+            NotIn => {
+                let contains = self.invoke_method(&left, &Dunder::Contains, args![right])?;
+                Ok(contains.not())
+            }
+            Equals => self.invoke_method(&left, &Dunder::Eq, args![right]),
+            NotEquals => self.invoke_method(&left, &Dunder::Ne, args![right]),
             LessThan => self.invoke_method(&left, &Dunder::Lt, args![right]),
             GreaterThan => self.invoke_method(&left, &Dunder::Gt, args![right]),
             LessThanOrEqual => self.invoke_method(&left, &Dunder::Le, args![right]),
             GreaterThanOrEqual => self.invoke_method(&left, &Dunder::Ge, args![right]),
             Is => Ok(TreewalkValue::Bool(left.is(&right))),
             IsNot => Ok(TreewalkValue::Bool(!left.is(&right))),
-            MatMul => todo!(),
         }
     }
 
