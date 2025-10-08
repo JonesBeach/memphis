@@ -473,32 +473,24 @@ mod tests_vm_interpreter {
         // let input = "1 == 2 != 3";
         // assert_eval_eq!(input, bool!(false));
 
-        // // Chained in — both true
-        // let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // // Chained in — second fails
-        // let input = "2 in [1,2,3] in [[2,3,4],[4,5,6]]";
-        // assert_eval_eq!(input, bool!(false));
-        //
-        // // Chained not in — both true
-        // let input = "4 not in [1,2,3] not in [[1,2,3],[4,5,6]]";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // // Mixed in / not in — second fails
-        // let input = "2 in [1,2,3] not in [[1,2,3],[4,5,6]]";
-        // assert_eval_eq!(input, bool!(false));
-        //
-        // // Mixed not in / in — both true
-        // let input = "4 not in [1,2,3] in [[4,5,6],[7,8,9]]";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // // Nested lists with equality in between
-        // let input = "[1,2,3] in [[1,2,3],[4,5,6]] == True";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // let input = "[1,2,3] in [[4,5,6],[7,8,9]] == False";
-        // assert_eval_eq!(input, bool!(true));
+        // Chained in — both true
+        let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 in [1,2,3] in [[2,3,4],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Chained not in
+        let input = "4 not in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed in / not in
+        let input = "2 in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed not in / in
+        let input = "4 not in [1,2,3] in [[4,5,6],[7,8,9]]";
+        assert_eval_eq!(input, bool!(false));
     }
 
     #[test]
