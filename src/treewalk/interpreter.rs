@@ -1592,6 +1592,7 @@ d = type(str.maketrans)
 
     #[test]
     fn operator_chaining() {
+        // Equal chains
         let input = "2 == 2 == 2";
         assert_eval_eq!(input, bool!(true));
 
@@ -1599,6 +1600,102 @@ d = type(str.maketrans)
         assert_eval_eq!(input, bool!(false));
 
         let input = "2 == 2 == 3 == 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Increasing chain
+        let input = "1 < 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 < 2 < 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "1 < 3 < 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "1 < 2 < 3 < 4";
+        assert_eval_eq!(input, bool!(true));
+
+        // Mixed increasing / equality
+        let input = "1 < 2 == 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 < 2 == 3 < 4";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed with >= and <=
+        let input = "3 >= 2 > 1";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "3 >= 2 > 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 <= 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 <= 1 < 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed equality and less-than
+        let input = "2 == 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 == 3 < 4";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 < 3 == 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 < 3 == 4";
+        assert_eval_eq!(input, bool!(false));
+
+        // Descending chain
+        let input = "5 > 4 > 3 > 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "5 > 4 > 5";
+        assert_eval_eq!(input, bool!(false));
+
+        // With floats mixed in
+        let input = "1 < 2.0 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1.0 < 2 < 1.5";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2.0 == 2 < 3.0";
+        assert_eval_eq!(input, bool!(true));
+
+        // Not-equals chain
+        let input = "1 != 2 != 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 != 1 != 2";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mix of == and !=
+        let input = "1 == 1 != 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 == 2 != 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Chained in — both true
+        let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 in [1,2,3] in [[2,3,4],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Chained not in
+        let input = "4 not in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed in / not in
+        let input = "2 in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed not in / in
+        let input = "4 not in [1,2,3] in [[4,5,6],[7,8,9]]";
         assert_eval_eq!(input, bool!(false));
     }
 
