@@ -15,7 +15,7 @@ use crate::{
         },
         VirtualMachine, VmResult,
     },
-    core::{Container, Voidable},
+    core::{floats_equal, Container, Voidable},
     domain::{MemphisValue, Type},
 };
 
@@ -60,7 +60,9 @@ impl PartialEq for VmValue {
         match (self, other) {
             (VmValue::None, VmValue::None) => true,
             (VmValue::Int(a), VmValue::Int(b)) => a == b,
-            (VmValue::Float(a), VmValue::Float(b)) => (a - b).abs() < 1e-9,
+            (VmValue::Float(a), VmValue::Float(b)) => floats_equal(*a, *b),
+            (VmValue::Int(a), VmValue::Float(b)) => floats_equal(*a as f64, *b),
+            (VmValue::Float(a), VmValue::Int(b)) => floats_equal(*a, *b as f64),
             (VmValue::String(a), VmValue::String(b)) => a == b,
             (VmValue::Bool(a), VmValue::Bool(b)) => a == b,
             (VmValue::List(a), VmValue::List(b)) => a == b,
@@ -115,7 +117,10 @@ impl Display for VmValue {
             VmValue::None => write!(f, "None"),
             VmValue::Int(i) => write!(f, "{i}"),
             VmValue::String(i) => write!(f, "{i}"),
-            VmValue::Bool(i) => write!(f, "{i}"),
+            VmValue::Bool(b) => match b {
+                true => write!(f, "True"),
+                false => write!(f, "False"),
+            },
             VmValue::Range(i) => write!(f, "{i}"),
             VmValue::RangeIter(_) => write!(f, "<rangeiter>"),
             VmValue::Code(i) => write!(f, "{i}"),

@@ -239,6 +239,12 @@ mod tests_vm_interpreter {
         let text = "4 == 4.1";
         assert_eval_eq!(text, bool!(false));
 
+        let text = "4 == 4.0";
+        assert_eval_eq!(text, bool!(true));
+
+        let text = "4.0 == 4";
+        assert_eval_eq!(text, bool!(true));
+
         let text = r#""a" == "a""#;
         assert_eval_eq!(text, bool!(true));
 

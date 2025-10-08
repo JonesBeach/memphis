@@ -1538,6 +1538,12 @@ d = type(str.maketrans)
         let input = "2 == 2";
         assert_eval_eq!(input, bool!(true));
 
+        let input = "2 == 2.0";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2.0 == 2";
+        assert_eval_eq!(input, bool!(true));
+
         let input = "2 != 1";
         assert_eval_eq!(input, bool!(true));
 

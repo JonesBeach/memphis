@@ -8,7 +8,7 @@ use std::{
 #[cfg(feature = "c_stdlib")]
 use crate::treewalk::types::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
-    core::{Container, Voidable},
+    core::{floats_equal, Container, Voidable},
     domain::{Dunder, ExecutionError, MemphisValue, Type},
     treewalk::{
         protocols::MemberRead,
@@ -104,7 +104,9 @@ impl PartialEq for TreewalkValue {
         match (self, other) {
             (TreewalkValue::None, TreewalkValue::None) => true,
             (TreewalkValue::Int(a), TreewalkValue::Int(b)) => a == b,
-            (TreewalkValue::Float(a), TreewalkValue::Float(b)) => (a - b).abs() < 1e-9,
+            (TreewalkValue::Float(a), TreewalkValue::Float(b)) => floats_equal(*a, *b),
+            (TreewalkValue::Int(a), TreewalkValue::Float(b)) => floats_equal(*a as f64, *b),
+            (TreewalkValue::Float(a), TreewalkValue::Int(b)) => floats_equal(*a, *b as f64),
             (TreewalkValue::Str(a), TreewalkValue::Str(b)) => a == b,
             (TreewalkValue::Bytes(a), TreewalkValue::Bytes(b)) => a == b,
             (TreewalkValue::ByteArray(a), TreewalkValue::ByteArray(b)) => a == b,
