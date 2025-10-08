@@ -456,9 +456,9 @@ mod tests_vm_interpreter {
         let input = "1.0 < 2 < 1.5";
         assert_eval_eq!(input, bool!(false));
 
-        // let input = "2.0 == 2 < 3.0";
-        // assert_eval_eq!(input, bool!(true));
-        //
+        let input = "2.0 == 2 < 3.0";
+        assert_eval_eq!(input, bool!(true));
+
         // // Not-equals chain
         // let input = "1 != 2 != 3";
         // assert_eval_eq!(input, bool!(true));
@@ -476,7 +476,6 @@ mod tests_vm_interpreter {
         // // Chained in — both true
         // let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
         // assert_eval_eq!(input, bool!(true));
-        // // 2 in [1,2,3] → true, and [1,2,3] in ... → true
         //
         // // Chained in — second fails
         // let input = "2 in [1,2,3] in [[2,3,4],[4,5,6]]";
@@ -485,7 +484,6 @@ mod tests_vm_interpreter {
         // // Chained not in — both true
         // let input = "4 not in [1,2,3] not in [[1,2,3],[4,5,6]]";
         // assert_eval_eq!(input, bool!(true));
-        // // 4 not in [1,2,3] → true, and [1,2,3] not in ... → true
         //
         // // Mixed in / not in — second fails
         // let input = "2 in [1,2,3] not in [[1,2,3],[4,5,6]]";
