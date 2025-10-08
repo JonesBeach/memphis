@@ -933,6 +933,17 @@ mod tests_bytecode {
             ]
         );
 
+        let expr = cmp_op!(int!(4), NotEquals, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Ne,
+            ]
+        );
+
         let expr = cmp_op!(int!(4), LessThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(

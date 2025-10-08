@@ -625,6 +625,11 @@ impl VirtualMachine {
                 let left = self.pop_value()?;
                 self.push(self.to_heapified_bool(left == right))?;
             }
+            Opcode::Ne => {
+                let right = self.pop_value()?;
+                let left = self.pop_value()?;
+                self.push(self.to_heapified_bool(left != right))?;
+            }
             Opcode::LessThan => {
                 self.cmp_op(|a, b| a < b).map_err(|_| {
                     self.error_builder

@@ -26,7 +26,12 @@ pub enum Opcode {
     /// Pop the top two values off the stack, perform dynamic type conversion,
     /// and push their quotient back onto the stack. This is NOT integer division.
     Div,
+    /// Pop the top two values off the stack, compare their semantic equality, and push the
+    /// result onto the stack.
     Eq,
+    /// Pop the top two values off the stack, compare their semantic equality, invert the result,
+    /// and it onto the stack.
+    Ne,
     /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is less than the second value.
     LessThan,
@@ -162,6 +167,7 @@ impl Opcode {
     pub fn try_from_cmp_op(cmp_op: &CompareOp) -> Option<Opcode> {
         Some(match cmp_op {
             CompareOp::Equals => Opcode::Eq,
+            CompareOp::NotEquals => Opcode::Ne,
             CompareOp::LessThan => Opcode::LessThan,
             CompareOp::LessThanOrEqual => Opcode::LessThanOrEq,
             CompareOp::GreaterThan => Opcode::GreaterThan,
@@ -181,6 +187,7 @@ impl Display for Opcode {
             Opcode::Mul => write!(f, "MUL"),
             Opcode::Div => write!(f, "DIV"),
             Opcode::Eq => write!(f, "EQ"),
+            Opcode::Ne => write!(f, "NE"),
             Opcode::LessThan => write!(f, "LESS_THAN"),
             Opcode::LessThanOrEq => write!(f, "LESS_THAN_OR_EQ"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
