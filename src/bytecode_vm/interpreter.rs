@@ -486,19 +486,19 @@ mod tests_vm_interpreter {
         let input = "2.0 == 2 < 3.0";
         assert_eval_eq!(input, bool!(true));
 
-        // // Not-equals chain
-        // let input = "1 != 2 != 3";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // let input = "1 != 1 != 2";
-        // assert_eval_eq!(input, bool!(false));
-        //
-        // // Mix of == and !=
-        // let input = "1 == 1 != 2";
-        // assert_eval_eq!(input, bool!(true));
-        //
-        // let input = "1 == 2 != 3";
-        // assert_eval_eq!(input, bool!(false));
+        // Not-equals chain
+        let input = "1 != 2 != 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 != 1 != 2";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mix of == and !=
+        let input = "1 == 1 != 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 == 2 != 3";
+        assert_eval_eq!(input, bool!(false));
 
         // Chained in — both true
         let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
