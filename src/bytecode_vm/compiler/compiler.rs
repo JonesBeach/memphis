@@ -640,9 +640,7 @@ impl Compiler {
             1 => {
                 let (op, right) = ops[0].clone();
                 self.compile_expr(&right)?;
-                let cmp_opcode = Opcode::try_from_cmp_op(&op)
-                    .ok_or_else(|| unsupported(&format!("compare op: {op:?}")))?;
-                self.emit(cmp_opcode)?;
+                self.emit(Opcode::from(&op))?;
             }
             0 => unreachable!(),
             _ => {
@@ -656,9 +654,7 @@ impl Compiler {
                         self.emit(Opcode::RotThree)?;
                     }
 
-                    let cmp_opcode = Opcode::try_from_cmp_op(op)
-                        .ok_or_else(|| unsupported(&format!("compare op: {op:?}")))?;
-                    self.emit(cmp_opcode)?;
+                    self.emit(Opcode::from(op))?;
 
                     fail_jumps.push(self.emit_placeholder()?);
 
@@ -941,6 +937,28 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::Ne,
+            ]
+        );
+
+        let expr = cmp_op!(int!(4), Is, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Is,
+            ]
+        );
+
+        let expr = cmp_op!(int!(4), IsNot, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::IsNot,
             ]
         );
 

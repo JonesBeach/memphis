@@ -226,6 +226,18 @@ mod tests_vm_interpreter {
     }
 
     #[test]
+    fn comparison_is() {
+        let text = "4 is None";
+        assert_eval_eq!(text, bool!(false));
+    }
+
+    #[test]
+    fn comparison_is_not() {
+        let text = "4 is not None";
+        assert_eval_eq!(text, bool!(true));
+    }
+
+    #[test]
     fn comparison_eq() {
         let text = "4 == 5";
         assert_eval_eq!(text, bool!(false));

@@ -630,6 +630,18 @@ impl VirtualMachine {
                 let left = self.pop_value()?;
                 self.push(self.to_heapified_bool(left != right))?;
             }
+            Opcode::Is => {
+                // For referential identity, we compare the Reference objects directly.
+                let right = self.pop()?;
+                let left = self.pop()?;
+                self.push(self.to_heapified_bool(left == right))?;
+            }
+            Opcode::IsNot => {
+                // For referential identity, we compare the Reference objects directly.
+                let right = self.pop()?;
+                let left = self.pop()?;
+                self.push(self.to_heapified_bool(left != right))?;
+            }
             Opcode::LessThan => {
                 self.cmp_op(|a, b| a < b).map_err(|_| {
                     self.error_builder
