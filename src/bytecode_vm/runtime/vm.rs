@@ -790,12 +790,21 @@ impl VirtualMachine {
                 self.push(x)?;
             }
             Opcode::RotThree => {
+                // Before:
+                // c <- TOS
+                // b
+                // a
+                //
+                // After:
+                // b <- TOS
+                // a
+                // c
                 let c = self.pop()?;
                 let b = self.pop()?;
                 let a = self.pop()?;
-                self.push(b)?;
                 self.push(c)?;
                 self.push(a)?;
+                self.push(b)?;
             }
             Opcode::MakeFunction => {
                 let code_value = self.pop_value()?;
