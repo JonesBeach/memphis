@@ -621,67 +621,51 @@ impl Compiler {
     /// evaluate left
     /// for each (op, right):
     ///     evaluate right
-    ///     compare
-    ///     if false: goto fail
-    ///     pop_true
-    /// push true
-    /// goto end
-    /// fail:
-    /// push false
+    ///     compare op
+    ///     if false: goto end
+    ///     if not last iteration: pop true
+    ///     else: leave it
     /// end:
     fn compile_comparison_chain(
         &mut self,
         left: &Expr,
         ops: &[(CompareOp, Expr)],
     ) -> CompilerResult<()> {
+        if ops.is_empty() {
+            panic!("Comparison chain must have >= 1 op.");
+        }
+
         self.compile_expr(left)?;
 
-        match ops.len() {
-            0 => unreachable!("Comparison chain must have >= 1 op."),
-            1 => {
-                let (op, right) = ops[0].clone();
-                self.compile_expr(&right)?;
-                self.emit(Opcode::from(&op))?;
+        let mut false_jumps = vec![];
+        for (i, (op, right)) in ops.iter().enumerate() {
+            let last_op = i == ops.len() - 1;
+
+            self.compile_expr(right)?;
+
+            // Preserve the right-hand side for the next comparison
+            if !last_op {
+                self.emit(Opcode::DupTop)?;
+                self.emit(Opcode::RotThree)?;
             }
-            _ => {
-                let mut fail_jumps = vec![];
-                for (i, (op, right)) in ops.iter().enumerate() {
-                    let last_op = i == ops.len() - 1;
 
-                    self.compile_expr(right)?;
+            self.emit(Opcode::from(op))?;
 
-                    // preserve the right-hand side for the next comparison
-                    if !last_op {
-                        self.emit(Opcode::DupTop)?;
-                        self.emit(Opcode::RotThree)?;
-                    }
+            // If any comparison evaluates to False, jump to end.
+            // Otherwise, pop the True and continue the chain.
+            // Unless it's the last operation, and we should leave the result on the stack.
+            if !last_op {
+                // At the end of the loop, we will patch this with a JumpIfFalse
+                false_jumps.push(self.emit_placeholder()?);
 
-                    self.emit(Opcode::from(op))?;
-
-                    fail_jumps.push(self.emit_placeholder()?);
-
-                    // only pop in between comparisons
-                    if !last_op {
-                        self.emit(Opcode::PopTop)?;
-                    }
-                }
-
-                self.compile_bool(true)?;
-                let goto_end_ph = self.emit_placeholder()?;
-
-                // Patch all fail jumps to here
-                for ph in fail_jumps {
-                    let offset = self.forward_offset_to(ph)?;
-                    self.emit_at(ph, Opcode::JumpIfFalse(offset))?;
-                }
-
-                // label fail:
-                self.compile_bool(false)?;
-
-                // label end:
-                let offset = self.forward_offset_to(goto_end_ph)?;
-                self.emit_at(goto_end_ph, Opcode::Jump(offset))?;
+                self.emit(Opcode::PopTop)?;
             }
+        }
+
+        // Patch all fail jumps to here
+        for placeholder in false_jumps {
+            let offset = self.forward_offset_to(placeholder)?;
+            self.emit_at(placeholder, Opcode::JumpIfFalse(offset))?;
         }
 
         Ok(())
@@ -1034,14 +1018,10 @@ mod tests_bytecode {
                 Opcode::DupTop,
                 Opcode::RotThree,
                 Opcode::Eq,
-                Opcode::JumpIfFalse(6),
+                Opcode::JumpIfFalse(3),
                 Opcode::PopTop,
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::Eq,
-                Opcode::JumpIfFalse(2),
-                Opcode::LoadConst(Index::new(2)), // true
-                Opcode::Jump(1),
-                Opcode::LoadConst(Index::new(3)) // false
             ]
         );
     }

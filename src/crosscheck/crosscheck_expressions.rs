@@ -38,6 +38,9 @@ fn operator_chaining() {
     let input = "2 == 2 == 3 == 3";
     assert_crosscheck_return!(input, MemphisValue::Boolean(false));
 
+    let input = "2 == 2 == 2 < 3";
+    assert_crosscheck_return!(input, MemphisValue::Boolean(true));
+
     // Increasing chain
     let input = "1 < 2 < 3";
     assert_crosscheck_return!(input, MemphisValue::Boolean(true));
