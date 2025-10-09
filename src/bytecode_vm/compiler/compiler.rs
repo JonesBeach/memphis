@@ -637,19 +637,21 @@ impl Compiler {
         self.compile_expr(left)?;
 
         match ops.len() {
+            0 => unreachable!("Comparison chain must have >= 1 op."),
             1 => {
                 let (op, right) = ops[0].clone();
                 self.compile_expr(&right)?;
                 self.emit(Opcode::from(&op))?;
             }
-            0 => unreachable!(),
             _ => {
                 let mut fail_jumps = vec![];
                 for (i, (op, right)) in ops.iter().enumerate() {
+                    let last_op = i == ops.len() - 1;
+
                     self.compile_expr(right)?;
 
                     // preserve the right-hand side for the next comparison
-                    if i != ops.len() - 1 {
+                    if !last_op {
                         self.emit(Opcode::DupTop)?;
                         self.emit(Opcode::RotThree)?;
                     }
@@ -659,7 +661,7 @@ impl Compiler {
                     fail_jumps.push(self.emit_placeholder()?);
 
                     // only pop in between comparisons
-                    if i != ops.len() - 1 {
+                    if !last_op {
                         self.emit(Opcode::PopTop)?;
                     }
                 }
