@@ -38,4 +38,80 @@ impl ImportPath {
             ImportPath::Relative(_, path) => path,
         }
     }
+
+    pub fn from(path_str: &str) -> Self {
+        // Count leading dots (if any)
+        let mut dot_count = 0;
+        for c in path_str.chars() {
+            if c == '.' {
+                dot_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Split remaining text by '.'
+        let rest = &path_str[dot_count..];
+        let segments: Vec<String> = if rest.is_empty() {
+            Vec::new()
+        } else {
+            rest.split('.').map(|s| s.to_string()).collect()
+        };
+
+        if dot_count == 0 {
+            ImportPath::Absolute(segments)
+        } else {
+            ImportPath::Relative(dot_count, segments)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_absolute_single() {
+        let path = ImportPath::from("os");
+        assert_eq!(path, ImportPath::Absolute(vec!["os".to_string()]));
+    }
+
+    #[test]
+    fn parses_absolute_nested() {
+        let path = ImportPath::from("package.module");
+        assert_eq!(
+            path,
+            ImportPath::Absolute(vec!["package".into(), "module".into()])
+        );
+    }
+
+    #[test]
+    fn parses_relative_same_dir() {
+        let path = ImportPath::from(".package.module");
+        assert_eq!(
+            path,
+            ImportPath::Relative(1, vec!["package".into(), "module".into()])
+        );
+    }
+
+    #[test]
+    fn parses_relative_parent_dir() {
+        let path = ImportPath::from("..package.module");
+        assert_eq!(
+            path,
+            ImportPath::Relative(2, vec!["package".into(), "module".into()])
+        );
+    }
+
+    #[test]
+    fn parses_relative_only_dots() {
+        let path = ImportPath::from("..");
+        assert_eq!(path, ImportPath::Relative(2, vec![]));
+    }
+
+    #[test]
+    fn parses_empty_path_as_absolute_empty() {
+        let path = ImportPath::from("");
+        assert_eq!(path, ImportPath::Absolute(vec![]));
+    }
 }
