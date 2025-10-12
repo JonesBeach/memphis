@@ -50,7 +50,7 @@ impl Class {
 
         let args = args![
             TreewalkValue::Class(metaclass.clone()),
-            TreewalkValue::Str(Str::new(name.into())),
+            TreewalkValue::Str(Str::new(name)),
             bases,
             TreewalkValue::Dict(Scope::default().as_dict(interpreter))
         ];

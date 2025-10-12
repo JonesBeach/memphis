@@ -212,10 +212,7 @@ impl MemberWrite for Container<Object> {
             .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
             .expect_dict(interpreter)?
             .borrow()
-            .has(
-                interpreter.clone(),
-                &TreewalkValue::Str(Str::new(name.to_owned())),
-            )
+            .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
             return Err(interpreter.attribute_error(&result, name));
         }

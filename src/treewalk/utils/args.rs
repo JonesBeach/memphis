@@ -5,7 +5,7 @@ use crate::{
     treewalk::{
         protocols::TryEvalFrom,
         types::{Dict, Str, Tuple},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -16,7 +16,7 @@ use crate::{
 pub struct Args {
     bound_val: Option<TreewalkValue>,
     args: Vec<TreewalkValue>,
-    kwargs: HashMap<TreewalkValue, TreewalkValue>,
+    kwargs: SymbolTable,
 }
 
 impl Args {
@@ -39,19 +39,17 @@ impl Args {
         for kwarg in call_args.kwargs.iter() {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
-                    kwargs.insert(
-                        TreewalkValue::Str(Str::new(key.to_string())),
-                        interpreter.evaluate_expr(value)?,
-                    );
+                    kwargs.insert(key.to_string(), interpreter.evaluate_expr(value)?);
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
                     for key in unpacked.expect_iterable(interpreter)? {
-                        if kwargs.contains_key(&key) {
-                            return Err(interpreter.key_error(key.to_string()));
+                        let key_str = key.expect_string(interpreter)?;
+                        if kwargs.contains_key(&key_str) {
+                            return Err(interpreter.key_error(key_str.to_string()));
                         }
                         let value = interpreter.read_index(&unpacked, &key)?;
-                        kwargs.insert(key, value);
+                        kwargs.insert(key_str, value);
                     }
                 }
             }
@@ -61,7 +59,7 @@ impl Args {
     }
 
     #[allow(clippy::mutable_key_type)]
-    pub fn new(args: Vec<TreewalkValue>, kwargs: HashMap<TreewalkValue, TreewalkValue>) -> Self {
+    pub fn new(args: Vec<TreewalkValue>, kwargs: HashMap<String, TreewalkValue>) -> Self {
         Self {
             bound_val: None,
             args,
@@ -121,11 +119,16 @@ impl Args {
     }
 
     pub fn get_kwargs(&self, interpreter: &TreewalkInterpreter) -> Dict {
-        Dict::new(interpreter, self.kwargs.clone())
+        #[allow(clippy::mutable_key_type)]
+        let mut uptyped_kwargs = HashMap::new();
+        for (key, value) in &self.kwargs {
+            uptyped_kwargs.insert(TreewalkValue::Str(Str::new(key)), value.clone());
+        }
+        Dict::new(interpreter, uptyped_kwargs)
     }
 
     /// Access a keyword argument by key.
-    pub fn get_kwarg(&self, key: &TreewalkValue) -> Option<TreewalkValue> {
+    pub fn get_kwarg(&self, key: &str) -> Option<TreewalkValue> {
         self.kwargs.get(key).cloned()
     }
 

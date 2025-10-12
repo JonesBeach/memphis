@@ -71,7 +71,7 @@ pub fn import_from_cpython(
             .into_index_read(interpreter)
             .expect("Failed to read sys.modules")
             .expect("Failed to read sys.modules")
-            .getitem(interpreter, TreewalkValue::Str(Str::new(import_str)))
+            .getitem(interpreter, TreewalkValue::Str(Str::from(import_str)))
             .expect("Failed to find this import path");
         if let Some(module) = module_result {
             return Some(module);
@@ -426,7 +426,7 @@ pub mod utils {
         } else if let Ok(value) = py_obj.extract::<f64>() {
             TreewalkValue::Float(value)
         } else if let Ok(value) = py_obj.extract::<&str>() {
-            TreewalkValue::Str(Str::new(value.to_string()))
+            TreewalkValue::Str(Str::new(value))
         } else if let Ok(py_tuple) = py_obj.extract::<Bound<PyTuple>>() {
             let elements = py_tuple
                 .iter()

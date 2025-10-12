@@ -524,7 +524,7 @@ impl TreewalkInterpreter {
             }
         }
 
-        Ok(TreewalkValue::Str(Str::new(result)))
+        Ok(TreewalkValue::Str(Str::from(result)))
     }
 
     fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
@@ -1165,7 +1165,7 @@ impl TreewalkInterpreter {
             Expr::Integer(value) => Ok(TreewalkValue::Int(*value)),
             Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
-            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
+            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value))),
             Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),

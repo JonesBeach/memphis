@@ -53,7 +53,7 @@ impl Callable for DirBuiltin {
             .into_member_reader(interpreter)
             .dir()
             .iter()
-            .map(|i| TreewalkValue::Str(Str::new(i.to_string())))
+            .map(|i| TreewalkValue::Str(Str::new(i)))
             .collect::<Vec<_>>();
         Ok(TreewalkValue::List(Container::new(List::new(dir))))
     }

@@ -385,7 +385,7 @@ impl NonDataDescriptor for ModuleAttribute {
                     .borrow()
                     .name()
                     .to_string();
-                TreewalkValue::Str(Str::new(name))
+                TreewalkValue::Str(Str::from(name))
             }
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
@@ -405,7 +405,7 @@ impl NonDataDescriptor for DocAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             // TODO store doc strings
-            Some(_) => TreewalkValue::Str(Str::new("".into())),
+            Some(_) => TreewalkValue::Str(Str::new("")),
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
     }
@@ -425,7 +425,7 @@ impl NonDataDescriptor for NameAttribute {
         Ok(match instance {
             Some(instance) => {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
-                TreewalkValue::Str(Str::new(name))
+                TreewalkValue::Str(Str::from(name))
             }
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })
@@ -446,7 +446,7 @@ impl NonDataDescriptor for QualnameAttribute {
         Ok(match instance {
             Some(instance) => {
                 let name = instance.expect_function(interpreter)?.borrow().name.clone();
-                TreewalkValue::Str(Str::new(name))
+                TreewalkValue::Str(Str::from(name))
             }
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
         })

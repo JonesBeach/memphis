@@ -77,10 +77,7 @@ impl Module {
 
     pub fn new(source: Source) -> Self {
         let mut scope = Scope::default();
-        scope.insert(
-            &Dunder::Name,
-            TreewalkValue::Str(Str::new(source.name().to_string())),
-        );
+        scope.insert(&Dunder::Name, TreewalkValue::Str(Str::new(source.name())));
         Self { source, scope }
     }
 

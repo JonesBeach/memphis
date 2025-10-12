@@ -31,8 +31,8 @@ impl_method_provider!(
 impl_iterable!(StrIter);
 
 impl Str {
-    pub fn new(str: String) -> Self {
-        Self(str)
+    pub fn new(str: &str) -> Self {
+        Self(str.to_string())
     }
 
     pub fn slice(&self, slice: &Slice) -> Self {
@@ -43,7 +43,13 @@ impl Str {
         })
         .join("");
 
-        Str::new(sliced_string)
+        Str::from(sliced_string)
+    }
+}
+
+impl From<String> for Str {
+    fn from(s: String) -> Self {
+        Str(s)
     }
 }
 
@@ -73,7 +79,7 @@ impl IndexRead for Str {
                 .chars()
                 .nth(i as usize)
                 .map(|c| c.to_string())
-                .map(Str::new)
+                .map(Str::from)
                 .map(TreewalkValue::Str),
             TreewalkValue::Slice(s) => Some(TreewalkValue::Str(self.slice(&s))),
             _ => None,
@@ -100,7 +106,7 @@ impl Callable for AddBuiltin {
         let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
         let b = args.get_arg(0).expect_string(interpreter)?;
 
-        Ok(TreewalkValue::Str(Str::new(a + &b)))
+        Ok(TreewalkValue::Str(Str::from(a + &b)))
     }
 
     fn name(&self) -> String {
@@ -115,7 +121,7 @@ impl Callable for MulBuiltin {
         let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
         let n = args.get_arg(0).expect_integer(interpreter)?;
 
-        Ok(TreewalkValue::Str(Str::new(a.repeat(n as usize))))
+        Ok(TreewalkValue::Str(Str::from(a.repeat(n as usize))))
     }
 
     fn name(&self) -> String {
@@ -197,6 +203,6 @@ impl Iterator for StrIter {
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.string[self.position..].chars().next()?;
         self.position += result.len_utf8();
-        Some(TreewalkValue::Str(Str::new(result.to_string())))
+        Some(TreewalkValue::Str(Str::from(result.to_string())))
     }
 }
