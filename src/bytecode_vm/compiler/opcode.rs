@@ -5,7 +5,7 @@ use crate::{
         compiler::CodeObject,
         indices::{ConstantIndex, FreeIndex, LocalIndex, NonlocalIndex},
     },
-    parser::types::BinOp,
+    parser::types::{BinOp, CompareOp},
 };
 
 pub type Bytecode = Vec<Opcode>;
@@ -26,7 +26,12 @@ pub enum Opcode {
     /// Pop the top two values off the stack, perform dynamic type conversion,
     /// and push their quotient back onto the stack. This is NOT integer division.
     Div,
+    /// Pop the top two values off the stack, compare their semantic equality, and push the
+    /// result onto the stack.
     Eq,
+    /// Pop the top two values off the stack, compare their semantic equality, invert the result,
+    /// and push it onto the stack.
+    Ne,
     /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is less than the second value.
     LessThan,
@@ -45,6 +50,12 @@ pub enum Opcode {
     /// Compare two values on the stack and push a boolean result back onto the stack based on
     /// whether the first value is _not_ in the second value, as an iterable.
     NotIn,
+    /// Pop the top two values off the stack, compare their referential equality, and push the
+    /// result onto the stack.
+    Is,
+    /// Pop the top two values off the stack, compare their referential equality, invert the
+    /// result, and push it onto the stack.
+    IsNot,
     /// Implements STACK[-1] = -STACK[-1].
     UnaryNegative,
     /// Implements STACK[-1] = not STACK[-1].
@@ -97,6 +108,20 @@ pub enum Opcode {
     JumpIfTrue(SignedOffset),
     /// Discard the top value on the stack.
     PopTop,
+    /// Duplicate the top value on the stack.
+    DupTop,
+    /// Rotate the top 3 values on the stack down one.
+    ///
+    /// Before:
+    /// c <- TOS
+    /// b
+    /// a
+    ///
+    /// After:
+    /// b <- TOS
+    /// a
+    /// c
+    RotThree,
     /// Create a function object from a code object, encapsulating the information needed to call
     /// the function later.
     MakeFunction,
@@ -141,15 +166,25 @@ impl Opcode {
             BinOp::Sub => Opcode::Sub,
             BinOp::Mul => Opcode::Mul,
             BinOp::Div => Opcode::Div,
-            BinOp::Equals => Opcode::Eq,
-            BinOp::LessThan => Opcode::LessThan,
-            BinOp::LessThanOrEqual => Opcode::LessThanOrEq,
-            BinOp::GreaterThan => Opcode::GreaterThan,
-            BinOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
-            BinOp::In => Opcode::In,
-            BinOp::NotIn => Opcode::NotIn,
             _ => return None,
         })
+    }
+}
+
+impl From<&CompareOp> for Opcode {
+    fn from(value: &CompareOp) -> Self {
+        match value {
+            CompareOp::Equals => Opcode::Eq,
+            CompareOp::NotEquals => Opcode::Ne,
+            CompareOp::LessThan => Opcode::LessThan,
+            CompareOp::LessThanOrEqual => Opcode::LessThanOrEq,
+            CompareOp::GreaterThan => Opcode::GreaterThan,
+            CompareOp::GreaterThanOrEqual => Opcode::GreaterThanOrEq,
+            CompareOp::In => Opcode::In,
+            CompareOp::NotIn => Opcode::NotIn,
+            CompareOp::Is => Opcode::Is,
+            CompareOp::IsNot => Opcode::IsNot,
+        }
     }
 }
 
@@ -161,12 +196,15 @@ impl Display for Opcode {
             Opcode::Mul => write!(f, "MUL"),
             Opcode::Div => write!(f, "DIV"),
             Opcode::Eq => write!(f, "EQ"),
+            Opcode::Ne => write!(f, "NE"),
             Opcode::LessThan => write!(f, "LESS_THAN"),
             Opcode::LessThanOrEq => write!(f, "LESS_THAN_OR_EQ"),
             Opcode::GreaterThan => write!(f, "GREATER_THAN"),
             Opcode::GreaterThanOrEq => write!(f, "GREATER_THAN_OR_EQ"),
             Opcode::In => write!(f, "IN"),
             Opcode::NotIn => write!(f, "NOT_IN"),
+            Opcode::Is => write!(f, "IS"),
+            Opcode::IsNot => write!(f, "IS_NOT"),
             Opcode::UnaryNegative => write!(f, "UNARY_NEGATIVE"),
             Opcode::UnaryNot => write!(f, "UNARY_NOT"),
             Opcode::UnaryInvert => write!(f, "UNARY_INVERT"),
@@ -188,6 +226,8 @@ impl Display for Opcode {
             Opcode::JumpIfFalse(i) => write!(f, "JUMP_IF_FALSE {i}"),
             Opcode::JumpIfTrue(i) => write!(f, "JUMP_IF_TRUE {i}"),
             Opcode::PopTop => write!(f, "POP_TOP"),
+            Opcode::DupTop => write!(f, "DUP_TOP"),
+            Opcode::RotThree => write!(f, "ROT_THREE"),
             Opcode::MakeFunction => write!(f, "MAKE_FUNCTION"),
             Opcode::MakeClosure(i) => write!(f, "MAKE_CLOSURE {i}"),
             Opcode::Call(i) => write!(f, "CALL {i}"),

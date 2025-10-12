@@ -8,8 +8,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, FunctionType, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, ConditionalAst, DictOperation, Expr, ImportPath, LogicalOp,
-        LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, ImportPath,
+        LogicalOp, LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -169,6 +169,7 @@ impl Compiler {
             Expr::Dict(dict_op) => self.compile_dict(dict_op),
             Expr::UnaryOperation { op, right } => self.compile_unary_op(op, right),
             Expr::BinaryOperation { left, op, right } => self.compile_binary_op(left, op, right),
+            Expr::ComparisonChain { left, ops } => self.compile_comparison_chain(left, ops),
             Expr::LogicalOperation { left, op, right } => self.compile_logical_op(left, op, right),
             Expr::MemberAccess { object, field } => self.compile_member_access(object, field),
             Expr::FunctionCall { callee, args } => self.compile_function_call(callee, args),
@@ -616,6 +617,60 @@ impl Compiler {
         Ok(())
     }
 
+    /// Pseudocode for an operator chain:
+    /// evaluate left
+    /// for each (op, right):
+    ///     evaluate right
+    ///     compare op
+    ///     if false: goto end
+    ///     if not last iteration: pop true
+    ///     else: leave it
+    /// end:
+    fn compile_comparison_chain(
+        &mut self,
+        left: &Expr,
+        ops: &[(CompareOp, Expr)],
+    ) -> CompilerResult<()> {
+        if ops.is_empty() {
+            panic!("Comparison chain must have >= 1 op.");
+        }
+
+        self.compile_expr(left)?;
+
+        let mut false_jumps = vec![];
+        for (i, (op, right)) in ops.iter().enumerate() {
+            let last_op = i == ops.len() - 1;
+
+            self.compile_expr(right)?;
+
+            // Preserve the right-hand side for the next comparison
+            if !last_op {
+                self.emit(Opcode::DupTop)?;
+                self.emit(Opcode::RotThree)?;
+            }
+
+            self.emit(Opcode::from(op))?;
+
+            // If any comparison evaluates to False, jump to end.
+            // Otherwise, pop the True and continue the chain.
+            // Unless it's the last operation, and we should leave the result on the stack.
+            if !last_op {
+                // At the end of the loop, we will patch this with a JumpIfFalse
+                false_jumps.push(self.emit_placeholder()?);
+
+                self.emit(Opcode::PopTop)?;
+            }
+        }
+
+        // Patch all fail jumps to here
+        for placeholder in false_jumps {
+            let offset = self.forward_offset_to(placeholder)?;
+            self.emit_at(placeholder, Opcode::JumpIfFalse(offset))?;
+        }
+
+        Ok(())
+    }
+
     fn compile_logical_op(
         &mut self,
         left: &Expr,
@@ -849,7 +904,7 @@ mod tests_bytecode {
 
     #[test]
     fn binary_expressions_compare_op() {
-        let expr = bin_op!(int!(4), Equals, float!(5.1));
+        let expr = cmp_op!(int!(4), Equals, float!(5.1));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -860,7 +915,40 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), LessThan, int!(5));
+        let expr = cmp_op!(int!(4), NotEquals, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Ne,
+            ]
+        );
+
+        let expr = cmp_op!(int!(4), Is, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Is,
+            ]
+        );
+
+        let expr = cmp_op!(int!(4), IsNot, float!(5.1));
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::IsNot,
+            ]
+        );
+
+        let expr = cmp_op!(int!(4), LessThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -871,7 +959,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), GreaterThan, int!(5));
+        let expr = cmp_op!(int!(4), GreaterThan, int!(5));
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -882,7 +970,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), In, list![int!(5)]);
+        let expr = cmp_op!(int!(4), In, list![int!(5)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -894,7 +982,7 @@ mod tests_bytecode {
             ]
         );
 
-        let expr = bin_op!(int!(4), NotIn, list![int!(5)]);
+        let expr = cmp_op!(int!(4), NotIn, list![int!(5)]);
         let bytecode = compile_expr(expr);
         assert_eq!(
             bytecode,
@@ -903,6 +991,37 @@ mod tests_bytecode {
                 Opcode::LoadConst(Index::new(1)),
                 Opcode::BuildList(1),
                 Opcode::NotIn,
+            ]
+        );
+    }
+
+    #[test]
+    fn operator_chaining() {
+        let expr = cmp_chain!(int!(4), [(Equals, float!(5.1))]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::Eq,
+            ]
+        );
+
+        let expr = cmp_chain!(int!(4), [(Equals, float!(5.1)), (Equals, int!(4))]);
+        let bytecode = compile_expr(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::LoadConst(Index::new(1)),
+                Opcode::DupTop,
+                Opcode::RotThree,
+                Opcode::Eq,
+                Opcode::JumpIfFalse(3),
+                Opcode::PopTop,
+                Opcode::LoadConst(Index::new(0)),
+                Opcode::Eq,
             ]
         );
     }
@@ -1101,7 +1220,7 @@ mod tests_bytecode {
     #[test]
     fn while_loop() {
         let s = stmt!(StatementKind::WhileLoop(ConditionalAst {
-            condition: bin_op!(int!(4), LessThan, int!(5)),
+            condition: cmp_op!(int!(4), LessThan, int!(5)),
             ast: ast![],
         }));
         let bytecode = compile_stmt(s);
@@ -1146,7 +1265,7 @@ mod tests_bytecode {
     fn if_else_only_if() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), LessThan, int!(5)),
+                condition: cmp_op!(int!(4), LessThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![],
@@ -1170,7 +1289,7 @@ mod tests_bytecode {
     fn if_else_with_else() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), LessThan, int!(5)),
+                condition: cmp_op!(int!(4), LessThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-3))],
             },
             elif_parts: vec![],
@@ -1196,11 +1315,11 @@ mod tests_bytecode {
     fn if_else_with_elif() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(4)),
                 ast: ast![stmt_assign!(var!("a"), int!(-2))],
             }],
             else_part: None,
@@ -1232,11 +1351,11 @@ mod tests_bytecode {
     fn if_else_with_elif_and_else() {
         let s = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(5)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(5)),
                 ast: ast![stmt_assign!(var!("a"), int!(-1))],
             },
             elif_parts: vec![ConditionalAst {
-                condition: bin_op!(int!(4), GreaterThan, int!(4)),
+                condition: cmp_op!(int!(4), GreaterThan, int!(4)),
                 ast: ast![stmt_assign!(var!("a"), int!(-2))],
             }],
             else_part: Some(ast![stmt_assign!(var!("a"), int!(3))]),

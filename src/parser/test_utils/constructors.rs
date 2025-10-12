@@ -111,6 +111,24 @@ macro_rules! bin_op {
     };
 }
 
+macro_rules! cmp_op {
+    ($left:expr, $op:ident, $right:expr) => {
+        $crate::parser::types::Expr::ComparisonChain {
+            left: Box::new($left),
+            ops: vec![($crate::parser::types::CompareOp::$op, $right)],
+        }
+    };
+}
+
+macro_rules! cmp_chain {
+    ($left:expr, [ $( ($op:ident, $right:expr) ),+ $(,)? ]) => {
+        Expr::ComparisonChain {
+            left: Box::new($left),
+            ops: vec![ $( ($crate::parser::types::CompareOp::$op, $right) ),+ ],
+        }
+    };
+}
+
 macro_rules! logic_op {
     ($left:expr, $op:ident, $right:expr) => {
         $crate::parser::types::Expr::LogicalOperation {
@@ -261,6 +279,8 @@ pub(crate) use await_expr;
 pub(crate) use bin_op;
 pub(crate) use bool;
 pub(crate) use call_args;
+pub(crate) use cmp_chain;
+pub(crate) use cmp_op;
 pub(crate) use dict;
 pub(crate) use dict_pair;
 pub(crate) use dict_unpack;

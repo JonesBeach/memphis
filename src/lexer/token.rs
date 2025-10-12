@@ -1,4 +1,4 @@
-use crate::parser::types::{BinOp, LogicalOp};
+use crate::parser::types::{BinOp, CompareOp, LogicalOp};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -120,14 +120,26 @@ impl TryFrom<&Token> for BinOp {
             Token::DoubleSlash => BinOp::IntegerDiv,
             Token::Modulo => BinOp::Mod,
             Token::AtSign => BinOp::MatMul,
-            Token::LessThan => BinOp::LessThan,
-            Token::LessThanOrEqual => BinOp::LessThanOrEqual,
-            Token::GreaterThan => BinOp::GreaterThan,
-            Token::GreaterThanOrEqual => BinOp::GreaterThanOrEqual,
-            Token::Equal => BinOp::Equals,
-            Token::NotEqual => BinOp::NotEquals,
-            Token::In => BinOp::In,
-            Token::Is => BinOp::Is,
+            _ => return Err(()),
+        };
+
+        Ok(op)
+    }
+}
+
+impl TryFrom<&Token> for CompareOp {
+    type Error = ();
+
+    fn try_from(value: &Token) -> Result<Self, Self::Error> {
+        let op = match value {
+            Token::LessThan => CompareOp::LessThan,
+            Token::LessThanOrEqual => CompareOp::LessThanOrEqual,
+            Token::GreaterThan => CompareOp::GreaterThan,
+            Token::GreaterThanOrEqual => CompareOp::GreaterThanOrEqual,
+            Token::Equal => CompareOp::Equals,
+            Token::NotEqual => CompareOp::NotEquals,
+            Token::In => CompareOp::In,
+            Token::Is => CompareOp::Is,
             _ => return Err(()),
         };
 

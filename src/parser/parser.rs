@@ -7,11 +7,11 @@ use crate::{
     lexer::{Lexer, Token},
     parser::{
         types::{
-            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompoundOperator, ConditionalAst,
-            DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat, FStringPart,
-            ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation, LogicalOp,
-            LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
-            TypeNode, UnaryOp, Variable,
+            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
+            ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
+            FStringPart, ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation,
+            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         TokenBuffer,
     },
@@ -411,6 +411,7 @@ impl<'a> Parser<'a> {
             };
         }
 
+        let mut cmp_ops = vec![];
         while matches!(
             self.current_token(),
             Token::LessThan
@@ -429,22 +430,28 @@ impl<'a> Parser<'a> {
             let op = if self.tokens.peek_ahead_contains(&[Token::Not, Token::In]) {
                 self.consume(&Token::Not)?;
                 self.consume(&Token::In)?;
-                BinOp::NotIn
+                CompareOp::NotIn
             } else if self.tokens.peek_ahead_contains(&[Token::Is, Token::Not]) {
                 self.consume(&Token::Is)?;
                 self.consume(&Token::Not)?;
-                BinOp::IsNot
+                CompareOp::IsNot
             } else {
-                let op = BinOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
+                let op =
+                    CompareOp::try_from(self.current_token()).unwrap_or_else(|_| unreachable!());
                 self.consume_current()?;
                 op
             };
 
-            let right = self.parse_term()?;
-            left = Expr::BinaryOperation {
+            // Since we are building a flat loop of compare ops, we call the next level down, NOT
+            // parse_term again.
+            let right = self.parse_access_operations()?;
+            cmp_ops.push((op, right));
+        }
+
+        if !cmp_ops.is_empty() {
+            left = Expr::ComparisonChain {
                 left: Box::new(left),
-                op,
-                right: Box::new(right),
+                ops: cmp_ops,
             };
         }
 
@@ -1994,52 +2001,52 @@ if (a
     #[test]
     fn comparison_operators() {
         let input = "x == y";
-        let expected_ast = bin_op!(var!("x"), Equals, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), Equals, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x != y";
-        let expected_ast = bin_op!(var!("x"), NotEquals, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), NotEquals, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x < y";
-        let expected_ast = bin_op!(var!("x"), LessThan, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), LessThan, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x > y";
-        let expected_ast = bin_op!(var!("x"), GreaterThan, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), GreaterThan, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x >= y";
-        let expected_ast = bin_op!(var!("x"), GreaterThanOrEqual, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), GreaterThanOrEqual, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x <= y";
-        let expected_ast = bin_op!(var!("x"), LessThanOrEqual, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), LessThanOrEqual, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x in y";
-        let expected_ast = bin_op!(var!("x"), In, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), In, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x not in y";
-        let expected_ast = bin_op!(var!("x"), NotIn, var!("y"));
+        let expected_ast = cmp_op!(var!("x"), NotIn, var!("y"));
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x is None";
-        let expected_ast = bin_op!(var!("x"), Is, Expr::None);
+        let expected_ast = cmp_op!(var!("x"), Is, Expr::None);
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x is not None";
-        let expected_ast = bin_op!(var!("x"), IsNot, Expr::None);
+        let expected_ast = cmp_op!(var!("x"), IsNot, Expr::None);
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2079,11 +2086,11 @@ else:
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(var!("x"), GreaterThan, int!(0)),
+                condition: cmp_op!(var!("x"), GreaterThan, int!(0)),
                 ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
             elif_parts: vec![ConditionalAst {
-                condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
+                condition: cmp_op!(var!("x"), GreaterThan, int!(-10)),
                 ast: ast![stmt_expr!(func_call!("print", call_args![str!("Medium")]))],
             }],
             else_part: Some(ast![stmt_expr!(func_call!(
@@ -2104,16 +2111,16 @@ elif x > -20:
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(var!("x"), GreaterThan, int!(0)),
+                condition: cmp_op!(var!("x"), GreaterThan, int!(0)),
                 ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
             elif_parts: vec![
                 ConditionalAst {
-                    condition: bin_op!(var!("x"), GreaterThan, int!(-10)),
+                    condition: cmp_op!(var!("x"), GreaterThan, int!(-10)),
                     ast: ast![stmt_expr!(func_call!("print", call_args![str!("Medium")]))],
                 },
                 ConditionalAst {
-                    condition: bin_op!(var!("x"), GreaterThan, int!(-20)),
+                    condition: cmp_op!(var!("x"), GreaterThan, int!(-20)),
                     ast: ast![stmt_expr!(func_call!("print", call_args![str!("Less")]))],
                 },
             ],
@@ -2128,7 +2135,7 @@ if x > 0:
 "#;
         let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
-                condition: bin_op!(var!("x"), GreaterThan, int!(0)),
+                condition: cmp_op!(var!("x"), GreaterThan, int!(0)),
                 ast: ast![stmt_expr!(func_call!("print", call_args![str!("Greater")]))],
             },
             elif_parts: vec![],
@@ -2160,7 +2167,7 @@ if (a == 1
         let expected_ast = stmt!(StatementKind::IfElse {
             if_part: ConditionalAst {
                 condition: logic_op!(
-                    logic_op!(bin_op!(var!("a"), Equals, int!(1)), And, var!("b")),
+                    logic_op!(cmp_op!(var!("a"), Equals, int!(1)), And, var!("b")),
                     And,
                     var!("c")
                 ),
@@ -2750,7 +2757,7 @@ def countdown(n):
             name: "countdown".to_string(),
             args: params![param!("n")],
             body: ast![stmt!(StatementKind::WhileLoop(ConditionalAst {
-                condition: bin_op!(var!("n"), GreaterThan, int!(0)),
+                condition: cmp_op!(var!("n"), GreaterThan, int!(0)),
                 ast: ast![
                     stmt_expr!(yield_expr!(var!("n"))),
                     stmt_assign!(var!("n"), bin_op!(var!("n"), Sub, int!(1))),
@@ -3648,6 +3655,26 @@ with open('test.txt'):
     }
 
     #[test]
+    fn operator_chaining() {
+        let input = "a == b == c";
+        let expected_ast = cmp_chain!(var!("a"), [(Equals, var!("b")), (Equals, var!("c")),]);
+
+        assert_ast_eq!(input, expected_ast, Expr);
+
+        let input = "a == b < c > d";
+        let expected_ast = cmp_chain!(
+            var!("a"),
+            [
+                (Equals, var!("b")),
+                (LessThan, var!("c")),
+                (GreaterThan, var!("d")),
+            ]
+        );
+
+        assert_ast_eq!(input, expected_ast, Expr);
+    }
+
+    #[test]
     fn control_flow() {
         let input = r#"
 for i in a:
@@ -3830,7 +3857,7 @@ def outer():
         let expected_ast = stmt_assign!(
             var!("a"),
             Expr::TernaryOp {
-                condition: Box::new(bin_op!(var!("b"), Equals, int!(6))),
+                condition: Box::new(cmp_op!(var!("b"), Equals, int!(6))),
                 if_value: Box::new(bin_op!(int!(4), Add, var!("x"))),
                 else_value: Box::new(bin_op!(int!(5), LeftShift, int!(2))),
             }

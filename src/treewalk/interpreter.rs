@@ -13,10 +13,10 @@ use crate::{
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
-            Ast, BinOp, CallArgs, Callee, CompoundOperator, ConditionalAst, DictOperation,
-            ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause, ImportPath,
-            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp, Variable,
+            Ast, BinOp, CallArgs, Callee, CompareOp, CompoundOperator, ConditionalAst,
+            DictOperation, ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause,
+            ImportPath, ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams,
+            Statement, StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -320,6 +320,26 @@ impl TreewalkInterpreter {
         let right = self.evaluate_expr(right)?;
 
         self.evaluate_bin_op(left, op, right)
+    }
+
+    fn evaluate_comparison_chain(
+        &self,
+        left: &Expr,
+        ops: &[(CompareOp, Expr)],
+    ) -> TreewalkResult<TreewalkValue> {
+        let mut left = self.evaluate_expr(left)?;
+
+        for (op, right) in ops {
+            let right = self.evaluate_expr(right)?;
+            // is cloning really necessary here?
+            let result = self.evaluate_compare_op(left, op, right.clone())?;
+            if !result.as_boolean() {
+                return Ok(TreewalkValue::Bool(false));
+            }
+            left = right;
+        }
+
+        Ok(TreewalkValue::Bool(true))
     }
 
     fn evaluate_member_access<S>(&self, object: &Expr, field: S) -> TreewalkResult<TreewalkValue>
@@ -1170,6 +1190,7 @@ impl TreewalkInterpreter {
             Expr::BinaryOperation { left, op, right } => {
                 self.evaluate_binary_operation(left, op, right)
             }
+            Expr::ComparisonChain { left, ops } => self.evaluate_comparison_chain(left, ops),
             Expr::Await(right) => self.evaluate_await(right),
             Expr::FunctionCall { callee, args } => self.evaluate_function_call(callee, args),
             Expr::ClassInstantiation { name, args } => {
@@ -1517,6 +1538,12 @@ d = type(str.maketrans)
         let input = "2 == 2";
         assert_eval_eq!(input, bool!(true));
 
+        let input = "2 == 2.0";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2.0 == 2";
+        assert_eval_eq!(input, bool!(true));
+
         let input = "2 != 1";
         assert_eval_eq!(input, bool!(true));
 
@@ -1564,10 +1591,112 @@ d = type(str.maketrans)
     }
 
     #[test]
-    #[ignore]
     fn operator_chaining() {
+        // Equal chains
         let input = "2 == 2 == 2";
         assert_eval_eq!(input, bool!(true));
+
+        let input = "2 == 2 == 3";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 == 2 == 3 == 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Increasing chain
+        let input = "1 < 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 < 2 < 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "1 < 3 < 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "1 < 2 < 3 < 4";
+        assert_eval_eq!(input, bool!(true));
+
+        // Mixed increasing / equality
+        let input = "1 < 2 == 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 < 2 == 3 < 4";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed with >= and <=
+        let input = "3 >= 2 > 1";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "3 >= 2 > 2";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 <= 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 <= 1 < 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed equality and less-than
+        let input = "2 == 2 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 == 3 < 4";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2 < 3 == 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 < 3 == 4";
+        assert_eval_eq!(input, bool!(false));
+
+        // Descending chain
+        let input = "5 > 4 > 3 > 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "5 > 4 > 5";
+        assert_eval_eq!(input, bool!(false));
+
+        // With floats mixed in
+        let input = "1 < 2.0 < 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1.0 < 2 < 1.5";
+        assert_eval_eq!(input, bool!(false));
+
+        let input = "2.0 == 2 < 3.0";
+        assert_eval_eq!(input, bool!(true));
+
+        // Not-equals chain
+        let input = "1 != 2 != 3";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 != 1 != 2";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mix of == and !=
+        let input = "1 == 1 != 2";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "1 == 2 != 3";
+        assert_eval_eq!(input, bool!(false));
+
+        // Chained in — both true
+        let input = "2 in [1,2,3] in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(true));
+
+        let input = "2 in [1,2,3] in [[2,3,4],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Chained not in
+        let input = "4 not in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed in / not in
+        let input = "2 in [1,2,3] not in [[1,2,3],[4,5,6]]";
+        assert_eval_eq!(input, bool!(false));
+
+        // Mixed not in / in
+        let input = "4 not in [1,2,3] in [[4,5,6],[7,8,9]]";
+        assert_eval_eq!(input, bool!(false));
     }
 
     #[test]
@@ -3140,7 +3269,7 @@ c = dict(zip(['one', 'two', 'three'], [1, 2, 3]))
 d = dict([('two', 2), ('one', 1), ('three', 3)])
 e = dict({'three': 3, 'one': 1, 'two': 2})
 f = dict({'one': 1, 'three': 3}, two=2)
-#g = a == b == c == d == e == f
+g = a == b == c == d == e == f
 "#;
         let ctx = run(input);
 
@@ -3180,8 +3309,7 @@ f = dict({'one': 1, 'three': 3}, two=2)
             dict!(ctx.interpreter(), { str!("one") => int!(1), str!("two") => int!(2), str!("three") => int!(3) })
         );
 
-        // TODO enable this once we support operator chaining
-        // assert_read_eq!(ctx, "g", bool!(true));
+        assert_read_eq!(ctx, "g", bool!(true));
 
         let input = r#"dict([('a',)])"#;
         let e = eval_expect_error(input);

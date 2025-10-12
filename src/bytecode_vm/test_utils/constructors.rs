@@ -4,6 +4,12 @@ macro_rules! int {
     };
 }
 
+macro_rules! float {
+    ($val:expr) => {
+        $crate::bytecode_vm::VmValue::Float($val)
+    };
+}
+
 macro_rules! str {
     ($val:expr) => {
         $crate::bytecode_vm::VmValue::String($val.to_string())
@@ -17,5 +23,6 @@ macro_rules! bool {
 }
 
 pub(crate) use bool;
+pub(crate) use float;
 pub(crate) use int;
 pub(crate) use str;

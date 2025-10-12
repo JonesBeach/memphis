@@ -178,6 +178,18 @@ pub enum BinOp {
     Mul,
     Div,
     IntegerDiv,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    LeftShift,
+    RightShift,
+    Mod,
+    MatMul,
+    Expo,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum CompareOp {
     In,
     NotIn,
     Is,
@@ -188,14 +200,6 @@ pub enum BinOp {
     LessThanOrEqual,
     Equals,
     NotEquals,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    LeftShift,
-    RightShift,
-    Mod,
-    MatMul,
-    Expo,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -329,6 +333,10 @@ pub enum Expr {
         left: Box<Expr>,
         op: BinOp,
         right: Box<Expr>,
+    },
+    ComparisonChain {
+        left: Box<Expr>,
+        ops: Vec<(CompareOp, Expr)>,
     },
     UnaryOperation {
         op: UnaryOp,
