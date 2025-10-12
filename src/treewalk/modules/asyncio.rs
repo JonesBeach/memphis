@@ -69,8 +69,5 @@ pub fn import(module_store: &mut ModuleStore) {
         asyncio_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
-    module_store.store_module(
-        &ImportPath::Absolute(vec!["asyncio".to_string()]),
-        Container::new(asyncio_mod),
-    );
+    module_store.store_module(&ImportPath::from("asyncio"), Container::new(asyncio_mod));
 }
