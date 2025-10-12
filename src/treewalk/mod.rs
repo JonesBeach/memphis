@@ -8,6 +8,7 @@ pub mod interpreter;
 mod iterator;
 pub mod macros;
 mod module_store;
+mod modules;
 pub mod pausable;
 pub mod protocols;
 mod resolver;
