@@ -4,10 +4,7 @@ use std::{
     process,
 };
 
-use crate::{
-    domain::{DebugStackFrame, Dunder, ImportPath, ToDebugStackFrame},
-    treewalk::resolve,
-};
+use crate::domain::{resolve, DebugStackFrame, Dunder, ImportPath, ToDebugStackFrame};
 
 /// Represents a Python source, whether it comes from a file, a string, or an embedded Rust module.
 ///
