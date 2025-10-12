@@ -45,17 +45,14 @@ fn init_builtin_scope() -> Scope {
         scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
-    let mut asyncio_scope = Scope::default();
+    let mut asyncio_mod = Module::new(Source::default());
     for builtin in get_asyncio_builtins() {
-        asyncio_scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
+        asyncio_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
     scope.insert(
         "asyncio",
-        TreewalkValue::Module(Container::new(Module::with_scope(
-            Source::default(),
-            asyncio_scope,
-        ))),
+        TreewalkValue::Module(Container::new(asyncio_mod)),
     );
 
     scope

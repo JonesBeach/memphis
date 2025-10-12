@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{ExecutionErrorKind, Source},
+    domain::{Dunder, ExecutionErrorKind, Source},
     errors::MemphisError,
     parser::types::ImportPath,
     treewalk::{
@@ -15,6 +15,8 @@ use crate::{
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
+
+use super::Str;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
@@ -74,11 +76,12 @@ impl Module {
     }
 
     pub fn new(source: Source) -> Self {
-        Self::with_scope(source, Scope::default())
-    }
-
-    pub fn with_scope(source: Source, scope: Scope) -> Self {
-        Self { scope, source }
+        let mut scope = Scope::default();
+        scope.insert(
+            &Dunder::Name,
+            TreewalkValue::Str(Str::new(source.name().to_string())),
+        );
+        Self { source, scope }
     }
 
     pub fn path(&self) -> &Path {

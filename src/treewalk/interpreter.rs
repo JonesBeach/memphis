@@ -5951,4 +5951,20 @@ except Exception as e:
             "__hash__ method should return an integer"
         );
     }
+
+    #[test]
+    fn name_dunder() {
+        let input = r#"
+a = __name__
+"#;
+
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", str!("__main__"));
+
+        let ctx = run_path("src/fixtures/name_dunder/main.py");
+        assert_read_eq!(ctx, "__name__", str!("__main__"));
+        assert_read_eq!(ctx, "a", str!("second"));
+        assert_read_eq!(ctx, "b", str!("inner.third"));
+    }
 }
