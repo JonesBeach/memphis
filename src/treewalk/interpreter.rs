@@ -8,15 +8,16 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
-        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, MemphisValue,
+        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, ImportPath,
+        MemphisValue,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
             Ast, BinOp, CallArgs, Callee, CompareOp, CompoundOperator, ConditionalAst,
             DictOperation, ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause,
-            ImportPath, ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams,
-            Statement, StatementKind, TypeNode, UnaryOp, Variable,
+            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },

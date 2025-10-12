@@ -5,8 +5,7 @@ use std::{
 };
 
 use crate::{
-    domain::{DebugStackFrame, Dunder, ToDebugStackFrame},
-    parser::types::ImportPath,
+    domain::{DebugStackFrame, Dunder, ImportPath, ToDebugStackFrame},
     treewalk::resolve,
 };
 

@@ -2,16 +2,16 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    domain::ExceptionLiteral,
+    domain::{ExceptionLiteral, ImportPath},
     errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
         types::{
             ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
             ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
-            FStringPart, ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation,
-            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp, Variable,
+            FStringPart, ForClause, FormatOption, ImportedItem, KwargsOperation, LogicalOp,
+            LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
+            TypeNode, UnaryOp, Variable,
         },
         TokenBuffer,
     },

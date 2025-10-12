@@ -1,14 +1,59 @@
 use crate::{
     core::Container,
-    domain::Source,
-    parser::types::ImportPath,
+    domain::{ImportPath, Source},
     treewalk::{
-        executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
+        protocols::Callable,
         type_system::CloneableCallable,
         types::Module,
-        ModuleStore, TreewalkValue,
+        utils::{check_args, Args},
+        ModuleStore, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
+
+#[derive(Clone)]
+pub struct AsyncioRunBuiltin;
+#[derive(Clone)]
+pub struct AsyncioSleepBuiltin;
+#[derive(Clone)]
+pub struct AsyncioCreateTaskBuiltin;
+
+impl Callable for AsyncioRunBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
+        interpreter.with_executor(|exec| exec.run(interpreter, coroutine))
+    }
+
+    fn name(&self) -> String {
+        "run".into()
+    }
+}
+
+impl Callable for AsyncioSleepBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+        let duration = args.get_arg(0).expect_float(interpreter)?;
+        interpreter.with_executor(|exec| exec.sleep(duration))
+    }
+
+    fn name(&self) -> String {
+        "sleep".into()
+    }
+}
+
+impl Callable for AsyncioCreateTaskBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
+        interpreter.with_executor(|exec| exec.spawn(coroutine))
+    }
+
+    fn name(&self) -> String {
+        "create_task".into()
+    }
+}
 
 fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
     vec![

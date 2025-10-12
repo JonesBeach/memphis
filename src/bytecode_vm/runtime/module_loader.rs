@@ -6,8 +6,7 @@ use crate::{
         Runtime, VmContext, VmResult,
     },
     core::Container,
-    domain::Source,
-    parser::types::ImportPath,
+    domain::{ImportPath, Source},
     runtime::MemphisState,
 };
 

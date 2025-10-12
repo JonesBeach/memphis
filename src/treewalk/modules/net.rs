@@ -1,7 +1,6 @@
 use crate::{
     core::Container,
-    domain::Source,
-    parser::types::ImportPath,
+    domain::{ImportPath, Source},
     treewalk::{types::Module, ModuleStore},
 };
 

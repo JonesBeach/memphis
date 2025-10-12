@@ -7,9 +7,8 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{Dunder, ExecutionErrorKind, Source},
+    domain::{Dunder, ExecutionErrorKind, ImportPath, Source},
     errors::MemphisError,
-    parser::types::ImportPath,
     treewalk::{
         protocols::MemberRead,
         types::{Dict, Str},

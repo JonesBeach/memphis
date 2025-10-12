@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     core::Container,
-    parser::types::ImportPath,
+    domain::ImportPath,
     treewalk::{
         modules::{asyncio, net},
         types::Module,

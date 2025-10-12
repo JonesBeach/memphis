@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::{domain::Dunder, parser::types::ImportPath};
+use crate::domain::{Dunder, ImportPath};
 
 /// Finds a module but does not read it (returns absolute path).
 pub fn resolve(

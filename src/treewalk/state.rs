@@ -2,8 +2,7 @@ use std::{cell::UnsafeCell, path::PathBuf};
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame, Type},
-    parser::types::ImportPath,
+    domain::{DebugCallStack, DebugStackFrame, ImportPath, Source, ToDebugStackFrame, Type},
     runtime::MemphisState,
     treewalk::{
         types::{Class, Dict, Function, Module},

@@ -12,8 +12,7 @@ use pyo3::{
 
 use crate::{
     core::Container,
-    domain::Dunder,
-    parser::types::ImportPath,
+    domain::{Dunder, ImportPath},
     treewalk::{
         protocols::{Callable, IndexRead, IndexWrite, MemberRead},
         types::Str,
