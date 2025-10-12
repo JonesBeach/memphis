@@ -243,6 +243,17 @@ macro_rules! lambda {
     };
 }
 
+/// Convenience macro for `obj.method()` and `obj.method(args)`.
+/// Expands to `func_call_callee!(member_access!(obj, method), args)`.
+macro_rules! method_call {
+    ($obj:expr, $method:expr) => {
+        func_call_callee!(member_access!($obj, $method))
+    };
+    ($obj:expr, $method:expr, $args:expr) => {
+        func_call_callee!(member_access!($obj, $method), $args)
+    };
+}
+
 macro_rules! func_call {
     ($name:expr) => {
         $crate::parser::types::Expr::FunctionCall {
@@ -292,6 +303,7 @@ pub(crate) use lambda;
 pub(crate) use list;
 pub(crate) use logic_op;
 pub(crate) use member_access;
+pub(crate) use method_call;
 pub(crate) use param;
 pub(crate) use params;
 pub(crate) use set;
