@@ -262,10 +262,8 @@ impl TreewalkInterpreter {
     // -----------------------------
 
     fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<TreewalkValue> {
-        // is this useful? is it valuable to read a module directly from the scope as opposed from
-        // the module cache
-        if let Some(module) = self.state.read(&import_path.as_str()) {
-            return Ok(module);
+        if let Some(module) = self.state.fetch_module(import_path) {
+            return Ok(TreewalkValue::Module(module));
         }
 
         #[cfg(feature = "c_stdlib")]
@@ -5671,6 +5669,7 @@ except TypeError as exc:
     #[test]
     fn asyncio() {
         let input = r#"
+import asyncio
 a = asyncio.run
 b = asyncio.sleep
 c = asyncio.create_task

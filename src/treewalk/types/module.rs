@@ -11,12 +11,12 @@ use crate::{
     errors::MemphisError,
     parser::types::ImportPath,
     treewalk::{
-        protocols::MemberRead, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::MemberRead,
+        types::{Dict, Str},
+        Scope, TreewalkContext, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
-
-use super::Str;
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Module {
@@ -30,10 +30,6 @@ impl Module {
         import_path: &ImportPath,
     ) -> TreewalkResult<Container<Self>> {
         log(LogLevel::Debug, || format!("Reading {import_path}"));
-        if let Some(module) = interpreter.state.fetch_module(import_path) {
-            return Ok(module);
-        }
-
         // Before we parse and evaluate this module, store an empty module as a placeholder. This
         // is necessary to indicate to downstream modules that the upstream module which called
         // them but hasn't yet finished importing is in progress. Without this, you would get an
