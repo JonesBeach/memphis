@@ -55,7 +55,7 @@ impl Callable for AsyncioCreateTaskBuiltin {
     }
 }
 
-fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
+fn builtins() -> Vec<Box<dyn CloneableCallable>> {
     vec![
         Box::new(AsyncioRunBuiltin),
         Box::new(AsyncioSleepBuiltin),
@@ -65,7 +65,7 @@ fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
 
 pub fn import(module_store: &mut ModuleStore) {
     let mut asyncio_mod = Module::new(Source::default());
-    for builtin in get_asyncio_builtins() {
+    for builtin in builtins() {
         asyncio_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
 
