@@ -8,8 +8,8 @@ use crate::{
     treewalk::{
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
-        EvaluatedModuleCache, ExecutionContextManager, Executor, Scope, ScopeManager,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
+        ExecutionContextManager, Executor, ModuleStore, Scope, ScopeManager, TreewalkInterpreter,
+        TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -18,7 +18,7 @@ use super::types::cpython::{BuiltinModuleCache, CPythonModule};
 
 pub struct TreewalkState {
     memphis_state: Container<MemphisState>,
-    module_cache: EvaluatedModuleCache,
+    module_store: ModuleStore,
     type_registry: TypeRegistry,
     scope_manager: ScopeManager,
     execution_context: ExecutionContextManager,
@@ -44,7 +44,7 @@ impl TreewalkState {
 
         TreewalkState {
             memphis_state,
-            module_cache: EvaluatedModuleCache::new(),
+            module_store: ModuleStore::new(),
             type_registry,
             scope_manager,
             execution_context: ExecutionContextManager::new(),
@@ -247,11 +247,11 @@ impl Container<TreewalkState> {
 
     pub fn store_module(&self, import_path: &ImportPath, module: Container<Module>) {
         self.borrow_mut()
-            .module_cache
+            .module_store
             .store_module(import_path, module)
     }
 
     pub fn fetch_module(&self, import_path: &ImportPath) -> Option<Container<Module>> {
-        self.borrow_mut().module_cache.fetch_module(import_path)
+        self.borrow_mut().module_store.fetch_module(import_path)
     }
 }

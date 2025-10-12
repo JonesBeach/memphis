@@ -20,12 +20,12 @@ fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
     ]
 }
 
-pub struct EvaluatedModuleCache {
-    /// A cache of the module after evaluation.
-    module_cache: HashMap<ImportPath, Container<Module>>,
+/// A store of the modules after loading and evaluation.
+pub struct ModuleStore {
+    store: HashMap<ImportPath, Container<Module>>,
 }
 
-impl EvaluatedModuleCache {
+impl ModuleStore {
     pub fn new() -> Self {
         let mut module_cache = HashMap::default();
 
@@ -46,14 +46,16 @@ impl EvaluatedModuleCache {
             Container::new(net_mod),
         );
 
-        Self { module_cache }
+        Self {
+            store: module_cache,
+        }
     }
 
     pub fn fetch_module(&mut self, import_path: &ImportPath) -> Option<Container<Module>> {
-        self.module_cache.get(import_path).cloned()
+        self.store.get(import_path).cloned()
     }
 
     pub fn store_module(&mut self, import_path: &ImportPath, module: Container<Module>) {
-        self.module_cache.insert(import_path.to_owned(), module);
+        self.store.insert(import_path.to_owned(), module);
     }
 }
