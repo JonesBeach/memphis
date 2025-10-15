@@ -20,6 +20,7 @@ impl TreewalkValue {
             TreewalkValue::Cell(i) => Box::new(i.borrow().clone()),
             TreewalkValue::Module(i) => Box::new(i.borrow().clone()),
             TreewalkValue::Super(i) => Box::new(i),
+            TreewalkValue::NativeObject(i) => i,
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonModule(i) => Box::new(i.borrow().clone()),
             _ => {

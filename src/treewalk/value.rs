@@ -13,7 +13,7 @@ use crate::{
     treewalk::{
         protocols::MemberRead,
         type_system::{
-            CloneableCallable, CloneableDataDescriptor, CloneableIterable,
+            CloneableCallable, CloneableDataDescriptor, CloneableIterable, CloneableMemberRead,
             CloneableNonDataDescriptor,
         },
         types::{
@@ -52,6 +52,7 @@ pub enum TreewalkValue {
     Method(Container<Method>),
     BuiltinFunction(Box<dyn CloneableCallable>),
     BuiltinMethod(Box<dyn CloneableCallable>),
+    NativeObject(Box<dyn CloneableMemberRead>),
     Generator(GeneratorIter),
     Coroutine(Container<Coroutine>),
     Code(Code),
@@ -236,6 +237,7 @@ impl TreewalkValue {
                 write!(f, "<built-in function {}>", func.name())
             }
             TreewalkValue::BuiltinMethod(_) => write!(f, "<built-in method>"),
+            TreewalkValue::NativeObject(_) => todo!(),
             TreewalkValue::Int(i) => write!(f, "{i}"),
             TreewalkValue::Float(i) => {
                 // We should probably move this onto Float eventually
@@ -321,6 +323,7 @@ impl TreewalkValue {
             TreewalkValue::Function(_) => Type::Function,
             TreewalkValue::BuiltinFunction(_) => Type::BuiltinFunction,
             TreewalkValue::BuiltinMethod(_) => Type::BuiltinMethod,
+            TreewalkValue::NativeObject(_) => todo!(),
             TreewalkValue::Generator(_) => Type::Generator,
             TreewalkValue::Coroutine(_) => Type::Coroutine,
             TreewalkValue::Int(_) => Type::Int,
@@ -829,6 +832,7 @@ impl From<TreewalkValue> for MemphisValue {
             TreewalkValue::Method(_) => MemphisValue::Unimplemented("method"),
             TreewalkValue::BuiltinFunction(_) => MemphisValue::Unimplemented("builtin_func"),
             TreewalkValue::BuiltinMethod(_) => MemphisValue::Unimplemented("builtin_method"),
+            TreewalkValue::NativeObject(_) => MemphisValue::Unimplemented("native_object"),
             TreewalkValue::Generator(_) => MemphisValue::Unimplemented("generator"),
             TreewalkValue::Coroutine(_) => MemphisValue::Unimplemented("coroutine"),
             TreewalkValue::Code(_) => MemphisValue::Unimplemented("code"),
