@@ -143,15 +143,15 @@ impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let n = args.get_arg(0).expect_integer(interpreter)? as usize;
         let mut buffer = vec![0; n];
-        let read = self.stream.try_clone().unwrap().read(&mut buffer).unwrap();
-        Ok(TreewalkValue::Str(Str::new(&String::from_utf8_lossy(
-            &buffer[..read],
-        ))))
+        let num_read = self.stream.try_clone().unwrap().read(&mut buffer).unwrap();
+        Ok(TreewalkValue::Bytes(buffer[..num_read].to_vec()))
     }
+
     fn name(&self) -> String {
         "recv".into()
     }
 }
+
 impl Callable for ConnSend {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // Validate args
@@ -170,6 +170,7 @@ impl Callable for ConnSend {
         "send".into()
     }
 }
+
 impl Callable for ConnClose {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
@@ -203,9 +204,7 @@ impl Callable for AcceptBuiltin {
         _interpreter: &TreewalkInterpreter,
         _args: Args,
     ) -> TreewalkResult<TreewalkValue> {
-        println!("one");
         let (stream, addr) = self.listener.accept().unwrap();
-        println!("two");
         let conn = Connection { stream };
         let conn_value = TreewalkValue::NativeObject(Box::new(conn));
         let addr_value = TreewalkValue::Str(Str::new(&addr.to_string()));
