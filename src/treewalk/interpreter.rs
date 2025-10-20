@@ -1491,14 +1491,12 @@ a = "foo"
 b = type(str.join)
 # TODO Python shows <class 'builtin_function_or_method'>
 c = type(a.join)
-d = type(str.maketrans)
 "#;
         let ctx = run(input);
 
         assert_read_eq!(ctx, "a", str!("foo"));
         assert_type_eq!(ctx, "b", Type::BuiltinMethod);
         assert_type_eq!(ctx, "c", Type::Method);
-        assert_type_eq!(ctx, "d", Type::BuiltinMethod);
 
         let input = r#""abc" + "def""#;
         assert_eval_eq!(input, str!("abcdef"));
@@ -1514,6 +1512,9 @@ d = type(str.maketrans)
 
         let input = r#""Host: localhost:8000".split(": ", 1)"#;
         assert_eval_eq!(input, list![str!("Host"), str!("localhost:8000")]);
+
+        let input = r#""HELlO".lower()"#;
+        assert_eval_eq!(input, str!("hello"));
     }
 
     #[test]

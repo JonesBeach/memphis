@@ -30,6 +30,7 @@ impl_method_provider!(
         ContainsBuiltin,
         JoinBuiltin,
         SplitBuiltin,
+        LowerBuiltin,
     ]
 );
 impl_iterable!(StrIter);
@@ -109,6 +110,8 @@ struct ContainsBuiltin;
 struct JoinBuiltin;
 #[derive(Clone)]
 struct SplitBuiltin;
+#[derive(Clone)]
+struct LowerBuiltin;
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -197,6 +200,18 @@ impl Callable for SplitBuiltin {
 
     fn name(&self) -> String {
         "split".into()
+    }
+}
+
+impl Callable for LowerBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 0, interpreter)?;
+        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        Ok(TreewalkValue::Str(Str::from(text.to_lowercase())))
+    }
+
+    fn name(&self) -> String {
+        "lower".into()
     }
 }
 
