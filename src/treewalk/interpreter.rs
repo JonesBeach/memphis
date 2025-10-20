@@ -1165,7 +1165,7 @@ impl TreewalkInterpreter {
             Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value))),
-            Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
+            Expr::BytesLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
@@ -4113,6 +4113,28 @@ a = type(iter(b'hello'))
         let ctx = run(input);
 
         assert_type_eq!(ctx, "a", Type::BytesIter);
+
+        let input = r#"
+b'hello'.decode("utf-8")
+"#;
+        assert_eval_eq!(input, str!("hello"));
+
+        let input = r#"
+b'hello'.decode()
+"#;
+        assert_eval_eq!(input, str!("hello"));
+
+        let input = r#"
+b'hello'.decode("bad-encoding")
+"#;
+        let e = eval_expect_error(input);
+        assert_lookup_error!(e, "unknown encoding: bad-encoding");
+
+        let input = r#"
+b'\xff\xfe\xfa'.decode()
+"#;
+        let e = eval_expect_error(input);
+        assert_value_error!(e, "failed to decode with encoding 'utf-8'");
     }
 
     #[test]

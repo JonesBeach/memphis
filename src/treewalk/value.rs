@@ -738,6 +738,18 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a tuple"))
     }
 
+    pub fn as_bytes(&self) -> Option<Vec<u8>> {
+        match self {
+            TreewalkValue::Bytes(i) => Some(i.to_vec()),
+            _ => None,
+        }
+    }
+
+    pub fn expect_bytes(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Vec<u8>> {
+        self.as_bytes()
+            .ok_or_else(|| interpreter.type_error("Expected bytes"))
+    }
+
     pub fn as_string(&self) -> Option<String> {
         match self {
             TreewalkValue::Str(i) => Some(i.to_string()),

@@ -131,6 +131,7 @@ impl Clone for ConnSend {
 pub struct ConnClose {
     pub stream: TcpStream,
 }
+
 impl Clone for ConnClose {
     fn clone(&self) -> Self {
         Self {

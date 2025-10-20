@@ -615,9 +615,9 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::RawStringLiteral(literal.clone()))?;
                 Ok(Expr::StringLiteral(literal))
             }
-            Token::ByteStringLiteral(literal) => {
-                self.consume(&Token::ByteStringLiteral(literal.clone()))?;
-                Ok(Expr::ByteStringLiteral(literal.as_bytes().to_vec()))
+            Token::BytesLiteral(bytes) => {
+                self.consume(&Token::BytesLiteral(bytes.clone()))?;
+                Ok(Expr::BytesLiteral(bytes))
             }
             Token::BinaryLiteral(literal) => self.parse_binary_literal(literal),
             Token::OctalLiteral(literal) => self.parse_octal_literal(literal),
@@ -3388,7 +3388,7 @@ with open('test.txt'):
     #[test]
     fn byte_string() {
         let input = "a = b'hello'";
-        let expected_ast = stmt_assign!(var!("a"), Expr::ByteStringLiteral("hello".into()));
+        let expected_ast = stmt_assign!(var!("a"), Expr::BytesLiteral("hello".into()));
 
         assert_ast_eq!(input, expected_ast);
     }

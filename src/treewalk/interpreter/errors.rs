@@ -23,6 +23,13 @@ impl TreewalkInterpreter {
         self.error(ExecutionErrorKind::TypeError(message))
     }
 
+    pub fn unknown_encoding(&self, encoding: impl Into<String>) -> TreewalkDisruption {
+        self.error(ExecutionErrorKind::LookupError(format!(
+            "unknown encoding: {}",
+            encoding.into()
+        )))
+    }
+
     pub fn value_error(&self, message: impl Into<String>) -> TreewalkDisruption {
         self.error(ExecutionErrorKind::ValueError(message.into()))
     }

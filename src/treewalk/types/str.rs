@@ -1,6 +1,7 @@
 use std::{
     fmt::{Display, Error, Formatter},
     ops::Deref,
+    str::{self, Utf8Error},
 };
 
 use crate::{
@@ -13,6 +14,8 @@ use crate::{
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
+
+use super::bytes::Encoding;
 
 #[derive(Clone, PartialEq)]
 pub struct Str(String);
@@ -33,6 +36,14 @@ impl_iterable!(StrIter);
 impl Str {
     pub fn new(str: &str) -> Self {
         Self(str.to_string())
+    }
+
+    pub fn from_bytes(bytes: &[u8], encoding: Encoding) -> Result<Self, Utf8Error> {
+        let str = match encoding {
+            Encoding::Utf8 => str::from_utf8(bytes)?,
+        };
+
+        Ok(Self::new(str))
     }
 
     pub fn slice(&self, slice: &Slice) -> Self {

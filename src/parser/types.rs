@@ -279,7 +279,7 @@ pub enum Expr {
     Boolean(bool),
     Variable(String),
     StringLiteral(String),
-    ByteStringLiteral(Vec<u8>),
+    BytesLiteral(Vec<u8>),
     List(Vec<Expr>),
     Set(HashSet<Expr>),
     Dict(Vec<DictOperation>),

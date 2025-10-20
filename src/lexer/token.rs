@@ -42,7 +42,7 @@ pub enum Token {
     Identifier(String),
     StringLiteral(String),
     RawStringLiteral(String),
-    ByteStringLiteral(String),
+    BytesLiteral(Vec<u8>),
     None,
     Ellipsis,
     NotImplemented,
