@@ -155,14 +155,12 @@ impl Callable for ConnRecv {
 
 impl Callable for ConnSend {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        // Validate args
         check_args(&args, |len| len == 1, interpreter)?;
 
-        // Get string to send
-        let data = args.get_arg(0).expect_string(interpreter)?;
+        let data = args.get_arg(0).expect_bytes(interpreter)?;
         // We clone the stream because each builtin owns its handle
         let mut stream = self.stream.try_clone().unwrap();
-        stream.write_all(data.as_bytes()).unwrap();
+        stream.write_all(&data).unwrap();
 
         Ok(TreewalkValue::None)
     }

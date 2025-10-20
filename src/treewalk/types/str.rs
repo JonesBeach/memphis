@@ -19,7 +19,7 @@ use crate::{
 
 use super::bytes::Encoding;
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Str(String);
 
 impl_typed!(Str, Type::Str);
@@ -111,6 +111,40 @@ impl IndexRead for Str {
             TreewalkValue::Slice(s) => Some(TreewalkValue::Str(self.slice(&s))),
             _ => None,
         })
+    }
+}
+
+impl IntoIterator for Str {
+    type Item = TreewalkValue;
+    type IntoIter = StrIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        StrIter::new(self)
+    }
+}
+
+#[derive(Clone)]
+pub struct StrIter {
+    string: String,
+    position: usize,
+}
+
+impl StrIter {
+    pub fn new(string: Str) -> Self {
+        Self {
+            string: string.0.clone(),
+            position: 0,
+        }
+    }
+}
+
+impl Iterator for StrIter {
+    type Item = TreewalkValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = self.string[self.position..].chars().next()?;
+        self.position += result.len_utf8();
+        Some(TreewalkValue::Str(Str::from(result.to_string())))
     }
 }
 
@@ -248,45 +282,10 @@ impl Callable for EncodeBuiltin {
             _ => unreachable!(),
         };
 
-        let str_value = Str::from(text);
-        Ok(TreewalkValue::Bytes(str_value.encode(encoding)))
+        Ok(TreewalkValue::Bytes(Str::from(text).encode(encoding)))
     }
 
     fn name(&self) -> String {
         "encode".into()
-    }
-}
-
-impl IntoIterator for Str {
-    type Item = TreewalkValue;
-    type IntoIter = StrIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        StrIter::new(self)
-    }
-}
-
-#[derive(Clone)]
-pub struct StrIter {
-    string: String,
-    position: usize,
-}
-
-impl StrIter {
-    pub fn new(string: Str) -> Self {
-        Self {
-            string: string.0.clone(),
-            position: 0,
-        }
-    }
-}
-
-impl Iterator for StrIter {
-    type Item = TreewalkValue;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let result = self.string[self.position..].chars().next()?;
-        self.position += result.len_utf8();
-        Some(TreewalkValue::Str(Str::from(result.to_string())))
     }
 }

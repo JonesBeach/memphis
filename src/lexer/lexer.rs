@@ -202,6 +202,23 @@ impl Lexer {
                     self.pending_tokens.push_back(Token::RBrace);
                     self.in_f_string_expr = false;
                 }
+            } else if c == '\\' {
+                chars.next();
+                // TODO this is duplicated from consume_delimited
+                match chars.next() {
+                    Some('n') => literal.push('\n'),
+                    Some('r') => literal.push('\r'),
+                    Some('t') => literal.push('\t'),
+                    Some('"') => literal.push('"'),
+                    Some('\\') => literal.push('\\'),
+                    Some('0') => literal.push('\0'),
+                    Some(other) => {
+                        // Keep unknown escape sequences literal
+                        literal.push('\\');
+                        literal.push(other);
+                    }
+                    None => literal.push('\\'),
+                }
             } else {
                 literal.push(c);
                 chars.next();
@@ -2440,6 +2457,24 @@ f"environ({{{formatted_items}after}})"
                 Token::Exclamation,
                 Token::Identifier("r".into()),
                 Token::RBrace,
+                Token::FStringEnd,
+                Token::Newline,
+            ]
+        );
+    }
+
+    #[test]
+    fn f_strings_with_escape_sequence() {
+        let input = r#"f"{first}\n""#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::FStringStart,
+                Token::LBrace,
+                Token::Identifier("first".into()),
+                Token::RBrace,
+                Token::StringLiteral("\n".into()),
                 Token::FStringEnd,
                 Token::Newline,
             ]
