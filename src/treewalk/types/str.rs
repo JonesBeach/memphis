@@ -1,15 +1,16 @@
 use std::{
     fmt::{Display, Error, Formatter},
     ops::Deref,
-    str::{self, Utf8Error},
+    str,
 };
 
 use crate::{
     core::Container,
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionErrorKind, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
+        result::Raise,
         types::{List, Slice},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -40,9 +41,13 @@ impl Str {
         Self(str.to_string())
     }
 
-    pub fn from_bytes(bytes: &[u8], encoding: Encoding) -> Result<Self, Utf8Error> {
+    pub fn from_bytes(bytes: &[u8], encoding: Encoding) -> Result<Self, ExecutionErrorKind> {
         let str = match encoding {
-            Encoding::Utf8 => str::from_utf8(bytes)?,
+            Encoding::Utf8 => str::from_utf8(bytes).map_err(|_| {
+                ExecutionErrorKind::ValueError(format!(
+                    "failed to decode with encoding '{encoding}'"
+                ))
+            })?,
         };
 
         Ok(Self::new(str))
@@ -161,12 +166,14 @@ impl Callable for ContainsBuiltin {
 }
 
 impl Callable for JoinBuiltin {
-    fn call(
-        &self,
-        _interpreter: &TreewalkInterpreter,
-        _args: Args,
-    ) -> TreewalkResult<TreewalkValue> {
-        unimplemented!()
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let delim = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let items = args.get_arg(0).expect_list(interpreter)?;
+        let joined = items.borrow().join(&delim).raise(interpreter)?;
+
+        Ok(TreewalkValue::Str(Str::from(joined)))
     }
 
     fn name(&self) -> String {

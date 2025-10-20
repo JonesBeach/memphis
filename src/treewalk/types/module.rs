@@ -55,7 +55,7 @@ impl Module {
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{e}");
-                return Err(interpreter.error(ExecutionErrorKind::SyntaxError));
+                return Err(interpreter.raise(ExecutionErrorKind::SyntaxError));
             }
             _ => unreachable!(),
         };

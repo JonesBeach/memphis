@@ -5,6 +5,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
+        result::Raise,
         types::Str,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -88,9 +89,7 @@ impl Callable for DecodeBuiltin {
         };
 
         let bytes = args.expect_self(interpreter)?.expect_bytes(interpreter)?;
-        let str_value = Str::from_bytes(&bytes, encoding).map_err(|_| {
-            interpreter.value_error(format!("failed to decode with encoding '{}'", encoding))
-        })?;
+        let str_value = Str::from_bytes(&bytes, encoding).raise(interpreter)?;
         Ok(TreewalkValue::Str(str_value))
     }
 

@@ -1016,7 +1016,7 @@ impl TreewalkInterpreter {
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
+            return Err(self.raise(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(&expr_result, Dunder::Enter, args![])?;
@@ -1122,14 +1122,14 @@ impl TreewalkInterpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(self.error(ExecutionErrorKind::SyntaxError));
+                return Err(self.raise(ExecutionErrorKind::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(self.error(ExecutionErrorKind::SyntaxError));
+            return Err(self.raise(ExecutionErrorKind::SyntaxError));
         }
 
         Ok(())
@@ -1515,6 +1515,9 @@ c = type(a.join)
 
         let input = r#""HELlO".lower()"#;
         assert_eval_eq!(input, str!("hello"));
+
+        let input = r#""\r\n".join(["a", "b"])"#;
+        assert_eval_eq!(input, str!("a\r\nb"));
     }
 
     #[test]
@@ -4583,7 +4586,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 a = type
 b = type.__dict__
 c = type(type.__dict__)
-d = type(dict.__dict__['fromkeys'])
+d = type(dict.__dict__['items'])
 # TODO this should fail
 e = type(object().__dict__)
 "#;

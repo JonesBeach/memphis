@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionErrorKind, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
@@ -36,6 +36,19 @@ impl List {
 
     pub fn append(&mut self, item: TreewalkValue) {
         self.items.push(item)
+    }
+
+    pub fn join(&self, delim: &str) -> Result<String, ExecutionErrorKind> {
+        Ok(self
+            .items
+            .iter()
+            .map(|v| {
+                v.as_string().ok_or_else(|| {
+                    ExecutionErrorKind::TypeError(Some("Expected a string".to_string()))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()? // collect into Vec<&str> or Vec<String>
+            .join(delim))
     }
 
     pub fn extend(&mut self, items: Box<dyn CloneableIterable>) {
