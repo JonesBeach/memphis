@@ -7,13 +7,27 @@ use crate::{
 impl TreewalkInterpreter {
     pub fn evaluate_logical_op(
         &self,
-        left: bool,
+        left: TreewalkValue,
         op: &LogicalOp,
-        right: bool,
+        right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
+        let left_truthy = left.as_boolean();
+
         match op {
-            LogicalOp::And => Ok(TreewalkValue::Bool(left && right)),
-            LogicalOp::Or => Ok(TreewalkValue::Bool(left || right)),
+            LogicalOp::And => {
+                if left_truthy {
+                    Ok(right)
+                } else {
+                    Ok(left)
+                }
+            }
+            LogicalOp::Or => {
+                if left_truthy {
+                    Ok(left)
+                } else {
+                    Ok(right)
+                }
+            }
         }
     }
 

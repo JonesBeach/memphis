@@ -304,8 +304,8 @@ impl TreewalkInterpreter {
         op: &LogicalOp,
         right: &Expr,
     ) -> TreewalkResult<TreewalkValue> {
-        let left = self.evaluate_expr(left)?.as_boolean();
-        let right = self.evaluate_expr(right)?.as_boolean();
+        let left = self.evaluate_expr(left)?;
+        let right = self.evaluate_expr(right)?;
         self.evaluate_logical_op(left, op, right)
     }
 
@@ -1539,6 +1539,12 @@ c = type(a.join)
 
         let input = "not True";
         assert_eval_eq!(input, bool!(false));
+
+        let input = "None or []";
+        assert_eval_eq!(input, list![]);
+
+        let input = "None and []";
+        assert_eval_eq!(input, none!());
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
