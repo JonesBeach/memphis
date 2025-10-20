@@ -32,6 +32,7 @@ impl_method_provider!(
         JoinBuiltin,
         SplitBuiltin,
         LowerBuiltin,
+        EncodeBuiltin,
     ]
 );
 impl_iterable!(StrIter);
@@ -41,7 +42,7 @@ impl Str {
         Self(str.to_string())
     }
 
-    pub fn from_bytes(bytes: &[u8], encoding: Encoding) -> Result<Self, ExecutionErrorKind> {
+    pub fn decode(bytes: &[u8], encoding: Encoding) -> Result<Self, ExecutionErrorKind> {
         let str = match encoding {
             Encoding::Utf8 => str::from_utf8(bytes).map_err(|_| {
                 ExecutionErrorKind::ValueError(format!(
@@ -51,6 +52,14 @@ impl Str {
         };
 
         Ok(Self::new(str))
+    }
+
+    pub fn encode(&self, encoding: Encoding) -> Vec<u8> {
+        if encoding != Encoding::Utf8 {
+            unimplemented!("Rust only supports utf-8 in std");
+        }
+
+        self.0.as_bytes().to_vec()
     }
 
     pub fn slice(&self, slice: &Slice) -> Self {
@@ -117,6 +126,8 @@ struct JoinBuiltin;
 struct SplitBuiltin;
 #[derive(Clone)]
 struct LowerBuiltin;
+#[derive(Clone)]
+struct EncodeBuiltin;
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -219,6 +230,30 @@ impl Callable for LowerBuiltin {
 
     fn name(&self) -> String {
         "lower".into()
+    }
+}
+
+impl Callable for EncodeBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
+        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
+
+        let encoding = match args.len() {
+            0 => Encoding::Utf8,
+            1 => {
+                let encoding_str = args.get_arg(0).expect_string(interpreter)?;
+                Encoding::try_from(encoding_str.as_str())
+                    .map_err(|_| interpreter.unknown_encoding(encoding_str))?
+            }
+            _ => unreachable!(),
+        };
+
+        let str_value = Str::from(text);
+        Ok(TreewalkValue::Bytes(str_value.encode(encoding)))
+    }
+
+    fn name(&self) -> String {
+        "encode".into()
     }
 }
 

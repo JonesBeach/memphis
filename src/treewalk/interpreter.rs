@@ -1518,6 +1518,12 @@ c = type(a.join)
 
         let input = r#""\r\n".join(["a", "b"])"#;
         assert_eval_eq!(input, str!("a\r\nb"));
+
+        let input = r#""hello".encode()"#;
+        assert_eval_eq!(input, bytes!("hello"));
+
+        let input = r#""hello".encode("utf-8")"#;
+        assert_eval_eq!(input, bytes!("hello"));
     }
 
     #[test]

@@ -24,7 +24,7 @@ struct NewBuiltin;
 #[derive(Clone)]
 struct DecodeBuiltin;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Encoding {
     Utf8,
 }
@@ -89,7 +89,7 @@ impl Callable for DecodeBuiltin {
         };
 
         let bytes = args.expect_self(interpreter)?.expect_bytes(interpreter)?;
-        let str_value = Str::from_bytes(&bytes, encoding).raise(interpreter)?;
+        let str_value = Str::decode(&bytes, encoding).raise(interpreter)?;
         Ok(TreewalkValue::Str(str_value))
     }
 
