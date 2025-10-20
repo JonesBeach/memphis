@@ -190,15 +190,24 @@ impl Callable for MaketransBuiltin {
 
 impl Callable for SplitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
         let delim = args.get_arg(0).expect_string(interpreter)?;
 
-        let parts = text
-            .split(&delim)
-            .map(|i| TreewalkValue::Str(Str::new(i)))
-            .collect();
+        // We must use dynamic dispatch because split and splitn return different types.
+        let iter: Box<dyn Iterator<Item = &str>> = match args.len() {
+            1 => Box::new(text.split(&delim)),
+            2 => {
+                let max_split = args.get_arg(1).expect_integer(interpreter)?;
+                // Python's value for maxsplit is the number of splits done, while Rust interprets
+                // it as the number of items in the resulting list. Therefore, we add one.
+                Box::new(text.splitn((max_split as usize) + 1, &delim))
+            }
+            _ => unreachable!(),
+        };
+
+        let parts: Vec<_> = iter.map(|i| TreewalkValue::Str(Str::new(i))).collect();
 
         Ok(TreewalkValue::List(Container::new(List::new(parts))))
     }

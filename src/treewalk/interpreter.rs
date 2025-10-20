@@ -1511,6 +1511,9 @@ d = type(str.maketrans)
 
         let input = r#""abc\r\ndef".split("\r\n")"#;
         assert_eval_eq!(input, list![str!("abc"), str!("def")]);
+
+        let input = r#""Host: localhost:8000".split(": ", 1)"#;
+        assert_eval_eq!(input, list![str!("Host"), str!("localhost:8000")]);
     }
 
     #[test]
