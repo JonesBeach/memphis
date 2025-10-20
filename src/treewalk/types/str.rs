@@ -29,7 +29,6 @@ impl_method_provider!(
         MulBuiltin,
         ContainsBuiltin,
         JoinBuiltin,
-        MaketransBuiltin,
         SplitBuiltin,
     ]
 );
@@ -109,8 +108,6 @@ struct ContainsBuiltin;
 #[derive(Clone)]
 struct JoinBuiltin;
 #[derive(Clone)]
-struct MaketransBuiltin;
-#[derive(Clone)]
 struct SplitBuiltin;
 
 impl Callable for AddBuiltin {
@@ -171,20 +168,6 @@ impl Callable for JoinBuiltin {
 
     fn name(&self) -> String {
         "join".into()
-    }
-}
-
-impl Callable for MaketransBuiltin {
-    fn call(
-        &self,
-        _interpreter: &TreewalkInterpreter,
-        _args: Args,
-    ) -> TreewalkResult<TreewalkValue> {
-        unimplemented!()
-    }
-
-    fn name(&self) -> String {
-        "maketrans".into()
     }
 }
 

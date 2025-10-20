@@ -30,7 +30,6 @@ impl_method_provider!(
         DictKeysBuiltin,
         DictValuesBuiltin,
         DictItemsBuiltin,
-        FromKeysBuiltin
     ]
 );
 
@@ -185,8 +184,6 @@ struct DictItemsBuiltin;
 struct DictKeysBuiltin;
 #[derive(Clone)]
 struct DictValuesBuiltin;
-#[derive(Clone)]
-struct FromKeysBuiltin;
 
 impl Callable for DictItemsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -224,20 +221,6 @@ impl Callable for DictValuesBuiltin {
 
     fn name(&self) -> String {
         "values".into()
-    }
-}
-
-impl Callable for FromKeysBuiltin {
-    fn call(
-        &self,
-        _interpreter: &TreewalkInterpreter,
-        _args: Args,
-    ) -> TreewalkResult<TreewalkValue> {
-        unimplemented!()
-    }
-
-    fn name(&self) -> String {
-        "fromkeys".into()
     }
 }
 
