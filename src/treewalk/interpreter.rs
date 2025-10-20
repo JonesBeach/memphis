@@ -1505,6 +1505,9 @@ d = type(str.maketrans)
 
         let input = r#""abc" * 3"#;
         assert_eval_eq!(input, str!("abcabcabc"));
+
+        let input = r#""abc\ndef".split("\n")"#;
+        assert_eval_eq!(input, list![str!("abc"), str!("def")]);
     }
 
     #[test]

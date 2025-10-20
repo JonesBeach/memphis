@@ -5,11 +5,12 @@ use std::{
 };
 
 use crate::{
+    core::Container,
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
-        types::Slice,
+        types::{List, Slice},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -28,7 +29,8 @@ impl_method_provider!(
         MulBuiltin,
         ContainsBuiltin,
         JoinBuiltin,
-        MaketransBuiltin
+        MaketransBuiltin,
+        SplitBuiltin,
     ]
 );
 impl_iterable!(StrIter);
@@ -108,6 +110,8 @@ struct ContainsBuiltin;
 struct JoinBuiltin;
 #[derive(Clone)]
 struct MaketransBuiltin;
+#[derive(Clone)]
+struct SplitBuiltin;
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -181,6 +185,26 @@ impl Callable for MaketransBuiltin {
 
     fn name(&self) -> String {
         "maketrans".into()
+    }
+}
+
+impl Callable for SplitBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let delim = args.get_arg(0).expect_string(interpreter)?;
+
+        let parts = text
+            .split(&delim)
+            .map(|i| TreewalkValue::Str(Str::new(i)))
+            .collect();
+
+        Ok(TreewalkValue::List(Container::new(List::new(parts))))
+    }
+
+    fn name(&self) -> String {
+        "split".into()
     }
 }
 
