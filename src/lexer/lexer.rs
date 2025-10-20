@@ -538,13 +538,26 @@ where
 fn consume_delimited(chars: &mut Peekable<Chars>, end_char: char) -> String {
     let mut literal = String::new();
 
-    while let Some(&c) = chars.peek() {
+    while let Some(c) = chars.next() {
         if c == end_char {
-            chars.next();
             break;
+        } else if c == '\\' {
+            match chars.next() {
+                Some('n') => literal.push('\n'),
+                Some('r') => literal.push('\r'),
+                Some('t') => literal.push('\t'),
+                Some('"') => literal.push('"'),
+                Some('\\') => literal.push('\\'),
+                Some('0') => literal.push('\0'),
+                Some(other) => {
+                    // Keep unknown escape sequences literal
+                    literal.push('\\');
+                    literal.push(other);
+                }
+                None => literal.push('\\'),
+            }
         } else {
             literal.push(c);
-            chars.next();
         }
     }
 
@@ -554,15 +567,10 @@ fn consume_delimited(chars: &mut Peekable<Chars>, end_char: char) -> String {
 fn consume_bytes_literal(chars: &mut Peekable<Chars>, end_char: char) -> Vec<u8> {
     let mut bytes = Vec::new();
 
-    while let Some(&c) = chars.peek() {
+    while let Some(c) = chars.next() {
         if c == end_char {
-            chars.next();
             break;
-        }
-
-        if c == '\\' {
-            chars.next();
-
+        } else if c == '\\' {
             match chars.next() {
                 Some('x') => {
                     // Expect two hex digits
@@ -593,7 +601,6 @@ fn consume_bytes_literal(chars: &mut Peekable<Chars>, end_char: char) -> Vec<u8>
         } else {
             // Ordinary byte
             bytes.push(c as u8);
-            chars.next();
         }
     }
 
@@ -1726,6 +1733,16 @@ async def main():
                 Token::Newline,
                 Token::Dedent,
             ]
+        );
+    }
+
+    #[test]
+    fn string_literal() {
+        let input = r#""abc\ndef""#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::StringLiteral("abc\ndef".into()), Token::Newline,]
         );
     }
 
