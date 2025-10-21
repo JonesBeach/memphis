@@ -167,16 +167,14 @@ impl Lexer {
 
     fn tokenize_f_string(&mut self, chars: &mut Peekable<Chars>) {
         let mut literal = String::new();
-        while let Some(&c) = chars.peek() {
+        while let Some(c) = chars.next() {
             if c == '{' {
-                if chars.clone().nth(1) == Some('{') {
+                if chars.peek() == Some(&'{') {
                     // Handle escape left brace {{
                     literal.push(c);
                     chars.next();
-                    chars.next();
                 } else {
                     self.save_string_literal(&mut literal);
-                    chars.next();
                     self.pending_tokens.push_back(Token::LBrace);
                     self.in_f_string_expr = true;
 
@@ -186,42 +184,23 @@ impl Lexer {
                 }
             } else if matches!(c, '"' | '\'') {
                 self.save_string_literal(&mut literal);
-                chars.next();
                 self.pending_tokens.push_back(Token::FStringEnd);
 
                 // We are done with the f-string.
                 return;
             } else if c == '}' {
-                if chars.clone().nth(1) == Some('}') {
+                if chars.peek() == Some(&'}') {
                     // Handle escape right brace }}
                     literal.push(c);
                     chars.next();
-                    chars.next();
                 } else {
-                    chars.next();
                     self.pending_tokens.push_back(Token::RBrace);
                     self.in_f_string_expr = false;
                 }
             } else if c == '\\' {
-                chars.next();
-                // TODO this is duplicated from consume_delimited
-                match chars.next() {
-                    Some('n') => literal.push('\n'),
-                    Some('r') => literal.push('\r'),
-                    Some('t') => literal.push('\t'),
-                    Some('"') => literal.push('"'),
-                    Some('\\') => literal.push('\\'),
-                    Some('0') => literal.push('\0'),
-                    Some(other) => {
-                        // Keep unknown escape sequences literal
-                        literal.push('\\');
-                        literal.push(other);
-                    }
-                    None => literal.push('\\'),
-                }
+                push_escape_sequence(chars, &mut literal);
             } else {
                 literal.push(c);
-                chars.next();
             }
         }
     }
@@ -552,6 +531,23 @@ where
     literal
 }
 
+fn push_escape_sequence(chars: &mut Peekable<Chars>, literal: &mut String) {
+    match chars.next() {
+        Some('n') => literal.push('\n'),
+        Some('r') => literal.push('\r'),
+        Some('t') => literal.push('\t'),
+        Some('"') => literal.push('"'),
+        Some('\\') => literal.push('\\'),
+        Some('0') => literal.push('\0'),
+        Some(other) => {
+            // Keep unknown escape sequences literal
+            literal.push('\\');
+            literal.push(other);
+        }
+        None => literal.push('\\'),
+    }
+}
+
 fn consume_delimited(chars: &mut Peekable<Chars>, end_char: char) -> String {
     let mut literal = String::new();
 
@@ -559,20 +555,7 @@ fn consume_delimited(chars: &mut Peekable<Chars>, end_char: char) -> String {
         if c == end_char {
             break;
         } else if c == '\\' {
-            match chars.next() {
-                Some('n') => literal.push('\n'),
-                Some('r') => literal.push('\r'),
-                Some('t') => literal.push('\t'),
-                Some('"') => literal.push('"'),
-                Some('\\') => literal.push('\\'),
-                Some('0') => literal.push('\0'),
-                Some(other) => {
-                    // Keep unknown escape sequences literal
-                    literal.push('\\');
-                    literal.push(other);
-                }
-                None => literal.push('\\'),
-            }
+            push_escape_sequence(chars, &mut literal);
         } else {
             literal.push(c);
         }
