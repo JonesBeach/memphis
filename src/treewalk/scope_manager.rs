@@ -1,43 +1,8 @@
 use crate::{
     core::Container,
     domain::Context,
-    treewalk::{
-        builtins::{
-            CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, HashBuiltin,
-            IsinstanceBuiltin, IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin,
-            PrintBuiltin,
-        },
-        type_system::CloneableCallable,
-        types::Module,
-        utils::EnvironmentFrame,
-        Scope, TreewalkValue, TypeRegistry,
-    },
+    treewalk::{types::Module, utils::EnvironmentFrame, Scope, TreewalkValue},
 };
-
-fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
-    vec![
-        Box::new(CallableBuiltin),
-        Box::new(DirBuiltin),
-        Box::new(GetattrBuiltin),
-        Box::new(GlobalsBuiltin),
-        Box::new(HashBuiltin),
-        Box::new(IsinstanceBuiltin),
-        Box::new(IssubclassBuiltin),
-        Box::new(IterBuiltin),
-        Box::new(LenBuiltin),
-        Box::new(NextBuiltin),
-        Box::new(PrintBuiltin),
-    ]
-}
-
-fn init_builtin_scope() -> Scope {
-    let mut scope = Scope::default();
-    for builtin in get_builtins() {
-        scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
-    }
-
-    scope
-}
 
 /// This struct implements Python's scoping rules by storing data to power the
 /// `read`/`write`/`delete` interface available to the interpreter.
@@ -53,9 +18,9 @@ pub struct ScopeManager {
     /// A stack of modules to support symbol resolution local to specific modules.
     module_stack: Vec<Container<Module>>,
 
-    /// The read-only scope which contains builtin methods such as `print()`, `open()`, etc. There
+    /// The read-only module which contains builtin methods such as `print()`, `open()`, etc. There
     /// is only one of these so we do not need a stack.
-    builtin_scope: Scope,
+    builtins: Container<Module>,
 
     /// This stack allows us to know whether to search on the `local_scope_stack` or the
     /// `module_stack` when resolving a symbol.
@@ -63,25 +28,13 @@ pub struct ScopeManager {
 }
 
 impl ScopeManager {
-    pub fn new() -> Self {
+    pub fn new(builtins: Container<Module>) -> Self {
         ScopeManager {
             local_scope_stack: vec![Container::new(Scope::default())],
             captured_env_stack: vec![],
             module_stack: vec![],
-            builtin_scope: init_builtin_scope(),
+            builtins,
             context_stack: vec![],
-        }
-    }
-
-    /// This is to insert `list()`, `set()`, etc into the builtin scope. We must do it here instead
-    /// of in `init_builtin_scope()` because we want to use the singleton instances owned by
-    /// `TypeRegistry`.
-    pub fn register_callable_builtin_types(&mut self, registry: &TypeRegistry) {
-        for builtin_class in registry.get_callable_builtin_types() {
-            self.builtin_scope.insert(
-                builtin_class.borrow().builtin_type().into(),
-                TreewalkValue::Class(builtin_class.clone()),
-            );
         }
     }
 
@@ -162,7 +115,7 @@ impl ScopeManager {
             }
         }
 
-        self.builtin_scope.get(name)
+        self.builtins.borrow().get(name)
     }
 
     pub fn write(&mut self, name: &str, value: TreewalkValue) {

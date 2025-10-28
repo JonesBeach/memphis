@@ -65,7 +65,7 @@ fn register_native_class<T: MethodProvider>(
     mod_.insert(name, TreewalkValue::Class(Container::new(class)));
 }
 
-pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
+fn init(type_registry: &TypeRegistry) -> Module {
     let mut net_mod = Module::new(Source::default());
     for builtin in builtins() {
         net_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
@@ -73,6 +73,12 @@ pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
 
     register_native_class::<Socket>(&mut net_mod, "Socket", type_registry);
     register_native_class::<Connection>(&mut net_mod, "Connection", type_registry);
+
+    net_mod
+}
+
+pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
+    let net_mod = init(type_registry);
 
     let memphis_mod = module_store.get_or_create_module(&ImportPath::from("memphis"));
     memphis_mod.borrow_mut().insert(

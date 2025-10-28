@@ -63,11 +63,15 @@ fn builtins() -> Vec<Box<dyn CloneableCallable>> {
     ]
 }
 
-pub fn import(module_store: &mut ModuleStore) {
-    let mut asyncio_mod = Module::new(Source::default());
+fn init() -> Module {
+    let mut mod_ = Module::new(Source::default());
     for builtin in builtins() {
-        asyncio_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
+        mod_.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
+    mod_
+}
 
+pub fn import(module_store: &mut ModuleStore) {
+    let asyncio_mod = init();
     module_store.store_module(&ImportPath::from("asyncio"), Container::new(asyncio_mod));
 }

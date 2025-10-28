@@ -23,7 +23,7 @@ impl ModuleStore {
         }
     }
 
-    pub fn load_builtins(&mut self, type_registry: &TypeRegistry) {
+    pub fn load_native_modules(&mut self, type_registry: &TypeRegistry) {
         asyncio::import(self);
         net::import(self, type_registry);
     }

@@ -5,6 +5,7 @@ use crate::{
     domain::{DebugCallStack, DebugStackFrame, ImportPath, Source, ToDebugStackFrame, Type},
     runtime::MemphisState,
     treewalk::{
+        modules::builtins,
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
         ExecutionContextManager, Executor, ModuleStore, Scope, ScopeManager, TreewalkInterpreter,
@@ -35,20 +36,19 @@ impl Default for TreewalkState {
 impl TreewalkState {
     fn new(memphis_state: Container<MemphisState>) -> Self {
         let type_registry = TypeRegistry::new();
-        let mut scope_manager = ScopeManager::new();
 
         // We still want the `TypeRegistry` to own the type classes, but we must make some of them
-        // available in the builtin scope before execution begins.
-        scope_manager.register_callable_builtin_types(&type_registry);
+        // available in the builtin module before execution begins.
+        let builtins_mod = builtins::init(&type_registry);
 
         let mut module_store = ModuleStore::new();
-        module_store.load_builtins(&type_registry);
+        module_store.load_native_modules(&type_registry);
 
         TreewalkState {
             memphis_state,
             module_store,
             type_registry,
-            scope_manager,
+            scope_manager: ScopeManager::new(Container::new(builtins_mod)),
             execution_context: ExecutionContextManager::new(),
             executor: Executor::new().into(),
             #[cfg(feature = "c_stdlib")]

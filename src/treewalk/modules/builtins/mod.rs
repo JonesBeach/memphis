@@ -1,13 +1,49 @@
 use crate::{
     core::Container,
-    domain::Dunder,
+    domain::{Dunder, Source},
     treewalk::{
         protocols::{Callable, Iterable},
-        types::{List, Str},
+        type_system::CloneableCallable,
+        types::{List, Module, Str},
         utils::{args, check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
+
+fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
+    vec![
+        Box::new(CallableBuiltin),
+        Box::new(DirBuiltin),
+        Box::new(GetattrBuiltin),
+        Box::new(GlobalsBuiltin),
+        Box::new(HashBuiltin),
+        Box::new(IsinstanceBuiltin),
+        Box::new(IssubclassBuiltin),
+        Box::new(IterBuiltin),
+        Box::new(LenBuiltin),
+        Box::new(NextBuiltin),
+        Box::new(PrintBuiltin),
+    ]
+}
+
+pub fn init(registry: &TypeRegistry) -> Module {
+    let mut mod_ = Module::new(Source::default());
+    for builtin in get_builtins() {
+        mod_.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
+    }
+
+    // This is to insert `list()`, `set()`, etc into the builtin scope. We must do it here instead
+    // of in `init_builtin_scope()` because we want to use the singleton instances owned by
+    // `TypeRegistry`.
+    for builtin_class in registry.get_callable_builtin_types() {
+        mod_.insert(
+            builtin_class.borrow().builtin_type().into(),
+            TreewalkValue::Class(builtin_class.clone()),
+        );
+    }
+
+    mod_
+}
 
 #[derive(Clone)]
 pub struct CallableBuiltin;
@@ -249,6 +285,6 @@ impl Callable for IterBuiltin {
     }
 }
 
-pub fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
+fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
     vec1.iter().any(|item| vec2.contains(item))
 }
