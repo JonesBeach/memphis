@@ -23,7 +23,7 @@ mod mapping_proxy;
 mod memoryview;
 mod method;
 mod module;
-mod object;
+pub mod object;
 mod property;
 mod range;
 mod reversed;

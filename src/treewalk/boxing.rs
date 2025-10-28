@@ -27,7 +27,7 @@ impl TreewalkValue {
                 // i.e. [].append
                 // All attributes fetched off the builtin types not explicitly handled above do not
                 // support attribute writes, only reads of builtin attributes.
-                let class = interpreter.state.class_of_type(self.get_type());
+                let class = interpreter.state.class_of_type(&self.get_type());
                 Box::new(BuiltinObject::new(self, class))
             }
         }

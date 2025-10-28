@@ -96,20 +96,16 @@ impl Callable for NewBuiltin {
             .collect::<Result<Vec<_>, _>>()?;
 
         let parent_classes = if parent_classes.is_empty() {
-            vec![interpreter.state.class_of_type(Type::Object)]
+            vec![interpreter.state.class_of_type(&Type::Object)]
         } else {
             parent_classes
         };
 
         let symbol_table = args.get_arg(3).expect_symbol_table(interpreter)?;
-        let scope = Scope::new(symbol_table);
 
-        Ok(TreewalkValue::Class(Class::new_base(
-            name,
-            parent_classes,
-            Some(mcls),
-            scope,
-        )))
+        let mut class = Class::new_direct(name, Some(mcls), parent_classes);
+        class.scope = Scope::new(symbol_table);
+        Ok(TreewalkValue::Class(Container::new(class)))
     }
 
     fn name(&self) -> String {

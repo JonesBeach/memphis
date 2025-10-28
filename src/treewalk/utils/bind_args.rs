@@ -10,6 +10,11 @@ use crate::{
     },
 };
 
+/// Implements Python's binding order:
+/// - positional
+/// - keyword (overrides or fills)
+/// - defaults for missing
+/// - leftover get stored in **kwargs
 pub fn bind_args(
     callee_name: &str,
     args: &Args,
@@ -17,19 +22,25 @@ pub fn bind_args(
     interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<SymbolTable> {
     let mut table = HashMap::new();
+    let bound_args = args.bound_args();
 
     // Function expects fewer positional args than it was invoked with and there is not an
     // `args_var` in which to store the rest.
     check_args(
         args,
-        |_| !(expected_args.args.len() < args.bound_len() && expected_args.args_var.is_none()),
+        |_| !(expected_args.args.len() < bound_args.len() && expected_args.args_var.is_none()),
         interpreter,
     )?;
 
-    let bound_args = args.bound_args();
     let mut missing_args = vec![];
 
     for (index, arg_def) in expected_args.args.iter().enumerate() {
+        // Check if already satisfied by a keyword argument
+        if args.has_kwarg(&arg_def.arg) {
+            // We'll bind it later in the keyword override pass
+            continue;
+        }
+
         // Check if the argument is provided, otherwise use default
         let value = if index < bound_args.len() {
             bound_args[index].clone()
@@ -47,6 +58,18 @@ pub fn bind_args(
         };
 
         table.insert(arg_def.arg.clone(), value);
+    }
+
+    for (key, value) in args.get_kwargs().iter() {
+        // Is this keyword name something that belongs to the function, either because it was
+        // already bound, or because it’s one of the declared parameters?
+        if table.contains_key(key) || expected_args.args.iter().any(|a| &a.arg == key) {
+            table.insert(key.clone(), value.clone());
+        } else if expected_args.kwargs_var.is_none() {
+            return Err(interpreter.type_error(format!(
+                "{callee_name}() got an unexpected keyword argument '{key}'"
+            )));
+        }
     }
 
     // Function expects more positional args than it was invoked with.
@@ -75,7 +98,7 @@ pub fn bind_args(
     }
 
     if let Some(ref kwargs_var) = expected_args.kwargs_var {
-        let kwargs_value = TreewalkValue::Dict(Container::new(args.get_kwargs(interpreter)));
+        let kwargs_value = TreewalkValue::Dict(Container::new(args.get_kwargs_dict(interpreter)));
         table.insert(kwargs_var.to_string(), kwargs_value);
     }
 

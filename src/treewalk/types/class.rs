@@ -22,6 +22,8 @@ pub struct Class {
     /// optional in the struct definition.
     metaclass: Option<Container<Class>>,
     pub scope: Scope,
+
+    // TODO consider whether we can deprecate this field.
     builtin_type: Option<Type>,
 }
 
@@ -34,7 +36,7 @@ impl Class {
         parent_classes: Vec<Container<Class>>,
         metaclass: Option<Container<Class>>,
     ) -> TreewalkResult<Container<Self>> {
-        let type_class = interpreter.state.class_of_type(Type::Type);
+        let type_class = interpreter.state.class_of_type(&Type::Type);
         let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
 
         let bases = if parent_classes.is_empty() {
@@ -50,7 +52,7 @@ impl Class {
 
         let args = args![
             TreewalkValue::Class(metaclass.clone()),
-            TreewalkValue::Str(Str::new(name.into())),
+            TreewalkValue::Str(Str::new(name)),
             bases,
             TreewalkValue::Dict(Scope::default().as_dict(interpreter))
         ];
@@ -59,34 +61,34 @@ impl Class {
             .expect_class(interpreter)
     }
 
-    /// Create the class. This is used by `Dunder::New` for `Type::Type` under the hood.
-    pub fn new_base(
-        name: String,
-        parent_classes: Vec<Container<Class>>,
-        metaclass: Option<Container<Class>>,
-        scope: Scope,
-    ) -> Container<Self> {
-        Container::new(Self {
-            name,
-            parent_classes,
-            metaclass,
-            scope,
-            builtin_type: None,
-        })
-    }
-
-    pub fn new_builtin(
-        name: Type,
+    /// Create a class directly, bypassing metaclass logic.
+    /// Used for bootstrapping builtins, native types, and the standard library.
+    pub fn new_direct(
+        name: impl Into<String>,
         metaclass: Option<Container<Class>>,
         parent_classes: Vec<Container<Class>>,
-    ) -> Container<Self> {
-        Container::new(Self {
-            name: name.to_string(),
+    ) -> Self {
+        Self {
+            name: name.into(),
             parent_classes,
             metaclass,
             scope: Scope::default(),
-            builtin_type: Some(name),
-        })
+            builtin_type: None,
+        }
+    }
+
+    pub fn new_builtin(
+        type_: Type,
+        metaclass: Option<Container<Class>>,
+        parent_classes: Vec<Container<Class>>,
+    ) -> Self {
+        Self {
+            name: String::from(&type_),
+            parent_classes,
+            metaclass,
+            scope: Scope::default(),
+            builtin_type: Some(type_),
+        }
     }
 
     /// The primary accessor for the metaclass of a class. The property is optional because of
@@ -102,10 +104,6 @@ impl Class {
         self.builtin_type.as_ref().unwrap_or_else(|| {
             panic!("attempted to access the builtin type for a user-defined type!")
         })
-    }
-
-    pub fn is_builtin_type(&self) -> bool {
-        self.builtin_type.is_some()
     }
 
     pub fn is_metaclass(&self) -> bool {
@@ -170,6 +168,12 @@ impl Class {
 
         type_class
     }
+
+    /// Insert into the class scope. Used by `MemberWriter` or anywhere we do not have an
+    /// `Interpreter`, like in the `TypeRegistry` on startup.
+    pub fn set_on_class(&mut self, name: &str, value: TreewalkValue) {
+        self.scope.insert(name, value);
+    }
 }
 
 impl Container<Class> {
@@ -214,41 +218,28 @@ impl Container<Class> {
             .collect::<Vec<Container<Class>>>()
     }
 
-    /// Use the class MRO to search for an attribute. This does not consider metaclasses but it
-    /// does consider the class itself.
-    fn search(iterable: &[Container<Class>], name: &str) -> Option<TreewalkValue> {
-        for class in iterable {
-            if let Some(attr) = class.borrow().scope.get(name) {
-                return Some(attr);
-            }
-        }
-
-        None
-    }
-
-    fn search_mro(&self, name: &str) -> Option<TreewalkValue> {
-        Self::search(&self.mro(), name)
-    }
-
     pub fn get_from_class(&self, name: &str) -> Option<TreewalkValue> {
         log(LogLevel::Debug, || format!("Searching for: {self}::{name}"));
-
-        self.search_mro(name)
+        search(&self.mro(), name)
     }
 
     pub fn get_from_metaclass(&self, name: &str) -> Option<TreewalkValue> {
         log(LogLevel::Debug, || {
             format!("Searching for: {}::{}", self.borrow().metaclass(), name)
         });
+        search(&self.borrow().metaclass().mro(), name)
+    }
+}
 
-        self.borrow().metaclass().search_mro(name)
+/// Search for the give attribute in the list of classes. MRO should happen before this!
+fn search(iterable: &[Container<Class>], name: &str) -> Option<TreewalkValue> {
+    for class in iterable {
+        if let Some(attr) = class.borrow().scope.get(name) {
+            return Some(attr);
+        }
     }
 
-    /// Insert into the class scope. Used by `MemberWriter` or anywhere we do not have an
-    /// `Interpreter`, like in the `TypeRegistry` on startup.
-    pub fn set_on_class(&self, name: &str, value: TreewalkValue) {
-        self.borrow_mut().scope.insert(name, value);
-    }
+    None
 }
 
 impl MemberRead for Container<Class> {
@@ -286,6 +277,12 @@ impl MemberRead for Container<Class> {
 
         Ok(None)
     }
+
+    fn dir(&self) -> Vec<String> {
+        let mut symbols = self.borrow().scope.symbols();
+        symbols.sort();
+        symbols
+    }
 }
 
 impl MemberWrite for Container<Class> {
@@ -306,7 +303,7 @@ impl MemberWrite for Container<Class> {
         name: &str,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        self.set_on_class(name, value);
+        self.borrow_mut().set_on_class(name, value);
         Ok(())
     }
 }

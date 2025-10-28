@@ -247,8 +247,27 @@ impl TreewalkValue {
                 }
             }
             TreewalkValue::Str(s) => write!(f, "{s}"),
-            TreewalkValue::Bytes(b) => write!(f, "b'{b:?}'"),
-            TreewalkValue::ByteArray(b) => write!(f, "bytearray(b'{b:?}')"),
+            TreewalkValue::Bytes(b) => {
+                // Similar to Float, we should probably move this onto Bytes
+                write!(f, "b'")?;
+                for &byte in b {
+                    match byte {
+                        b'\n' => write!(f, "\\n")?,
+                        b'\r' => write!(f, "\\r")?,
+                        b'\t' => write!(f, "\\t")?,
+                        b'\'' => write!(f, "\\'")?,
+                        b'\\' => write!(f, "\\\\")?,
+                        32..=126 => write!(f, "{}", byte as char)?, // printable ASCII
+                        _ => write!(f, "\\x{:02x}", byte)?,         // hex escape
+                    }
+                }
+                write!(f, "'")
+            }
+            TreewalkValue::ByteArray(b) => {
+                write!(f, "bytearray(")?;
+                Display::fmt(&TreewalkValue::Bytes(b.borrow().raw().to_vec()), f)?;
+                write!(f, ")")
+            }
             TreewalkValue::Bool(b) => match b {
                 true => write!(f, "True"),
                 false => write!(f, "False"),
@@ -375,7 +394,7 @@ impl TreewalkValue {
             TreewalkValue::Object(o) => o.borrow().class(),
             TreewalkValue::Class(o) => o.clone(),
             TreewalkValue::Super(s) => s.receiver().get_class(interpreter),
-            _ => interpreter.state.class_of_type(self.get_type()).clone(),
+            _ => interpreter.state.class_of_type(&self.get_type()).clone(),
         }
     }
 
@@ -733,6 +752,18 @@ impl TreewalkValue {
     pub fn expect_tuple(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Tuple> {
         self.as_tuple()
             .ok_or_else(|| interpreter.type_error("Expected a tuple"))
+    }
+
+    pub fn as_bytes(&self) -> Option<Vec<u8>> {
+        match self {
+            TreewalkValue::Bytes(i) => Some(i.to_vec()),
+            _ => None,
+        }
+    }
+
+    pub fn expect_bytes(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Vec<u8>> {
+        self.as_bytes()
+            .ok_or_else(|| interpreter.type_error("Expected bytes"))
     }
 
     pub fn as_string(&self) -> Option<String> {

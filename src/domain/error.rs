@@ -116,9 +116,10 @@ impl Display for RuntimeValue {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExecutionErrorKind {
-    RuntimeError,
+    RuntimeError(Option<String>),
     ImportError(String),
     TypeError(Option<String>),
+    LookupError(String),
     KeyError(String),
     ValueError(String),
     NameError(String),
@@ -135,7 +136,10 @@ pub enum ExecutionErrorKind {
 impl Display for ExecutionErrorKind {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            ExecutionErrorKind::RuntimeError => write!(f, "RuntimeError"),
+            ExecutionErrorKind::RuntimeError(msg) => match msg {
+                Some(msg) => write!(f, "RuntimeError: {msg}"),
+                None => write!(f, "RuntimeError"),
+            },
             ExecutionErrorKind::ImportError(name) => {
                 write!(f, "ImportError: No module named {name}")
             }
@@ -143,6 +147,7 @@ impl Display for ExecutionErrorKind {
                 Some(message) => write!(f, "TypeError: {message}"),
                 None => write!(f, "TypeError"),
             },
+            ExecutionErrorKind::LookupError(message) => write!(f, "LookupError: '{message}'"),
             ExecutionErrorKind::KeyError(key) => write!(f, "KeyError: '{key}'"),
             ExecutionErrorKind::ValueError(message) => write!(f, "ValueError: '{message}'"),
             ExecutionErrorKind::NameError(name) => {
@@ -259,6 +264,45 @@ pub mod test_utils {
         }};
     }
 
+    macro_rules! assert_lookup_error {
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::LookupError(msg) => {
+                    assert_eq!(msg, $expected_message, "Unexpected LookupError message");
+                }
+                _ => panic!(
+                    "Expected a LookupError error with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+    }
+
+    macro_rules! assert_runtime_error {
+        ($error:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::RuntimeError(msg) => {
+                    assert!(msg.is_none(), "Unexpected RuntimeError message");
+                }
+                _ => panic!(
+                    "Expected a RuntimeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+        ($error:expr, $expected_message:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::RuntimeError(Some(msg)) => {
+                    assert_eq!(msg, $expected_message, "Unexpected RuntimeError message");
+                }
+                _ => panic!(
+                    "Expected a RuntimeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+    }
+
     macro_rules! assert_type_error {
         ($error:expr) => {{
             match &$error.execution_error_kind {
@@ -363,7 +407,9 @@ pub mod test_utils {
     pub(crate) use assert_error_eq;
     pub(crate) use assert_import_error;
     pub(crate) use assert_key_error;
+    pub(crate) use assert_lookup_error;
     pub(crate) use assert_name_error;
+    pub(crate) use assert_runtime_error;
     pub(crate) use assert_stop_iteration;
     pub(crate) use assert_type_error;
     pub(crate) use assert_value_error;

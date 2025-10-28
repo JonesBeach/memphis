@@ -20,7 +20,7 @@ impl ErrorBuilder {
     }
 
     pub fn runtime_error(&self) -> ExecutionError {
-        self.error(ExecutionErrorKind::RuntimeError)
+        self.error(ExecutionErrorKind::RuntimeError(None))
     }
 
     pub fn import_error(&self, name: &str) -> ExecutionError {

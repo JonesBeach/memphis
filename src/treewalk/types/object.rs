@@ -1,4 +1,7 @@
-use std::fmt::{Display, Error, Formatter};
+use std::{
+    any::Any,
+    fmt::{Display, Error, Formatter},
+};
 
 use crate::{
     core::{log, Container, LogLevel},
@@ -15,10 +18,24 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub struct Object {
     class: Container<Class>,
     scope: Scope,
+    native_payload: Option<Box<dyn Any>>,
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        // If these are both native objects, compare pointer identity
+        if let (Some(a), Some(b)) = (&self.native_payload, &other.native_payload) {
+            if (**a).type_id() == (**b).type_id() {
+                return std::ptr::eq(a.as_ref(), b.as_ref());
+            }
+        }
+
+        self.class == other.class && self.scope == other.scope
+    }
 }
 
 impl_typed!(Object, Type::Object);
@@ -47,11 +64,28 @@ impl_data_descriptor_provider!(Object, [DictDescriptor]);
 impl Object {
     /// Create the object with an empty symbol table. This is also called by the [`Dunder::New`]
     /// for [`Type::Object`] builtin.
-    fn new_object_base(class: Container<Class>) -> TreewalkResult<Container<Object>> {
-        Ok(Container::new(Self {
+    pub fn new(class: Container<Class>) -> Object {
+        Self {
             class,
             scope: Scope::default(),
-        }))
+            native_payload: None,
+        }
+    }
+
+    pub fn with_payload<T: Any>(class: Container<Class>, payload: T) -> Object {
+        Self {
+            class,
+            scope: Scope::default(),
+            native_payload: Some(Box::new(payload)),
+        }
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.native_payload.as_ref()?.downcast_ref::<T>()
+    }
+
+    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.native_payload.as_mut()?.downcast_mut::<T>()
     }
 
     pub fn class(&self) -> Container<Class> {
@@ -212,10 +246,7 @@ impl MemberWrite for Container<Object> {
             .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
             .expect_dict(interpreter)?
             .borrow()
-            .has(
-                interpreter.clone(),
-                &TreewalkValue::Str(Str::new(name.to_owned())),
-            )
+            .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
             return Err(interpreter.attribute_error(&result, name));
         }
@@ -332,7 +363,7 @@ impl Callable for NewBuiltin {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
         let class = args.get_arg(0).expect_class(interpreter)?;
-        Ok(TreewalkValue::Object(Object::new_object_base(class)?))
+        Ok(TreewalkValue::Object(Container::new(Object::new(class))))
     }
 
     fn name(&self) -> String {
@@ -381,8 +412,8 @@ impl Callable for ContainsBuiltin {
         let left = args.expect_self(interpreter)?;
         let right = args.get_arg(0);
 
-        let mut iterable = right.expect_iterator(interpreter)?;
-        Ok(TreewalkValue::Bool(iterable.any(|i| i == left)))
+        let mut iterable = left.expect_iterator(interpreter)?;
+        Ok(TreewalkValue::Bool(iterable.any(|i| i == right)))
     }
 
     fn name(&self) -> String {

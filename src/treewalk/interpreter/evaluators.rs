@@ -7,13 +7,27 @@ use crate::{
 impl TreewalkInterpreter {
     pub fn evaluate_logical_op(
         &self,
-        left: bool,
+        left: TreewalkValue,
         op: &LogicalOp,
-        right: bool,
+        right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
+        let left_truthy = left.as_boolean();
+
         match op {
-            LogicalOp::And => Ok(TreewalkValue::Bool(left && right)),
-            LogicalOp::Or => Ok(TreewalkValue::Bool(left || right)),
+            LogicalOp::And => {
+                if left_truthy {
+                    Ok(right)
+                } else {
+                    Ok(left)
+                }
+            }
+            LogicalOp::Or => {
+                if left_truthy {
+                    Ok(left)
+                } else {
+                    Ok(right)
+                }
+            }
         }
     }
 
@@ -51,9 +65,11 @@ impl TreewalkInterpreter {
         use CompareOp::*;
 
         match op {
-            In => self.invoke_method(&left, &Dunder::Contains, args![right]),
+            // For In and NotIn, Python semantics are reversed.
+            // a in [b] calls [b].__contains__(a)
+            In => self.invoke_method(&right, &Dunder::Contains, args![left]),
             NotIn => {
-                let contains = self.invoke_method(&left, &Dunder::Contains, args![right])?;
+                let contains = self.invoke_method(&right, &Dunder::Contains, args![left])?;
                 Ok(contains.not())
             }
             Equals => self.invoke_method(&left, &Dunder::Eq, args![right]),

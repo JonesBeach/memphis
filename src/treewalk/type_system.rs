@@ -1,6 +1,6 @@
 use crate::{
     domain::Type,
-    treewalk::protocols::{Callable, DataDescriptor, Iterable, NonDataDescriptor},
+    treewalk::protocols::{Callable, DataDescriptor, Iterable, MemberRead, NonDataDescriptor},
 };
 
 /// A trait for enabling `Clone` on trait objects that implement `Callable`.
@@ -35,6 +35,24 @@ impl Clone for Box<dyn CloneableCallable> {
     }
 }
 
+pub trait CloneableMemberRead: MemberRead {
+    fn clone_box(&self) -> Box<dyn CloneableMemberRead>;
+}
+
+impl<T> CloneableMemberRead for T
+where
+    T: MemberRead + Clone + 'static,
+{
+    fn clone_box(&self) -> Box<dyn CloneableMemberRead> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn CloneableMemberRead> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
 /// See `CloneableCallable` for description.
 pub trait CloneableDataDescriptor: DataDescriptor {
     fn clone_box(&self) -> Box<dyn CloneableDataDescriptor>;
@@ -103,14 +121,14 @@ pub trait Typed {
     fn get_type() -> Type;
 }
 
-pub trait MethodProvider: Typed {
+pub trait MethodProvider {
     fn get_methods() -> Vec<Box<dyn CloneableCallable>>;
 }
 
-pub trait DescriptorProvider: Typed {
+pub trait DescriptorProvider {
     fn get_descriptors() -> Vec<Box<dyn CloneableNonDataDescriptor>>;
 }
 
-pub trait DataDescriptorProvider: Typed {
+pub trait DataDescriptorProvider {
     fn get_data_descriptors() -> Vec<Box<dyn CloneableDataDescriptor>>;
 }

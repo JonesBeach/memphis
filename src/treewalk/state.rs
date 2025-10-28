@@ -2,14 +2,13 @@ use std::{cell::UnsafeCell, path::PathBuf};
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame, Type},
-    parser::types::ImportPath,
+    domain::{DebugCallStack, DebugStackFrame, ImportPath, Source, ToDebugStackFrame, Type},
     runtime::MemphisState,
     treewalk::{
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
-        EvaluatedModuleCache, ExecutionContextManager, Executor, Scope, ScopeManager,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
+        ExecutionContextManager, Executor, ModuleStore, Scope, ScopeManager, TreewalkInterpreter,
+        TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -18,7 +17,7 @@ use super::types::cpython::{BuiltinModuleCache, CPythonModule};
 
 pub struct TreewalkState {
     memphis_state: Container<MemphisState>,
-    module_cache: EvaluatedModuleCache,
+    module_store: ModuleStore,
     type_registry: TypeRegistry,
     scope_manager: ScopeManager,
     execution_context: ExecutionContextManager,
@@ -42,9 +41,12 @@ impl TreewalkState {
         // available in the builtin scope before execution begins.
         scope_manager.register_callable_builtin_types(&type_registry);
 
+        let mut module_store = ModuleStore::new();
+        module_store.load_builtins(&type_registry);
+
         TreewalkState {
             memphis_state,
-            module_cache: EvaluatedModuleCache::new(),
+            module_store,
             type_registry,
             scope_manager,
             execution_context: ExecutionContextManager::new(),
@@ -212,12 +214,12 @@ impl Container<TreewalkState> {
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonObject(o) => o.get_type(),
             TreewalkValue::Object(o) => TreewalkValue::Class(o.borrow().class()),
-            _ => TreewalkValue::Class(self.class_of_type(result.get_type())),
+            _ => TreewalkValue::Class(self.class_of_type(&result.get_type())),
         }
     }
 
     /// Return a singleton `Class` for builtin types such as list, set, tuple, dict, etc.
-    pub fn class_of_type(&self, type_: Type) -> Container<Class> {
+    pub fn class_of_type(&self, type_: &Type) -> Container<Class> {
         self.borrow().type_registry.get_type_class(type_)
     }
 
@@ -247,11 +249,20 @@ impl Container<TreewalkState> {
 
     pub fn store_module(&self, import_path: &ImportPath, module: Container<Module>) {
         self.borrow_mut()
-            .module_cache
+            .module_store
             .store_module(import_path, module)
     }
 
     pub fn fetch_module(&self, import_path: &ImportPath) -> Option<Container<Module>> {
-        self.borrow_mut().module_cache.fetch_module(import_path)
+        self.borrow_mut().module_store.fetch_module(import_path)
+    }
+
+    pub fn read_class(&self, import_path: &ImportPath) -> Option<Container<Class>> {
+        let mut segments = import_path.segments().to_vec();
+        let class_name = segments.pop()?;
+        let module_path = ImportPath::from_segments(&segments);
+        let module = self.fetch_module(&module_path)?;
+        let binding = module.borrow();
+        binding.get(&class_name)?.as_class()
     }
 }

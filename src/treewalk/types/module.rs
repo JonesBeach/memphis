@@ -7,12 +7,13 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{ExecutionErrorKind, Source},
+    domain::{Dunder, ExecutionErrorKind, ImportPath, Source},
     errors::MemphisError,
-    parser::types::ImportPath,
     treewalk::{
-        protocols::MemberRead, types::Dict, Scope, TreewalkContext, TreewalkDisruption,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::MemberRead,
+        types::{Dict, Str},
+        Scope, TreewalkContext, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
 
@@ -28,10 +29,6 @@ impl Module {
         import_path: &ImportPath,
     ) -> TreewalkResult<Container<Self>> {
         log(LogLevel::Debug, || format!("Reading {import_path}"));
-        if let Some(module) = interpreter.state.fetch_module(import_path) {
-            return Ok(module);
-        }
-
         // Before we parse and evaluate this module, store an empty module as a placeholder. This
         // is necessary to indicate to downstream modules that the upstream module which called
         // them but hasn't yet finished importing is in progress. Without this, you would get an
@@ -58,7 +55,7 @@ impl Module {
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{e}");
-                return Err(interpreter.error(ExecutionErrorKind::SyntaxError));
+                return Err(interpreter.raise(ExecutionErrorKind::SyntaxError));
             }
             _ => unreachable!(),
         };
@@ -74,11 +71,9 @@ impl Module {
     }
 
     pub fn new(source: Source) -> Self {
-        Self::with_scope(source, Scope::default())
-    }
-
-    pub fn with_scope(source: Source, scope: Scope) -> Self {
-        Self { scope, source }
+        let mut scope = Scope::default();
+        scope.insert(&Dunder::Name, TreewalkValue::Str(Str::new(source.name())));
+        Self { source, scope }
     }
 
     pub fn path(&self) -> &Path {

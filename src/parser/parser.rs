@@ -2,16 +2,16 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    domain::ExceptionLiteral,
+    domain::{ExceptionLiteral, ImportPath},
     errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
         types::{
             ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
             ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
-            FStringPart, ForClause, FormatOption, ImportPath, ImportedItem, KwargsOperation,
-            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp, Variable,
+            FStringPart, ForClause, FormatOption, ImportedItem, KwargsOperation, LogicalOp,
+            LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
+            TypeNode, UnaryOp, Variable,
         },
         TokenBuffer,
     },
@@ -356,20 +356,22 @@ impl<'a> Parser<'a> {
         log(LogLevel::Trace, || "parse_access_operations".to_string());
         let mut left = self.parse_exponentiation()?;
 
-        while matches!(self.current_token(), Token::Dot | Token::LBracket) {
+        while matches!(
+            self.current_token(),
+            Token::Dot | Token::LBracket | Token::LParen
+        ) {
             left = match self.current_token() {
                 Token::Dot => self.parse_member_access(left)?,
                 Token::LBracket => self.parse_index_access(left)?,
+                Token::LParen => {
+                    let args = self.parse_function_call_args()?;
+                    Expr::FunctionCall {
+                        callee: Callee::Expr(Box::new(left)),
+                        args,
+                    }
+                }
                 _ => unreachable!(),
             };
-        }
-
-        if self.current_token() == &Token::LParen {
-            let args = self.parse_function_call_args()?;
-            left = Expr::FunctionCall {
-                callee: Callee::Expr(Box::new(left)),
-                args,
-            }
         }
 
         Ok(left)
@@ -613,9 +615,9 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::RawStringLiteral(literal.clone()))?;
                 Ok(Expr::StringLiteral(literal))
             }
-            Token::ByteStringLiteral(literal) => {
-                self.consume(&Token::ByteStringLiteral(literal.clone()))?;
-                Ok(Expr::ByteStringLiteral(literal.as_bytes().to_vec()))
+            Token::BytesLiteral(bytes) => {
+                self.consume(&Token::BytesLiteral(bytes.clone()))?;
+                Ok(Expr::BytesLiteral(bytes))
             }
             Token::BinaryLiteral(literal) => self.parse_binary_literal(literal),
             Token::OctalLiteral(literal) => self.parse_octal_literal(literal),
@@ -1836,7 +1838,7 @@ mod tests {
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "\"\".join([])";
-        let expected_ast = func_call_callee!(member_access!(str!(""), "join"), call_args![list![]]);
+        let expected_ast = method_call!(str!(""), "join", call_args![list![]]);
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2266,7 +2268,12 @@ class Foo:
     #[test]
     fn method_invocation() {
         let input = "foo.bar()";
-        let expected_ast = func_call_callee!(member_access!(var!("foo"), "bar"));
+        let expected_ast = method_call!(var!("foo"), "bar");
+
+        assert_ast_eq!(input, expected_ast, Expr);
+
+        let input = r#"Response.text().to_bytes()"#;
+        let expected_ast = method_call!(method_call!(var!("Response"), "text"), "to_bytes");
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2710,7 +2717,7 @@ for k, v in a.items():
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
             index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
-            iterable: func_call_callee!(member_access!(var!("a"), "items")),
+            iterable: method_call!(var!("a"), "items"),
             body: ast![stmt_expr!(func_call!("print", call_args![var!("v")]))],
             else_block: None,
         });
@@ -2918,8 +2925,9 @@ async def main():
             body: ast![
                 stmt_assign!(
                     var!("task_1"),
-                    func_call_callee!(
-                        member_access!(var!("asyncio"), "create_task"),
+                    method_call!(
+                        var!("asyncio"),
+                        "create_task",
                         call_args![func_call!("task1")]
                     )
                 ),
@@ -3380,7 +3388,7 @@ with open('test.txt'):
     #[test]
     fn byte_string() {
         let input = "a = b'hello'";
-        let expected_ast = stmt_assign!(var!("a"), Expr::ByteStringLiteral("hello".into()));
+        let expected_ast = stmt_assign!(var!("a"), Expr::BytesLiteral("hello".into()));
 
         assert_ast_eq!(input, expected_ast);
     }

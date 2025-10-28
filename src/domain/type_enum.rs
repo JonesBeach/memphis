@@ -2,12 +2,12 @@ use std::fmt::{Display, Error, Formatter};
 
 /// Represents the logical Python type of a value, as shown in stack traces or `type()` calls.
 /// This is not tied to any specific runtime engine.
-#[derive(Debug, PartialEq, Clone, Hash, Eq)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 pub enum Type {
     #[allow(clippy::enum_variant_names)]
     Type,
-    // This is a hack to avoid a circular referece from Type to itself. We do the same thing with
-    // `ObjectMeta`.
+    // This is a hack to avoid a circular reference from `Type` to itself.
+    // We do the same thing with `ObjectMeta`.
     #[allow(clippy::enum_variant_names)]
     TypeMeta,
     ObjectMeta,
@@ -135,13 +135,13 @@ impl Type {
 
 impl Display for Type {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{}", self.value())
+        f.write_str(self.value())
     }
 }
 
-impl From<Type> for &str {
-    fn from(value: Type) -> Self {
-        value.value()
+impl From<&Type> for String {
+    fn from(value: &Type) -> Self {
+        value.value().to_string()
     }
 }
 

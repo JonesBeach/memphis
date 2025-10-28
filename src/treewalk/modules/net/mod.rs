@@ -1,0 +1,84 @@
+use crate::{
+    core::Container,
+    domain::{ImportPath, Source, Type},
+    treewalk::{
+        protocols::Callable,
+        type_system::{CloneableCallable, MethodProvider},
+        types::{Class, Module, Object},
+        utils::{check_args, Args},
+        ModuleStore, TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
+    },
+};
+
+mod conn;
+mod socket;
+
+pub use conn::Connection;
+pub use socket::Socket;
+
+#[derive(Clone)]
+pub struct NetListenBuiltin;
+
+impl Callable for NetListenBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 1, interpreter)?;
+
+        let host_port = args.get_arg(0).expect_tuple(interpreter)?;
+        let host = host_port.first().expect_string(interpreter)?;
+        let port = host_port.second().expect_integer(interpreter)?;
+
+        let socket = Socket::new(host, port as usize);
+
+        let socket_class = interpreter
+            .state
+            .read_class(&ImportPath::from("memphis.net.Socket"))
+            .ok_or_else(|| interpreter.runtime_error_with("Socket class not found"))?;
+
+        let obj = Object::with_payload(socket_class.clone(), socket);
+
+        Ok(TreewalkValue::Object(Container::new(obj)))
+    }
+
+    fn name(&self) -> String {
+        "listen".into()
+    }
+}
+
+fn builtins() -> Vec<Box<dyn CloneableCallable>> {
+    vec![Box::new(NetListenBuiltin)]
+}
+
+fn register_native_class<T: MethodProvider>(
+    mod_: &mut Module,
+    name: &str,
+    type_registry: &TypeRegistry,
+) {
+    let object_class = type_registry.get_type_class(&Type::Object);
+    let type_class = type_registry.get_type_class(&Type::Type);
+
+    let mut class = Class::new_direct(name, Some(type_class.clone()), vec![object_class.clone()]);
+
+    for builtin in T::get_methods() {
+        class.set_on_class(&builtin.name(), TreewalkValue::BuiltinMethod(builtin));
+    }
+
+    mod_.insert(name, TreewalkValue::Class(Container::new(class)));
+}
+
+pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
+    let mut net_mod = Module::new(Source::default());
+    for builtin in builtins() {
+        net_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
+    }
+
+    register_native_class::<Socket>(&mut net_mod, "Socket", type_registry);
+    register_native_class::<Connection>(&mut net_mod, "Connection", type_registry);
+
+    let memphis_mod = module_store.get_or_create_module(&ImportPath::from("memphis"));
+    memphis_mod.borrow_mut().insert(
+        "net",
+        TreewalkValue::Module(Container::new(net_mod.clone())),
+    );
+
+    module_store.store_module(&ImportPath::from("memphis.net"), Container::new(net_mod));
+}

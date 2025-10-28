@@ -6,10 +6,10 @@ use crate::{
         CompilerResult,
     },
     core::{log, LogLevel},
-    domain::{Context, FunctionType, Source},
+    domain::{Context, FunctionType, ImportPath, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, ImportPath,
-        LogicalOp, LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, LogicalOp,
+        LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 

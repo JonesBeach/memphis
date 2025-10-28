@@ -8,15 +8,16 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
-        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, MemphisValue,
+        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, ImportPath,
+        MemphisValue,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
             Ast, BinOp, CallArgs, Callee, CompareOp, CompoundOperator, ConditionalAst,
             DictOperation, ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause,
-            ImportPath, ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams,
-            Statement, StatementKind, TypeNode, UnaryOp, Variable,
+            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
@@ -262,10 +263,8 @@ impl TreewalkInterpreter {
     // -----------------------------
 
     fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<TreewalkValue> {
-        // is this useful? is it valuable to read a module directly from the scope as opposed from
-        // the module cache
-        if let Some(module) = self.state.read(&import_path.as_str()) {
-            return Ok(module);
+        if let Some(module) = self.state.fetch_module(import_path) {
+            return Ok(TreewalkValue::Module(module));
         }
 
         #[cfg(feature = "c_stdlib")]
@@ -305,8 +304,8 @@ impl TreewalkInterpreter {
         op: &LogicalOp,
         right: &Expr,
     ) -> TreewalkResult<TreewalkValue> {
-        let left = self.evaluate_expr(left)?.as_boolean();
-        let right = self.evaluate_expr(right)?.as_boolean();
+        let left = self.evaluate_expr(left)?;
+        let right = self.evaluate_expr(right)?;
         self.evaluate_logical_op(left, op, right)
     }
 
@@ -524,7 +523,7 @@ impl TreewalkInterpreter {
             }
         }
 
-        Ok(TreewalkValue::Str(Str::new(result)))
+        Ok(TreewalkValue::Str(Str::from(result)))
     }
 
     fn evaluate_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
@@ -1017,7 +1016,7 @@ impl TreewalkInterpreter {
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.error(ExecutionErrorKind::MissingContextManagerProtocol));
+            return Err(self.raise(ExecutionErrorKind::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(&expr_result, Dunder::Enter, args![])?;
@@ -1123,14 +1122,14 @@ impl TreewalkInterpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(self.error(ExecutionErrorKind::SyntaxError));
+                return Err(self.raise(ExecutionErrorKind::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(self.error(ExecutionErrorKind::SyntaxError));
+            return Err(self.raise(ExecutionErrorKind::SyntaxError));
         }
 
         Ok(())
@@ -1165,8 +1164,8 @@ impl TreewalkInterpreter {
             Expr::Integer(value) => Ok(TreewalkValue::Int(*value)),
             Expr::Float(value) => Ok(TreewalkValue::Float(*value)),
             Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
-            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value.clone()))),
-            Expr::ByteStringLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
+            Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value))),
+            Expr::BytesLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
             Expr::Variable(name) => self.state.read_or_disrupt(name, self),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
@@ -1492,20 +1491,39 @@ a = "foo"
 b = type(str.join)
 # TODO Python shows <class 'builtin_function_or_method'>
 c = type(a.join)
-d = type(str.maketrans)
 "#;
         let ctx = run(input);
 
         assert_read_eq!(ctx, "a", str!("foo"));
         assert_type_eq!(ctx, "b", Type::BuiltinMethod);
         assert_type_eq!(ctx, "c", Type::Method);
-        assert_type_eq!(ctx, "d", Type::BuiltinMethod);
 
         let input = r#""abc" + "def""#;
         assert_eval_eq!(input, str!("abcdef"));
 
         let input = r#""abc" * 3"#;
         assert_eval_eq!(input, str!("abcabcabc"));
+
+        let input = r#""abc\ndef".split("\n")"#;
+        assert_eval_eq!(input, list![str!("abc"), str!("def")]);
+
+        let input = r#""abc\r\ndef".split("\r\n")"#;
+        assert_eval_eq!(input, list![str!("abc"), str!("def")]);
+
+        let input = r#""Host: localhost:8000".split(": ", 1)"#;
+        assert_eval_eq!(input, list![str!("Host"), str!("localhost:8000")]);
+
+        let input = r#""HELlO".lower()"#;
+        assert_eval_eq!(input, str!("hello"));
+
+        let input = r#""\r\n".join(["a", "b"])"#;
+        assert_eval_eq!(input, str!("a\r\nb"));
+
+        let input = r#""hello".encode()"#;
+        assert_eval_eq!(input, bytes!("hello"));
+
+        let input = r#""hello".encode("utf-8")"#;
+        assert_eval_eq!(input, bytes!("hello"));
     }
 
     #[test]
@@ -1527,6 +1545,12 @@ d = type(str.maketrans)
 
         let input = "not True";
         assert_eval_eq!(input, bool!(false));
+
+        let input = "None or []";
+        assert_eval_eq!(input, list![]);
+
+        let input = "None and []";
+        assert_eval_eq!(input, none!());
     }
 
     // Confirm that the interpreter can evaluate boolean expressions.
@@ -3674,6 +3698,47 @@ a = foo.a
     }
 
     #[test]
+    fn kwargs_with_default() {
+        let input = r#"
+def foo(a, b=2):
+    return (a, b)
+
+a = foo(1)
+b = foo(1, 3)
+c = foo(1, b=4)
+d = foo(a=1, b=4)
+e = foo(b=5, a=6)
+"#;
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", tuple![int!(1), int!(2)]);
+        assert_read_eq!(ctx, "b", tuple![int!(1), int!(3)]);
+        assert_read_eq!(ctx, "c", tuple![int!(1), int!(4)]);
+        assert_read_eq!(ctx, "d", tuple![int!(1), int!(4)]);
+        assert_read_eq!(ctx, "e", tuple![int!(6), int!(5)]);
+
+        let input = r#"
+def foo(a, b=2, c=3):
+    return (a, b, c)
+
+a = foo(a=10, c=30)
+"#;
+        let ctx = run(input);
+
+        assert_read_eq!(ctx, "a", tuple![int!(10), int!(2), int!(30)]);
+
+        let input = r#"
+def foo():
+    pass
+
+foo(b=5)
+"#;
+        let e = eval_expect_error(input);
+
+        assert_type_error!(e, "foo() got an unexpected keyword argument 'b'");
+    }
+
+    #[test]
     fn closures() {
         let input = r#"
 def _cell_factory():
@@ -4114,6 +4179,28 @@ a = type(iter(b'hello'))
         let ctx = run(input);
 
         assert_type_eq!(ctx, "a", Type::BytesIter);
+
+        let input = r#"
+b'hello'.decode("utf-8")
+"#;
+        assert_eval_eq!(input, str!("hello"));
+
+        let input = r#"
+b'hello'.decode()
+"#;
+        assert_eval_eq!(input, str!("hello"));
+
+        let input = r#"
+b'hello'.decode("bad-encoding")
+"#;
+        let e = eval_expect_error(input);
+        assert_lookup_error!(e, "unknown encoding: bad-encoding");
+
+        let input = r#"
+b'\xff\xfe\xfa'.decode()
+"#;
+        let e = eval_expect_error(input);
+        assert_value_error!(e, "failed to decode with encoding 'utf-8'");
     }
 
     #[test]
@@ -4543,7 +4630,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(e, ExecutionErrorKind::RuntimeError);
+        assert_runtime_error!(e);
     }
 
     #[test]
@@ -4552,7 +4639,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 a = type
 b = type.__dict__
 c = type(type.__dict__)
-d = type(dict.__dict__['fromkeys'])
+d = type(dict.__dict__['items'])
 # TODO this should fail
 e = type(object().__dict__)
 "#;
@@ -5671,6 +5758,7 @@ except TypeError as exc:
     #[test]
     fn asyncio() {
         let input = r#"
+import asyncio
 a = asyncio.run
 b = asyncio.sleep
 c = asyncio.create_task
@@ -5881,13 +5969,9 @@ class MyClass:
         self.a = 0
         self.b = 1
 
-my = MyClass()
-a = dir(my)
+dir(MyClass())
 "#;
-
-        let ctx = run(input);
-
-        assert_read_eq!(ctx, "a", list![str!("a"), str!("b"),]);
+        assert_eval_eq!(input, list![str!("a"), str!("b"),]);
     }
 
     #[test]
@@ -5950,5 +6034,68 @@ except Exception as e:
             extract!(ctx, "the_exp", Exception),
             "__hash__ method should return an integer"
         );
+    }
+
+    #[test]
+    fn name_dunder() {
+        let input = r#"__name__"#;
+        assert_eval_eq!(input, str!("__main__"));
+
+        let ctx = run_path("src/fixtures/name_dunder/main.py");
+        assert_read_eq!(ctx, "__name__", str!("__main__"));
+        assert_read_eq!(ctx, "a", str!("second"));
+        assert_read_eq!(ctx, "b", str!("inner.third"));
+    }
+
+    #[test]
+    fn net_stdlib() {
+        let input = r#"
+from memphis import net
+a = type(net.Connection)
+b = type(net.Socket)
+c = type(net)
+"#;
+        let ctx = run(input);
+        assert_type_eq!(ctx, "a", Type::Type);
+        assert_type_eq!(ctx, "b", Type::Type);
+        assert_type_eq!(ctx, "c", Type::Module);
+
+        let input = r#"
+from memphis.net import Connection
+a = type(Connection)
+"#;
+        let ctx = run(input);
+        assert_type_eq!(ctx, "a", Type::Type);
+
+        let input = r#"
+import memphis
+a = type(memphis.net.Connection)
+b = type(memphis.net.Socket)
+"#;
+        let ctx = run(input);
+        assert_type_eq!(ctx, "a", Type::Type);
+        assert_type_eq!(ctx, "b", Type::Type);
+
+        let input = r#"
+from memphis import net
+
+class LoggingConnection(net.Connection):
+    pass
+
+a = issubclass(LoggingConnection, net.Connection)
+b = isinstance(LoggingConnection(), net.Connection)
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "a", bool!(true));
+        assert_read_eq!(ctx, "b", bool!(true));
+
+        let input = r#"
+from memphis import net
+a = "send" in dir(net.Connection)
+b = "unsend" in dir(net.Connection)
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "a", bool!(true));
+        assert_read_eq!(ctx, "b", bool!(false));
     }
 }

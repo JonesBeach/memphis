@@ -1,27 +1,18 @@
 use crate::{
     core::Container,
-    domain::{Context, Source},
+    domain::Context,
     treewalk::{
         builtins::{
             CallableBuiltin, DirBuiltin, GetattrBuiltin, GlobalsBuiltin, HashBuiltin,
             IsinstanceBuiltin, IssubclassBuiltin, IterBuiltin, LenBuiltin, NextBuiltin,
             PrintBuiltin,
         },
-        executor::{AsyncioCreateTaskBuiltin, AsyncioRunBuiltin, AsyncioSleepBuiltin},
         type_system::CloneableCallable,
         types::Module,
         utils::EnvironmentFrame,
         Scope, TreewalkValue, TypeRegistry,
     },
 };
-
-fn get_asyncio_builtins() -> Vec<Box<dyn CloneableCallable>> {
-    vec![
-        Box::new(AsyncioRunBuiltin),
-        Box::new(AsyncioSleepBuiltin),
-        Box::new(AsyncioCreateTaskBuiltin),
-    ]
-}
 
 fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
     vec![
@@ -44,19 +35,6 @@ fn init_builtin_scope() -> Scope {
     for builtin in get_builtins() {
         scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
-
-    let mut asyncio_scope = Scope::default();
-    for builtin in get_asyncio_builtins() {
-        asyncio_scope.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
-    }
-
-    scope.insert(
-        "asyncio",
-        TreewalkValue::Module(Container::new(Module::with_scope(
-            Source::default(),
-            asyncio_scope,
-        ))),
-    );
 
     scope
 }

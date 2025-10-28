@@ -3,11 +3,8 @@ use std::mem::take;
 use crate::{
     core::Container,
     treewalk::{
-        pausable::Pausable,
-        protocols::Callable,
-        types::Coroutine,
-        utils::{check_args, Args},
-        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
+        pausable::Pausable, types::Coroutine, TreewalkDisruption, TreewalkInterpreter,
+        TreewalkResult, TreewalkSignal, TreewalkValue,
     },
 };
 
@@ -48,7 +45,7 @@ impl Executor {
 
     /// The main interface to the `Executor` event loop. An `TreewalkValue` will be returned once
     /// the coroutine has resolved.
-    fn run(
+    pub fn run(
         &mut self,
         interpreter: &TreewalkInterpreter,
         coroutine: Container<Coroutine>,
@@ -92,13 +89,13 @@ impl Executor {
 
     /// Launch a new `Coroutine`. This will be consumed at the end of the current iteration of the
     /// event loop.
-    fn spawn(&mut self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
+    pub fn spawn(&mut self, coroutine: Container<Coroutine>) -> TreewalkResult<TreewalkValue> {
         coroutine.borrow_mut().context_mut().start();
         self.spawned.push(coroutine.clone());
         Ok(TreewalkValue::Coroutine(coroutine))
     }
 
-    fn sleep(&mut self, duration: f64) -> TreewalkResult<TreewalkValue> {
+    pub fn sleep(&mut self, duration: f64) -> TreewalkResult<TreewalkValue> {
         self.sleep_indicator = Some(duration);
         Err(TreewalkDisruption::Signal(TreewalkSignal::Sleep))
     }
@@ -119,50 +116,5 @@ impl Executor {
 
         self.current_coroutine = None;
         Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub struct AsyncioRunBuiltin;
-#[derive(Clone)]
-pub struct AsyncioSleepBuiltin;
-#[derive(Clone)]
-pub struct AsyncioCreateTaskBuiltin;
-
-impl Callable for AsyncioRunBuiltin {
-    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
-
-        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
-        interpreter.with_executor(|exec| exec.run(interpreter, coroutine))
-    }
-
-    fn name(&self) -> String {
-        "run".into()
-    }
-}
-
-impl Callable for AsyncioSleepBuiltin {
-    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
-        let duration = args.get_arg(0).expect_float(interpreter)?;
-        interpreter.with_executor(|exec| exec.sleep(duration))
-    }
-
-    fn name(&self) -> String {
-        "sleep".into()
-    }
-}
-
-impl Callable for AsyncioCreateTaskBuiltin {
-    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
-
-        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
-        interpreter.with_executor(|exec| exec.spawn(coroutine))
-    }
-
-    fn name(&self) -> String {
-        "create_task".into()
     }
 }

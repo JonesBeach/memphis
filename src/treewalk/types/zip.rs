@@ -4,7 +4,7 @@ use crate::{
         macros::*,
         protocols::Callable,
         type_system::CloneableIterable,
-        types::{Str, Tuple},
+        types::Tuple,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -89,7 +89,7 @@ impl Callable for NewBuiltin {
                 let zip = ZipIterator::new(iters);
 
                 if args
-                    .get_kwarg(&TreewalkValue::Str(Str::new("strict".to_string())))
+                    .get_kwarg("strict")
                     .is_some_and(|k| k == TreewalkValue::Bool(true))
                 {
                     let lengths = zip.lengths();

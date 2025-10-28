@@ -167,16 +167,14 @@ impl Lexer {
 
     fn tokenize_f_string(&mut self, chars: &mut Peekable<Chars>) {
         let mut literal = String::new();
-        while let Some(&c) = chars.peek() {
+        while let Some(c) = chars.next() {
             if c == '{' {
-                if chars.clone().nth(1) == Some('{') {
+                if chars.peek() == Some(&'{') {
                     // Handle escape left brace {{
                     literal.push(c);
                     chars.next();
-                    chars.next();
                 } else {
                     self.save_string_literal(&mut literal);
-                    chars.next();
                     self.pending_tokens.push_back(Token::LBrace);
                     self.in_f_string_expr = true;
 
@@ -186,25 +184,23 @@ impl Lexer {
                 }
             } else if matches!(c, '"' | '\'') {
                 self.save_string_literal(&mut literal);
-                chars.next();
                 self.pending_tokens.push_back(Token::FStringEnd);
 
                 // We are done with the f-string.
                 return;
             } else if c == '}' {
-                if chars.clone().nth(1) == Some('}') {
+                if chars.peek() == Some(&'}') {
                     // Handle escape right brace }}
                     literal.push(c);
                     chars.next();
-                    chars.next();
                 } else {
-                    chars.next();
                     self.pending_tokens.push_back(Token::RBrace);
                     self.in_f_string_expr = false;
                 }
+            } else if c == '\\' {
+                push_escape_sequence(chars, &mut literal);
             } else {
                 literal.push(c);
-                chars.next();
             }
         }
     }
@@ -271,12 +267,11 @@ impl Lexer {
                 chars.next();
                 self.pending_tokens.push_back(Token::FStringStart);
                 self.tokenize_f_string(&mut chars);
-            } else if starts_with(&chars, "b\'") {
+            } else if starts_with_any(&chars, &["b\'", "b\""]) {
                 chars.next();
-                chars.next();
-                let literal = consume_delimited(&mut chars, '\'');
-                self.pending_tokens
-                    .push_back(Token::ByteStringLiteral(literal));
+                let end_char = chars.next().expect("Failed to tokenize byte literal");
+                let literal = consume_bytes_literal(&mut chars, end_char);
+                self.pending_tokens.push_back(Token::BytesLiteral(literal));
             } else if starts_with_any(&chars, &["0b", "0B"]) {
                 chars.next();
                 chars.next();
@@ -536,20 +531,80 @@ where
     literal
 }
 
-fn consume_delimited(chars: &mut Peekable<Chars>, end_delim: char) -> String {
+fn push_escape_sequence(chars: &mut Peekable<Chars>, literal: &mut String) {
+    match chars.next() {
+        Some('n') => literal.push('\n'),
+        Some('r') => literal.push('\r'),
+        Some('t') => literal.push('\t'),
+        Some('"') => literal.push('"'),
+        Some('\\') => literal.push('\\'),
+        Some('0') => literal.push('\0'),
+        Some(other) => {
+            // Keep unknown escape sequences literal
+            literal.push('\\');
+            literal.push(other);
+        }
+        None => literal.push('\\'),
+    }
+}
+
+fn consume_delimited(chars: &mut Peekable<Chars>, end_char: char) -> String {
     let mut literal = String::new();
 
-    while let Some(&c) = chars.peek() {
-        if c == end_delim {
-            chars.next();
+    while let Some(c) = chars.next() {
+        if c == end_char {
             break;
+        } else if c == '\\' {
+            push_escape_sequence(chars, &mut literal);
         } else {
             literal.push(c);
-            chars.next();
         }
     }
 
     literal
+}
+
+fn consume_bytes_literal(chars: &mut Peekable<Chars>, end_char: char) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    while let Some(c) = chars.next() {
+        if c == end_char {
+            break;
+        } else if c == '\\' {
+            match chars.next() {
+                Some('x') => {
+                    // Expect two hex digits
+                    let hi = chars.next();
+                    let lo = chars.next();
+                    if let (Some(h), Some(l)) = (hi, lo) {
+                        let hex = format!("{}{}", h, l);
+                        if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                            bytes.push(byte);
+                        } else {
+                            // Invalid hex escape
+                            bytes.push(b'?');
+                        }
+                    } else {
+                        // Incomplete \x escape
+                        bytes.push(b'?');
+                    }
+                }
+                Some('n') => bytes.push(b'\n'),
+                Some('t') => bytes.push(b'\t'),
+                Some('r') => bytes.push(b'\r'),
+                Some('\\') => bytes.push(b'\\'),
+                Some('"') => bytes.push(b'"'),
+                Some('0') => bytes.push(b'\0'),
+                Some(other) => bytes.push(other as u8),
+                None => break,
+            }
+        } else {
+            // Ordinary byte
+            bytes.push(c as u8);
+        }
+    }
+
+    bytes
 }
 
 #[cfg(test)]
@@ -1682,6 +1737,16 @@ async def main():
     }
 
     #[test]
+    fn string_literal() {
+        let input = r#""abc\ndef""#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::StringLiteral("abc\ndef".into()), Token::Newline,]
+        );
+    }
+
+    #[test]
     fn multiline_string() {
         let input = r#"
 """comment 5-lines
@@ -1970,12 +2035,64 @@ with open('test.txt') as f:
     }
 
     #[test]
-    fn byte_string() {
+    fn bytes_string() {
         let input = r#"b'hello'"#;
         let tokens = tokenize(input);
         assert_eq!(
             tokens,
-            vec![Token::ByteStringLiteral("hello".into()), Token::Newline,]
+            vec![Token::BytesLiteral("hello".into()), Token::Newline,]
+        );
+
+        let input = r#"b"hello""#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral("hello".into()), Token::Newline,]
+        );
+
+        let input = r#"b'\x41\xff'"#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral(vec![65, 255]), Token::Newline,]
+        );
+    }
+
+    #[test]
+    fn bytes_literal_invalid_hex_escape() {
+        // Incomplete \x escape (only one digit)
+        let input = r#"b'\x4'"#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral(vec![b'?']), Token::Newline,]
+        );
+
+        // Non-hex digits after \x
+        let input = r#"b'\xGG'"#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral(vec![b'?']), Token::Newline,]
+        );
+
+        // \x followed by end of string
+        let input = r#"b'\x'"#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral(vec![b'?']), Token::Newline,]
+        );
+    }
+
+    #[test]
+    fn bytes_literal_mixed_valid_and_invalid_escapes() {
+        let input = r#"b'\x41\xGGZ'"#;
+        let tokens = tokenize(input);
+        // \x41 = 'A', \xGG invalid => '?', then 'Z'
+        assert_eq!(
+            tokens,
+            vec![Token::BytesLiteral(vec![b'A', b'?', b'Z']), Token::Newline,]
         );
     }
 
@@ -2323,6 +2440,24 @@ f"environ({{{formatted_items}after}})"
                 Token::Exclamation,
                 Token::Identifier("r".into()),
                 Token::RBrace,
+                Token::FStringEnd,
+                Token::Newline,
+            ]
+        );
+    }
+
+    #[test]
+    fn f_strings_with_escape_sequence() {
+        let input = r#"f"{first}\n""#;
+        let tokens = tokenize(input);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::FStringStart,
+                Token::LBrace,
+                Token::Identifier("first".into()),
+                Token::RBrace,
+                Token::StringLiteral("\n".into()),
                 Token::FStringEnd,
                 Token::Newline,
             ]

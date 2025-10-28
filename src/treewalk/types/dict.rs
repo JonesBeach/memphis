@@ -30,7 +30,6 @@ impl_method_provider!(
         DictKeysBuiltin,
         DictValuesBuiltin,
         DictItemsBuiltin,
-        FromKeysBuiltin
     ]
 );
 
@@ -185,8 +184,6 @@ struct DictItemsBuiltin;
 struct DictKeysBuiltin;
 #[derive(Clone)]
 struct DictValuesBuiltin;
-#[derive(Clone)]
-struct FromKeysBuiltin;
 
 impl Callable for DictItemsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
@@ -227,20 +224,6 @@ impl Callable for DictValuesBuiltin {
     }
 }
 
-impl Callable for FromKeysBuiltin {
-    fn call(
-        &self,
-        _interpreter: &TreewalkInterpreter,
-        _args: Args,
-    ) -> TreewalkResult<TreewalkValue> {
-        unimplemented!()
-    }
-
-    fn name(&self) -> String {
-        "fromkeys".into()
-    }
-}
-
 impl Callable for NewBuiltin {
     fn call(
         &self,
@@ -267,7 +250,7 @@ impl Callable for InitBuiltin {
         }
 
         if args.has_kwargs() {
-            let kwargs = args.get_kwargs(interpreter);
+            let kwargs = args.get_kwargs_dict(interpreter);
             output.borrow_mut().extend(&kwargs);
         }
 

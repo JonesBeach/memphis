@@ -6,7 +6,7 @@ use crate::{
     treewalk::{
         type_system::{
             CloneableCallable, CloneableNonDataDescriptor, DataDescriptorProvider,
-            DescriptorProvider, MethodProvider,
+            DescriptorProvider, MethodProvider, Typed,
         },
         types::{
             iterators::{ReversedIter, ZipIterator},
@@ -18,13 +18,13 @@ use crate::{
     },
 };
 
-fn register_methods<T: MethodProvider>(
+fn register_methods<T: MethodProvider + Typed>(
     methods: &mut HashMap<Type, Vec<Box<dyn CloneableCallable>>>,
 ) {
     methods.insert(T::get_type(), T::get_methods());
 }
 
-fn register_descriptors<T: DescriptorProvider>(
+fn register_descriptors<T: DescriptorProvider + Typed>(
     methods: &mut HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>>,
 ) {
     methods.insert(T::get_type(), T::get_descriptors());
@@ -178,13 +178,13 @@ static CALLABLE_TYPES: [Type; 25] = [
 /// contains all the builtin methods of [`Type::Type`]. The "meta" types should never be used
 /// directly, but a cycle is created if we try to make Type inherit from Object while Object's
 /// metaclass is Type.
-fn type_class() -> Container<Class> {
-    let object_base = Class::new_builtin(Type::ObjectMeta, None, vec![]);
+fn type_class() -> Class {
+    let mut object_base = Class::new_builtin(Type::ObjectMeta, None, vec![]);
     for method in Object::get_methods().into_iter() {
         object_base.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
 
-    let type_base = Class::new_builtin(Type::TypeMeta, None, vec![]);
+    let mut type_base = Class::new_builtin(Type::TypeMeta, None, vec![]);
     for method in TypeClass::get_methods().into_iter() {
         type_base.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
@@ -193,7 +193,11 @@ fn type_class() -> Container<Class> {
         type_base.set_on_class(&attr.name(), TreewalkValue::NonDataDescriptor(attr));
     }
 
-    let type_class = Class::new_builtin(Type::Type, Some(type_base), vec![object_base]);
+    let mut type_class = Class::new_builtin(
+        Type::Type,
+        Some(Container::new(type_base)),
+        vec![Container::new(object_base)],
+    );
     for method in TypeClass::get_methods().into_iter() {
         type_class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
@@ -207,8 +211,8 @@ fn type_class() -> Container<Class> {
 
 /// Create the [`Type::Object`] class which is the parent class to all classes, including
 /// [`Type::Type`], except itself.
-fn object_class(metaclass: Container<Class>) -> Container<Class> {
-    let object_class = Class::new_builtin(Type::Object, Some(metaclass), vec![]);
+fn object_class(metaclass: Container<Class>) -> Class {
+    let mut object_class = Class::new_builtin(Type::Object, Some(metaclass), vec![]);
     for method in Object::get_methods().into_iter() {
         object_class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
     }
@@ -224,12 +228,12 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
     let mut type_classes = HashMap::new();
 
     // Create the `Type::Type` class and use it as the metaclass for all the other type classes.
-    let type_class = type_class();
+    let type_class = Container::new(type_class());
     type_classes.insert(Type::Type, type_class.clone());
 
     // Create the `Type::Object` and use it as the parent class for `Type::Type` and all other type
     // classes.
-    let object_class = object_class(type_class.clone());
+    let object_class = Container::new(object_class(type_class.clone()));
     type_classes.insert(Type::Object, object_class.clone());
 
     // TODO in theory, the parent of `Type::Type` should be `Type::Object`. The code is hanging
@@ -241,31 +245,27 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
     let mut methods = builtin_methods();
     let mut attributes = descriptors();
     for type_ in ALL_TYPES.iter() {
-        let class = Class::new_builtin(
-            type_.clone(),
-            Some(type_class.clone()),
-            vec![object_class.clone()],
-        );
-        let builtin_type = class.borrow().builtin_type().clone();
+        let mut class =
+            Class::new_builtin(*type_, Some(type_class.clone()), vec![object_class.clone()]);
 
         // Add the builtin methods for this type class.
         //
         // Calling `.remove` here allows us to transfer ownership of the methods to the class,
         // which is what we want since this is just initialization code.
-        if let Some(methods_for_type) = methods.remove(&builtin_type) {
+        if let Some(methods_for_type) = methods.remove(type_) {
             for method in methods_for_type.into_iter().by_ref() {
                 class.set_on_class(&method.name(), TreewalkValue::BuiltinMethod(method));
             }
         }
 
         // Add the dynamic attributes for this type class.
-        if let Some(attributes_for_type) = attributes.remove(&builtin_type) {
+        if let Some(attributes_for_type) = attributes.remove(type_) {
             for attr in attributes_for_type.into_iter().by_ref() {
                 class.set_on_class(&attr.name(), TreewalkValue::NonDataDescriptor(attr));
             }
         }
 
-        type_classes.insert(builtin_type, class);
+        type_classes.insert(*type_, Container::new(class));
     }
 
     type_classes
@@ -286,9 +286,9 @@ impl TypeRegistry {
 
     /// Safe to call `unwrap()` here because we will have a type class for all `Type`s.
     /// TODO we still need to enforce this at compile-time ideally.
-    pub fn get_type_class(&self, type_: Type) -> Container<Class> {
+    pub fn get_type_class(&self, type_: &Type) -> Container<Class> {
         self.type_classes
-            .get(&type_)
+            .get(type_)
             .unwrap_or_else(|| panic!("TypeRegistry initialization failed for <{type_}>!"))
             .clone()
     }
@@ -298,7 +298,7 @@ impl TypeRegistry {
     pub fn get_callable_builtin_types(&self) -> Vec<Container<Class>> {
         CALLABLE_TYPES
             .iter()
-            .map(|callable_type| self.get_type_class(callable_type.clone()))
+            .map(|callable_type| self.get_type_class(callable_type))
             .collect()
     }
 }
