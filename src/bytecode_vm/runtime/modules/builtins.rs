@@ -22,9 +22,9 @@ static BUILTINS: [(&str, BuiltinFn); 7] = [
 ];
 
 pub fn init_module(runtime: &mut Runtime) {
-    let mut asyncio_mod = Module::new(&Dunder::Builtins);
-    register_builtin_funcs(runtime, &mut asyncio_mod, &BUILTINS);
-    runtime.store_module(Container::new(asyncio_mod));
+    let mut mod_ = Module::new(&Dunder::Builtins);
+    register_builtin_funcs(runtime, &mut mod_, &BUILTINS);
+    runtime.store_module(Container::new(mod_));
 }
 
 /// This is intended to be functionally equivalent to `__build_class__` in CPython.

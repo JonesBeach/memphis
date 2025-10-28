@@ -157,9 +157,6 @@ impl ScopeManager {
         }
 
         for module in self.module_stack.iter().rev() {
-            // We really shouldn't be accessing the module scope directly here, but the `get`
-            // method on either `MemberAccessor` or `ModuleInterface` requires a reference to the
-            // Interpreter. We'll need to fix this at some point.
             if let Some(value) = module.borrow().get(name) {
                 return Some(value);
             }
