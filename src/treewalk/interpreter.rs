@@ -1961,7 +1961,7 @@ class Foo:
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert_variant!(ctx, "Foo", Class);
     }
 
     #[test]
@@ -1977,8 +1977,8 @@ foo = Foo(3)
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         assert_member_eq!(ctx, "foo", "y", int!(3));
         assert_member_eq!(ctx, "foo", "x", int!(0));
@@ -1998,8 +1998,8 @@ foo = Foo(3)
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         // This should be an object with foo.y == 3 and foo.x == 0 even
         // when the last line of the constructor did not touch self.
@@ -2044,8 +2044,8 @@ foo.bar()
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         // These should be set even when it's not a constructor
         assert_member_eq!(ctx, "foo", "y", int!(3));
@@ -2864,8 +2864,8 @@ b = f.x
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(ctx.interpreter().state.is_class("Parent"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "Parent", Class);
         assert_read_eq!(ctx, "a", int!(4));
         assert_read_eq!(ctx, "b", int!(12));
 

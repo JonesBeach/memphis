@@ -230,10 +230,6 @@ impl Container<TreewalkState> {
         ))
     }
 
-    pub fn is_class(&self, name: &str) -> bool {
-        self.borrow().scope_manager.is_class(name)
-    }
-
     pub fn load_source(&self, import_path: &ImportPath) -> Option<Source> {
         let current_path = self.current_path();
         let search_paths = self.borrow().memphis_state.search_paths();

@@ -210,10 +210,4 @@ impl ScopeManager {
     fn read_context(&self) -> &Context {
         self.context_stack.last().expect("failed to find context")
     }
-
-    /// Used during the parsing process to determine whether to insert a `Expr::FunctionCall` or
-    /// `Expr::ClassInstantiation` into the AST.
-    pub fn is_class(&self, name: &str) -> bool {
-        matches!(self.read(name), Some(TreewalkValue::Class(_)))
-    }
 }
