@@ -106,13 +106,6 @@ impl Class {
         })
     }
 
-    pub fn is_metaclass(&self) -> bool {
-        // is this correct?
-        self.parent_classes
-            .iter()
-            .any(|c| c.borrow().is_type(&Type::Type))
-    }
-
     pub fn is_type(&self, type_: &Type) -> bool {
         if let Some(ref builtin_type) = self.builtin_type {
             builtin_type == type_

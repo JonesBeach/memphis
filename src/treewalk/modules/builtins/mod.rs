@@ -37,7 +37,7 @@ pub fn init(registry: &TypeRegistry) -> Module {
     // `TypeRegistry`.
     for builtin_class in registry.get_callable_builtin_types() {
         mod_.insert(
-            builtin_class.borrow().builtin_type().into(),
+            builtin_class.borrow().name(),
             TreewalkValue::Class(builtin_class.clone()),
         );
     }
