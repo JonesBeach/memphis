@@ -791,20 +791,8 @@ impl TreewalkValue {
         TreewalkValue::Bool(!self.as_boolean())
     }
 
-    pub fn is_integer(&self) -> bool {
-        self.as_integer().is_some()
-    }
-
-    pub fn is_fp(&self) -> bool {
-        self.as_float().is_some()
-    }
-
     pub fn is_class(&self) -> bool {
         self.as_class().is_some()
-    }
-
-    pub fn is_module(&self) -> bool {
-        self.as_module().is_some()
     }
 }
 
