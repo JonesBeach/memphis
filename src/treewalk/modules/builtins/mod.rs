@@ -104,7 +104,7 @@ impl Callable for GetattrBuiltin {
         check_args(&args, |len| [2, 3].contains(&len), interpreter)?;
 
         let object = args.get_arg(0);
-        let name = args.get_arg(1).expect_string(interpreter)?;
+        let name = args.get_arg(1).expect_str(interpreter)?;
 
         let attr = object
             .clone()

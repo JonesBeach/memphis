@@ -102,7 +102,7 @@ impl Dict {
         let dict_items = self.to_items();
         for pair in dict_items {
             let tuple = pair.expect_tuple(interpreter)?;
-            let key = tuple.first().expect_string(interpreter)?;
+            let key = tuple.first().expect_str(interpreter)?;
             let value = tuple.second();
             table.insert(key, value);
         }

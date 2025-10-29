@@ -151,7 +151,7 @@ impl Hash for TreewalkValue {
     {
         if let TreewalkValue::Set(set) = self {
             for i in set.borrow().iter() {
-                i.as_integer().unwrap().hash(state)
+                i.as_int().unwrap().hash(state)
             }
         }
     }
@@ -530,7 +530,7 @@ impl TreewalkValue {
         })
     }
 
-    pub fn as_integer(&self) -> Option<i64> {
+    pub fn as_int(&self) -> Option<i64> {
         match self {
             TreewalkValue::Int(i) => Some(*i),
             TreewalkValue::Str(s) => s.parse::<i64>().ok(),
@@ -538,8 +538,8 @@ impl TreewalkValue {
         }
     }
 
-    pub fn expect_integer(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<i64> {
-        self.as_integer()
+    pub fn expect_int(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<i64> {
+        self.as_int()
             .ok_or_else(|| interpreter.type_error("Expected an integer"))
     }
 
@@ -766,16 +766,15 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected bytes"))
     }
 
-    pub fn as_string(&self) -> Option<String> {
+    pub fn as_str(&self) -> Option<String> {
         match self {
             TreewalkValue::Str(i) => Some(i.to_string()),
-            TreewalkValue::Int(i) => Some(i.to_string()),
             _ => None,
         }
     }
 
-    pub fn expect_string(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<String> {
-        self.as_string()
+    pub fn expect_str(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<String> {
+        self.as_str()
             .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
 
@@ -821,7 +820,7 @@ impl From<TreewalkValue> for MemphisValue {
             TreewalkValue::Int(i) => MemphisValue::Integer(i),
             TreewalkValue::Float(i) => MemphisValue::Float(i),
             TreewalkValue::Str(_) => {
-                MemphisValue::String(value.as_string().expect("failed to get string"))
+                MemphisValue::String(value.as_str().expect("failed to get string"))
             }
             TreewalkValue::Bool(val) => MemphisValue::Boolean(val),
             TreewalkValue::List(i) => {

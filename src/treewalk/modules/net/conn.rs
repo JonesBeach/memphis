@@ -19,7 +19,7 @@ struct ConnClose;
 
 impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let n = args.get_arg(0).expect_integer(interpreter)? as usize;
+        let n = args.get_arg(0).expect_int(interpreter)? as usize;
 
         let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
         let mut binding = conn_obj.borrow_mut();

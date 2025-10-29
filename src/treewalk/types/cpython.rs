@@ -165,7 +165,7 @@ impl CPythonModule {
             self.get_item(Dunder::Name.into_pyobject(py).unwrap())
                 .unwrap()
                 .unwrap()
-                .as_string()
+                .as_str()
                 .unwrap()
         })
     }

@@ -78,7 +78,7 @@ impl Callable for NewBuiltin {
             2 => match args.get_arg(1).as_float() {
                 Some(re) => Complex::new(re, DEFAULT_IM),
                 None => {
-                    let input = &args.get_arg(1).as_string().ok_or_else(|| {
+                    let input = &args.get_arg(1).as_str().ok_or_else(|| {
                         interpreter.type_error(format!(
                             "complex() first argument must be a string or a number, not '{}'",
                             args.get_arg(1).get_type()

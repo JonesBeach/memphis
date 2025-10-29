@@ -44,7 +44,7 @@ impl Args {
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
                     for key in unpacked.expect_iterable(interpreter)? {
-                        let key_str = key.expect_string(interpreter)?;
+                        let key_str = key.expect_str(interpreter)?;
                         if kwargs.contains_key(&key_str) {
                             return Err(interpreter.key_error(key_str.to_string()));
                         }

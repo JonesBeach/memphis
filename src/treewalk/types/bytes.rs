@@ -81,7 +81,7 @@ impl Callable for DecodeBuiltin {
         let encoding = match args.len() {
             0 => Encoding::Utf8,
             1 => {
-                let encoding_str = args.get_arg(0).expect_string(interpreter)?;
+                let encoding_str = args.get_arg(0).expect_str(interpreter)?;
                 Encoding::try_from(encoding_str.as_str())
                     .map_err(|_| interpreter.unknown_encoding(encoding_str))?
             }

@@ -24,8 +24,8 @@ impl Callable for NetListenBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let host_port = args.get_arg(0).expect_tuple(interpreter)?;
-        let host = host_port.first().expect_string(interpreter)?;
-        let port = host_port.second().expect_integer(interpreter)?;
+        let host = host_port.first().expect_str(interpreter)?;
+        let port = host_port.second().expect_int(interpreter)?;
 
         let socket = Socket::new(host, port as usize)
             .map_err(|e| interpreter.runtime_error_with(format!("Failed to bind Socket: {}", e)))?;

@@ -102,18 +102,18 @@ impl Callable for NewBuiltin {
 
         let range = match args.len() {
             2 => {
-                let stop = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(1).expect_int(interpreter)?;
                 Range::with_stop(stop)
             }
             3 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                let start = args.get_arg(1).expect_int(interpreter)?;
+                let stop = args.get_arg(2).expect_int(interpreter)?;
                 Range::with_start_stop(start, stop)
             }
             4 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
-                let step = args.get_arg(3).expect_integer(interpreter)?;
+                let start = args.get_arg(1).expect_int(interpreter)?;
+                let stop = args.get_arg(2).expect_int(interpreter)?;
+                let step = args.get_arg(3).expect_int(interpreter)?;
                 Range::new(start, stop, step)
             }
             _ => unreachable!(),

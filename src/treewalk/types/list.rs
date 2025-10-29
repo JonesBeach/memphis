@@ -43,7 +43,7 @@ impl List {
             .items
             .iter()
             .map(|v| {
-                v.as_string().ok_or_else(|| {
+                v.as_str().ok_or_else(|| {
                     ExecutionErrorKind::TypeError(Some("Expected a string".to_string()))
                 })
             })
@@ -105,7 +105,7 @@ impl IndexWrite for Container<List> {
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_integer(interpreter)?;
+        let i = index.expect_int(interpreter)?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
@@ -115,7 +115,7 @@ impl IndexWrite for Container<List> {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_integer(interpreter)?;
+        let i = index.expect_int(interpreter)?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }

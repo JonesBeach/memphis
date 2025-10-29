@@ -55,7 +55,7 @@ impl IndexRead for Tuple {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        let i = index.expect_integer(interpreter)?;
+        let i = index.expect_int(interpreter)?;
         Ok(self.get_item(i as usize))
     }
 }

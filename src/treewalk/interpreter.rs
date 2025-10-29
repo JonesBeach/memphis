@@ -1063,7 +1063,7 @@ impl TreewalkInterpreter {
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
-                    Some(args.get_arg(0).expect_string(self)?)
+                    Some(args.get_arg(0).expect_str(self)?)
                 } else {
                     None
                 };

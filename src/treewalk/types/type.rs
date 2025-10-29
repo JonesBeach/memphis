@@ -86,7 +86,7 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| len == 4, interpreter)?;
 
         let mcls = args.get_arg(0).expect_class(interpreter)?;
-        let name = args.get_arg(1).expect_string(interpreter)?;
+        let name = args.get_arg(1).expect_str(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)

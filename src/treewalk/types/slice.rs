@@ -36,9 +36,7 @@ impl Slice {
         let evaluate_to_integer = |expr_option: &Option<Expr>| -> TreewalkResult<Option<i64>> {
             match expr_option {
                 Some(expr) => {
-                    let integer = interpreter
-                        .evaluate_expr(expr)?
-                        .expect_integer(interpreter)?;
+                    let integer = interpreter.evaluate_expr(expr)?.expect_int(interpreter)?;
                     Ok(Some(integer))
                 }
                 None => Ok(None),
@@ -120,18 +118,18 @@ impl Callable for NewBuiltin {
 
         let slice = match args.len() {
             2 => {
-                let stop = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(1).expect_int(interpreter)?;
                 Slice::new(None, Some(stop), None)
             }
             3 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                let start = args.get_arg(1).expect_int(interpreter)?;
+                let stop = args.get_arg(2).expect_int(interpreter)?;
                 Slice::new(Some(start), Some(stop), None)
             }
             4 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
-                let step = args.get_arg(3).expect_integer(interpreter)?;
+                let start = args.get_arg(1).expect_int(interpreter)?;
+                let stop = args.get_arg(2).expect_int(interpreter)?;
+                let step = args.get_arg(3).expect_int(interpreter)?;
                 Slice::new(Some(start), Some(stop), Some(step))
             }
             _ => unreachable!(),
