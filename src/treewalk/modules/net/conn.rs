@@ -1,38 +1,12 @@
-use std::{
-    io::{self, Read, Write},
-    net::{Shutdown, TcpStream},
+use crate::{
+    core::net::Connection,
+    treewalk::{
+        macros::impl_method_provider,
+        protocols::Callable,
+        utils::{check_args, Args},
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
-
-use crate::treewalk::{
-    macros::impl_method_provider,
-    protocols::Callable,
-    utils::{check_args, Args},
-    TreewalkInterpreter, TreewalkResult, TreewalkValue,
-};
-
-pub struct Connection {
-    stream: TcpStream,
-}
-
-impl Connection {
-    pub fn new(stream: TcpStream) -> Self {
-        Self { stream }
-    }
-
-    fn recv(&mut self, bufsize: usize) -> io::Result<Vec<u8>> {
-        let mut buffer = vec![0; bufsize];
-        let n = self.stream.read(&mut buffer)?;
-        Ok(buffer[..n].to_vec())
-    }
-
-    fn send(&mut self, data: &[u8]) -> io::Result<()> {
-        self.stream.write_all(data)
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        self.stream.shutdown(Shutdown::Both)
-    }
-}
 
 impl_method_provider!(Connection, [ConnRecv, ConnSend, ConnClose,]);
 

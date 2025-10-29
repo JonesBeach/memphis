@@ -1,5 +1,8 @@
 use crate::{
-    core::Container,
+    core::{
+        net::{Connection, Socket},
+        Container,
+    },
     domain::{ImportPath, Source, Type},
     treewalk::{
         protocols::Callable,
@@ -13,9 +16,6 @@ use crate::{
 mod conn;
 mod socket;
 
-pub use conn::Connection;
-pub use socket::Socket;
-
 #[derive(Clone)]
 pub struct NetListenBuiltin;
 
@@ -27,7 +27,8 @@ impl Callable for NetListenBuiltin {
         let host = host_port.first().expect_string(interpreter)?;
         let port = host_port.second().expect_integer(interpreter)?;
 
-        let socket = Socket::new(host, port as usize);
+        let socket = Socket::new(host, port as usize)
+            .map_err(|e| interpreter.runtime_error_with(format!("Failed to bind Socket: {}", e)))?;
 
         let socket_class = interpreter
             .state
@@ -41,6 +42,37 @@ impl Callable for NetListenBuiltin {
 
     fn name(&self) -> String {
         "listen".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+
+    use crate::{
+        domain::test_utils::*,
+        treewalk::{test_utils::*, utils::args},
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_listen_runtime_error_on_conflict() {
+        // Bind the port manually first
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Call the builtin directly
+        let builtin = NetListenBuiltin;
+        let args = args![tuple![str!("127.0.0.1"), int!(port)]];
+        let interpreter = TreewalkInterpreter::default();
+
+        let result = builtin.call(&interpreter, args);
+
+        assert!(result.is_err());
+        let err_binding = result.unwrap_err();
+        let err = err_binding.as_err();
+        assert_runtime_error_contains!(err, "Failed to bind Socket");
     }
 }
 

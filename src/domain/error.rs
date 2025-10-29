@@ -303,6 +303,26 @@ pub mod test_utils {
         }};
     }
 
+    // Use this when the error message may vary across platforms (e.g., os error 48 vs 98)
+    macro_rules! assert_runtime_error_contains {
+        ($error:expr, $expected_substr:expr) => {{
+            match &$error.execution_error_kind {
+                $crate::domain::ExecutionErrorKind::RuntimeError(Some(msg)) => {
+                    assert!(
+                        msg.contains($expected_substr),
+                        "Expected RuntimeError message to contain {:?}, but got {:?}",
+                        $expected_substr,
+                        msg
+                    );
+                }
+                _ => panic!(
+                    "Expected a RuntimeError with message, but got: {:?}",
+                    &$error.execution_error_kind
+                ),
+            }
+        }};
+    }
+
     macro_rules! assert_type_error {
         ($error:expr) => {{
             match &$error.execution_error_kind {
@@ -410,6 +430,7 @@ pub mod test_utils {
     pub(crate) use assert_lookup_error;
     pub(crate) use assert_name_error;
     pub(crate) use assert_runtime_error;
+    pub(crate) use assert_runtime_error_contains;
     pub(crate) use assert_stop_iteration;
     pub(crate) use assert_type_error;
     pub(crate) use assert_value_error;

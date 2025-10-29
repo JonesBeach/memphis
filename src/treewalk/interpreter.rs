@@ -9,7 +9,7 @@ use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
         Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, ImportPath,
-        MemphisValue,
+        MemphisValue, Source,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
@@ -21,6 +21,7 @@ use crate::{
         },
         Parser,
     },
+    runtime::MemphisState,
     treewalk::{
         protocols::{MemberRead, TryEvalFrom},
         type_system::CloneableCallable,
@@ -40,6 +41,15 @@ mod evaluators;
 #[derive(Clone)]
 pub struct TreewalkInterpreter {
     pub state: Container<TreewalkState>,
+}
+
+impl Default for TreewalkInterpreter {
+    fn default() -> Self {
+        Self::new(TreewalkState::from_source_state(
+            Container::new(MemphisState::default()),
+            Source::default(),
+        ))
+    }
 }
 
 impl TreewalkInterpreter {

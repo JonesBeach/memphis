@@ -12,7 +12,7 @@ macro_rules! str {
 
 macro_rules! int {
     ($val:expr) => {
-        crate::treewalk::TreewalkValue::Int($val)
+        crate::treewalk::TreewalkValue::Int($val.into())
     };
 }
 

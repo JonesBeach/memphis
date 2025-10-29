@@ -1,10 +1,5 @@
-use std::{
-    io,
-    net::{SocketAddr, TcpListener, TcpStream},
-};
-
 use crate::{
-    core::Container,
+    core::{net::Socket, Container},
     domain::ImportPath,
     treewalk::{
         macros::impl_method_provider,
@@ -16,24 +11,7 @@ use crate::{
     },
 };
 
-pub struct Socket {
-    listener: TcpListener,
-}
-
 impl_method_provider!(Socket, [AcceptBuiltin]);
-
-impl Socket {
-    pub fn new(host: String, port: usize) -> Self {
-        let addr = format!("{}:{}", host, port);
-        Self {
-            listener: TcpListener::bind(addr).expect("Failed to bind TcpListener"),
-        }
-    }
-
-    fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        self.listener.accept()
-    }
-}
 
 #[derive(Clone)]
 struct AcceptBuiltin;

@@ -19,6 +19,16 @@ pub enum TreewalkDisruption {
     Error(ExecutionError),  // Actual Python runtime errors
 }
 
+#[cfg(test)]
+impl TreewalkDisruption {
+    pub fn as_err(&self) -> &ExecutionError {
+        match self {
+            TreewalkDisruption::Signal(_) => panic!("Expected error!"),
+            TreewalkDisruption::Error(ref e) => e,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TreewalkSignal {
     Return(TreewalkValue),
