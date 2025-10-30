@@ -636,21 +636,6 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_object(&self) -> Option<Container<Object>> {
-        match self {
-            TreewalkValue::Object(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_object(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Object>> {
-        self.as_object()
-            .ok_or_else(|| interpreter.type_error("Expected an object"))
-    }
-
     /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<TreewalkValue>` for type
     /// coercion.
     pub fn as_list(&self) -> Option<Container<List>> {
@@ -720,6 +705,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Function(i) => Ok(i.clone()),
             _ => Err(ExecutionErrorKind::type_error("Expected a function")),
+        }
+    }
+
+    pub fn as_object(&self) -> ExecResult<Container<Object>> {
+        match self {
+            TreewalkValue::Object(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected an object")),
         }
     }
 

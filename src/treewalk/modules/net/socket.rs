@@ -2,12 +2,7 @@ use crate::{
     core::{net::Socket, Container},
     domain::ImportPath,
     treewalk::{
-        macros::impl_method_provider,
-        modules::net::Connection,
-        protocols::Callable,
-        types::{Object, Str, Tuple},
-        utils::Args,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        macros::impl_method_provider, modules::net::Connection, protocols::Callable, result::Raise, types::{Object, Str, Tuple}, utils::Args, TreewalkInterpreter, TreewalkResult, TreewalkValue
     },
 };
 
@@ -18,7 +13,7 @@ struct AcceptBuiltin;
 
 impl Callable for AcceptBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let listener = args.expect_self(interpreter)?.expect_object(interpreter)?;
+        let listener = args.expect_self(interpreter)?.as_object().raise(interpreter)?;
         let binding = listener.borrow();
         let socket = binding
             .downcast_ref::<Socket>()

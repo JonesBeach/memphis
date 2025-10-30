@@ -12,6 +12,7 @@ use crate::{
             Callable, DataDescriptor, IndexRead, IndexWrite, MemberRead, MemberWrite,
             NonDataDescriptor,
         },
+        result::Raise,
         types::{Class, Str},
         utils::{args, check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -625,7 +626,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
-            Some(i) => i.expect_object(interpreter)?.borrow().scope.clone(),
+            Some(i) => i.as_object().raise(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(TreewalkValue::Dict(scope.as_dict(interpreter)))

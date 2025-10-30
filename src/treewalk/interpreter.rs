@@ -1022,7 +1022,8 @@ impl TreewalkInterpreter {
         block: &Ast,
     ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
-        let object = expr_result.expect_object(self)?;
+        // TODO this probably doesn't need to be an object
+        let object = expr_result.as_object().raise(self)?;
 
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()

@@ -22,7 +22,10 @@ impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let n = args.get_arg(0).expect_int(interpreter)? as usize;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
+        let conn_obj = args
+            .expect_self(interpreter)?
+            .as_object()
+            .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();
         let conn = binding
             .downcast_mut::<Connection>()
@@ -45,7 +48,10 @@ impl Callable for ConnSend {
 
         let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
+        let conn_obj = args
+            .expect_self(interpreter)?
+            .as_object()
+            .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();
         let conn = binding
             .downcast_mut::<Connection>()
@@ -66,7 +72,10 @@ impl Callable for ConnClose {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
+        let conn_obj = args
+            .expect_self(interpreter)?
+            .as_object()
+            .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();
         let conn = binding
             .downcast_mut::<Connection>()
