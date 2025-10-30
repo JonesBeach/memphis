@@ -218,7 +218,7 @@ impl TreewalkInterpreter {
                 self.state.write(var, value);
             }
             LoopIndex::Tuple(tuple_index) => {
-                for (key, value) in tuple_index.iter().zip(value.expect_iterable(self)?) {
+                for (key, value) in tuple_index.iter().zip(value.as_iterable().raise(self)?) {
                     self.state.write(key, value);
                 }
             }
@@ -395,7 +395,7 @@ impl TreewalkInterpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    for elem in evaluated.expect_iterable(self)? {
+                    for elem in evaluated.as_iterable().raise(self)? {
                         results.push(elem);
                     }
                 }
@@ -430,7 +430,7 @@ impl TreewalkInterpreter {
                 }
                 DictOperation::Unpack(expr) => {
                     let unpacked = self.evaluate_expr(expr)?;
-                    for key in unpacked.expect_iterable(self)? {
+                    for key in unpacked.clone().as_iterable().raise(self)? {
                         let value = self.read_index(&unpacked, &key)?;
                         result.insert(key, value); // later keys overwrite earlier ones
                     }
@@ -644,7 +644,8 @@ impl TreewalkInterpreter {
     fn evaluate_unpacking_assignment(&self, left: &[Expr], right: &Expr) -> TreewalkResult<()> {
         let right_result = self
             .evaluate_expr(right)?
-            .expect_iterable(self)?
+            .as_iterable()
+            .raise(self)?
             .into_iter();
 
         // Collect the items once so that we can get a length without clearing our iterator, some
@@ -829,12 +830,17 @@ impl TreewalkInterpreter {
             let mut output = vec![];
             for i in self
                 .evaluate_expr(&first_clause.iterable)?
-                .expect_iterable(self)?
+                .as_iterable()
+                .raise(self)?
             {
                 if first_clause.indices.len() == 1 {
                     self.state.write(&first_clause.indices[0], i);
                 } else {
-                    for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
+                    for (key, value) in first_clause
+                        .indices
+                        .iter()
+                        .zip(i.as_iterable().raise(self)?)
+                    {
                         self.state.write(key, value);
                     }
                 }
@@ -887,9 +893,14 @@ impl TreewalkInterpreter {
         let mut output = HashMap::new();
         for i in self
             .evaluate_expr(&first_clause.iterable)?
-            .expect_iterable(self)?
+            .as_iterable()
+            .raise(self)?
         {
-            for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
+            for (key, value) in first_clause
+                .indices
+                .iter()
+                .zip(i.as_iterable().raise(self)?)
+            {
                 self.state.write(key, value);
             }
             let key_result = self.evaluate_expr(key_body)?;
@@ -908,7 +919,7 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<()> {
         let mut encountered_break = false;
 
-        for val_for_iteration in self.evaluate_expr(range)?.expect_iterable(self)? {
+        for val_for_iteration in self.evaluate_expr(range)?.as_iterable().raise(self)? {
             self.write_loop_index(index, val_for_iteration)?;
 
             match self.evaluate_ast(body) {

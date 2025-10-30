@@ -27,7 +27,7 @@ impl Args {
             .args
             .iter()
             .map(|arg| interpreter.evaluate_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<TreewalkResult<Vec<_>>>()?;
 
         if let Some(ref args_var) = call_args.args_var {
             let value = interpreter.evaluate_expr(args_var)?;
@@ -45,7 +45,7 @@ impl Args {
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
-                    for key in unpacked.expect_iterable(interpreter)? {
+                    for key in unpacked.clone().as_iterable().raise(interpreter)? {
                         let key_str = key.as_str().raise(interpreter)?;
                         if kwargs.contains_key(&key_str) {
                             return Err(interpreter.key_error(key_str.to_string()));

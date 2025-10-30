@@ -267,8 +267,12 @@ impl Callable for ExtendBuiltin {
             .raise(interpreter)?
             .as_list()
             .raise(interpreter)?;
-        list.borrow_mut()
-            .extend(args.get_arg(0).expect_iterable(interpreter)?.into_iter());
+        list.borrow_mut().extend(
+            args.get_arg(0)
+                .as_iterable()
+                .raise(interpreter)?
+                .into_iter(),
+        );
 
         Ok(TreewalkValue::None)
     }

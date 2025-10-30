@@ -31,7 +31,7 @@ use crate::{
     },
 };
 
-use super::result::ExecResult;
+use super::result::{ExecResult, Raise};
 
 #[derive(Clone)]
 pub enum TreewalkValue {
@@ -468,7 +468,8 @@ impl TreewalkValue {
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Box<dyn CloneableIterable>> {
         self.clone()
-            .expect_iterable(interpreter)?
+            .as_iterable()
+            .raise(interpreter)?
             .into_iterator()
             .ok_or_else(|| {
                 interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
@@ -481,7 +482,7 @@ impl TreewalkValue {
     /// for a list, string, set, etc., it returns a corresponding iterator.
     /// If the value is already an iterator, it is returned as-is.
     /// If the value is not iterable, returns None.
-    pub fn into_iterable(self) -> Option<TreewalkValue> {
+    pub fn as_iterable(self) -> ExecResult<TreewalkValue> {
         let value = match self {
             TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
             TreewalkValue::ListIter(_) => self,
@@ -508,28 +509,15 @@ impl TreewalkValue {
             TreewalkValue::Generator(_) => self,
             TreewalkValue::ReversedIter(_) => self,
             TreewalkValue::Zip(_) => self,
-            _ => return None,
+            _ => {
+                return Err(ExecutionErrorKind::type_error(format!(
+                    "'{}' object is not iterable",
+                    self.get_type()
+                )))
+            }
         };
 
-        Some(value)
-    }
-
-    pub fn is_iterable(&self) -> bool {
-        // The clone here shouldn't be necessary
-        self.clone().into_iterable().is_some()
-    }
-
-    /// Ensure this value is iterable, and convert it to its iterator form.
-    ///
-    /// If the value is not iterable, raise a TypeError.
-    /// This is a helper used by `expect_iterator()` to coerce iterables into iterators.
-    pub fn expect_iterable(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<TreewalkValue> {
-        self.clone().into_iterable().ok_or_else(|| {
-            interpreter.type_error(format!("'{}' object is not iterable", self.get_type()))
-        })
+        Ok(value)
     }
 
     pub fn as_int(&self) -> Option<i64> {

@@ -273,7 +273,7 @@ impl Callable for NextBuiltin {
 impl Callable for IterBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        args.get_arg(0).expect_iterable(interpreter)
+        args.get_arg(0).as_iterable().raise(interpreter)
     }
 
     fn name(&self) -> String {
