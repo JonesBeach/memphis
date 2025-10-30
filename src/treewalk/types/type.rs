@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, NonDataDescriptor},
+        result::Raise,
         types::{Class, MappingProxy, Tuple},
         utils::{check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -86,11 +87,12 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| len == 4, interpreter)?;
 
         let mcls = args.get_arg(0).expect_class(interpreter)?;
-        let name = args.get_arg(1).expect_str(interpreter)?;
+        let name = args.get_arg(1).as_str().raise(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)
-            .expect_tuple(interpreter)?
+            .as_tuple()
+            .raise(interpreter)?
             .into_iter()
             .map(|c| c.expect_class(interpreter))
             .collect::<Result<Vec<_>, _>>()?;
@@ -101,7 +103,7 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let symbol_table = args.get_arg(3).expect_symbol_table(interpreter)?;
+        let symbol_table = args.get_arg(3).as_symbol_table().raise(interpreter)?;
 
         let mut class = Class::new_direct(name, Some(mcls), parent_classes);
         class.scope = Scope::new(symbol_table);

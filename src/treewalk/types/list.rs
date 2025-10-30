@@ -6,10 +6,11 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionErrorKind, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
+        result::ExecResult,
         type_system::CloneableIterable,
         types::Slice,
         utils::{check_args, format_comma_separated, Args},
@@ -38,16 +39,12 @@ impl List {
         self.items.push(item)
     }
 
-    pub fn join(&self, delim: &str) -> Result<String, ExecutionErrorKind> {
+    pub fn join(&self, delim: &str) -> ExecResult<String> {
         Ok(self
             .items
             .iter()
-            .map(|v| {
-                v.as_str().ok_or_else(|| {
-                    ExecutionErrorKind::TypeError(Some("Expected a string".to_string()))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()? // collect into Vec<&str> or Vec<String>
+            .map(|v| v.as_str())
+            .collect::<ExecResult<Vec<_>>>()?
             .join(delim))
     }
 

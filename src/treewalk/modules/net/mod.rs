@@ -6,6 +6,7 @@ use crate::{
     domain::{ImportPath, Source, Type},
     treewalk::{
         protocols::Callable,
+        result::Raise,
         type_system::{CloneableCallable, MethodProvider},
         types::{Class, Module, Object},
         utils::{check_args, Args},
@@ -23,8 +24,8 @@ impl Callable for NetListenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let host_port = args.get_arg(0).expect_tuple(interpreter)?;
-        let host = host_port.first().expect_str(interpreter)?;
+        let host_port = args.get_arg(0).as_tuple().raise(interpreter)?;
+        let host = host_port.first().as_str().raise(interpreter)?;
         let port = host_port.second().expect_int(interpreter)?;
 
         let socket = Socket::new(host, port as usize)

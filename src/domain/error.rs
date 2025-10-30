@@ -133,6 +133,16 @@ pub enum ExecutionErrorKind {
     SyntaxError,
 }
 
+impl ExecutionErrorKind {
+    pub fn type_error(msg: impl Into<String>) -> Self {
+        Self::TypeError(Some(msg.into()))
+    }
+
+    pub fn value_error(msg: impl Into<String>) -> Self {
+        Self::ValueError(msg.into())
+    }
+}
+
 impl Display for ExecutionErrorKind {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {

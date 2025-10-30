@@ -9,6 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
+        result::ExecResult,
         types::{iterators::DictKeysIter, DictItems},
         utils::{check_args, Args, Contextual, ContextualPair},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -93,16 +94,13 @@ impl Dict {
 
     /// Turn this `Dict` into a `SymbolTable`, which is another key-value store but where the keys
     /// are all confirmed to be valid Python identifiers.
-    pub fn to_symbol_table(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<SymbolTable> {
+    pub fn to_symbol_table(&self) -> ExecResult<SymbolTable> {
         let mut table = HashMap::new();
 
         let dict_items = self.to_items();
         for pair in dict_items {
-            let tuple = pair.expect_tuple(interpreter)?;
-            let key = tuple.first().expect_str(interpreter)?;
+            let tuple = pair.as_tuple()?;
+            let key = tuple.first().as_str()?;
             let value = tuple.second();
             table.insert(key, value);
         }

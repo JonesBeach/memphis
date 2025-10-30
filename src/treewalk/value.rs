@@ -9,7 +9,7 @@ use std::{
 use crate::treewalk::types::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{floats_equal, Container, Voidable},
-    domain::{Dunder, ExecutionError, MemphisValue, Type},
+    domain::{Dunder, ExecutionError, ExecutionErrorKind, MemphisValue, Type},
     treewalk::{
         protocols::MemberRead,
         type_system::{
@@ -30,6 +30,8 @@ use crate::{
         SymbolTable, TreewalkInterpreter, TreewalkResult,
     },
 };
+
+use super::result::ExecResult;
 
 #[derive(Clone)]
 pub enum TreewalkValue {
@@ -720,38 +722,20 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a dict"))
     }
 
-    pub fn as_symbol_table(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Option<SymbolTable>> {
-        let table = match self {
-            TreewalkValue::Dict(dict) => Some(dict.borrow().to_symbol_table(interpreter)?),
-            _ => None,
-        };
-
-        Ok(table)
-    }
-
-    pub fn expect_symbol_table(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<SymbolTable> {
-        self.as_symbol_table(interpreter)?
-            .ok_or_else(|| interpreter.type_error("Expected a symbol-table-like object"))
-    }
-
-    /// Returns a `Tuple` with _no_ type coercion. Use `TryEvalFrom` for type
-    /// coercion.
-    pub fn as_tuple(&self) -> Option<Tuple> {
+    pub fn as_symbol_table(&self) -> ExecResult<SymbolTable> {
         match self {
-            TreewalkValue::Tuple(t) => Some(t.clone()),
-            _ => None,
+            TreewalkValue::Dict(dict) => Ok(dict.borrow().to_symbol_table()?),
+            _ => Err(ExecutionErrorKind::type_error(
+                "Expected a dict with str keys",
+            )),
         }
     }
 
-    pub fn expect_tuple(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Tuple> {
-        self.as_tuple()
-            .ok_or_else(|| interpreter.type_error("Expected a tuple"))
+    pub fn as_tuple(&self) -> ExecResult<Tuple> {
+        match self {
+            TreewalkValue::Tuple(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a tuple")),
+        }
     }
 
     pub fn as_bytes(&self) -> Option<Vec<u8>> {
@@ -766,16 +750,11 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected bytes"))
     }
 
-    pub fn as_str(&self) -> Option<String> {
+    pub fn as_str(&self) -> ExecResult<String> {
         match self {
-            TreewalkValue::Str(i) => Some(i.to_string()),
-            _ => None,
+            TreewalkValue::Str(i) => Ok(i.to_string()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a string")),
         }
-    }
-
-    pub fn expect_str(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<String> {
-        self.as_str()
-            .ok_or_else(|| interpreter.type_error("Expected a string"))
     }
 
     pub fn negated(&self) -> Option<Self> {

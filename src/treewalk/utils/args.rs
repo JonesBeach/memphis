@@ -4,6 +4,7 @@ use crate::{
     parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         protocols::TryEvalFrom,
+        result::Raise,
         types::{Dict, Str, Tuple},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -44,7 +45,7 @@ impl Args {
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
                     for key in unpacked.expect_iterable(interpreter)? {
-                        let key_str = key.expect_str(interpreter)?;
+                        let key_str = key.as_str().raise(interpreter)?;
                         if kwargs.contains_key(&key_str) {
                             return Err(interpreter.key_error(key_str.to_string()));
                         }

@@ -3,6 +3,7 @@ use crate::{
     domain::{Dunder, Source},
     treewalk::{
         protocols::{Callable, Iterable},
+        result::Raise,
         type_system::CloneableCallable,
         types::{List, Module, Str},
         utils::{args, check_args, Args},
@@ -104,7 +105,7 @@ impl Callable for GetattrBuiltin {
         check_args(&args, |len| [2, 3].contains(&len), interpreter)?;
 
         let object = args.get_arg(0);
-        let name = args.get_arg(1).expect_str(interpreter)?;
+        let name = args.get_arg(1).as_str().raise(interpreter)?;
 
         let attr = object
             .clone()

@@ -3,6 +3,7 @@ use std::{
     fmt::Write,
 };
 
+use super::result::Raise;
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
 use crate::{
@@ -1063,7 +1064,7 @@ impl TreewalkInterpreter {
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
-                    Some(args.get_arg(0).expect_str(self)?)
+                    Some(args.get_arg(0).as_str().raise(self)?)
                 } else {
                     None
                 };
