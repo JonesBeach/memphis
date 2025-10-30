@@ -141,7 +141,8 @@ impl TreewalkInterpreter {
     {
         let name = name.as_ref();
         self.evaluate_member_access_inner(receiver, name)?
-            .expect_callable(self)
+            .as_callable()
+            .raise(self)
     }
 
     pub fn invoke_method<S>(
@@ -230,7 +231,8 @@ impl TreewalkInterpreter {
     fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
         self.state
             .read_or_disrupt(name, self)?
-            .expect_callable(self)
+            .as_callable()
+            .raise(self)
     }
 
     pub fn read_index(
@@ -549,7 +551,7 @@ impl TreewalkInterpreter {
         let args = Args::from(self, call_args)?;
 
         let function = match callee {
-            Callee::Expr(callee) => self.evaluate_expr(callee)?.expect_callable(self)?,
+            Callee::Expr(callee) => self.evaluate_expr(callee)?.as_callable().raise(self)?,
             Callee::Symbol(name) => self.read_callable(name)?,
         };
 

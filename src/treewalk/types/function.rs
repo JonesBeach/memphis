@@ -234,7 +234,8 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let function = interpreter
                 .evaluate_expr(decorator)?
-                .expect_callable(interpreter)?;
+                .as_callable()
+                .raise(interpreter)?;
             result = interpreter.call(function, args![result])?;
         }
 

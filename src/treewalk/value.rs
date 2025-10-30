@@ -415,7 +415,7 @@ impl TreewalkValue {
 
         // I'd love to find a way to combine this into [`Result::as_nondata_descriptor`] and move
         // this functionality onto the [`Callable`] trait somehow.
-        if let Some(callable) = self.clone().into_callable() {
+        if let Ok(callable) = self.clone().as_callable() {
             // The new method is never bound. When called explicitly inside other metaclasses, the
             // class must be passed in by the calling metaclass.
             if callable.name() == String::from(Dunder::New) {
@@ -434,15 +434,6 @@ impl TreewalkValue {
             Some(descriptor) => descriptor.get_attr(interpreter, instance, owner),
             None => Ok(self.clone()),
         }
-    }
-
-    pub fn expect_callable(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Box<dyn CloneableCallable>> {
-        self.clone()
-            .into_callable()
-            .ok_or_else(|| interpreter.type_error("Expected a callable"))
     }
 
     /// Ensure this value *is already* an iterator (e.g. result of a prior `iter()` call).

@@ -72,9 +72,7 @@ pub struct PrintBuiltin;
 impl Callable for CallableBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        Ok(TreewalkValue::Bool(
-            args.get_arg(0).into_callable().is_some(),
-        ))
+        Ok(TreewalkValue::Bool(args.get_arg(0).as_callable().is_ok()))
     }
 
     fn name(&self) -> String {

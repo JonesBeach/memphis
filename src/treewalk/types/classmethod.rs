@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, NonDataDescriptor},
+        result::Raise,
         type_system::CloneableCallable,
         types::{Class, Method},
         utils::{check_args, Args},
@@ -42,7 +43,7 @@ impl Callable for NewBuiltin {
             return Ok(TreewalkValue::None);
         }
 
-        let function = args.get_arg(1).expect_callable(interpreter)?;
+        let function = args.get_arg(1).as_callable().raise(interpreter)?;
         Ok(TreewalkValue::Classmethod(Classmethod::new(function)))
     }
 

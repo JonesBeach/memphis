@@ -1,5 +1,5 @@
 use crate::{
-    domain::Dunder,
+    domain::{Dunder, ExecutionErrorKind},
     treewalk::{
         protocols::{IndexRead, IndexWrite, MemberRead, MemberWrite},
         type_system::{
@@ -10,6 +10,8 @@ use crate::{
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
+
+use super::result::ExecResult;
 
 impl TreewalkValue {
     pub fn into_member_reader(self, interpreter: &TreewalkInterpreter) -> Box<dyn MemberRead> {
@@ -158,7 +160,7 @@ impl TreewalkValue {
         Some(result)
     }
 
-    pub fn into_callable(self) -> Option<Box<dyn CloneableCallable>> {
+    pub fn as_callable(self) -> ExecResult<Box<dyn CloneableCallable>> {
         let result: Box<dyn CloneableCallable> = match self {
             TreewalkValue::Function(i) => Box::new(i),
             TreewalkValue::Method(i) => Box::new(i),
@@ -167,10 +169,10 @@ impl TreewalkValue {
             TreewalkValue::Class(i) => Box::new(i),
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonObject(i) => Box::new(i),
-            _ => return None,
+            _ => return Err(ExecutionErrorKind::type_error("Expected a callable")),
         };
 
-        Some(result)
+        Ok(result)
     }
 
     fn hasattr(&self, interpreter: &TreewalkInterpreter, attr: Dunder) -> TreewalkResult<bool> {
