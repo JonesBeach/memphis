@@ -593,21 +593,6 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a module"))
     }
 
-    pub fn as_function(&self) -> Option<Container<Function>> {
-        match self {
-            TreewalkValue::Function(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_function(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Function>> {
-        self.as_function()
-            .ok_or_else(|| interpreter.type_error("Expected a function"))
-    }
-
     pub fn as_generator(&self) -> Option<GeneratorIter> {
         match self {
             TreewalkValue::Generator(i) => Some(i.clone()),
@@ -754,6 +739,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Str(i) => Ok(i.to_string()),
             _ => Err(ExecutionErrorKind::type_error("Expected a string")),
+        }
+    }
+
+    pub fn as_function(&self) -> ExecResult<Container<Function>> {
+        match self {
+            TreewalkValue::Function(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a function")),
         }
     }
 
