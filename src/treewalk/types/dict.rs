@@ -9,7 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite},
-        result::ExecResult,
+        result::{ExecResult, Raise},
         types::{iterators::DictKeysIter, DictItems},
         utils::{check_args, Args, Contextual, ContextualPair},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -186,7 +186,10 @@ struct DictValuesBuiltin;
 impl Callable for DictItemsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .expect_dict(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictItems(dict_items))
     }
@@ -199,7 +202,10 @@ impl Callable for DictItemsBuiltin {
 impl Callable for DictKeysBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .expect_dict(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictKeys(dict_items.to_keys()))
     }
@@ -212,7 +218,10 @@ impl Callable for DictKeysBuiltin {
 impl Callable for DictValuesBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .expect_dict(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictValues(dict_items.to_values()))
     }
@@ -240,7 +249,10 @@ impl Callable for InitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
 
-        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let output = args
+            .get_self()
+            .raise(interpreter)?
+            .expect_dict(interpreter)?;
 
         if let Some(pos_arg) = args.get_arg_optional(0) {
             let input = pos_arg.expect_dict(interpreter)?;
@@ -264,7 +276,10 @@ impl Callable for GetBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .expect_dict(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

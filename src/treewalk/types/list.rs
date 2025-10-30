@@ -223,7 +223,8 @@ impl Callable for AddBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let left_list = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_list()
             .raise(interpreter)?;
         let right_list = args.get_arg(0).as_list().raise(interpreter)?;
@@ -243,7 +244,8 @@ impl Callable for AppendBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_list()
             .raise(interpreter)?;
         list.borrow_mut().append(args.get_arg(0).clone());
@@ -261,7 +263,8 @@ impl Callable for ExtendBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let list = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_list()
             .raise(interpreter)?;
         list.borrow_mut()

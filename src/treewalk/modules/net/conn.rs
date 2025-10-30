@@ -23,7 +23,8 @@ impl Callable for ConnRecv {
         let n = args.get_arg(0).expect_int(interpreter)? as usize;
 
         let conn_obj = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_object()
             .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();
@@ -49,7 +50,8 @@ impl Callable for ConnSend {
         let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
         let conn_obj = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_object()
             .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();
@@ -73,7 +75,8 @@ impl Callable for ConnClose {
         check_args(&args, |len| len == 0, interpreter)?;
 
         let conn_obj = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_object()
             .raise(interpreter)?;
         let mut binding = conn_obj.borrow_mut();

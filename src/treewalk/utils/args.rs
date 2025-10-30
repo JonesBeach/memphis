@@ -1,10 +1,11 @@
 use std::{collections::HashMap, slice::Iter};
 
 use crate::{
+    domain::ExecutionErrorKind,
     parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         protocols::TryEvalFrom,
-        result::Raise,
+        result::{ExecResult, Raise},
         types::{Dict, Str, Tuple},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -92,23 +93,19 @@ impl Args {
         self.args.insert(0, val);
     }
 
-    pub fn get_self(&self) -> Option<TreewalkValue> {
-        self.bound_val.clone()
-    }
-
-    pub fn expect_self(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<TreewalkValue> {
-        self.get_self()
-            .ok_or_else(|| interpreter.type_error("Unbound call!"))
+    pub fn get_self(&self) -> ExecResult<TreewalkValue> {
+        match &self.bound_val {
+            Some(b) => Ok(b.clone()),
+            None => Err(ExecutionErrorKind::type_error(
+                "Unbound method needs an argument",
+            )),
+        }
     }
 
     /// Access a positional argument by index. Bound arguments are not included in this, use
     /// `get_self` for those.
     pub fn get_arg(&self, index: usize) -> TreewalkValue {
         self.args[index].clone()
-    }
-
-    pub fn get_arg_mut(&mut self, index: usize) -> &mut TreewalkValue {
-        &mut self.args[index]
     }
 
     pub fn get_arg_optional(&self, index: usize) -> Option<TreewalkValue> {

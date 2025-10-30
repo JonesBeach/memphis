@@ -168,7 +168,11 @@ impl Callable for AddBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         // implements a + b
-        let a = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         let b = args.get_arg(0).as_str().raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(a + &b)))
@@ -183,7 +187,11 @@ impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         let n = args.get_arg(0).expect_int(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(a.repeat(n as usize))))
@@ -198,7 +206,11 @@ impl Callable for ContainsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         let b = args.get_arg(0).as_str().raise(interpreter)?;
 
         Ok(TreewalkValue::Bool(a.contains(&b)))
@@ -213,7 +225,11 @@ impl Callable for JoinBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let delim = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let delim = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         let items = args.get_arg(0).as_list().raise(interpreter)?;
         let joined = items.borrow().join(&delim).raise(interpreter)?;
 
@@ -229,7 +245,11 @@ impl Callable for SplitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-        let text = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         let delim = args.get_arg(0).as_str().raise(interpreter)?;
 
         // We must use dynamic dispatch because split and splitn return different types.
@@ -257,7 +277,11 @@ impl Callable for SplitBuiltin {
 impl Callable for LowerBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let text = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         Ok(TreewalkValue::Str(Str::from(text.to_lowercase())))
     }
 
@@ -269,7 +293,11 @@ impl Callable for LowerBuiltin {
 impl Callable for EncodeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
-        let text = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
 
         let encoding = match args.len() {
             0 => Encoding::Utf8,

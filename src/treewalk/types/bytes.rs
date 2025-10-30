@@ -89,7 +89,8 @@ impl Callable for DecodeBuiltin {
         };
 
         let bytes = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_bytes()
             .raise(interpreter)?;
         let str_value = Str::decode(&bytes, encoding).raise(interpreter)?;

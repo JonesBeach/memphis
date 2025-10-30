@@ -20,7 +20,8 @@ struct AcceptBuiltin;
 impl Callable for AcceptBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let listener = args
-            .expect_self(interpreter)?
+            .get_self()
+            .raise(interpreter)?
             .as_object()
             .raise(interpreter)?;
         let binding = listener.borrow();

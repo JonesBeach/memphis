@@ -132,7 +132,11 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let set = args.expect_self(interpreter)?.as_set().raise(interpreter)?;
+        let set = args
+            .get_self()
+            .raise(interpreter)?
+            .as_set()
+            .raise(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
         Ok(TreewalkValue::Bool(result))
@@ -147,7 +151,11 @@ impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left_set = args.expect_self(interpreter)?.as_set().raise(interpreter)?;
+        let left_set = args
+            .get_self()
+            .raise(interpreter)?
+            .as_set()
+            .raise(interpreter)?;
         let right_set = args.get_arg(0).as_set().raise(interpreter)?;
         let l = left_set.borrow().clone();
         let r = right_set.borrow().clone();
