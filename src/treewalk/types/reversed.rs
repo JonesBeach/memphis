@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
+        result::Raise,
         types::List,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -56,7 +57,7 @@ struct NewBuiltin;
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 2, interpreter)?;
-        let list = args.get_arg(1).expect_list(interpreter)?;
+        let list = args.get_arg(1).as_list().raise(interpreter)?;
         Ok(TreewalkValue::ReversedIter(ReversedIter::new(
             interpreter.clone(),
             list.clone(),

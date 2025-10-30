@@ -110,7 +110,7 @@ impl TreewalkInterpreter {
                 let list = right
                     .as_list()
                     // Attempted to unpack a non-iterable
-                    .ok_or_else(|| {
+                    .map_err(|_| {
                         self.type_error(format!(
                             "Value after * must be an iterable, not {}",
                             right.get_type()

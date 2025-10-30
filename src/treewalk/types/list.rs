@@ -10,7 +10,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
-        result::ExecResult,
+        result::{ExecResult, Raise},
         type_system::CloneableIterable,
         types::Slice,
         utils::{check_args, format_comma_separated, Args},
@@ -222,8 +222,11 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left_list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-        let right_list = args.get_arg(0).expect_list(interpreter)?;
+        let left_list = args
+            .expect_self(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
+        let right_list = args.get_arg(0).as_list().raise(interpreter)?;
         let l = left_list.borrow().clone();
         let r = right_list.borrow().clone();
 
@@ -239,7 +242,10 @@ impl Callable for AppendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
+        let list = args
+            .expect_self(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
         list.borrow_mut().append(args.get_arg(0).clone());
 
         Ok(TreewalkValue::None)
@@ -254,7 +260,10 @@ impl Callable for ExtendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
+        let list = args
+            .expect_self(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
         list.borrow_mut()
             .extend(args.get_arg(0).expect_iterable(interpreter)?.into_iter());
 

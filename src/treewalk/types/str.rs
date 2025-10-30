@@ -214,7 +214,7 @@ impl Callable for JoinBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let delim = args.expect_self(interpreter)?.as_str().raise(interpreter)?;
-        let items = args.get_arg(0).expect_list(interpreter)?;
+        let items = args.get_arg(0).as_list().raise(interpreter)?;
         let joined = items.borrow().join(&delim).raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(joined)))

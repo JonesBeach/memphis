@@ -606,23 +606,6 @@ impl TreewalkValue {
         }
     }
 
-    /// Returns a `Container<List>` with _no_ type coercion. Use `TryFrom<TreewalkValue>` for type
-    /// coercion.
-    pub fn as_list(&self) -> Option<Container<List>> {
-        match self {
-            TreewalkValue::List(list) => Some(list.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_list(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<List>> {
-        self.as_list()
-            .ok_or_else(|| interpreter.type_error("Expected a list"))
-    }
-
     pub fn as_dict(
         &self,
         interpreter: &TreewalkInterpreter,
@@ -682,6 +665,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Function(i) => Ok(i.clone()),
             _ => Err(ExecutionErrorKind::type_error("Expected a function")),
+        }
+    }
+
+    pub fn as_list(&self) -> ExecResult<Container<List>> {
+        match self {
+            TreewalkValue::List(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a list")),
         }
     }
 
