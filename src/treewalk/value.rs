@@ -530,17 +530,12 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_float(&self) -> Option<f64> {
+    pub fn coerce_to_float(&self) -> ExecResult<f64> {
         match self {
-            TreewalkValue::Float(i) => Some(*i),
-            TreewalkValue::Int(i) => Some(*i as f64),
-            _ => None,
+            TreewalkValue::Float(i) => Ok(*i),
+            TreewalkValue::Int(i) => Ok(*i as f64),
+            _ => Err(ExecutionErrorKind::type_error("Cannot coerce to a float")),
         }
-    }
-
-    pub fn expect_float(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<f64> {
-        self.as_float()
-            .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
 
     pub fn as_module(&self) -> Option<Box<dyn MemberRead>> {
@@ -586,6 +581,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Int(i) => Ok(*i),
             _ => Err(ExecutionErrorKind::type_error("Expected an int")),
+        }
+    }
+
+    pub fn as_float(&self) -> ExecResult<f64> {
+        match self {
+            TreewalkValue::Float(i) => Ok(*i),
+            _ => Err(ExecutionErrorKind::type_error("Expected a float")),
         }
     }
 

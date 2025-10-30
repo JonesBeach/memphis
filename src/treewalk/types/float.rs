@@ -52,7 +52,7 @@ impl Callable for NewBuiltin {
 
         let a = match args.len() {
             1 => 0.0,
-            2 => args.get_arg(1).expect_float(interpreter)?,
+            2 => args.get_arg(1).coerce_to_float().raise(interpreter)?,
             _ => unreachable!(),
         };
 
@@ -71,7 +71,8 @@ impl Callable for AddBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -95,7 +96,8 @@ impl Callable for SubBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -119,7 +121,8 @@ impl Callable for MulBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -143,7 +146,8 @@ impl Callable for TruedivBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -173,7 +177,8 @@ impl Callable for LtBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -197,7 +202,8 @@ impl Callable for LeBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -221,7 +227,8 @@ impl Callable for GtBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {
@@ -245,7 +252,8 @@ impl Callable for GeBuiltin {
         let a = args
             .get_self()
             .raise(interpreter)?
-            .expect_float(interpreter)?;
+            .as_float()
+            .raise(interpreter)?;
         let b = args.get_arg(0);
 
         if let TreewalkValue::Int(b) = b {

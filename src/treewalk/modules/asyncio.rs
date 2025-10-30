@@ -34,7 +34,7 @@ impl Callable for AsyncioRunBuiltin {
 impl Callable for AsyncioSleepBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        let duration = args.get_arg(0).expect_float(interpreter)?;
+        let duration = args.get_arg(0).as_float().raise(interpreter)?;
         interpreter.with_executor(|exec| exec.sleep(duration))
     }
 
