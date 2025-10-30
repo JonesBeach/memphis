@@ -8,7 +8,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::{Callable, IndexRead, IndexWrite},
+        protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
         result::{ExecResult, Raise},
         types::{iterators::DictKeysIter, DictItems},
         utils::{check_args, Args, Contextual, ContextualPair},
@@ -115,6 +115,23 @@ impl Dict {
     }
 }
 
+impl TryEvalFrom for Container<Dict> {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        match value {
+            TreewalkValue::Dict(i) => Ok(i.clone()),
+            val if val.is_iterable() => {
+                let iter = val.expect_iterator(interpreter)?;
+                let dict_items = DictItems::from_iterable(iter, interpreter)?;
+                Ok(Container::new(dict_items.to_dict()))
+            }
+            _ => Err(interpreter.type_error("Expected a dict")),
+        }
+    }
+}
+
 impl Display for Container<Dict> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         self.borrow().to_items().fmt_as_mapping(f)
@@ -189,7 +206,8 @@ impl Callable for DictItemsBuiltin {
         let dict = args
             .get_self()
             .raise(interpreter)?
-            .expect_dict(interpreter)?;
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictItems(dict_items))
     }
@@ -205,7 +223,8 @@ impl Callable for DictKeysBuiltin {
         let dict = args
             .get_self()
             .raise(interpreter)?
-            .expect_dict(interpreter)?;
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictKeys(dict_items.to_keys()))
     }
@@ -221,7 +240,8 @@ impl Callable for DictValuesBuiltin {
         let dict = args
             .get_self()
             .raise(interpreter)?
-            .expect_dict(interpreter)?;
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictValues(dict_items.to_values()))
     }
@@ -252,10 +272,11 @@ impl Callable for InitBuiltin {
         let output = args
             .get_self()
             .raise(interpreter)?
-            .expect_dict(interpreter)?;
+            .as_dict()
+            .raise(interpreter)?;
 
         if let Some(pos_arg) = args.get_arg_optional(0) {
-            let input = pos_arg.expect_dict(interpreter)?;
+            let input = Container::<Dict>::try_eval_from(pos_arg, interpreter)?;
             output.borrow_mut().extend(&input.borrow());
         }
 
@@ -279,7 +300,8 @@ impl Callable for GetBuiltin {
         let dict = args
             .get_self()
             .raise(interpreter)?
-            .expect_dict(interpreter)?;
+            .as_dict()
+            .raise(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

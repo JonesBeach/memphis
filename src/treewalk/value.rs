@@ -588,31 +588,6 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_dict(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Option<Container<Dict>>> {
-        let result = match self {
-            TreewalkValue::Dict(i) => Some(i.clone()),
-            val if val.is_iterable() => {
-                let iter = val.expect_iterator(interpreter)?;
-                let dict_items = DictItems::from_iterable(iter, interpreter)?;
-                Some(Container::new(dict_items.to_dict()))
-            }
-            _ => None,
-        };
-
-        Ok(result)
-    }
-
-    pub fn expect_dict(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Dict>> {
-        self.as_dict(interpreter)?
-            .ok_or_else(|| interpreter.type_error("Expected a dict"))
-    }
-
     pub fn as_symbol_table(&self) -> ExecResult<SymbolTable> {
         match self {
             TreewalkValue::Dict(dict) => Ok(dict.borrow().to_symbol_table()?),
@@ -633,6 +608,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Str(i) => Ok(i.to_string()),
             _ => Err(ExecutionErrorKind::type_error("Expected a string")),
+        }
+    }
+
+    pub fn as_dict(&self) -> ExecResult<Container<Dict>> {
+        match self {
+            TreewalkValue::Dict(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a dict")),
         }
     }
 

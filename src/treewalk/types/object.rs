@@ -245,7 +245,8 @@ impl MemberWrite for Container<Object> {
             .into_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
             .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
-            .expect_dict(interpreter)?
+            .as_dict()
+            .raise(interpreter)?
             .borrow()
             .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
