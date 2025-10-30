@@ -19,7 +19,7 @@ impl Callable for NewBuiltin {
         if args.len() == 1 {
             Ok(TreewalkValue::Bool(false))
         } else if args.len() == 2 {
-            let input = args.get_arg(1).as_boolean();
+            let input = args.get_arg(1).coerce_to_boolean();
             Ok(TreewalkValue::Bool(input))
         } else {
             Err(interpreter.type_error(format!("Expected 1 found {} args", args.len())))

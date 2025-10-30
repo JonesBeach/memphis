@@ -482,6 +482,7 @@ impl TreewalkValue {
     /// for a list, string, set, etc., it returns a corresponding iterator.
     /// If the value is already an iterator, it is returned as-is.
     /// If the value is not iterable, returns None.
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_iterable(self) -> ExecResult<TreewalkValue> {
         let value = match self {
             TreewalkValue::List(list) => TreewalkValue::ListIter(list.into_iter()),
@@ -538,24 +539,7 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_module(&self) -> Option<Box<dyn MemberRead>> {
-        match self {
-            TreewalkValue::Module(i) => Some(Box::new(i.borrow().clone())),
-            #[cfg(feature = "c_stdlib")]
-            TreewalkValue::CPythonModule(i) => Some(Box::new(i.borrow().clone())),
-            _ => None,
-        }
-    }
-
-    pub fn expect_module(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Box<dyn MemberRead>> {
-        self.as_module()
-            .ok_or_else(|| interpreter.type_error("Expected a module"))
-    }
-
-    pub fn as_boolean(&self) -> bool {
+    pub fn coerce_to_boolean(&self) -> bool {
         match self {
             TreewalkValue::Bool(i) => *i,
             TreewalkValue::List(i) => !i.borrow().is_empty(),
@@ -565,6 +549,15 @@ impl TreewalkValue {
             TreewalkValue::Float(i) => *i != 0.0,
             TreewalkValue::None => false,
             _ => true,
+        }
+    }
+
+    pub fn as_module(&self) -> ExecResult<Box<dyn MemberRead>> {
+        match self {
+            TreewalkValue::Module(i) => Ok(Box::new(i.borrow().clone())),
+            #[cfg(feature = "c_stdlib")]
+            TreewalkValue::CPythonModule(i) => Ok(Box::new(i.borrow().clone())),
+            _ => Err(ExecutionErrorKind::type_error("Expected an int")),
         }
     }
 
@@ -670,7 +663,7 @@ impl TreewalkValue {
     }
 
     pub fn not(&self) -> Self {
-        TreewalkValue::Bool(!self.as_boolean())
+        TreewalkValue::Bool(!self.coerce_to_boolean())
     }
 }
 

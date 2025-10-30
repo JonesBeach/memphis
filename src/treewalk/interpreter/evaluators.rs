@@ -11,7 +11,7 @@ impl TreewalkInterpreter {
         op: &LogicalOp,
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
-        let left_truthy = left.as_boolean();
+        let left_truthy = left.coerce_to_boolean();
 
         match op {
             LogicalOp::And => {

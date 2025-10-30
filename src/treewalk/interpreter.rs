@@ -302,7 +302,7 @@ impl TreewalkInterpreter {
         if_value: &Expr,
         else_value: &Expr,
     ) -> TreewalkResult<TreewalkValue> {
-        if self.evaluate_expr(condition)?.as_boolean() {
+        if self.evaluate_expr(condition)?.coerce_to_boolean() {
             self.evaluate_expr(if_value)
         } else {
             self.evaluate_expr(else_value)
@@ -343,7 +343,7 @@ impl TreewalkInterpreter {
             let right = self.evaluate_expr(right)?;
             // is cloning really necessary here?
             let result = self.evaluate_compare_op(left, op, right.clone())?;
-            if !result.as_boolean() {
+            if !result.coerce_to_boolean() {
                 return Ok(TreewalkValue::Bool(false));
             }
             left = right;
@@ -512,7 +512,7 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_assert(&self, expr: &Expr) -> TreewalkResult<()> {
-        if self.evaluate_expr(expr)?.as_boolean() {
+        if self.evaluate_expr(expr)?.coerce_to_boolean() {
             Ok(())
         } else {
             Err(self.assertion_error())
@@ -774,14 +774,14 @@ impl TreewalkInterpreter {
         else_part: &Option<Ast>,
     ) -> TreewalkResult<()> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
-        if if_condition_result.as_boolean() {
+        if if_condition_result.coerce_to_boolean() {
             self.evaluate_ast(&if_part.ast)?;
             return Ok(());
         }
 
         for elif_part in elif_parts {
             let elif_condition_result = self.evaluate_expr(&elif_part.condition)?;
-            if elif_condition_result.as_boolean() {
+            if elif_condition_result.coerce_to_boolean() {
                 self.evaluate_ast(&elif_part.ast)?;
                 return Ok(());
             }
@@ -796,7 +796,7 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_while_loop(&self, cond_ast: &ConditionalAst) -> TreewalkResult<()> {
-        while self.evaluate_expr(&cond_ast.condition)?.as_boolean() {
+        while self.evaluate_expr(&cond_ast.condition)?.coerce_to_boolean() {
             match self.evaluate_ast(&cond_ast.ast) {
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     break;
@@ -846,7 +846,7 @@ impl TreewalkInterpreter {
                 }
 
                 if let Some(condition) = first_clause.condition.as_ref() {
-                    if !self.evaluate_expr(condition)?.as_boolean() {
+                    if !self.evaluate_expr(condition)?.coerce_to_boolean() {
                         continue;
                     }
                 }
@@ -994,7 +994,8 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<()> {
         let module = self
             .evaluate_module_import(import_path)?
-            .expect_module(self)?;
+            .as_module()
+            .raise(self)?;
 
         let mapped_imports = items
             .iter()
