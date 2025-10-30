@@ -395,8 +395,7 @@ impl TreewalkInterpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    let list = Container::<List>::try_eval_from(evaluated, self)?;
-                    for elem in list {
+                    for elem in evaluated.expect_iterable(self)? {
                         results.push(elem);
                     }
                 }
@@ -867,8 +866,8 @@ impl TreewalkInterpreter {
         clauses: &[ForClause],
     ) -> TreewalkResult<TreewalkValue> {
         let evaluated = self.evaluate_list_comprehension(body, clauses)?;
-        let set = Container::<Set>::try_eval_from(evaluated, self)?;
-        Ok(TreewalkValue::Set(set))
+        let set = Set::try_eval_from(evaluated, self)?;
+        Ok(TreewalkValue::Set(Container::new(set)))
     }
 
     fn evaluate_dict_comprehension(

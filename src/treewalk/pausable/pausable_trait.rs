@@ -153,9 +153,7 @@ pub trait Pausable {
                 ..
             } => {
                 let evaluated = interpreter.evaluate_expr(iterable)?;
-                let items = Container::<List>::try_eval_from(evaluated, interpreter)?;
-
-                let mut queue = items.borrow().as_queue();
+                let mut queue = List::try_eval_from(evaluated, interpreter)?.as_queue();
 
                 if let Some(item) = queue.pop_front() {
                     interpreter.write_loop_index(index, item)?;

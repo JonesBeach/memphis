@@ -128,13 +128,13 @@ impl Add for List {
     }
 }
 
-impl TryEvalFrom for Container<List> {
+impl TryEvalFrom for List {
     fn try_eval_from(
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
         let iter = value.expect_iterator(interpreter)?;
-        Ok(Container::new(List::new(iter.collect())))
+        Ok(List::new(iter.collect()))
     }
 }
 
@@ -205,12 +205,12 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let list = match args.len() {
-            1 => Container::new(List::default()),
-            2 => Container::<List>::try_eval_from(args.get_arg(1), interpreter)?,
+            1 => List::default(),
+            2 => List::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 
-        Ok(TreewalkValue::List(list))
+        Ok(TreewalkValue::List(Container::new(list)))
     }
 
     fn name(&self) -> String {

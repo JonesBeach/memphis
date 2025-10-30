@@ -48,13 +48,13 @@ impl Set {
     }
 }
 
-impl TryEvalFrom for Container<Set> {
+impl TryEvalFrom for Set {
     fn try_eval_from(
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
         let iter = value.expect_iterator(interpreter)?;
-        Ok(Container::new(Set::new(iter.collect())))
+        Ok(Set::new(iter.collect()))
     }
 }
 
@@ -115,12 +115,12 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let set = match args.len() {
-            1 => Container::new(Set::default()),
-            2 => Container::<Set>::try_eval_from(args.get_arg(1), interpreter)?,
+            1 => Set::default(),
+            2 => Set::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 
-        Ok(TreewalkValue::Set(set))
+        Ok(TreewalkValue::Set(Container::new(set)))
     }
 
     fn name(&self) -> String {
