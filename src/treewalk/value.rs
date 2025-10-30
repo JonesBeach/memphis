@@ -558,24 +558,6 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a floating point"))
     }
 
-    pub fn as_class(&self) -> Option<Container<Class>> {
-        match self {
-            TreewalkValue::Class(i) => Some(i.clone()),
-            // TODO should this use a trait interface?
-            // #[cfg(feature = "c_stdlib")]
-            // TreewalkValue::CPythonClass(i) => Some(i),
-            _ => None,
-        }
-    }
-
-    pub fn expect_class(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Class>> {
-        self.as_class()
-            .ok_or_else(|| interpreter.type_error("Expected a class"))
-    }
-
     pub fn as_module(&self) -> Option<Box<dyn MemberRead>> {
         match self {
             TreewalkValue::Module(i) => Some(Box::new(i.borrow().clone())),
@@ -654,6 +636,13 @@ impl TreewalkValue {
         }
     }
 
+    pub fn as_class(&self) -> ExecResult<Container<Class>> {
+        match self {
+            TreewalkValue::Class(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a class")),
+        }
+    }
+
     pub fn as_coroutine(&self) -> ExecResult<Container<Coroutine>> {
         match self {
             TreewalkValue::Coroutine(i) => Ok(i.clone()),
@@ -706,10 +695,6 @@ impl TreewalkValue {
 
     pub fn not(&self) -> Self {
         TreewalkValue::Bool(!self.as_boolean())
-    }
-
-    pub fn is_class(&self) -> bool {
-        self.as_class().is_some()
     }
 }
 

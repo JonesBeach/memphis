@@ -38,7 +38,7 @@ impl Callable for NewBuiltin {
         // GenericAlias = type(list[int])
         // __class_getitem__ = classmethod(GenericAlias)
         // ```
-        if args.get_arg(1).as_class().is_some() {
+        if args.get_arg(1).as_class().is_ok() {
             return Ok(TreewalkValue::None);
         }
 

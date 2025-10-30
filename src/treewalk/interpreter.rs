@@ -3,7 +3,7 @@ use std::{
     fmt::Write,
 };
 
-use super::result::Raise;
+use super::result::{ExecResult, Raise};
 #[cfg(feature = "c_stdlib")]
 use super::types::cpython::import_from_cpython;
 use crate::{
@@ -730,14 +730,16 @@ impl TreewalkInterpreter {
             .map(|p| self.evaluate_expr(p))
             .collect::<Result<Vec<_>, _>>()?
             .iter()
-            .map(|f| f.expect_class(self))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|f| f.as_class())
+            .collect::<ExecResult<Vec<_>>>()
+            .raise(self)?;
 
         let metaclass = metaclass
-            .clone()
+            .as_ref()
             .and_then(|p| self.state.read(p.as_str()))
-            .map(|d| d.expect_class(self))
-            .transpose()?;
+            .map(|d| d.as_class())
+            .transpose()
+            .raise(self)?;
 
         // We will update the scope on this class before we write it to the symbol table, but we
         // must instantiate the class here so we can get a reference that can be associated with

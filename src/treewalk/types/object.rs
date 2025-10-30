@@ -363,7 +363,7 @@ impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
-        let class = args.get_arg(0).expect_class(interpreter)?;
+        let class = args.get_arg(0).as_class().raise(interpreter)?;
         Ok(TreewalkValue::Object(Container::new(Object::new(class))))
     }
 

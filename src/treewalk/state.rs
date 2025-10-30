@@ -259,6 +259,6 @@ impl Container<TreewalkState> {
         let module_path = ImportPath::from_segments(&segments);
         let module = self.fetch_module(&module_path)?;
         let binding = module.borrow();
-        binding.get(&class_name)?.as_class()
+        binding.get(&class_name)?.as_class().ok()
     }
 }

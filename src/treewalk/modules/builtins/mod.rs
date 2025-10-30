@@ -3,7 +3,7 @@ use crate::{
     domain::{Dunder, Source},
     treewalk::{
         protocols::{Callable, Iterable},
-        result::Raise,
+        result::{ExecResult, Raise},
         type_system::CloneableCallable,
         types::{List, Module, Str},
         utils::{args, check_args, Args},
@@ -147,7 +147,7 @@ impl Callable for HashBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let arg = args.get_arg(0);
-        if arg.as_class().is_some() {
+        if arg.as_class().is_ok() {
             return Ok(TreewalkValue::Int(arg.hash() as i64));
         }
 
@@ -174,20 +174,15 @@ impl Callable for IsinstanceBuiltin {
 
         let reference_class = match args.get_arg(1) {
             TreewalkValue::Class(class) => vec![class],
-            TreewalkValue::Tuple(tuple) => {
-                let classes: Result<Vec<_>, _> = tuple
-                    .into_iter()
-                    .map(|item| {
-                        item.as_class()
-                            .ok_or_else(|| interpreter.type_error(message))
-                    })
-                    .collect();
-                classes?
-            }
+            TreewalkValue::Tuple(tuple) => tuple
+                .into_iter()
+                .map(|item| item.as_class())
+                .collect::<ExecResult<Vec<_>>>()
+                .map_err(|_| interpreter.type_error(message))?,
             _ => return Err(interpreter.type_error(message)),
         };
 
-        let isinstance = if args.get_arg(0).is_class() {
+        let isinstance = if args.get_arg(0).as_class().is_ok() {
             has_overlap(&reference_class, &instance_class.borrow().metaclass().mro())
         } else {
             has_overlap(&reference_class, &instance_class.mro())
@@ -208,9 +203,9 @@ impl Callable for IssubclassBuiltin {
         let instance_class = args
             .get_arg(0)
             .as_class()
-            .ok_or_else(|| interpreter.type_error("issubclass() arg 1 must be a class"))?;
+            .map_err(|_| interpreter.type_error("issubclass() arg 1 must be a class"))?;
 
-        let reference_class = args.get_arg(1).as_class().ok_or_else(|| {
+        let reference_class = args.get_arg(1).as_class().map_err(|_| {
             interpreter
                 .type_error("issubclass() arg 2 must be a type, a tuple of types, or a union")
         })?;
