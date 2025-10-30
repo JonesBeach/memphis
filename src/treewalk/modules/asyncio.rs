@@ -3,6 +3,7 @@ use crate::{
     domain::{ImportPath, Source},
     treewalk::{
         protocols::Callable,
+        result::Raise,
         type_system::CloneableCallable,
         types::Module,
         utils::{check_args, Args},
@@ -21,7 +22,7 @@ impl Callable for AsyncioRunBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
+        let coroutine = args.get_arg(0).as_coroutine().raise(interpreter)?;
         interpreter.with_executor(|exec| exec.run(interpreter, coroutine))
     }
 
@@ -46,7 +47,7 @@ impl Callable for AsyncioCreateTaskBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let coroutine = args.get_arg(0).expect_coroutine(interpreter)?;
+        let coroutine = args.get_arg(0).as_coroutine().raise(interpreter)?;
         interpreter.with_executor(|exec| exec.spawn(coroutine))
     }
 

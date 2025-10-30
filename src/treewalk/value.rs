@@ -593,36 +593,6 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a module"))
     }
 
-    pub fn as_generator(&self) -> Option<GeneratorIter> {
-        match self {
-            TreewalkValue::Generator(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_generator(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<GeneratorIter> {
-        self.as_generator()
-            .ok_or_else(|| interpreter.type_error("Expected a generator"))
-    }
-
-    pub fn as_coroutine(&self) -> Option<Container<Coroutine>> {
-        match self {
-            TreewalkValue::Coroutine(i) => Some(i.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_coroutine(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Container<Coroutine>> {
-        self.as_coroutine()
-            .ok_or_else(|| interpreter.type_error("Expected a coroutine"))
-    }
-
     pub fn as_boolean(&self) -> bool {
         match self {
             TreewalkValue::Bool(i) => *i,
@@ -698,6 +668,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Str(i) => Ok(i.to_string()),
             _ => Err(ExecutionErrorKind::type_error("Expected a string")),
+        }
+    }
+
+    pub fn as_coroutine(&self) -> ExecResult<Container<Coroutine>> {
+        match self {
+            TreewalkValue::Coroutine(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a coroutine")),
         }
     }
 
