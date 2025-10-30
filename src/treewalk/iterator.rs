@@ -43,7 +43,7 @@ impl IntoIterator for TreewalkValue {
 
     fn into_iter(self) -> Self::IntoIter {
         self.clone()
-            .into_iterator()
-            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", self.get_type()))
+            .as_iterator()
+            .unwrap_or_else(|_| panic!("attempted to call IntoIterator on a {}!", self.get_type()))
     }
 }

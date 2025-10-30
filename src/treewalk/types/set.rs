@@ -53,7 +53,7 @@ impl TryEvalFrom for Set {
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
-        let iter = value.expect_iterator(interpreter)?;
+        let iter = value.as_iterator().raise(interpreter)?;
         Ok(Set::new(iter.collect()))
     }
 }

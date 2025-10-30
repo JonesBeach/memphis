@@ -133,7 +133,7 @@ impl TryEvalFrom for List {
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
-        let iter = value.expect_iterator(interpreter)?;
+        let iter = value.as_iterator().raise(interpreter)?;
         Ok(List::new(iter.collect()))
     }
 }

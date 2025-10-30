@@ -3,6 +3,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
+        result::{ExecResult, Raise},
         type_system::CloneableIterable,
         types::Tuple,
         utils::{check_args, Args},
@@ -83,8 +84,9 @@ impl Callable for NewBuiltin {
                 iter.next();
 
                 let iters = iter
-                    .map(|a| a.expect_iterator(interpreter))
-                    .collect::<Result<Vec<Box<dyn CloneableIterable>>, _>>()?;
+                    .map(|a| a.as_iterator())
+                    .collect::<ExecResult<Vec<Box<dyn CloneableIterable>>>>()
+                    .raise(interpreter)?;
 
                 let zip = ZipIterator::new(iters);
 

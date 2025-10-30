@@ -31,7 +31,7 @@ use crate::{
     },
 };
 
-use super::result::{ExecResult, Raise};
+use super::result::ExecResult;
 
 #[derive(Clone)]
 pub enum TreewalkValue {
@@ -436,35 +436,13 @@ impl TreewalkValue {
         }
     }
 
-    /// Ensure this value *is already* an iterator (e.g. result of a prior `iter()` call).
-    ///
-    /// If not, raise a TypeError. This does not attempt to coerce an iterable into an iterator.
-    /// Use when `next()` is called directly — `next(x)` must fail if `x` is not an iterator.
-    pub fn expect_iterator_strict(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Box<dyn CloneableIterable>> {
-        self.clone().into_iterator().ok_or_else(|| {
-            interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
-        })
-    }
-
     /// Ensure this value is iterable, then convert it to an iterator (if needed).
     ///
     /// This mimics the behavior of calling `iter(x)` in Python.
     /// Used when interpreting `for x in y:` or any construct that expects an iterable.
     /// Raises a TypeError if the object is not iterable.
-    pub fn expect_iterator(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Box<dyn CloneableIterable>> {
-        self.clone()
-            .as_iterable()
-            .raise(interpreter)?
-            .into_iterator()
-            .ok_or_else(|| {
-                interpreter.type_error(format!("'{}' object is not an iterator", self.get_type()))
-            })
+    pub fn as_iterator(&self) -> ExecResult<Box<dyn CloneableIterable>> {
+        self.clone().as_iterable()?.as_iterator_strict()
     }
 
     /// Convert a value into its iterator form, consuming the value in the process.

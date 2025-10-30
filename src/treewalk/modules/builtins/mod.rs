@@ -243,7 +243,7 @@ impl Callable for PrintBuiltin {
 impl Callable for LenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        let iterator = args.get_arg(0).expect_iterator(interpreter)?;
+        let iterator = args.get_arg(0).as_iterator().raise(interpreter)?;
         Ok(TreewalkValue::Int(iterator.count() as i64))
     }
 
@@ -255,7 +255,7 @@ impl Callable for LenBuiltin {
 impl Callable for NextBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        let mut iterator = args.get_arg(0).expect_iterator_strict(interpreter)?;
+        let mut iterator = args.get_arg(0).as_iterator_strict().raise(interpreter)?;
         match Iterable::try_next(&mut iterator) {
             Ok(Some(val)) => Ok(val),
             Ok(None) => Err(interpreter.stop_iteration()),

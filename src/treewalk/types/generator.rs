@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         pausable::{Frame, Pausable, PausableStack, PausableStepResult},
         protocols::Iterable,
+        result::Raise,
         type_system::CloneableIterable,
         types::Function,
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
@@ -56,7 +57,7 @@ impl Generator {
             Err(TreewalkDisruption::Signal(TreewalkSignal::Yield(val))) => Ok(Some(val)),
             Err(TreewalkDisruption::Signal(TreewalkSignal::YieldFrom(val))) => {
                 if self.delegated.is_none() {
-                    let iter = val.expect_iterator(interpreter)?;
+                    let iter = val.as_iterator().raise(interpreter)?;
                     self.delegated = Some(iter);
                 }
 

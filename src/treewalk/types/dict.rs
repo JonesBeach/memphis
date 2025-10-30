@@ -123,7 +123,7 @@ impl TryEvalFrom for Container<Dict> {
         match value {
             TreewalkValue::Dict(i) => Ok(i.clone()),
             val if val.clone().as_iterable().is_ok() => {
-                let iter = val.expect_iterator(interpreter)?;
+                let iter = val.as_iterator().raise(interpreter)?;
                 let dict_items = DictItems::from_iterable(iter, interpreter)?;
                 Ok(Container::new(dict_items.to_dict()))
             }

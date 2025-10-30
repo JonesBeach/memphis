@@ -141,7 +141,12 @@ impl TreewalkValue {
         Ok(Some(result))
     }
 
-    pub fn into_iterator(self) -> Option<Box<dyn CloneableIterable>> {
+    /// Ensure this value *is already* an iterator (e.g. result of a prior `iter()` call).
+    ///
+    /// If not, raise a TypeError. This does not attempt to coerce an iterable into an iterator.
+    /// Use when `next()` is called directly — `next(x)` must fail if `x` is not an iterator.
+    #[allow(clippy::wrong_self_convention)]
+    pub fn as_iterator_strict(self) -> ExecResult<Box<dyn CloneableIterable>> {
         let result: Box<dyn CloneableIterable> = match self {
             TreewalkValue::ListIter(i) => Box::new(i),
             TreewalkValue::SetIter(i) => Box::new(i),
@@ -154,12 +159,18 @@ impl TreewalkValue {
             TreewalkValue::DictValuesIter(i) => Box::new(i),
             TreewalkValue::Generator(i) => Box::new(i),
             TreewalkValue::Zip(i) => Box::new(i),
-            _ => return None,
+            _ => {
+                return Err(ExecutionErrorKind::type_error(format!(
+                    "'{}' object is not an iterator",
+                    self.get_type()
+                )))
+            }
         };
 
-        Some(result)
+        Ok(result)
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_callable(self) -> ExecResult<Box<dyn CloneableCallable>> {
         let result: Box<dyn CloneableCallable> = match self {
             TreewalkValue::Function(i) => Box::new(i),

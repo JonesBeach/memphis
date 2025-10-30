@@ -414,7 +414,7 @@ impl Callable for ContainsBuiltin {
         let left = args.get_self().raise(interpreter)?;
         let right = args.get_arg(0);
 
-        let mut iterable = left.expect_iterator(interpreter)?;
+        let mut iterable = left.as_iterator().raise(interpreter)?;
         Ok(TreewalkValue::Bool(iterable.any(|i| i == right)))
     }
 

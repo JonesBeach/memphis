@@ -5,6 +5,7 @@ use std::{
 
 use crate::treewalk::{
     macros::*,
+    result::Raise,
     type_system::CloneableIterable,
     types::{Dict, DictKeys, DictValues, Tuple},
     utils::{format_comma_separated_with, Contextual, ContextualPair},
@@ -26,7 +27,7 @@ impl DictItems {
         let mut pairs: Vec<(TreewalkValue, TreewalkValue)> = vec![];
         for (index, item) in iter.enumerate() {
             // The item is often a tuple, but can really be any iterable which yields 2 values.
-            let pair: Vec<_> = item.expect_iterator(interpreter)?.collect();
+            let pair: Vec<_> = item.as_iterator().raise(interpreter)?.collect();
 
             // We cannot convert directly from a Vec to a tuple, we must first attempt to convert
             // to an array of a known and fixed length of 2.
