@@ -98,7 +98,7 @@ impl TreewalkInterpreter {
             Plus => Ok(right),
             Not => Ok(right.not()),
             BitwiseNot => {
-                let i = right.as_int().ok_or_else(|| {
+                let i = right.as_int().map_err(|_| {
                     self.type_error(format!(
                         "bad operand type for unary ~: '{}'",
                         right.get_type()

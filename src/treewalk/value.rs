@@ -520,17 +520,14 @@ impl TreewalkValue {
         Ok(value)
     }
 
-    pub fn as_int(&self) -> Option<i64> {
+    pub fn coerce_to_int(&self) -> ExecResult<i64> {
         match self {
-            TreewalkValue::Int(i) => Some(*i),
-            TreewalkValue::Str(s) => s.parse::<i64>().ok(),
-            _ => None,
+            TreewalkValue::Int(i) => Ok(*i),
+            TreewalkValue::Str(s) => s
+                .parse::<i64>()
+                .map_err(|_| ExecutionErrorKind::type_error("invalid int literal")),
+            _ => Err(ExecutionErrorKind::type_error("Cannot coerce to an int")),
         }
-    }
-
-    pub fn expect_int(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<i64> {
-        self.as_int()
-            .ok_or_else(|| interpreter.type_error("Expected an integer"))
     }
 
     pub fn as_float(&self) -> Option<f64> {
@@ -582,6 +579,13 @@ impl TreewalkValue {
             _ => Err(ExecutionErrorKind::type_error(
                 "Expected a dict with str keys",
             )),
+        }
+    }
+
+    pub fn as_int(&self) -> ExecResult<i64> {
+        match self {
+            TreewalkValue::Int(i) => Ok(*i),
+            _ => Err(ExecutionErrorKind::type_error("Expected an int")),
         }
     }
 

@@ -5,6 +5,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, TryEvalFrom},
+        result::Raise,
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -55,7 +56,7 @@ impl IndexRead for Tuple {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        let i = index.expect_int(interpreter)?;
+        let i = index.as_int().raise(interpreter)?;
         Ok(self.get_item(i as usize))
     }
 }

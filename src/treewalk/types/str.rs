@@ -192,7 +192,7 @@ impl Callable for MulBuiltin {
             .raise(interpreter)?
             .as_str()
             .raise(interpreter)?;
-        let n = args.get_arg(0).expect_int(interpreter)?;
+        let n = args.get_arg(0).as_int().raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(a.repeat(n as usize))))
     }
@@ -256,7 +256,7 @@ impl Callable for SplitBuiltin {
         let iter: Box<dyn Iterator<Item = &str>> = match args.len() {
             1 => Box::new(text.split(&delim)),
             2 => {
-                let max_split = args.get_arg(1).expect_int(interpreter)?;
+                let max_split = args.get_arg(1).as_int().raise(interpreter)?;
                 // Python's value for maxsplit is the number of splits done, while Rust interprets
                 // it as the number of items in the resulting list. Therefore, we add one.
                 Box::new(text.splitn((max_split as usize) + 1, &delim))

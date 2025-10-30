@@ -102,7 +102,7 @@ impl IndexWrite for Container<List> {
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_int(interpreter)?;
+        let i = index.as_int().raise(interpreter)?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
@@ -112,7 +112,7 @@ impl IndexWrite for Container<List> {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_int(interpreter)?;
+        let i = index.as_int().raise(interpreter)?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }

@@ -20,7 +20,7 @@ struct ConnClose;
 
 impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let n = args.get_arg(0).expect_int(interpreter)? as usize;
+        let n = args.get_arg(0).as_int().raise(interpreter)?;
 
         let conn_obj = args
             .get_self()
@@ -31,7 +31,7 @@ impl Callable for ConnRecv {
         let conn = binding
             .downcast_mut::<Connection>()
             .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
-        let bytes = conn.recv(n).map_err(|e| {
+        let bytes = conn.recv(n as usize).map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.recv() failed: {}", e))
         })?;
 
