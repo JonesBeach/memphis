@@ -668,20 +668,6 @@ impl TreewalkValue {
             .ok_or_else(|| interpreter.type_error("Expected a list"))
     }
 
-    /// Returns a `Container<Set>` with _no_ type coercion. Use `TryEvalFrom` for type
-    /// coercion.
-    pub fn as_set(&self) -> Option<Container<Set>> {
-        match self {
-            TreewalkValue::Set(set) => Some(set.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_set(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Container<Set>> {
-        self.as_set()
-            .ok_or_else(|| interpreter.type_error("Expected a set"))
-    }
-
     pub fn as_dict(
         &self,
         interpreter: &TreewalkInterpreter,
@@ -723,18 +709,6 @@ impl TreewalkValue {
         }
     }
 
-    pub fn as_bytes(&self) -> Option<Vec<u8>> {
-        match self {
-            TreewalkValue::Bytes(i) => Some(i.to_vec()),
-            _ => None,
-        }
-    }
-
-    pub fn expect_bytes(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<Vec<u8>> {
-        self.as_bytes()
-            .ok_or_else(|| interpreter.type_error("Expected bytes"))
-    }
-
     pub fn as_str(&self) -> ExecResult<String> {
         match self {
             TreewalkValue::Str(i) => Ok(i.to_string()),
@@ -746,6 +720,20 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Function(i) => Ok(i.clone()),
             _ => Err(ExecutionErrorKind::type_error("Expected a function")),
+        }
+    }
+
+    pub fn as_set(&self) -> ExecResult<Container<Set>> {
+        match self {
+            TreewalkValue::Set(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected a set")),
+        }
+    }
+
+    pub fn as_bytes(&self) -> ExecResult<Vec<u8>> {
+        match self {
+            TreewalkValue::Bytes(i) => Ok(i.clone()),
+            _ => Err(ExecutionErrorKind::type_error("Expected bytes")),
         }
     }
 

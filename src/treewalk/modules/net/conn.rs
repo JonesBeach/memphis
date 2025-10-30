@@ -3,6 +3,7 @@ use crate::{
     treewalk::{
         macros::impl_method_provider,
         protocols::Callable,
+        result::Raise,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -42,7 +43,7 @@ impl Callable for ConnSend {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let data = args.get_arg(0).expect_bytes(interpreter)?;
+        let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
         let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
         let mut binding = conn_obj.borrow_mut();

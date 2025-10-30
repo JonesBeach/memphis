@@ -9,6 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, TryEvalFrom},
+        result::Raise,
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -131,7 +132,7 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
+        let set = args.expect_self(interpreter)?.as_set().raise(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
         Ok(TreewalkValue::Bool(result))
@@ -146,8 +147,8 @@ impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left_set = args.expect_self(interpreter)?.expect_set(interpreter)?;
-        let right_set = args.get_arg(0).expect_set(interpreter)?;
+        let left_set = args.expect_self(interpreter)?.as_set().raise(interpreter)?;
+        let right_set = args.get_arg(0).as_set().raise(interpreter)?;
         let l = left_set.borrow().clone();
         let r = right_set.borrow().clone();
 

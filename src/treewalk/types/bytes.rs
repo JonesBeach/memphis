@@ -88,11 +88,10 @@ impl Callable for DecodeBuiltin {
             _ => unreachable!(),
         };
 
-        let bytes = args.expect_self(interpreter)?.expect_bytes(interpreter)?;
-        // TODO this is an experimental pattern to raise an ExecutionErrorKind after its initial
-        // construction. We could use this everywhere.
-        // For example:
-        // let encoding_str = args.get_arg(0).expect_string().raise(interpreter)?;
+        let bytes = args
+            .expect_self(interpreter)?
+            .as_bytes()
+            .raise(interpreter)?;
         let str_value = Str::decode(&bytes, encoding).raise(interpreter)?;
         Ok(TreewalkValue::Str(str_value))
     }
