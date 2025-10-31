@@ -1,4 +1,5 @@
 use std::{
+    cell::{Ref, RefMut},
     cmp::Ordering,
     fmt::{Debug, Display, Error, Formatter},
     hash::{Hash, Hasher},
@@ -518,6 +519,42 @@ impl TreewalkValue {
             TreewalkValue::Float(i) => *i != 0.0,
             TreewalkValue::None => false,
             _ => true,
+        }
+    }
+
+    pub fn as_native_object<T: 'static>(&self) -> ExecResult<Ref<'_, T>> {
+        match self {
+            TreewalkValue::Object(obj) => {
+                let binding = obj.borrow();
+                Ref::filter_map(binding, |any| any.downcast_ref::<T>()).map_err(|_| {
+                    ExecutionErrorKind::type_error(format!(
+                        "Expected native object of type {}",
+                        std::any::type_name::<T>()
+                    ))
+                })
+            }
+            _ => Err(ExecutionErrorKind::type_error(format!(
+                "Expected native object of type {}",
+                std::any::type_name::<T>()
+            ))),
+        }
+    }
+
+    pub fn as_native_object_mut<T: 'static>(&self) -> ExecResult<RefMut<'_, T>> {
+        match self {
+            TreewalkValue::Object(obj) => {
+                let binding = obj.borrow_mut();
+                RefMut::filter_map(binding, |any| any.downcast_mut::<T>()).map_err(|_| {
+                    ExecutionErrorKind::type_error(format!(
+                        "Expected native object of type {}",
+                        std::any::type_name::<T>()
+                    ))
+                })
+            }
+            _ => Err(ExecutionErrorKind::type_error(format!(
+                "Expected native object of type {}",
+                std::any::type_name::<T>()
+            ))),
         }
     }
 

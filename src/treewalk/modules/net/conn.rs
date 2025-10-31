@@ -22,15 +22,10 @@ impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let n = args.get_arg(0).as_int().raise(interpreter)?;
 
-        let conn_obj = args
-            .get_self()
-            .raise(interpreter)?
-            .as_object()
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
         let bytes = conn.recv(n as usize).map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.recv() failed: {}", e))
         })?;
@@ -49,15 +44,10 @@ impl Callable for ConnSend {
 
         let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
-        let conn_obj = args
-            .get_self()
-            .raise(interpreter)?
-            .as_object()
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
         conn.send(&data).map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.send() failed: {}", e))
         })?;
@@ -74,15 +64,10 @@ impl Callable for ConnClose {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
 
-        let conn_obj = args
-            .get_self()
-            .raise(interpreter)?
-            .as_object()
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
         conn.close().map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.close() failed: {}", e))
         })?;

@@ -19,15 +19,8 @@ struct AcceptBuiltin;
 
 impl Callable for AcceptBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let listener = args
-            .get_self()
-            .raise(interpreter)?
-            .as_object()
-            .raise(interpreter)?;
-        let binding = listener.borrow();
-        let socket = binding
-            .downcast_ref::<Socket>()
-            .ok_or_else(|| interpreter.type_error("Expected Socket object"))?;
+        let self_val = args.get_self().raise(interpreter)?;
+        let socket = self_val.as_native_object::<Socket>().raise(interpreter)?;
 
         let (stream, addr) = socket.accept().map_err(|e| {
             interpreter.runtime_error_with(format!("Socket.accept() failed: {}", e))
