@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{Dunder, ExecutionErrorKind, ImportPath, Source},
+    domain::{Dunder, ExecutionError, ImportPath, Source},
     errors::MemphisError,
     treewalk::{
         protocols::MemberRead,
@@ -55,7 +55,7 @@ impl Module {
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
                 println!("{e}");
-                return Err(interpreter.raise(ExecutionErrorKind::SyntaxError));
+                return Err(interpreter.raise(ExecutionError::SyntaxError));
             }
             _ => unreachable!(),
         };

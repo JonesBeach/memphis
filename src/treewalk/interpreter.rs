@@ -9,8 +9,8 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
-        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, ImportPath,
-        MemphisValue, Source,
+        Dunder, ExceptionLiteral, ExecutionError, FunctionType, ImportPath, MemphisValue,
+        RuntimeError, Source,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
@@ -1043,7 +1043,7 @@ impl TreewalkInterpreter {
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.raise(ExecutionErrorKind::MissingContextManagerProtocol));
+            return Err(self.raise(ExecutionError::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(&expr_result, Dunder::Enter, args![])?;
@@ -1108,8 +1108,8 @@ impl TreewalkInterpreter {
                 .find(|clause| error.matches_except_clause(&clause.exception_types))
             {
                 if let Some(alias) = &except_clause.alias {
-                    let exception = match &error.execution_error_kind {
-                        ExecutionErrorKind::StopIteration(v) => {
+                    let exception = match &error.execution_error {
+                        ExecutionError::StopIteration(v) => {
                             let stop_iter_payload = v.clone().unwrap_treewalk();
                             TreewalkValue::StopIteration(Box::new(StopIteration::new(
                                 stop_iter_payload,
@@ -1149,14 +1149,14 @@ impl TreewalkInterpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(self.raise(ExecutionErrorKind::SyntaxError));
+                return Err(self.raise(ExecutionError::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(self.raise(ExecutionErrorKind::SyntaxError));
+            return Err(self.raise(ExecutionError::SyntaxError));
         }
 
         Ok(())
@@ -1373,7 +1373,7 @@ impl Interpreter for TreewalkInterpreter {
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::{test_utils::*, ExecutionErrorKind, Type},
+        domain::{test_utils::*, ExecutionError, Type},
         parser::{
             test_utils::stmt_expr,
             types::{ast, Expr, Params},
@@ -3389,7 +3389,7 @@ assert False
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::AssertionError);
+        assert_error_eq!(e, ExecutionError::AssertionError);
     }
 
     #[test]
@@ -4099,7 +4099,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
 
         let input = r#"
 class MyContextManager:
@@ -4118,7 +4118,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
     }
 
     #[test]
@@ -5095,7 +5095,7 @@ foo()
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
 
         let input = r#"
 def foo():
@@ -5104,14 +5104,14 @@ foo()
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
 
         let input = r#"
 nonlocal a
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
     }
 
     #[test]

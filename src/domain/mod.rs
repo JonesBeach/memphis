@@ -15,7 +15,7 @@ pub use context::Context;
 pub use dunder::Dunder;
 #[cfg(test)]
 pub use error::test_utils;
-pub use error::{ExceptionLiteral, ExecutionError, ExecutionErrorKind, RuntimeValue};
+pub use error::{ExceptionLiteral, ExecutionError, RuntimeError, RuntimeValue};
 pub use function::FunctionType;
 pub use import_path::ImportPath;
 pub use resolver::resolve;

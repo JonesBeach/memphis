@@ -1,7 +1,7 @@
 use std::{collections::HashMap, slice::Iter};
 
 use crate::{
-    domain::ExecutionErrorKind,
+    domain::ExecutionError,
     parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         protocols::TryEvalFrom,
@@ -96,7 +96,7 @@ impl Args {
     pub fn get_self(&self) -> ExecResult<TreewalkValue> {
         match &self.bound_val {
             Some(b) => Ok(b.clone()),
-            None => Err(ExecutionErrorKind::type_error(
+            None => Err(ExecutionError::type_error(
                 "Unbound method needs an argument",
             )),
         }

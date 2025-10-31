@@ -1,5 +1,5 @@
-use crate::{bytecode_vm::CompilerError, domain::ExecutionError};
+use crate::{bytecode_vm::CompilerError, domain::RuntimeError};
 
 pub type CompilerResult<T> = Result<T, CompilerError>;
 
-pub type VmResult<T> = Result<T, ExecutionError>;
+pub type VmResult<T> = Result<T, RuntimeError>;

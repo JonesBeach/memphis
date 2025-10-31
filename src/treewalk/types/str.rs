@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionErrorKind, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
@@ -45,9 +45,7 @@ impl Str {
     pub fn decode(bytes: &[u8], encoding: Encoding) -> ExecResult<Self> {
         let str = match encoding {
             Encoding::Utf8 => str::from_utf8(bytes).map_err(|_| {
-                ExecutionErrorKind::value_error(format!(
-                    "failed to decode with encoding '{encoding}'"
-                ))
+                ExecutionError::value_error(format!("failed to decode with encoding '{encoding}'"))
             })?,
         };
 

@@ -1,5 +1,5 @@
 use crate::{
-    domain::{Dunder, ExecutionErrorKind},
+    domain::{Dunder, ExecutionError},
     treewalk::{
         protocols::{IndexRead, IndexWrite, MemberRead, MemberWrite},
         type_system::{
@@ -160,7 +160,7 @@ impl TreewalkValue {
             TreewalkValue::Generator(i) => Box::new(i),
             TreewalkValue::Zip(i) => Box::new(i),
             _ => {
-                return Err(ExecutionErrorKind::type_error(format!(
+                return Err(ExecutionError::type_error(format!(
                     "'{}' object is not an iterator",
                     self.get_type()
                 )))
@@ -180,7 +180,7 @@ impl TreewalkValue {
             TreewalkValue::Class(i) => Box::new(i),
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonObject(i) => Box::new(i),
-            _ => return Err(ExecutionErrorKind::type_error("Expected a callable")),
+            _ => return Err(ExecutionError::type_error("Expected a callable")),
         };
 
         Ok(result)
