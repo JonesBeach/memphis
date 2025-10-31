@@ -75,12 +75,6 @@ impl PartialEq for VmValue {
     }
 }
 
-impl Default for VmValue {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 impl Voidable for VmValue {
     fn is_none(&self) -> bool {
         matches!(self, VmValue::None)
