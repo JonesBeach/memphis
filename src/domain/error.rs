@@ -42,7 +42,7 @@ impl RuntimeError {
             return true;
         }
 
-        if let Ok(literal) = self.try_into() {
+        if let Ok(literal) = (&self.execution_error).try_into() {
             // Always match `Exception`
             handled_exception_types.contains(&ExceptionLiteral::Exception)
                 || handled_exception_types.contains(&literal)
@@ -222,11 +222,11 @@ impl From<String> for ExceptionLiteral {
     }
 }
 
-impl TryFrom<&RuntimeError> for ExceptionLiteral {
+impl TryFrom<&ExecutionError> for ExceptionLiteral {
     type Error = ();
 
-    fn try_from(value: &RuntimeError) -> Result<Self, Self::Error> {
-        match value.execution_error {
+    fn try_from(value: &ExecutionError) -> Result<Self, Self::Error> {
+        match value {
             ExecutionError::DivisionByZero(..) => Ok(Self::ZeroDivisionError),
             ExecutionError::ImportError(..) => Ok(Self::ImportError),
             ExecutionError::TypeError(..) => Ok(Self::TypeError),
