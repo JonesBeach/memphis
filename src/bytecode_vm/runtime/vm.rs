@@ -155,8 +155,8 @@ impl VirtualMachine {
             return Ok(val);
         }
 
-        if let Some(builtins_mod) = self.runtime.borrow().read_module(&Dunder::Builtins) {
-            if let Some(val) = builtins_mod.borrow().read(name) {
+        if let Some(builtins) = self.runtime.borrow().read_module(&Dunder::Builtins) {
+            if let Some(val) = builtins.borrow().read(name) {
                 return Ok(val);
             }
         }

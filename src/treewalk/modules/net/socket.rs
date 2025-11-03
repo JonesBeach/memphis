@@ -1,50 +1,26 @@
-use std::{
-    io,
-    net::{SocketAddr, TcpListener, TcpStream},
-};
-
 use crate::{
-    core::Container,
+    core::{net::Socket, Container},
     domain::ImportPath,
     treewalk::{
         macros::impl_method_provider,
         modules::net::Connection,
         protocols::Callable,
+        result::Raise,
         types::{Object, Str, Tuple},
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
-pub struct Socket {
-    listener: TcpListener,
-}
-
 impl_method_provider!(Socket, [AcceptBuiltin]);
-
-impl Socket {
-    pub fn new(host: String, port: usize) -> Self {
-        let addr = format!("{}:{}", host, port);
-        Self {
-            listener: TcpListener::bind(addr).expect("Failed to bind TcpListener"),
-        }
-    }
-
-    fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        self.listener.accept()
-    }
-}
 
 #[derive(Clone)]
 struct AcceptBuiltin;
 
 impl Callable for AcceptBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let listener = args.expect_self(interpreter)?.expect_object(interpreter)?;
-        let binding = listener.borrow();
-        let socket = binding
-            .downcast_ref::<Socket>()
-            .ok_or_else(|| interpreter.type_error("Expected Socket object"))?;
+        let self_val = args.get_self().raise(interpreter)?;
+        let socket = self_val.as_native_object::<Socket>().raise(interpreter)?;
 
         let (stream, addr) = socket.accept().map_err(|e| {
             interpreter.runtime_error_with(format!("Socket.accept() failed: {}", e))

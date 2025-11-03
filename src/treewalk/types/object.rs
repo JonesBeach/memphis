@@ -12,6 +12,7 @@ use crate::{
             Callable, DataDescriptor, IndexRead, IndexWrite, MemberRead, MemberWrite,
             NonDataDescriptor,
         },
+        result::Raise,
         types::{Class, Str},
         utils::{args, check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -244,7 +245,8 @@ impl MemberWrite for Container<Object> {
             .into_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
             .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
-            .expect_dict(interpreter)?
+            .as_dict()
+            .raise(interpreter)?
             .borrow()
             .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
@@ -362,7 +364,7 @@ impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // This is builtin for 'object' but the instance is created from the `cls` passed in as the
         // first argument.
-        let class = args.get_arg(0).expect_class(interpreter)?;
+        let class = args.get_arg(0).as_class().raise(interpreter)?;
         Ok(TreewalkValue::Object(Container::new(Object::new(class))))
     }
 
@@ -391,7 +393,7 @@ impl Callable for EqBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.expect_self(interpreter)?;
+        let a = args.get_self().raise(interpreter)?;
         let b = args.get_arg(0);
 
         Ok(TreewalkValue::Bool(a == b))
@@ -409,10 +411,10 @@ impl Callable for ContainsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left = args.expect_self(interpreter)?;
+        let left = args.get_self().raise(interpreter)?;
         let right = args.get_arg(0);
 
-        let mut iterable = left.expect_iterator(interpreter)?;
+        let mut iterable = left.as_iterator().raise(interpreter)?;
         Ok(TreewalkValue::Bool(iterable.any(|i| i == right)))
     }
 
@@ -424,7 +426,7 @@ impl Callable for ContainsBuiltin {
 impl Callable for HashBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let object = args.expect_self(interpreter)?;
+        let object = args.get_self().raise(interpreter)?;
         Ok(TreewalkValue::Int(object.hash() as i64))
     }
 
@@ -437,7 +439,7 @@ impl Callable for NeBuiltin {
     /// The default behavior in Python for the `!=` sign is to call the `Dunder::Eq` and invert the
     /// result. This is only used when `Dunder::Ne` is not overridden by a user-defined class.
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let receiver = args.expect_self(interpreter)?;
+        let receiver = args.get_self().raise(interpreter)?;
         let result = interpreter.invoke_method(&receiver, Dunder::Eq, args![args.get_arg(0)])?;
 
         Ok(result.not())
@@ -452,7 +454,7 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -471,7 +473,7 @@ impl Callable for SubBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -490,7 +492,7 @@ impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -509,7 +511,7 @@ impl Callable for TruedivBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -528,7 +530,7 @@ impl Callable for LtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -547,7 +549,7 @@ impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -566,7 +568,7 @@ impl Callable for GtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -585,7 +587,7 @@ impl Callable for GeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a_type = args.expect_self(interpreter)?.get_type();
+        let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
@@ -625,7 +627,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
-            Some(i) => i.expect_object(interpreter)?.borrow().scope.clone(),
+            Some(i) => i.as_object().raise(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(TreewalkValue::Dict(scope.as_dict(interpreter)))

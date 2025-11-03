@@ -1,6 +1,6 @@
 use crate::{
     core::Container,
-    domain::ExecutionErrorKind,
+    domain::ExecutionError,
     parser::types::{Statement, StatementKind},
     treewalk::{
         protocols::TryEvalFrom, type_system::CloneableIterable, types::List, Scope,
@@ -100,7 +100,10 @@ pub trait Pausable {
     ) -> TreewalkResult<bool> {
         match &stmt.kind {
             StatementKind::WhileLoop(cond_ast) => {
-                if interpreter.evaluate_expr(&cond_ast.condition)?.as_boolean() {
+                if interpreter
+                    .evaluate_expr(&cond_ast.condition)?
+                    .coerce_to_boolean()
+                {
                     self.context_mut().push(PausableFrame::new(
                         Frame::new(cond_ast.ast.clone()),
                         PausableState::InWhileLoop(cond_ast.condition.clone()),
@@ -114,7 +117,10 @@ pub trait Pausable {
                 elif_parts,
                 else_part,
             } => {
-                if interpreter.evaluate_expr(&if_part.condition)?.as_boolean() {
+                if interpreter
+                    .evaluate_expr(&if_part.condition)?
+                    .coerce_to_boolean()
+                {
                     self.context_mut().push(PausableFrame::new(
                         Frame::new(if_part.ast.clone()),
                         PausableState::InBlock,
@@ -126,7 +132,7 @@ pub trait Pausable {
                 for elif_part in elif_parts {
                     if interpreter
                         .evaluate_expr(&elif_part.condition)?
-                        .as_boolean()
+                        .coerce_to_boolean()
                     {
                         self.context_mut().push(PausableFrame::new(
                             Frame::new(elif_part.ast.clone()),
@@ -153,9 +159,7 @@ pub trait Pausable {
                 ..
             } => {
                 let evaluated = interpreter.evaluate_expr(iterable)?;
-                let items = Container::<List>::try_eval_from(evaluated, interpreter)?;
-
-                let mut queue = items.borrow().as_queue();
+                let mut queue = List::try_eval_from(evaluated, interpreter)?.as_queue();
 
                 if let Some(item) = queue.pop_front() {
                     interpreter.write_loop_index(index, item)?;
@@ -192,7 +196,7 @@ pub trait Pausable {
                     self.clear_delegated();
                 }
                 Err(TreewalkDisruption::Error(e))
-                    if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration(_)) =>
+                    if matches!(e.execution_error, ExecutionError::StopIteration(_)) =>
                 {
                     // Sub-generator finished, fall through and resume parent generator
                     self.clear_delegated();
@@ -293,7 +297,7 @@ pub trait Pausable {
                     };
 
                     if self.context().current_frame().is_finished()
-                        && interpreter.evaluate_expr(&condition)?.as_boolean()
+                        && interpreter.evaluate_expr(&condition)?.coerce_to_boolean()
                     {
                         self.context_mut().restart_frame();
                     }

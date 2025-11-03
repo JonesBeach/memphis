@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     core::memphis_utils,
-    domain::{Dunder, ExecutionError, ExecutionErrorKind},
+    domain::{Dunder, ExecutionError, RuntimeError},
     errors::MemphisError,
     treewalk::{utils::args, TreewalkDisruption, TreewalkInterpreter, TreewalkValue},
 };
@@ -116,9 +116,9 @@ impl Contextual<TreewalkValue> {
 
         match result {
             Ok(TreewalkValue::Int(hash_val)) => hash_val as u64,
-            Ok(_) => memphis_utils::exit(MemphisError::Execution(ExecutionError::new(
+            Ok(_) => memphis_utils::exit(MemphisError::Execution(RuntimeError::new(
                 self.interpreter.state.debug_call_stack(),
-                ExecutionErrorKind::TypeError(None),
+                ExecutionError::TypeError(None),
             ))),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),

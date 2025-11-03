@@ -1,6 +1,6 @@
 use crate::{
     core::memphis_utils,
-    domain::ExecutionErrorKind,
+    domain::ExecutionError,
     errors::MemphisError,
     treewalk::{
         protocols::Iterable, type_system::CloneableIterable, TreewalkDisruption, TreewalkResult,
@@ -23,7 +23,7 @@ impl Iterator for Box<dyn CloneableIterable> {
         match Iterable::try_next(self) {
             Ok(v) => v,
             Err(TreewalkDisruption::Error(e))
-                if matches!(e.execution_error_kind, ExecutionErrorKind::StopIteration(_)) =>
+                if matches!(e.execution_error, ExecutionError::StopIteration(_)) =>
             {
                 None
             }
@@ -43,7 +43,7 @@ impl IntoIterator for TreewalkValue {
 
     fn into_iter(self) -> Self::IntoIter {
         self.clone()
-            .into_iterator()
-            .unwrap_or_else(|| panic!("attempted to call IntoIterator on a {}!", self.get_type()))
+            .as_iterator()
+            .unwrap_or_else(|_| panic!("attempted to call IntoIterator on a {}!", self.get_type()))
     }
 }

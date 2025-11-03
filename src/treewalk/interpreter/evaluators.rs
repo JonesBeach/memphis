@@ -11,7 +11,7 @@ impl TreewalkInterpreter {
         op: &LogicalOp,
         right: TreewalkValue,
     ) -> TreewalkResult<TreewalkValue> {
-        let left_truthy = left.as_boolean();
+        let left_truthy = left.coerce_to_boolean();
 
         match op {
             LogicalOp::And => {
@@ -98,7 +98,7 @@ impl TreewalkInterpreter {
             Plus => Ok(right),
             Not => Ok(right.not()),
             BitwiseNot => {
-                let i = right.as_integer().ok_or_else(|| {
+                let i = right.as_int().map_err(|_| {
                     self.type_error(format!(
                         "bad operand type for unary ~: '{}'",
                         right.get_type()
@@ -110,7 +110,7 @@ impl TreewalkInterpreter {
                 let list = right
                     .as_list()
                     // Attempted to unpack a non-iterable
-                    .ok_or_else(|| {
+                    .map_err(|_| {
                         self.type_error(format!(
                             "Value after * must be an iterable, not {}",
                             right.get_type()

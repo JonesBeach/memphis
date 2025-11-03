@@ -1,5 +1,5 @@
 use crate::{
-    domain::Dunder,
+    domain::{DomainResult, Dunder, ExecutionError},
     treewalk::{
         protocols::{IndexRead, IndexWrite, MemberRead, MemberWrite},
         type_system::{
@@ -139,7 +139,12 @@ impl TreewalkValue {
         Ok(Some(result))
     }
 
-    pub fn into_iterator(self) -> Option<Box<dyn CloneableIterable>> {
+    /// Ensure this value *is already* an iterator (e.g. result of a prior `iter()` call).
+    ///
+    /// If not, raise a TypeError. This does not attempt to coerce an iterable into an iterator.
+    /// Use when `next()` is called directly — `next(x)` must fail if `x` is not an iterator.
+    #[allow(clippy::wrong_self_convention)]
+    pub fn as_iterator_strict(self) -> DomainResult<Box<dyn CloneableIterable>> {
         let result: Box<dyn CloneableIterable> = match self {
             TreewalkValue::ListIter(i) => Box::new(i),
             TreewalkValue::SetIter(i) => Box::new(i),
@@ -152,13 +157,19 @@ impl TreewalkValue {
             TreewalkValue::DictValuesIter(i) => Box::new(i),
             TreewalkValue::Generator(i) => Box::new(i),
             TreewalkValue::Zip(i) => Box::new(i),
-            _ => return None,
+            _ => {
+                return Err(ExecutionError::type_error(format!(
+                    "'{}' object is not an iterator",
+                    self.get_type()
+                )))
+            }
         };
 
-        Some(result)
+        Ok(result)
     }
 
-    pub fn into_callable(self) -> Option<Box<dyn CloneableCallable>> {
+    #[allow(clippy::wrong_self_convention)]
+    pub fn as_callable(self) -> DomainResult<Box<dyn CloneableCallable>> {
         let result: Box<dyn CloneableCallable> = match self {
             TreewalkValue::Function(i) => Box::new(i),
             TreewalkValue::Method(i) => Box::new(i),
@@ -167,10 +178,10 @@ impl TreewalkValue {
             TreewalkValue::Class(i) => Box::new(i),
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonObject(i) => Box::new(i),
-            _ => return None,
+            _ => return Err(ExecutionError::type_error("Expected a callable")),
         };
 
-        Some(result)
+        Ok(result)
     }
 
     fn hasattr(&self, interpreter: &TreewalkInterpreter, attr: Dunder) -> TreewalkResult<bool> {

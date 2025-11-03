@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::VmValue,
     core::Container,
-    domain::{ExecutionError, ExecutionErrorKind, RuntimeValue},
+    domain::{ExecutionError, RuntimeError, RuntimeValue},
     runtime::MemphisState,
 };
 
@@ -14,35 +14,35 @@ impl ErrorBuilder {
         Self { state }
     }
 
-    pub fn error(&self, kind: ExecutionErrorKind) -> ExecutionError {
+    pub fn error(&self, kind: ExecutionError) -> RuntimeError {
         self.state.save_line_number();
-        ExecutionError::new(self.state.debug_call_stack(), kind)
+        RuntimeError::new(self.state.debug_call_stack(), kind)
     }
 
-    pub fn runtime_error(&self) -> ExecutionError {
-        self.error(ExecutionErrorKind::RuntimeError(None))
+    pub fn runtime_error(&self) -> RuntimeError {
+        self.error(ExecutionError::RuntimeError(None))
     }
 
-    pub fn import_error(&self, name: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::ImportError(name.to_string()))
+    pub fn import_error(&self, name: &str) -> RuntimeError {
+        self.error(ExecutionError::ImportError(name.to_string()))
     }
 
-    pub fn name_error(&self, name: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::NameError(name.to_string()))
+    pub fn name_error(&self, name: &str) -> RuntimeError {
+        self.error(ExecutionError::NameError(name.to_string()))
     }
 
-    pub fn type_error(&self, msg: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::TypeError(Some(msg.to_string())))
+    pub fn type_error(&self, msg: &str) -> RuntimeError {
+        self.error(ExecutionError::TypeError(Some(msg.to_string())))
     }
 
-    pub fn stop_iteration(&self) -> ExecutionError {
-        self.error(ExecutionErrorKind::StopIteration(Box::new(
-            RuntimeValue::Vm(VmValue::None),
-        )))
+    pub fn stop_iteration(&self) -> RuntimeError {
+        self.error(ExecutionError::StopIteration(Box::new(RuntimeValue::Vm(
+            VmValue::None,
+        ))))
     }
 
-    pub fn attribute_error(&self, attr: &str) -> ExecutionError {
-        self.error(ExecutionErrorKind::AttributeError(
+    pub fn attribute_error(&self, attr: &str) -> RuntimeError {
+        self.error(ExecutionError::AttributeError(
             "<TODO obj>".to_string(),
             attr.to_string(),
         ))

@@ -1,9 +1,11 @@
 use std::{collections::HashMap, slice::Iter};
 
 use crate::{
+    domain::{DomainResult, ExecutionError},
     parser::types::{CallArgs, KwargsOperation},
     treewalk::{
         protocols::TryEvalFrom,
+        result::Raise,
         types::{Dict, Str, Tuple},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -25,7 +27,7 @@ impl Args {
             .args
             .iter()
             .map(|arg| interpreter.evaluate_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<TreewalkResult<Vec<_>>>()?;
 
         if let Some(ref args_var) = call_args.args_var {
             let value = interpreter.evaluate_expr(args_var)?;
@@ -43,8 +45,8 @@ impl Args {
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
-                    for key in unpacked.expect_iterable(interpreter)? {
-                        let key_str = key.expect_string(interpreter)?;
+                    for key in unpacked.clone().as_iterable().raise(interpreter)? {
+                        let key_str = key.as_str().raise(interpreter)?;
                         if kwargs.contains_key(&key_str) {
                             return Err(interpreter.key_error(key_str.to_string()));
                         }
@@ -91,23 +93,19 @@ impl Args {
         self.args.insert(0, val);
     }
 
-    pub fn get_self(&self) -> Option<TreewalkValue> {
-        self.bound_val.clone()
-    }
-
-    pub fn expect_self(&self, interpreter: &TreewalkInterpreter) -> TreewalkResult<TreewalkValue> {
-        self.get_self()
-            .ok_or_else(|| interpreter.type_error("Unbound call!"))
+    pub fn get_self(&self) -> DomainResult<TreewalkValue> {
+        match &self.bound_val {
+            Some(b) => Ok(b.clone()),
+            None => Err(ExecutionError::type_error(
+                "Unbound method needs an argument",
+            )),
+        }
     }
 
     /// Access a positional argument by index. Bound arguments are not included in this, use
     /// `get_self` for those.
     pub fn get_arg(&self, index: usize) -> TreewalkValue {
         self.args[index].clone()
-    }
-
-    pub fn get_arg_mut(&mut self, index: usize) -> &mut TreewalkValue {
-        &mut self.args[index]
     }
 
     pub fn get_arg_optional(&self, index: usize) -> Option<TreewalkValue> {

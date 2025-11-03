@@ -1,5 +1,4 @@
 mod boxing;
-pub mod builtins;
 mod context;
 mod execution_context;
 mod executor;

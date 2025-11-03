@@ -5,6 +5,7 @@ use crate::{
     domain::{Dunder, Type},
     treewalk::{
         protocols::{Callable, MemberRead, MemberWrite},
+        result::Raise,
         types::{Str, Tuple},
         utils::{args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -58,7 +59,8 @@ impl Class {
         ];
         interpreter
             .invoke_method(&TreewalkValue::Class(metaclass), Dunder::New, args)?
-            .expect_class(interpreter)
+            .as_class()
+            .raise(interpreter)
     }
 
     /// Create a class directly, bypassing metaclass logic.
@@ -104,13 +106,6 @@ impl Class {
         self.builtin_type.as_ref().unwrap_or_else(|| {
             panic!("attempted to access the builtin type for a user-defined type!")
         })
-    }
-
-    pub fn is_metaclass(&self) -> bool {
-        // is this correct?
-        self.parent_classes
-            .iter()
-            .any(|c| c.borrow().is_type(&Type::Type))
     }
 
     pub fn is_type(&self, type_: &Type) -> bool {

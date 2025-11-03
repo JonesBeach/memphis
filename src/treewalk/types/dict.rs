@@ -5,10 +5,11 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, Type},
+    domain::{DomainResult, Dunder, Type},
     treewalk::{
         macros::*,
-        protocols::{Callable, IndexRead, IndexWrite},
+        protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
+        result::Raise,
         types::{iterators::DictKeysIter, DictItems},
         utils::{check_args, Args, Contextual, ContextualPair},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -93,16 +94,13 @@ impl Dict {
 
     /// Turn this `Dict` into a `SymbolTable`, which is another key-value store but where the keys
     /// are all confirmed to be valid Python identifiers.
-    pub fn to_symbol_table(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<SymbolTable> {
+    pub fn to_symbol_table(&self) -> DomainResult<SymbolTable> {
         let mut table = HashMap::new();
 
         let dict_items = self.to_items();
         for pair in dict_items {
-            let tuple = pair.expect_tuple(interpreter)?;
-            let key = tuple.first().expect_string(interpreter)?;
+            let tuple = pair.as_tuple()?;
+            let key = tuple.first().as_str()?;
             let value = tuple.second();
             table.insert(key, value);
         }
@@ -113,6 +111,23 @@ impl Dict {
     pub fn extend(&mut self, other: &Dict) {
         for (key, value) in &other.items {
             self.items.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+impl TryEvalFrom for Container<Dict> {
+    fn try_eval_from(
+        value: TreewalkValue,
+        interpreter: &TreewalkInterpreter,
+    ) -> TreewalkResult<Self> {
+        match value {
+            TreewalkValue::Dict(i) => Ok(i.clone()),
+            val if val.clone().as_iterable().is_ok() => {
+                let iter = val.as_iterator().raise(interpreter)?;
+                let dict_items = DictItems::from_iterable(iter, interpreter)?;
+                Ok(Container::new(dict_items.to_dict()))
+            }
+            _ => Err(interpreter.type_error("Expected a dict")),
         }
     }
 }
@@ -188,7 +203,11 @@ struct DictValuesBuiltin;
 impl Callable for DictItemsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictItems(dict_items))
     }
@@ -201,7 +220,11 @@ impl Callable for DictItemsBuiltin {
 impl Callable for DictKeysBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictKeys(dict_items.to_keys()))
     }
@@ -214,7 +237,11 @@ impl Callable for DictKeysBuiltin {
 impl Callable for DictValuesBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .as_dict()
+            .raise(interpreter)?;
         let dict_items = dict.borrow().to_items();
         Ok(TreewalkValue::DictValues(dict_items.to_values()))
     }
@@ -242,10 +269,14 @@ impl Callable for InitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
 
-        let output = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let output = args
+            .get_self()
+            .raise(interpreter)?
+            .as_dict()
+            .raise(interpreter)?;
 
         if let Some(pos_arg) = args.get_arg_optional(0) {
-            let input = pos_arg.expect_dict(interpreter)?;
+            let input = Container::<Dict>::try_eval_from(pos_arg, interpreter)?;
             output.borrow_mut().extend(&input.borrow());
         }
 
@@ -266,7 +297,11 @@ impl Callable for GetBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-        let dict = args.expect_self(interpreter)?.expect_dict(interpreter)?;
+        let dict = args
+            .get_self()
+            .raise(interpreter)?
+            .as_dict()
+            .raise(interpreter)?;
 
         let key = args.get_arg(0);
         let default = args.get_arg_optional(1);

@@ -5,6 +5,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
+        result::Raise,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -75,10 +76,10 @@ impl Callable for NewBuiltin {
 
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
-            2 => match args.get_arg(1).as_float() {
-                Some(re) => Complex::new(re, DEFAULT_IM),
-                None => {
-                    let input = &args.get_arg(1).as_string().ok_or_else(|| {
+            2 => match args.get_arg(1).coerce_to_float() {
+                Ok(re) => Complex::new(re, DEFAULT_IM),
+                Err(_) => {
+                    let input = &args.get_arg(1).as_str().map_err(|_| {
                         interpreter.type_error(format!(
                             "complex() first argument must be a string or a number, not '{}'",
                             args.get_arg(1).get_type()
@@ -89,8 +90,8 @@ impl Callable for NewBuiltin {
                 }
             },
             3 => {
-                let re = args.get_arg(1).expect_float(interpreter)?;
-                let im = args.get_arg(2).expect_float(interpreter)?;
+                let re = args.get_arg(1).coerce_to_float().raise(interpreter)?;
+                let im = args.get_arg(2).coerce_to_float().raise(interpreter)?;
                 Complex::new(re, im)
             }
             _ => unreachable!(),

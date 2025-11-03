@@ -9,6 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, TryEvalFrom},
+        result::Raise,
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -47,13 +48,13 @@ impl Set {
     }
 }
 
-impl TryEvalFrom for Container<Set> {
+impl TryEvalFrom for Set {
     fn try_eval_from(
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
-        let iter = value.expect_iterator(interpreter)?;
-        Ok(Container::new(Set::new(iter.collect())))
+        let iter = value.as_iterator().raise(interpreter)?;
+        Ok(Set::new(iter.collect()))
     }
 }
 
@@ -114,12 +115,12 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let set = match args.len() {
-            1 => Container::new(Set::default()),
-            2 => Container::<Set>::try_eval_from(args.get_arg(1), interpreter)?,
+            1 => Set::default(),
+            2 => Set::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 
-        Ok(TreewalkValue::Set(set))
+        Ok(TreewalkValue::Set(Container::new(set)))
     }
 
     fn name(&self) -> String {
@@ -131,7 +132,11 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let set = args.expect_self(interpreter)?.expect_set(interpreter)?;
+        let set = args
+            .get_self()
+            .raise(interpreter)?
+            .as_set()
+            .raise(interpreter)?;
         let result = set.borrow_mut().add(args.get_arg(0));
 
         Ok(TreewalkValue::Bool(result))
@@ -146,8 +151,12 @@ impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left_set = args.expect_self(interpreter)?.expect_set(interpreter)?;
-        let right_set = args.get_arg(0).expect_set(interpreter)?;
+        let left_set = args
+            .get_self()
+            .raise(interpreter)?
+            .as_set()
+            .raise(interpreter)?;
+        let right_set = args.get_arg(0).as_set().raise(interpreter)?;
         let l = left_set.borrow().clone();
         let r = right_set.borrow().clone();
 

@@ -1,9 +1,10 @@
 use crate::{
     core::Container,
-    domain::{Dunder, Type},
+    domain::{DomainResult, Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, NonDataDescriptor},
+        result::Raise,
         types::{Class, MappingProxy, Tuple},
         utils::{check_args, Args},
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -31,7 +32,12 @@ impl NonDataDescriptor for DictAttribute {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
-            Some(instance) => instance.expect_class(interpreter)?.borrow().scope.clone(),
+            Some(instance) => instance
+                .as_class()
+                .raise(interpreter)?
+                .borrow()
+                .scope
+                .clone(),
             None => owner.borrow().scope.clone(),
         };
 
@@ -54,7 +60,8 @@ impl NonDataDescriptor for MroAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         let mro = match instance {
             Some(instance) => instance
-                .expect_class(interpreter)?
+                .as_class()
+                .raise(interpreter)?
                 .mro()
                 .iter()
                 .cloned()
@@ -85,15 +92,17 @@ impl Callable for NewBuiltin {
         }
         check_args(&args, |len| len == 4, interpreter)?;
 
-        let mcls = args.get_arg(0).expect_class(interpreter)?;
-        let name = args.get_arg(1).expect_string(interpreter)?;
+        let mcls = args.get_arg(0).as_class().raise(interpreter)?;
+        let name = args.get_arg(1).as_str().raise(interpreter)?;
         // Default to the `Type::Object` class.
         let parent_classes = args
             .get_arg(2)
-            .expect_tuple(interpreter)?
+            .as_tuple()
+            .raise(interpreter)?
             .into_iter()
-            .map(|c| c.expect_class(interpreter))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|c| c.as_class())
+            .collect::<DomainResult<Vec<_>>>()
+            .raise(interpreter)?;
 
         let parent_classes = if parent_classes.is_empty() {
             vec![interpreter.state.class_of_type(&Type::Object)]
@@ -101,7 +110,7 @@ impl Callable for NewBuiltin {
             parent_classes
         };
 
-        let symbol_table = args.get_arg(3).expect_symbol_table(interpreter)?;
+        let symbol_table = args.get_arg(3).as_symbol_table().raise(interpreter)?;
 
         let mut class = Class::new_direct(name, Some(mcls), parent_classes);
         class.scope = Scope::new(symbol_table);

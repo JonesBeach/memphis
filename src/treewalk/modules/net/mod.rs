@@ -1,8 +1,12 @@
 use crate::{
-    core::Container,
+    core::{
+        net::{Connection, Socket},
+        Container,
+    },
     domain::{ImportPath, Source, Type},
     treewalk::{
         protocols::Callable,
+        result::Raise,
         type_system::{CloneableCallable, MethodProvider},
         types::{Class, Module, Object},
         utils::{check_args, Args},
@@ -13,9 +17,6 @@ use crate::{
 mod conn;
 mod socket;
 
-pub use conn::Connection;
-pub use socket::Socket;
-
 #[derive(Clone)]
 pub struct NetListenBuiltin;
 
@@ -23,11 +24,12 @@ impl Callable for NetListenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let host_port = args.get_arg(0).expect_tuple(interpreter)?;
-        let host = host_port.first().expect_string(interpreter)?;
-        let port = host_port.second().expect_integer(interpreter)?;
+        let host_port = args.get_arg(0).as_tuple().raise(interpreter)?;
+        let host = host_port.first().as_str().raise(interpreter)?;
+        let port = host_port.second().as_int().raise(interpreter)?;
 
-        let socket = Socket::new(host, port as usize);
+        let socket = Socket::new(host, port as usize)
+            .map_err(|e| interpreter.runtime_error_with(format!("Failed to bind Socket: {}", e)))?;
 
         let socket_class = interpreter
             .state
@@ -41,6 +43,37 @@ impl Callable for NetListenBuiltin {
 
     fn name(&self) -> String {
         "listen".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+
+    use crate::{
+        domain::test_utils::*,
+        treewalk::{test_utils::*, utils::args},
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_listen_runtime_error_on_conflict() {
+        // Bind the port manually first
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Call the builtin directly
+        let builtin = NetListenBuiltin;
+        let args = args![tuple![str!("127.0.0.1"), int!(port)]];
+        let interpreter = TreewalkInterpreter::default();
+
+        let result = builtin.call(&interpreter, args);
+
+        assert!(result.is_err());
+        let err_binding = result.unwrap_err();
+        let err = err_binding.as_err();
+        assert_runtime_error_contains!(err, "Failed to bind Socket");
     }
 }
 
@@ -65,7 +98,7 @@ fn register_native_class<T: MethodProvider>(
     mod_.insert(name, TreewalkValue::Class(Container::new(class)));
 }
 
-pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
+fn init(type_registry: &TypeRegistry) -> Module {
     let mut net_mod = Module::new(Source::default());
     for builtin in builtins() {
         net_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
@@ -73,6 +106,12 @@ pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
 
     register_native_class::<Socket>(&mut net_mod, "Socket", type_registry);
     register_native_class::<Connection>(&mut net_mod, "Connection", type_registry);
+
+    net_mod
+}
+
+pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
+    let net_mod = init(type_registry);
 
     let memphis_mod = module_store.get_or_create_module(&ImportPath::from("memphis"));
     memphis_mod.borrow_mut().insert(

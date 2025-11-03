@@ -10,6 +10,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, DataDescriptor, MemberRead, MemberWrite, NonDataDescriptor},
+        result::Raise,
         types::{Cell, Class, Dict, Module, Str, Tuple},
         utils::{args, bind_args, Args, EnvironmentFrame},
         Scope, SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
@@ -233,7 +234,8 @@ impl Container<Function> {
         for decorator in decorators.iter() {
             let function = interpreter
                 .evaluate_expr(decorator)?
-                .expect_callable(interpreter)?;
+                .as_callable()
+                .raise(interpreter)?;
             result = interpreter.call(function, args![result])?;
         }
 
@@ -299,7 +301,8 @@ impl NonDataDescriptor for ClosureAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance
-                .expect_function(interpreter)?
+                .as_function()
+                .raise(interpreter)?
                 .borrow()
                 .get_closure(),
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
@@ -319,7 +322,11 @@ impl NonDataDescriptor for CodeAttribute {
         _owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
-            Some(instance) => instance.expect_function(interpreter)?.borrow().get_code(),
+            Some(instance) => instance
+                .as_function()
+                .raise(interpreter)?
+                .borrow()
+                .get_code(),
             None => TreewalkValue::DataDescriptor(Box::new(self.clone())),
         })
     }
@@ -357,7 +364,8 @@ impl NonDataDescriptor for GlobalsAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => instance
-                .expect_function(interpreter)?
+                .as_function()
+                .raise(interpreter)?
                 .borrow()
                 .get_globals(),
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
@@ -379,7 +387,8 @@ impl NonDataDescriptor for ModuleAttribute {
         Ok(match instance {
             Some(instance) => {
                 let name = instance
-                    .expect_function(interpreter)?
+                    .as_function()
+                    .raise(interpreter)?
                     .borrow()
                     .module
                     .borrow()
@@ -424,7 +433,12 @@ impl NonDataDescriptor for NameAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => {
-                let name = instance.expect_function(interpreter)?.borrow().name.clone();
+                let name = instance
+                    .as_function()
+                    .raise(interpreter)?
+                    .borrow()
+                    .name
+                    .clone();
                 TreewalkValue::Str(Str::from(name))
             }
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
@@ -445,7 +459,12 @@ impl NonDataDescriptor for QualnameAttribute {
     ) -> TreewalkResult<TreewalkValue> {
         Ok(match instance {
             Some(instance) => {
-                let name = instance.expect_function(interpreter)?.borrow().name.clone();
+                let name = instance
+                    .as_function()
+                    .raise(interpreter)?
+                    .borrow()
+                    .name
+                    .clone();
                 TreewalkValue::Str(Str::from(name))
             }
             None => TreewalkValue::NonDataDescriptor(Box::new(self.clone())),
@@ -503,7 +522,7 @@ impl NonDataDescriptor for DictDescriptor {
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
         let scope = match instance {
-            Some(i) => i.expect_function(interpreter)?.borrow().scope.clone(),
+            Some(i) => i.as_function().raise(interpreter)?.borrow().scope.clone(),
             None => owner.borrow().scope.clone(),
         };
         Ok(TreewalkValue::Dict(scope.as_dict(interpreter)))

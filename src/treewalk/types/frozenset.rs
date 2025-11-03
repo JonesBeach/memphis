@@ -8,6 +8,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, TryEvalFrom},
+        result::Raise,
         types::iterators::SetIter,
         utils::{check_args, format_comma_separated, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -39,7 +40,7 @@ impl TryEvalFrom for FrozenSet {
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
-        let iter = value.expect_iterator(interpreter)?;
+        let iter = value.as_iterator().raise(interpreter)?;
         Ok(FrozenSet::new(iter.collect()))
     }
 }

@@ -6,10 +6,11 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionErrorKind, Type},
+    domain::{DomainResult, Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
+        result::Raise,
         type_system::CloneableIterable,
         types::Slice,
         utils::{check_args, format_comma_separated, Args},
@@ -38,16 +39,12 @@ impl List {
         self.items.push(item)
     }
 
-    pub fn join(&self, delim: &str) -> Result<String, ExecutionErrorKind> {
+    pub fn join(&self, delim: &str) -> DomainResult<String> {
         Ok(self
             .items
             .iter()
-            .map(|v| {
-                v.as_string().ok_or_else(|| {
-                    ExecutionErrorKind::TypeError(Some("Expected a string".to_string()))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()? // collect into Vec<&str> or Vec<String>
+            .map(|v| v.as_str())
+            .collect::<DomainResult<Vec<_>>>()?
             .join(delim))
     }
 
@@ -105,7 +102,7 @@ impl IndexWrite for Container<List> {
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_integer(interpreter)?;
+        let i = index.as_int().raise(interpreter)?;
         self.borrow_mut().items[i as usize] = value;
         Ok(())
     }
@@ -115,7 +112,7 @@ impl IndexWrite for Container<List> {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let i = index.expect_integer(interpreter)?;
+        let i = index.as_int().raise(interpreter)?;
         self.borrow_mut().items.remove(i as usize);
         Ok(())
     }
@@ -131,13 +128,13 @@ impl Add for List {
     }
 }
 
-impl TryEvalFrom for Container<List> {
+impl TryEvalFrom for List {
     fn try_eval_from(
         value: TreewalkValue,
         interpreter: &TreewalkInterpreter,
     ) -> TreewalkResult<Self> {
-        let iter = value.expect_iterator(interpreter)?;
-        Ok(Container::new(List::new(iter.collect())))
+        let iter = value.as_iterator().raise(interpreter)?;
+        Ok(List::new(iter.collect()))
     }
 }
 
@@ -208,12 +205,12 @@ impl Callable for NewBuiltin {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
         let list = match args.len() {
-            1 => Container::new(List::default()),
-            2 => Container::<List>::try_eval_from(args.get_arg(1), interpreter)?,
+            1 => List::default(),
+            2 => List::try_eval_from(args.get_arg(1), interpreter)?,
             _ => unreachable!(),
         };
 
-        Ok(TreewalkValue::List(list))
+        Ok(TreewalkValue::List(Container::new(list)))
     }
 
     fn name(&self) -> String {
@@ -225,8 +222,12 @@ impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let left_list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-        let right_list = args.get_arg(0).expect_list(interpreter)?;
+        let left_list = args
+            .get_self()
+            .raise(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
+        let right_list = args.get_arg(0).as_list().raise(interpreter)?;
         let l = left_list.borrow().clone();
         let r = right_list.borrow().clone();
 
@@ -242,7 +243,11 @@ impl Callable for AppendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
+        let list = args
+            .get_self()
+            .raise(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
         list.borrow_mut().append(args.get_arg(0).clone());
 
         Ok(TreewalkValue::None)
@@ -257,9 +262,17 @@ impl Callable for ExtendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let list = args.expect_self(interpreter)?.expect_list(interpreter)?;
-        list.borrow_mut()
-            .extend(args.get_arg(0).expect_iterable(interpreter)?.into_iter());
+        let list = args
+            .get_self()
+            .raise(interpreter)?
+            .as_list()
+            .raise(interpreter)?;
+        list.borrow_mut().extend(
+            args.get_arg(0)
+                .as_iterable()
+                .raise(interpreter)?
+                .into_iter(),
+        );
 
         Ok(TreewalkValue::None)
     }

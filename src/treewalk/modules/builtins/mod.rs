@@ -1,13 +1,50 @@
 use crate::{
     core::Container,
-    domain::Dunder,
+    domain::{DomainResult, Dunder, Source},
     treewalk::{
         protocols::{Callable, Iterable},
-        types::{List, Str},
+        result::Raise,
+        type_system::CloneableCallable,
+        types::{List, Module, Str},
         utils::{args, check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
+
+fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
+    vec![
+        Box::new(CallableBuiltin),
+        Box::new(DirBuiltin),
+        Box::new(GetattrBuiltin),
+        Box::new(GlobalsBuiltin),
+        Box::new(HashBuiltin),
+        Box::new(IsinstanceBuiltin),
+        Box::new(IssubclassBuiltin),
+        Box::new(IterBuiltin),
+        Box::new(LenBuiltin),
+        Box::new(NextBuiltin),
+        Box::new(PrintBuiltin),
+    ]
+}
+
+pub fn init(registry: &TypeRegistry) -> Module {
+    let mut mod_ = Module::new(Source::default());
+    for builtin in get_builtins() {
+        mod_.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
+    }
+
+    // This is to insert `list()`, `set()`, etc into the builtin scope. We must do it here instead
+    // of in `init_builtin_scope()` because we want to use the singleton instances owned by
+    // `TypeRegistry`.
+    for builtin_class in registry.get_callable_builtin_types() {
+        mod_.insert(
+            builtin_class.borrow().name(),
+            TreewalkValue::Class(builtin_class.clone()),
+        );
+    }
+
+    mod_
+}
 
 #[derive(Clone)]
 pub struct CallableBuiltin;
@@ -35,9 +72,7 @@ pub struct PrintBuiltin;
 impl Callable for CallableBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        Ok(TreewalkValue::Bool(
-            args.get_arg(0).into_callable().is_some(),
-        ))
+        Ok(TreewalkValue::Bool(args.get_arg(0).as_callable().is_ok()))
     }
 
     fn name(&self) -> String {
@@ -68,7 +103,7 @@ impl Callable for GetattrBuiltin {
         check_args(&args, |len| [2, 3].contains(&len), interpreter)?;
 
         let object = args.get_arg(0);
-        let name = args.get_arg(1).expect_string(interpreter)?;
+        let name = args.get_arg(1).as_str().raise(interpreter)?;
 
         let attr = object
             .clone()
@@ -110,7 +145,7 @@ impl Callable for HashBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         let arg = args.get_arg(0);
-        if arg.as_class().is_some() {
+        if arg.as_class().is_ok() {
             return Ok(TreewalkValue::Int(arg.hash() as i64));
         }
 
@@ -137,20 +172,15 @@ impl Callable for IsinstanceBuiltin {
 
         let reference_class = match args.get_arg(1) {
             TreewalkValue::Class(class) => vec![class],
-            TreewalkValue::Tuple(tuple) => {
-                let classes: Result<Vec<_>, _> = tuple
-                    .into_iter()
-                    .map(|item| {
-                        item.as_class()
-                            .ok_or_else(|| interpreter.type_error(message))
-                    })
-                    .collect();
-                classes?
-            }
+            TreewalkValue::Tuple(tuple) => tuple
+                .into_iter()
+                .map(|item| item.as_class())
+                .collect::<DomainResult<Vec<_>>>()
+                .map_err(|_| interpreter.type_error(message))?,
             _ => return Err(interpreter.type_error(message)),
         };
 
-        let isinstance = if args.get_arg(0).is_class() {
+        let isinstance = if args.get_arg(0).as_class().is_ok() {
             has_overlap(&reference_class, &instance_class.borrow().metaclass().mro())
         } else {
             has_overlap(&reference_class, &instance_class.mro())
@@ -171,9 +201,9 @@ impl Callable for IssubclassBuiltin {
         let instance_class = args
             .get_arg(0)
             .as_class()
-            .ok_or_else(|| interpreter.type_error("issubclass() arg 1 must be a class"))?;
+            .map_err(|_| interpreter.type_error("issubclass() arg 1 must be a class"))?;
 
-        let reference_class = args.get_arg(1).as_class().ok_or_else(|| {
+        let reference_class = args.get_arg(1).as_class().map_err(|_| {
             interpreter
                 .type_error("issubclass() arg 2 must be a type, a tuple of types, or a union")
         })?;
@@ -213,7 +243,7 @@ impl Callable for PrintBuiltin {
 impl Callable for LenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        let iterator = args.get_arg(0).expect_iterator(interpreter)?;
+        let iterator = args.get_arg(0).as_iterator().raise(interpreter)?;
         Ok(TreewalkValue::Int(iterator.count() as i64))
     }
 
@@ -225,7 +255,7 @@ impl Callable for LenBuiltin {
 impl Callable for NextBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        let mut iterator = args.get_arg(0).expect_iterator_strict(interpreter)?;
+        let mut iterator = args.get_arg(0).as_iterator_strict().raise(interpreter)?;
         match Iterable::try_next(&mut iterator) {
             Ok(Some(val)) => Ok(val),
             Ok(None) => Err(interpreter.stop_iteration()),
@@ -241,7 +271,7 @@ impl Callable for NextBuiltin {
 impl Callable for IterBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
-        args.get_arg(0).expect_iterable(interpreter)
+        args.get_arg(0).as_iterable().raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -249,6 +279,6 @@ impl Callable for IterBuiltin {
     }
 }
 
-pub fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
+fn has_overlap<T: PartialEq>(vec1: &[T], vec2: &[T]) -> bool {
     vec1.iter().any(|item| vec2.contains(item))
 }

@@ -1,38 +1,13 @@
-use std::{
-    io::{self, Read, Write},
-    net::{Shutdown, TcpStream},
+use crate::{
+    core::net::Connection,
+    treewalk::{
+        macros::impl_method_provider,
+        protocols::Callable,
+        result::Raise,
+        utils::{check_args, Args},
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
-
-use crate::treewalk::{
-    macros::impl_method_provider,
-    protocols::Callable,
-    utils::{check_args, Args},
-    TreewalkInterpreter, TreewalkResult, TreewalkValue,
-};
-
-pub struct Connection {
-    stream: TcpStream,
-}
-
-impl Connection {
-    pub fn new(stream: TcpStream) -> Self {
-        Self { stream }
-    }
-
-    fn recv(&mut self, bufsize: usize) -> io::Result<Vec<u8>> {
-        let mut buffer = vec![0; bufsize];
-        let n = self.stream.read(&mut buffer)?;
-        Ok(buffer[..n].to_vec())
-    }
-
-    fn send(&mut self, data: &[u8]) -> io::Result<()> {
-        self.stream.write_all(data)
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        self.stream.shutdown(Shutdown::Both)
-    }
-}
 
 impl_method_provider!(Connection, [ConnRecv, ConnSend, ConnClose,]);
 
@@ -45,14 +20,13 @@ struct ConnClose;
 
 impl Callable for ConnRecv {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        let n = args.get_arg(0).expect_integer(interpreter)? as usize;
+        let n = args.get_arg(0).as_int().raise(interpreter)?;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
-        let bytes = conn.recv(n).map_err(|e| {
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
+            .raise(interpreter)?;
+        let bytes = conn.recv(n as usize).map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.recv() failed: {}", e))
         })?;
 
@@ -68,13 +42,12 @@ impl Callable for ConnSend {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let data = args.get_arg(0).expect_bytes(interpreter)?;
+        let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
+            .raise(interpreter)?;
         conn.send(&data).map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.send() failed: {}", e))
         })?;
@@ -91,11 +64,10 @@ impl Callable for ConnClose {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
 
-        let conn_obj = args.expect_self(interpreter)?.expect_object(interpreter)?;
-        let mut binding = conn_obj.borrow_mut();
-        let conn = binding
-            .downcast_mut::<Connection>()
-            .ok_or_else(|| interpreter.type_error("Expected Connection object"))?;
+        let self_val = args.get_self().raise(interpreter)?;
+        let mut conn = self_val
+            .as_native_object_mut::<Connection>()
+            .raise(interpreter)?;
         conn.close().map_err(|e| {
             interpreter.runtime_error_with(format!("Connection.close() failed: {}", e))
         })?;

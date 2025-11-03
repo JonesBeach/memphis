@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionErrorKind, Type},
+    domain::{DomainResult, Dunder, Encoding, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
@@ -16,8 +16,6 @@ use crate::{
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
-
-use super::bytes::Encoding;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Str(String);
@@ -42,12 +40,10 @@ impl Str {
         Self(str.to_string())
     }
 
-    pub fn decode(bytes: &[u8], encoding: Encoding) -> Result<Self, ExecutionErrorKind> {
+    pub fn decode(bytes: &[u8], encoding: Encoding) -> DomainResult<Self> {
         let str = match encoding {
             Encoding::Utf8 => str::from_utf8(bytes).map_err(|_| {
-                ExecutionErrorKind::ValueError(format!(
-                    "failed to decode with encoding '{encoding}'"
-                ))
+                ExecutionError::value_error(format!("failed to decode with encoding '{encoding}'"))
             })?,
         };
 
@@ -168,8 +164,12 @@ impl Callable for AddBuiltin {
         check_args(&args, |len| len == 1, interpreter)?;
 
         // implements a + b
-        let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
-        let b = args.get_arg(0).expect_string(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
+        let b = args.get_arg(0).as_str().raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(a + &b)))
     }
@@ -183,8 +183,12 @@ impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
-        let n = args.get_arg(0).expect_integer(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
+        let n = args.get_arg(0).as_int().raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(a.repeat(n as usize))))
     }
@@ -198,8 +202,12 @@ impl Callable for ContainsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let a = args.expect_self(interpreter)?.expect_string(interpreter)?;
-        let b = args.get_arg(0).expect_string(interpreter)?;
+        let a = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
+        let b = args.get_arg(0).as_str().raise(interpreter)?;
 
         Ok(TreewalkValue::Bool(a.contains(&b)))
     }
@@ -213,8 +221,12 @@ impl Callable for JoinBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 1, interpreter)?;
 
-        let delim = args.expect_self(interpreter)?.expect_string(interpreter)?;
-        let items = args.get_arg(0).expect_list(interpreter)?;
+        let delim = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
+        let items = args.get_arg(0).as_list().raise(interpreter)?;
         let joined = items.borrow().join(&delim).raise(interpreter)?;
 
         Ok(TreewalkValue::Str(Str::from(joined)))
@@ -229,14 +241,18 @@ impl Callable for SplitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
 
-        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
-        let delim = args.get_arg(0).expect_string(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
+        let delim = args.get_arg(0).as_str().raise(interpreter)?;
 
         // We must use dynamic dispatch because split and splitn return different types.
         let iter: Box<dyn Iterator<Item = &str>> = match args.len() {
             1 => Box::new(text.split(&delim)),
             2 => {
-                let max_split = args.get_arg(1).expect_integer(interpreter)?;
+                let max_split = args.get_arg(1).as_int().raise(interpreter)?;
                 // Python's value for maxsplit is the number of splits done, while Rust interprets
                 // it as the number of items in the resulting list. Therefore, we add one.
                 Box::new(text.splitn((max_split as usize) + 1, &delim))
@@ -257,7 +273,11 @@ impl Callable for SplitBuiltin {
 impl Callable for LowerBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| len == 0, interpreter)?;
-        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
         Ok(TreewalkValue::Str(Str::from(text.to_lowercase())))
     }
 
@@ -269,14 +289,17 @@ impl Callable for LowerBuiltin {
 impl Callable for EncodeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
-        let text = args.expect_self(interpreter)?.expect_string(interpreter)?;
+        let text = args
+            .get_self()
+            .raise(interpreter)?
+            .as_str()
+            .raise(interpreter)?;
 
         let encoding = match args.len() {
-            0 => Encoding::Utf8,
+            0 => Encoding::default(),
             1 => {
-                let encoding_str = args.get_arg(0).expect_string(interpreter)?;
-                Encoding::try_from(encoding_str.as_str())
-                    .map_err(|_| interpreter.unknown_encoding(encoding_str))?
+                let encoding_str = args.get_arg(0).as_str().raise(interpreter)?;
+                Encoding::try_from(encoding_str.as_str()).raise(interpreter)?
             }
             _ => unreachable!(),
         };

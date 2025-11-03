@@ -1,5 +1,5 @@
 use crate::{
-    domain::{ExecutionError, Source},
+    domain::{RuntimeError, Source},
     errors::MemphisError,
     treewalk::{TreewalkContext, TreewalkValue},
 };
@@ -16,7 +16,7 @@ pub fn eval(text: &str) -> TreewalkValue {
     init(text).run().expect("Failed to evaluate test string!")
 }
 
-pub fn eval_expect_error(text: &str) -> ExecutionError {
+pub fn eval_expect_error(text: &str) -> RuntimeError {
     match init(text).run() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,
@@ -36,7 +36,7 @@ pub fn run_path(path: &str) -> TreewalkContext {
     context
 }
 
-pub fn run_expect_error(text: &str) -> ExecutionError {
+pub fn run_expect_error(text: &str) -> RuntimeError {
     let mut context = init(text);
     match context.run() {
         Ok(_) => panic!("Expected an error!"),
@@ -45,7 +45,7 @@ pub fn run_expect_error(text: &str) -> ExecutionError {
     };
 }
 
-pub fn run_path_expect_error(path: &str) -> ExecutionError {
+pub fn run_path_expect_error(path: &str) -> RuntimeError {
     let mut context = init_path(path);
     match context.run() {
         Ok(_) => panic!("Expected an error!"),

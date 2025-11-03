@@ -8,8 +8,8 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
-        Dunder, ExceptionLiteral, ExecutionError, ExecutionErrorKind, FunctionType, ImportPath,
-        MemphisValue,
+        DomainResult, Dunder, ExceptionLiteral, ExecutionError, FunctionType, ImportPath,
+        MemphisValue, RuntimeError, Source,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
@@ -21,8 +21,10 @@ use crate::{
         },
         Parser,
     },
+    runtime::MemphisState,
     treewalk::{
         protocols::{MemberRead, TryEvalFrom},
+        result::Raise,
         type_system::CloneableCallable,
         types::{
             iterators::GeneratorIter, Class, Coroutine, Dict, Function, Generator, List, Module,
@@ -40,6 +42,15 @@ mod evaluators;
 #[derive(Clone)]
 pub struct TreewalkInterpreter {
     pub state: Container<TreewalkState>,
+}
+
+impl Default for TreewalkInterpreter {
+    fn default() -> Self {
+        Self::new(TreewalkState::from_source_state(
+            Container::new(MemphisState::default()),
+            Source::default(),
+        ))
+    }
 }
 
 impl TreewalkInterpreter {
@@ -130,7 +141,8 @@ impl TreewalkInterpreter {
     {
         let name = name.as_ref();
         self.evaluate_member_access_inner(receiver, name)?
-            .expect_callable(self)
+            .as_callable()
+            .raise(self)
     }
 
     pub fn invoke_method<S>(
@@ -207,7 +219,7 @@ impl TreewalkInterpreter {
                 self.state.write(var, value);
             }
             LoopIndex::Tuple(tuple_index) => {
-                for (key, value) in tuple_index.iter().zip(value.expect_iterable(self)?) {
+                for (key, value) in tuple_index.iter().zip(value.as_iterable().raise(self)?) {
                     self.state.write(key, value);
                 }
             }
@@ -219,7 +231,8 @@ impl TreewalkInterpreter {
     fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
         self.state
             .read_or_disrupt(name, self)?
-            .expect_callable(self)
+            .as_callable()
+            .raise(self)
     }
 
     pub fn read_index(
@@ -291,7 +304,7 @@ impl TreewalkInterpreter {
         if_value: &Expr,
         else_value: &Expr,
     ) -> TreewalkResult<TreewalkValue> {
-        if self.evaluate_expr(condition)?.as_boolean() {
+        if self.evaluate_expr(condition)?.coerce_to_boolean() {
             self.evaluate_expr(if_value)
         } else {
             self.evaluate_expr(else_value)
@@ -332,7 +345,7 @@ impl TreewalkInterpreter {
             let right = self.evaluate_expr(right)?;
             // is cloning really necessary here?
             let result = self.evaluate_compare_op(left, op, right.clone())?;
-            if !result.as_boolean() {
+            if !result.coerce_to_boolean() {
                 return Ok(TreewalkValue::Bool(false));
             }
             left = right;
@@ -384,8 +397,7 @@ impl TreewalkInterpreter {
                     op: UnaryOp::Unpack,
                     ..
                 } => {
-                    let list = Container::<List>::try_eval_from(evaluated, self)?;
-                    for elem in list {
+                    for elem in evaluated.as_iterable().raise(self)? {
                         results.push(elem);
                     }
                 }
@@ -420,7 +432,7 @@ impl TreewalkInterpreter {
                 }
                 DictOperation::Unpack(expr) => {
                     let unpacked = self.evaluate_expr(expr)?;
-                    for key in unpacked.expect_iterable(self)? {
+                    for key in unpacked.clone().as_iterable().raise(self)? {
                         let value = self.read_index(&unpacked, &key)?;
                         result.insert(key, value); // later keys overwrite earlier ones
                     }
@@ -431,7 +443,7 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_await(&self, expr: &Expr) -> TreewalkResult<TreewalkValue> {
-        let coroutine_to_await = self.evaluate_expr(expr)?.expect_coroutine(self)?;
+        let coroutine_to_await = self.evaluate_expr(expr)?.as_coroutine().raise(self)?;
 
         if let Some(result) = coroutine_to_await.clone().borrow().is_finished_with() {
             Ok(result)
@@ -502,7 +514,7 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_assert(&self, expr: &Expr) -> TreewalkResult<()> {
-        if self.evaluate_expr(expr)?.as_boolean() {
+        if self.evaluate_expr(expr)?.coerce_to_boolean() {
             Ok(())
         } else {
             Err(self.assertion_error())
@@ -539,7 +551,7 @@ impl TreewalkInterpreter {
         let args = Args::from(self, call_args)?;
 
         let function = match callee {
-            Callee::Expr(callee) => self.evaluate_expr(callee)?.expect_callable(self)?,
+            Callee::Expr(callee) => self.evaluate_expr(callee)?.as_callable().raise(self)?,
             Callee::Symbol(name) => self.read_callable(name)?,
         };
 
@@ -634,7 +646,8 @@ impl TreewalkInterpreter {
     fn evaluate_unpacking_assignment(&self, left: &[Expr], right: &Expr) -> TreewalkResult<()> {
         let right_result = self
             .evaluate_expr(right)?
-            .expect_iterable(self)?
+            .as_iterable()
+            .raise(self)?
             .into_iter();
 
         // Collect the items once so that we can get a length without clearing our iterator, some
@@ -719,14 +732,16 @@ impl TreewalkInterpreter {
             .map(|p| self.evaluate_expr(p))
             .collect::<Result<Vec<_>, _>>()?
             .iter()
-            .map(|f| f.expect_class(self))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|f| f.as_class())
+            .collect::<DomainResult<Vec<_>>>()
+            .raise(self)?;
 
         let metaclass = metaclass
-            .clone()
+            .as_ref()
             .and_then(|p| self.state.read(p.as_str()))
-            .map(|d| d.expect_class(self))
-            .transpose()?;
+            .map(|d| d.as_class())
+            .transpose()
+            .raise(self)?;
 
         // We will update the scope on this class before we write it to the symbol table, but we
         // must instantiate the class here so we can get a reference that can be associated with
@@ -761,14 +776,14 @@ impl TreewalkInterpreter {
         else_part: &Option<Ast>,
     ) -> TreewalkResult<()> {
         let if_condition_result = self.evaluate_expr(&if_part.condition)?;
-        if if_condition_result.as_boolean() {
+        if if_condition_result.coerce_to_boolean() {
             self.evaluate_ast(&if_part.ast)?;
             return Ok(());
         }
 
         for elif_part in elif_parts {
             let elif_condition_result = self.evaluate_expr(&elif_part.condition)?;
-            if elif_condition_result.as_boolean() {
+            if elif_condition_result.coerce_to_boolean() {
                 self.evaluate_ast(&elif_part.ast)?;
                 return Ok(());
             }
@@ -783,7 +798,7 @@ impl TreewalkInterpreter {
     }
 
     fn evaluate_while_loop(&self, cond_ast: &ConditionalAst) -> TreewalkResult<()> {
-        while self.evaluate_expr(&cond_ast.condition)?.as_boolean() {
+        while self.evaluate_expr(&cond_ast.condition)?.coerce_to_boolean() {
             match self.evaluate_ast(&cond_ast.ast) {
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Break)) => {
                     break;
@@ -817,18 +832,23 @@ impl TreewalkInterpreter {
             let mut output = vec![];
             for i in self
                 .evaluate_expr(&first_clause.iterable)?
-                .expect_iterable(self)?
+                .as_iterable()
+                .raise(self)?
             {
                 if first_clause.indices.len() == 1 {
                     self.state.write(&first_clause.indices[0], i);
                 } else {
-                    for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
+                    for (key, value) in first_clause
+                        .indices
+                        .iter()
+                        .zip(i.as_iterable().raise(self)?)
+                    {
                         self.state.write(key, value);
                     }
                 }
 
                 if let Some(condition) = first_clause.condition.as_ref() {
-                    if !self.evaluate_expr(condition)?.as_boolean() {
+                    if !self.evaluate_expr(condition)?.coerce_to_boolean() {
                         continue;
                     }
                 }
@@ -854,8 +874,8 @@ impl TreewalkInterpreter {
         clauses: &[ForClause],
     ) -> TreewalkResult<TreewalkValue> {
         let evaluated = self.evaluate_list_comprehension(body, clauses)?;
-        let set = Container::<Set>::try_eval_from(evaluated, self)?;
-        Ok(TreewalkValue::Set(set))
+        let set = Set::try_eval_from(evaluated, self)?;
+        Ok(TreewalkValue::Set(Container::new(set)))
     }
 
     fn evaluate_dict_comprehension(
@@ -875,9 +895,14 @@ impl TreewalkInterpreter {
         let mut output = HashMap::new();
         for i in self
             .evaluate_expr(&first_clause.iterable)?
-            .expect_iterable(self)?
+            .as_iterable()
+            .raise(self)?
         {
-            for (key, value) in first_clause.indices.iter().zip(i.expect_iterable(self)?) {
+            for (key, value) in first_clause
+                .indices
+                .iter()
+                .zip(i.as_iterable().raise(self)?)
+            {
                 self.state.write(key, value);
             }
             let key_result = self.evaluate_expr(key_body)?;
@@ -896,7 +921,7 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<()> {
         let mut encountered_break = false;
 
-        for val_for_iteration in self.evaluate_expr(range)?.expect_iterable(self)? {
+        for val_for_iteration in self.evaluate_expr(range)?.as_iterable().raise(self)? {
             self.write_loop_index(index, val_for_iteration)?;
 
             match self.evaluate_ast(body) {
@@ -971,7 +996,8 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<()> {
         let module = self
             .evaluate_module_import(import_path)?
-            .expect_module(self)?;
+            .as_module()
+            .raise(self)?;
 
         let mapped_imports = items
             .iter()
@@ -1011,12 +1037,13 @@ impl TreewalkInterpreter {
         block: &Ast,
     ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
-        let object = expr_result.expect_object(self)?;
+        // TODO this probably doesn't need to be an object
+        let object = expr_result.as_object().raise(self)?;
 
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.raise(ExecutionErrorKind::MissingContextManagerProtocol));
+            return Err(self.raise(ExecutionError::MissingContextManagerProtocol));
         }
 
         let result = self.invoke_method(&expr_result, Dunder::Enter, args![])?;
@@ -1053,7 +1080,7 @@ impl TreewalkInterpreter {
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
                 let message = if args.len() == 1 {
-                    Some(args.get_arg(0).expect_string(self)?)
+                    Some(args.get_arg(0).as_str().raise(self)?)
                 } else {
                     None
                 };
@@ -1081,8 +1108,8 @@ impl TreewalkInterpreter {
                 .find(|clause| error.matches_except_clause(&clause.exception_types))
             {
                 if let Some(alias) = &except_clause.alias {
-                    let exception = match &error.execution_error_kind {
-                        ExecutionErrorKind::StopIteration(v) => {
+                    let exception = match &error.execution_error {
+                        ExecutionError::StopIteration(v) => {
                             let stop_iter_payload = v.clone().unwrap_treewalk();
                             TreewalkValue::StopIteration(Box::new(StopIteration::new(
                                 stop_iter_payload,
@@ -1122,14 +1149,14 @@ impl TreewalkInterpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name).is_none() {
-                return Err(self.raise(ExecutionErrorKind::SyntaxError));
+                return Err(self.raise(ExecutionError::SyntaxError));
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(self.raise(ExecutionErrorKind::SyntaxError));
+            return Err(self.raise(ExecutionError::SyntaxError));
         }
 
         Ok(())
@@ -1346,7 +1373,7 @@ impl Interpreter for TreewalkInterpreter {
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::{test_utils::*, ExecutionErrorKind, Type},
+        domain::{test_utils::*, ExecutionError, Type},
         parser::{
             test_utils::stmt_expr,
             types::{ast, Expr, Params},
@@ -1961,7 +1988,7 @@ class Foo:
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
+        assert_variant!(ctx, "Foo", Class);
     }
 
     #[test]
@@ -1977,8 +2004,8 @@ foo = Foo(3)
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         assert_member_eq!(ctx, "foo", "y", int!(3));
         assert_member_eq!(ctx, "foo", "x", int!(0));
@@ -1998,8 +2025,8 @@ foo = Foo(3)
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         // This should be an object with foo.y == 3 and foo.x == 0 even
         // when the last line of the constructor did not touch self.
@@ -2044,8 +2071,8 @@ foo.bar()
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(!ctx.interpreter().state.is_class("foo"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "foo", Object);
 
         // These should be set even when it's not a constructor
         assert_member_eq!(ctx, "foo", "y", int!(3));
@@ -2864,8 +2891,8 @@ b = f.x
 
         let ctx = run(input);
 
-        assert!(ctx.interpreter().state.is_class("Foo"));
-        assert!(ctx.interpreter().state.is_class("Parent"));
+        assert_variant!(ctx, "Foo", Class);
+        assert_variant!(ctx, "Parent", Class);
         assert_read_eq!(ctx, "a", int!(4));
         assert_read_eq!(ctx, "b", int!(12));
 
@@ -3362,7 +3389,7 @@ assert False
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::AssertionError);
+        assert_error_eq!(e, ExecutionError::AssertionError);
     }
 
     #[test]
@@ -4072,7 +4099,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
 
         let input = r#"
 class MyContextManager:
@@ -4091,7 +4118,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::MissingContextManagerProtocol);
+        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
     }
 
     #[test]
@@ -5068,7 +5095,7 @@ foo()
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
 
         let input = r#"
 def foo():
@@ -5077,14 +5104,14 @@ foo()
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
 
         let input = r#"
 nonlocal a
 "#;
         let e = eval_expect_error(input);
 
-        assert_error_eq!(e, ExecutionErrorKind::SyntaxError);
+        assert_error_eq!(e, ExecutionError::SyntaxError);
     }
 
     #[test]

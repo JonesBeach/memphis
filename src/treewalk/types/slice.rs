@@ -9,6 +9,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::Callable,
+        result::Raise,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -38,7 +39,8 @@ impl Slice {
                 Some(expr) => {
                     let integer = interpreter
                         .evaluate_expr(expr)?
-                        .expect_integer(interpreter)?;
+                        .as_int()
+                        .raise(interpreter)?;
                     Ok(Some(integer))
                 }
                 None => Ok(None),
@@ -120,18 +122,18 @@ impl Callable for NewBuiltin {
 
         let slice = match args.len() {
             2 => {
-                let stop = args.get_arg(1).expect_integer(interpreter)?;
+                let stop = args.get_arg(1).as_int().raise(interpreter)?;
                 Slice::new(None, Some(stop), None)
             }
             3 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
+                let start = args.get_arg(1).as_int().raise(interpreter)?;
+                let stop = args.get_arg(2).as_int().raise(interpreter)?;
                 Slice::new(Some(start), Some(stop), None)
             }
             4 => {
-                let start = args.get_arg(1).expect_integer(interpreter)?;
-                let stop = args.get_arg(2).expect_integer(interpreter)?;
-                let step = args.get_arg(3).expect_integer(interpreter)?;
+                let start = args.get_arg(1).as_int().raise(interpreter)?;
+                let stop = args.get_arg(2).as_int().raise(interpreter)?;
+                let step = args.get_arg(3).as_int().raise(interpreter)?;
                 Slice::new(Some(start), Some(stop), Some(step))
             }
             _ => unreachable!(),
