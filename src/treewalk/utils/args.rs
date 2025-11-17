@@ -41,17 +41,15 @@ impl Args {
         for kwarg in call_args.kwargs.iter() {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
-                    kwargs.insert(key.to_string(), interpreter.evaluate_expr(value)?);
+                    let value = interpreter.evaluate_expr(value)?;
+                    insert_kwarg(&mut kwargs, key, value).raise(interpreter)?;
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = interpreter.evaluate_expr(expr)?;
-                    for key in unpacked.clone().as_iterable().raise(interpreter)? {
-                        let key_str = key.as_str().raise(interpreter)?;
-                        if kwargs.contains_key(&key_str) {
-                            return Err(interpreter.key_error(key_str.to_string()));
-                        }
-                        let value = interpreter.read_index(&unpacked, &key)?;
-                        kwargs.insert(key_str, value);
+                    for key_val in unpacked.clone().as_iterable().raise(interpreter)? {
+                        let key = key_val.as_str().raise(interpreter)?;
+                        let value = interpreter.read_index(&unpacked, &key_val)?;
+                        insert_kwarg(&mut kwargs, &key, value).raise(interpreter)?;
                     }
                 }
             }
@@ -163,6 +161,19 @@ impl Args {
     }
 }
 
+fn insert_kwarg(
+    kwargs: &mut HashMap<String, TreewalkValue>,
+    key: &str,
+    value: TreewalkValue,
+) -> DomainResult<()> {
+    if kwargs.contains_key(key) {
+        Err(ExecutionError::key_error(key))
+    } else {
+        kwargs.insert(key.to_string(), value);
+        Ok(())
+    }
+}
+
 /// This macro is useful to create `ResolvedArguments` when you only need positional arguments.
 /// When kwargs are needed, you can use `ResolvedArguments::new`.
 macro_rules! args {
@@ -182,16 +193,15 @@ macro_rules! args {
 
 pub(crate) use args;
 
-pub fn check_args<F>(
-    args: &Args,
-    condition: F,
-    interpreter: &TreewalkInterpreter,
-) -> TreewalkResult<()>
+pub fn check_args<F>(args: &Args, condition: F) -> DomainResult<()>
 where
     F: Fn(usize) -> bool,
 {
     if !condition(args.len()) {
-        Err(interpreter.type_error(format!("Found {} args", args.len())))
+        Err(ExecutionError::type_error(format!(
+            "Found {} args",
+            args.len()
+        )))
     } else {
         Ok(())
     }

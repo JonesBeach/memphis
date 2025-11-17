@@ -36,7 +36,6 @@ use crate::{
     },
 };
 
-mod errors;
 mod evaluators;
 
 #[derive(Clone)]
@@ -62,6 +61,11 @@ impl TreewalkInterpreter {
         // SAFETY: We promise this is only ever called once at a time
         let executor = unsafe { &mut *self.state.borrow().executor.get() };
         f(executor)
+    }
+
+    pub fn raise(&self, error: ExecutionError) -> TreewalkDisruption {
+        self.state.save_line_number();
+        TreewalkDisruption::Error(RuntimeError::new(self.state.debug_call_stack(), error))
     }
 
     pub fn call(
@@ -187,7 +191,8 @@ impl TreewalkInterpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or_else(|| self.type_error("Expected a function"))?;
+                    .ok_or_else(|| ExecutionError::type_error("Expected a function"))
+                    .raise(self)?;
                 let symbol_table = function.borrow().bind_args(&args, self)?;
                 let scope = Container::new(Scope::new(symbol_table));
                 let generator_function = Generator::new(scope, function);
@@ -199,7 +204,8 @@ impl TreewalkInterpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or_else(|| self.type_error("Expected a function"))?;
+                    .ok_or_else(|| ExecutionError::type_error("Expected a function"))
+                    .raise(self)?;
                 let symbol_table = function.borrow().bind_args(&args, self)?;
                 let scope = Container::new(Scope::new(symbol_table));
                 let coroutine = Coroutine::new(scope, function);
@@ -228,11 +234,15 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
+    fn read_var(&self, name: &str) -> TreewalkResult<TreewalkValue> {
         self.state
-            .read_or_disrupt(name, self)?
-            .as_callable()
+            .read(name)
+            .ok_or_else(|| ExecutionError::name_error(name))
             .raise(self)
+    }
+
+    fn read_callable(&self, name: &str) -> TreewalkResult<Box<dyn CloneableCallable>> {
+        self.read_var(name)?.as_callable().raise(self)
     }
 
     pub fn read_index(
@@ -244,13 +254,15 @@ impl TreewalkInterpreter {
             .clone()
             .into_index_read(self)?
             .ok_or_else(|| {
-                self.type_error(format!(
+                ExecutionError::type_error(format!(
                     "'{}' object is not subscriptable",
                     object.get_type()
                 ))
-            })?
+            })
+            .raise(self)?
             .getitem(self, index.clone())?
-            .ok_or_else(|| self.key_error(index.to_string()))
+            .ok_or_else(|| ExecutionError::key_error(index))
+            .raise(self)
     }
 
     fn evaluate_member_access_inner<S>(
@@ -268,7 +280,8 @@ impl TreewalkInterpreter {
             .clone()
             .into_member_reader(self)
             .get_member(self, field.as_ref())?
-            .ok_or_else(|| self.attribute_error(result, field.as_ref()))
+            .ok_or_else(|| ExecutionError::attribute_error(result.class_name(self), field.as_ref()))
+            .raise(self)
     }
 
     // -----------------------------
@@ -455,7 +468,7 @@ impl TreewalkInterpreter {
             });
             Err(TreewalkDisruption::Signal(TreewalkSignal::Await))
         } else {
-            Err(self.type_error("Expected a coroutine"))
+            ExecutionError::type_error("Expected a coroutine").raise(self)
         }
     }
 
@@ -472,11 +485,12 @@ impl TreewalkInterpreter {
                         .clone()
                         .into_index_write(self)?
                         .ok_or_else(|| {
-                            self.type_error(format!(
+                            ExecutionError::type_error(format!(
                                 "'{}' object does not support item deletion",
                                 object_result.get_type()
                             ))
-                        })?
+                        })
+                        .raise(self)?
                         .delitem(self, index_result)?;
                 }
                 Expr::MemberAccess { object, field } => {
@@ -484,10 +498,13 @@ impl TreewalkInterpreter {
                     result
                         .clone()
                         .into_member_writer()
-                        .ok_or_else(|| self.attribute_error(&result, field))?
+                        .ok_or_else(|| {
+                            ExecutionError::attribute_error(result.class_name(self), field)
+                        })
+                        .raise(self)?
                         .delete_member(self, field)?;
                 }
-                _ => return Err(self.type_error("cannot delete")),
+                _ => return ExecutionError::type_error("cannot delete").raise(self),
             }
         }
 
@@ -517,7 +534,7 @@ impl TreewalkInterpreter {
         if self.evaluate_expr(expr)?.coerce_to_boolean() {
             Ok(())
         } else {
-            Err(self.assertion_error())
+            ExecutionError::assertion_error().raise(self)
         }
     }
 
@@ -607,11 +624,12 @@ impl TreewalkInterpreter {
                     .clone()
                     .into_index_write(self)?
                     .ok_or_else(|| {
-                        self.type_error(format!(
+                        ExecutionError::type_error(format!(
                             "'{}' object does not support item assignment",
                             object_result.get_type()
                         ))
-                    })?
+                    })
+                    .raise(self)?
                     .setitem(self, index_result, value)?;
             }
             Expr::MemberAccess { object, field } => {
@@ -619,10 +637,11 @@ impl TreewalkInterpreter {
                 result
                     .clone()
                     .into_member_writer()
-                    .ok_or_else(|| self.attribute_error(&result, field))?
+                    .ok_or_else(|| ExecutionError::attribute_error(result.class_name(self), field))
+                    .raise(self)?
                     .set_member(self, field, value)?;
             }
-            _ => return Err(self.type_error("cannot assign")),
+            _ => return ExecutionError::type_error("cannot assign").raise(self),
         }
 
         Ok(())
@@ -656,25 +675,24 @@ impl TreewalkInterpreter {
         let right_len = right_items.len();
 
         if left.len() < right_len {
-            return Err(self.value_error(format!(
+            ExecutionError::value_error(format!(
                 "too many values to unpack (expected {})",
                 left.len()
-            )));
-        }
-
-        if left.len() > right_len {
-            return Err(self.value_error(format!(
+            ))
+            .raise(self)
+        } else if left.len() > right_len {
+            ExecutionError::value_error(format!(
                 "not enough values to unpack (expected {}, got {})",
                 left.len(),
                 right_len
-            )));
+            ))
+            .raise(self)
+        } else {
+            for (key, value) in left.iter().zip(right_items) {
+                self.evaluate_assignment_inner(key, value)?;
+            }
+            Ok(())
         }
-
-        for (key, value) in left.iter().zip(right_items) {
-            self.evaluate_assignment_inner(key, value)?;
-        }
-
-        Ok(())
     }
 
     fn evaluate_lambda(&self, params: &Params, expr: &Expr) -> TreewalkResult<TreewalkValue> {
@@ -758,7 +776,8 @@ impl TreewalkInterpreter {
         class.borrow_mut().scope = self
             .state
             .pop_local()
-            .ok_or_else(|| self.runtime_error())?
+            .ok_or_else(ExecutionError::runtime_error)
+            .raise(self)?
             .borrow()
             .clone();
 
@@ -999,31 +1018,25 @@ impl TreewalkInterpreter {
             .as_module()
             .raise(self)?;
 
-        let mapped_imports = items
+        let mapped_imports: HashMap<&str, &str> = items
             .iter()
-            .map(|arg| {
-                let original = arg.as_original_symbol();
-                let imported = arg.as_imported_symbol();
-
-                (original, imported)
-            })
-            .collect::<HashMap<_, _>>();
+            .map(|arg| (arg.original(), arg.imported()))
+            .collect();
 
         for module_symbol in module.dir() {
-            let aliased_symbol = match wildcard {
-                true => module_symbol.clone(),
-                false => {
-                    if !mapped_imports.contains_key(&module_symbol) {
-                        continue;
-                    }
-                    mapped_imports[&module_symbol].clone()
-                }
+            let module_symbol_ref = module_symbol.as_str();
+            let aliased_symbol = if *wildcard {
+                module_symbol_ref
+            } else if let Some(&alias) = mapped_imports.get(module_symbol_ref) {
+                alias
+            } else {
+                continue;
             };
 
-            if let Some(value) = module.get_member(self, module_symbol.as_str())? {
-                self.state.write(&aliased_symbol, value);
+            if let Some(value) = module.get_member(self, module_symbol_ref)? {
+                self.state.write(aliased_symbol, value);
             } else {
-                return Err(self.name_error(aliased_symbol));
+                return ExecutionError::name_error(aliased_symbol).raise(self);
             }
         }
 
@@ -1079,18 +1092,16 @@ impl TreewalkInterpreter {
         let args = Args::from(self, &instance.args)?;
         let error = match instance.literal {
             ExceptionLiteral::TypeError => {
-                let message = if args.len() == 1 {
-                    Some(args.get_arg(0).as_str().raise(self)?)
+                if args.len() == 1 {
+                    ExecutionError::type_error(args.get_arg(0).as_str().raise(self)?)
                 } else {
-                    None
-                };
-
-                self.type_error_optional_message(message)
+                    ExecutionError::type_error_empty()
+                }
             }
             _ => unimplemented!(),
         };
 
-        Err(error)
+        error.raise(self)
     }
 
     fn evaluate_try_except(
@@ -1193,7 +1204,7 @@ impl TreewalkInterpreter {
             Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value))),
             Expr::BytesLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
-            Expr::Variable(name) => self.state.read_or_disrupt(name, self),
+            Expr::Variable(name) => self.read_var(name),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
             Expr::Dict(dict_ops) => self.evaluate_dict(dict_ops),
@@ -1372,13 +1383,15 @@ impl Interpreter for TreewalkInterpreter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use crate::{
-        domain::{test_utils::*, ExecutionError, Type},
+        domain::{test_utils::*, Type},
         parser::{
             test_utils::stmt_expr,
             types::{ast, Expr, Params},
         },
-        treewalk::{protocols::*, test_utils::*, types::Function, TreewalkValue},
+        treewalk::{protocols::Callable, test_utils::*},
     };
 
     #[test]
@@ -1490,6 +1503,9 @@ mod tests {
         // left-associativity which gives (2 ** 3) ** 2 == 64
         let input = "2 ** 3 ** 2";
         assert_eval_eq!(input, int!(512));
+
+        let input = "2 ** -3";
+        assert_eval_eq!(input, float!(0.125));
 
         let input = "~5.5";
         let e = eval_expect_error(input);
@@ -3631,6 +3647,26 @@ b = test_kwargs(**first, **second)
         let ctx = run(input);
 
         assert_read_eq!(ctx, "b", tuple![int!(44), int!(55),]);
+
+        let input = r#"
+def foo(**kwargs):
+    pass
+
+first = {"a": 1}
+second = {"a": 2}
+foo(**first, **second)
+"#;
+        let e = eval_expect_error(input);
+        assert_key_error!(e, "a");
+
+        let input = r#"
+def foo(**kwargs):
+    pass
+
+foo(**{"a": 1}, **{"a": 2})
+"#;
+        let e = eval_expect_error(input);
+        assert_key_error!(e, "a");
 
         let input = r#"
 def test_args(*args):

@@ -1,5 +1,6 @@
 use crate::{
     bytecode_vm::{
+        result::Raise,
         runtime::{
             runtime::register_builtin_funcs,
             types::{Class, FunctionObject, List, Module, Range, Tuple},
@@ -8,7 +9,7 @@ use crate::{
         Runtime, VirtualMachine, VmResult, VmValue,
     },
     core::Container,
-    domain::Dunder,
+    domain::{Dunder, ExecutionError},
 };
 
 static BUILTINS: [(&str, BuiltinFn); 7] = [
@@ -29,12 +30,12 @@ pub fn init_module(runtime: &mut Runtime) {
 
 /// This is intended to be functionally equivalent to `__build_class__` in CPython.
 pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let code_value = vm.deref(args[0])?;
-    let code = code_value.expect_code(vm)?;
+    let code_value = vm.deref(args[0]).raise(vm)?;
+    let code = code_value.expect_code().raise(vm)?;
     let name = code.name().to_string();
 
     let function = FunctionObject::new(code.clone());
-    let frame = Frame::from_function(vm, function, vec![])?;
+    let frame = Frame::from_function(vm, function, vec![]).raise(vm)?;
 
     let frame = vm.call_and_return_frame(frame)?;
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
@@ -42,7 +43,7 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
 
 /// Given a reference to an object, build a collection over its iterator.
 fn collect_iterable(vm: &mut VirtualMachine, obj_ref: Reference) -> VmResult<Vec<Reference>> {
-    let obj = vm.deref(obj_ref)?;
+    let obj = vm.deref(obj_ref).raise(vm)?;
     let iter_ref = iter_internal(vm, obj)?;
 
     let mut collected = vec![];
@@ -58,10 +59,11 @@ fn list(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
         0 => vec![],
         1 => collect_iterable(vm, args[0])?,
         _ => {
-            return Err(vm.error_builder.type_error(&format!(
+            return ExecutionError::type_error(format!(
                 "list expected at most 1 argument, got {}",
                 args.len()
-            )))
+            ))
+            .raise(vm)
         }
     };
 
@@ -73,10 +75,11 @@ fn tuple(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
         0 => vec![],
         1 => collect_iterable(vm, args[0])?,
         _ => {
-            return Err(vm.error_builder.type_error(&format!(
+            return ExecutionError::type_error(format!(
                 "tuple expected at most 1 argument, got {}",
                 args.len()
-            )))
+            ))
+            .raise(vm)
         }
     };
 
@@ -86,12 +89,13 @@ fn tuple(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 fn bool(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let value = match args.len() {
         0 => false,
-        1 => vm.deref(args[0])?.to_boolean(),
+        1 => vm.deref(args[0]).raise(vm)?.to_boolean(),
         _ => {
-            return Err(vm.error_builder.type_error(&format!(
+            return ExecutionError::type_error(format!(
                 "bool expected at most 1 argument, got {}",
                 args.len()
-            )))
+            ))
+            .raise(vm)
         }
     };
 
@@ -101,31 +105,33 @@ fn bool(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
 fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let range = match args.len() {
         1 => {
-            let stop = vm.deref(args[0])?.expect_integer(vm)?;
+            let stop = vm.deref(args[0]).raise(vm)?.expect_integer().raise(vm)?;
             Range::with_stop(stop)
         }
         2 => {
-            let start = vm.deref(args[0])?.expect_integer(vm)?;
-            let stop = vm.deref(args[1])?.expect_integer(vm)?;
+            let start = vm.deref(args[0]).raise(vm)?.expect_integer().raise(vm)?;
+            let stop = vm.deref(args[1]).raise(vm)?.expect_integer().raise(vm)?;
             Range::with_start_stop(start, stop)
         }
         3 => {
-            let start = vm.deref(args[0])?.expect_integer(vm)?;
-            let stop = vm.deref(args[1])?.expect_integer(vm)?;
-            let step = vm.deref(args[2])?.expect_integer(vm)?;
+            let start = vm.deref(args[0]).raise(vm)?.expect_integer().raise(vm)?;
+            let stop = vm.deref(args[1]).raise(vm)?.expect_integer().raise(vm)?;
+            let step = vm.deref(args[2]).raise(vm)?.expect_integer().raise(vm)?;
             Range::new(start, stop, step)
         }
         0 => {
-            return Err(vm.error_builder.type_error(&format!(
+            return ExecutionError::type_error(format!(
                 "range expected at least 1 argument, got {}",
                 args.len()
-            )))
+            ))
+            .raise(vm)
         }
         _ => {
-            return Err(vm.error_builder.type_error(&format!(
+            return ExecutionError::type_error(format!(
                 "range expected at most 3 arguments, got {}",
                 args.len()
-            )))
+            ))
+            .raise(vm)
         }
     };
 
@@ -141,9 +147,11 @@ pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Referenc
         VmValue::Tuple(tuple) => VmValue::TupleIter(Container::new(tuple.iter())),
         VmValue::Range(range) => VmValue::RangeIter(Container::new(range.iter())),
         _ => {
-            return Err(vm
-                .error_builder
-                .type_error(&format!("'{}' object is not iterable", obj.get_type())))
+            return ExecutionError::type_error(format!(
+                "'{}' object is not iterable",
+                obj.get_type()
+            ))
+            .raise(vm)
         }
     };
 
@@ -153,21 +161,17 @@ pub fn iter_internal(vm: &mut VirtualMachine, obj: VmValue) -> VmResult<Referenc
 fn iter(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let iterable_ref = match args.len() {
         1 => args[0],
-        _ => {
-            return Err(vm
-                .error_builder
-                .type_error("iter expected exactly 1 argument"))
-        }
+        _ => return ExecutionError::type_error("iter expected exactly 1 argument").raise(vm),
     };
 
-    let iterable_value = vm.deref(iterable_ref)?;
+    let iterable_value = vm.deref(iterable_ref).raise(vm)?;
     iter_internal(vm, iterable_value)
 }
 
 /// Internal method used by FOR_ITER
 /// For the public-facing builtin `next(it)`, we must return a StopIterator error to the user.
 pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<Option<Reference>> {
-    let iter_value = vm.deref(iter_ref)?;
+    let iter_value = vm.deref(iter_ref).raise(vm)?;
     match iter_value {
         VmValue::Generator(ref generator) => vm.resume_generator(generator.clone()),
         VmValue::ListIter(ref list_iter) => Ok(list_iter.borrow_mut().next()),
@@ -176,21 +180,22 @@ pub fn next_internal(vm: &mut VirtualMachine, iter_ref: Reference) -> VmResult<O
             .borrow_mut()
             .next()
             .map(|i| vm.heapify(VmValue::Int(i)))),
-        _ => Err(vm.error_builder.type_error(&format!(
+        _ => ExecutionError::type_error(format!(
             "'{}' object is not an iterator",
             iter_value.get_type()
-        ))),
+        ))
+        .raise(vm),
     }
 }
 
 fn next(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     if args.len() != 1 {
-        return Err(vm.error_builder.type_error("next() expected 1 argument"));
+        return ExecutionError::type_error("next() expected 1 argument").raise(vm);
     }
 
     match next_internal(vm, args[0])? {
         Some(val) => Ok(val),
-        None => Err(vm.error_builder.stop_iteration()),
+        None => ExecutionError::stop_iteration().raise(vm),
     }
 }
 
@@ -198,7 +203,7 @@ fn print(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     let rendered: Vec<String> = args
         .iter()
         .map(|arg| {
-            let value = vm.deref(*arg)?;
+            let value = vm.deref(*arg).raise(vm)?;
             Ok(value.to_string())
         })
         .collect::<VmResult<_>>()?;

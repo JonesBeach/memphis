@@ -1,5 +1,5 @@
 use crate::{
-    domain::{Dunder, Encoding, Type},
+    domain::{Dunder, Encoding, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
@@ -24,14 +24,15 @@ struct DecodeBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2, 3].contains(&len)).raise(interpreter)?;
 
         let bytes = match args.len() {
             1 => "".into(),
             2 => match args.get_arg(1) {
                 TreewalkValue::Bytes(b) => b,
                 TreewalkValue::Str(_) => {
-                    return Err(interpreter.type_error("string argument without an encoding"));
+                    return ExecutionError::type_error("string argument without an encoding")
+                        .raise(interpreter);
                 }
                 _ => todo!(),
             },
@@ -50,7 +51,7 @@ impl Callable for NewBuiltin {
 
 impl Callable for DecodeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
+        check_args(&args, |len| [0, 1].contains(&len)).raise(interpreter)?;
 
         let encoding = match args.len() {
             0 => Encoding::default(),

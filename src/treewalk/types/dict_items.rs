@@ -3,13 +3,15 @@ use std::{
     fmt::{Display, Error, Formatter},
 };
 
-use crate::treewalk::{
-    macros::*,
-    result::Raise,
-    type_system::CloneableIterable,
-    types::{Dict, DictKeys, DictValues, Tuple},
-    utils::{format_comma_separated_with, Contextual, ContextualPair},
-    TreewalkInterpreter, TreewalkResult, TreewalkValue,
+use crate::{
+    domain::{DomainResult, ExecutionError},
+    treewalk::{
+        macros::*,
+        type_system::CloneableIterable,
+        types::{Dict, DictKeys, DictValues, Tuple},
+        utils::{format_comma_separated_with, Contextual, ContextualPair},
+        TreewalkInterpreter, TreewalkValue,
+    },
 };
 
 impl_iterable!(DictItemsIter);
@@ -23,16 +25,16 @@ impl DictItems {
     pub fn from_iterable(
         iter: Box<dyn CloneableIterable>,
         interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<Self> {
+    ) -> DomainResult<Self> {
         let mut pairs: Vec<(TreewalkValue, TreewalkValue)> = vec![];
         for (index, item) in iter.enumerate() {
             // The item is often a tuple, but can really be any iterable which yields 2 values.
-            let pair: Vec<_> = item.as_iterator().raise(interpreter)?.collect();
+            let pair: Vec<_> = item.as_iterator()?.collect();
 
             // We cannot convert directly from a Vec to a tuple, we must first attempt to convert
             // to an array of a known and fixed length of 2.
             let pair_arr: [TreewalkValue; 2] = pair.clone().try_into().map_err(|_| {
-                interpreter.value_error(format!(
+                ExecutionError::value_error(format!(
                     "dictionary update sequence element #{} has length {}; 2 is required",
                     index,
                     pair.len()

@@ -39,7 +39,7 @@ impl VmInterpreter {
     }
 
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
-        self.vm.read_global(name)
+        self.vm.read_global(name).ok()
     }
 }
 

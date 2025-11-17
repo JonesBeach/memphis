@@ -11,6 +11,7 @@ use crate::{
     errors::MemphisError,
     treewalk::{
         protocols::MemberRead,
+        result::Raise,
         types::{Dict, Str},
         Scope, TreewalkContext, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
         TreewalkValue,
@@ -40,7 +41,7 @@ impl Module {
         let source = interpreter
             .state
             .load_source(import_path)
-            .ok_or_else(|| interpreter.import_error(import_path.as_str()))?;
+            .raise(interpreter)?;
 
         interpreter.state.save_line_number();
         interpreter.state.push_stack_frame(&source);
@@ -64,7 +65,8 @@ impl Module {
         let module = interpreter
             .state
             .pop_module()
-            .ok_or_else(|| interpreter.runtime_error())?;
+            .ok_or_else(ExecutionError::runtime_error)
+            .raise(interpreter)?;
 
         interpreter.state.store_module(import_path, module.clone());
         Ok(module)

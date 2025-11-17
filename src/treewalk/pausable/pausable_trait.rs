@@ -1,9 +1,9 @@
 use crate::{
     core::Container,
-    domain::ExecutionError,
+    domain::{DomainResult, ExecutionError},
     parser::types::{Statement, StatementKind},
     treewalk::{
-        protocols::TryEvalFrom, type_system::CloneableIterable, types::List, Scope,
+        protocols::TryEvalFrom, result::Raise, type_system::CloneableIterable, types::List, Scope,
         TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -39,11 +39,7 @@ pub trait Pausable {
 
     /// A handle to perform any necessary cleanup once this function returns, including set its
     /// return value.
-    fn finish(
-        &mut self,
-        interpreter: &TreewalkInterpreter,
-        result: TreewalkValue,
-    ) -> TreewalkResult<TreewalkValue>;
+    fn finish(&mut self, result: TreewalkValue) -> DomainResult<TreewalkValue>;
 
     /// A handle to invoke the discrete operation of evaluating an individual statement and
     /// producing a [`PausableStepResult`] based on the control flow instructions and or the
@@ -217,7 +213,7 @@ pub trait Pausable {
                     if self.context().current_frame().is_finished() {
                         self.context_mut().set_state(PausableState::Finished);
                         self.on_exit(interpreter);
-                        return self.finish(interpreter, result);
+                        return self.finish(result).raise(interpreter);
                     }
 
                     match self.step(interpreter)? {

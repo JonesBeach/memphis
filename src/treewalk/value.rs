@@ -10,7 +10,9 @@ use std::{
 use crate::treewalk::types::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{floats_equal, Container, Voidable},
-    domain::{DomainResult, Dunder, ExecutionError, MemphisValue, RuntimeError, Type},
+    domain::{
+        DomainResult, Dunder, ExecutionError, MemphisValue, RuntimeError, RuntimeValue, Type,
+    },
     treewalk::{
         protocols::MemberRead,
         type_system::{
@@ -399,6 +401,10 @@ impl TreewalkValue {
         }
     }
 
+    pub fn class_name(&self, interpreter: &TreewalkInterpreter) -> String {
+        self.get_class(interpreter).borrow().name().to_string()
+    }
+
     pub fn resolve_descriptor(
         self,
         interpreter: &TreewalkInterpreter,
@@ -672,6 +678,19 @@ impl TreewalkValue {
 impl Voidable for TreewalkValue {
     fn is_none(&self) -> bool {
         matches!(self, TreewalkValue::None)
+    }
+}
+
+impl From<&TreewalkValue> for String {
+    // This gives us Into<String> for free, which is useful when constructing error messages.
+    fn from(value: &TreewalkValue) -> Self {
+        value.to_string()
+    }
+}
+
+impl From<TreewalkValue> for RuntimeValue {
+    fn from(value: TreewalkValue) -> Self {
+        Self::Treewalk(value)
     }
 }
 

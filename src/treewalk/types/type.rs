@@ -90,7 +90,7 @@ impl Callable for NewBuiltin {
         if args.len() == 5 {
             unimplemented!("Figure out how to handle kwargs for type::__new__.");
         }
-        check_args(&args, |len| len == 4, interpreter)?;
+        check_args(&args, |len| len == 4).raise(interpreter)?;
 
         let mcls = args.get_arg(0).as_class().raise(interpreter)?;
         let name = args.get_arg(1).as_str().raise(interpreter)?;

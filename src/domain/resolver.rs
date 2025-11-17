@@ -34,9 +34,7 @@ fn resolve_relative_path(
     path_segments: &[String],
     current_path: &Path,
 ) -> Option<PathBuf> {
-    // The value in `current_path` contains the filename, so we must add 1 to the level to
-    // get back to the directory.
-    let base_path = up_n_levels(current_path, level + 1)?;
+    let base_path = up_n_levels(current_path, *level)?;
 
     expand_path(base_path, path_segments)
         .into_iter()

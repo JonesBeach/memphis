@@ -1,7 +1,7 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
@@ -72,21 +72,26 @@ struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2, 3].contains(&len)).raise(interpreter)?;
 
         let complex = match args.len() {
             1 => Complex::new(DEFAULT_RE, DEFAULT_IM),
             2 => match args.get_arg(1).coerce_to_float() {
                 Ok(re) => Complex::new(re, DEFAULT_IM),
                 Err(_) => {
-                    let input = &args.get_arg(1).as_str().map_err(|_| {
-                        interpreter.type_error(format!(
-                            "complex() first argument must be a string or a number, not '{}'",
-                            args.get_arg(1).get_type()
-                        ))
-                    })?;
+                    let input = &args
+                        .get_arg(1)
+                        .as_str()
+                        .map_err(|_| {
+                            ExecutionError::type_error(format!(
+                                "complex() first argument must be a string or a number, not '{}'",
+                                args.get_arg(1).get_type()
+                            ))
+                        })
+                        .raise(interpreter)?;
                     Complex::from_str(input)
-                        .ok_or_else(|| interpreter.type_error("Expected a complex number"))?
+                        .ok_or_else(|| ExecutionError::type_error("Expected a complex number"))
+                        .raise(interpreter)?
                 }
             },
             3 => {

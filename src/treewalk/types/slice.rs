@@ -118,7 +118,7 @@ struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [2, 3, 4].contains(&len), interpreter)?;
+        check_args(&args, |len| [2, 3, 4].contains(&len)).raise(interpreter)?;
 
         let slice = match args.len() {
             2 => {

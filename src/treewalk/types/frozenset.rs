@@ -69,7 +69,7 @@ struct ContainsBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2].contains(&len)).raise(interpreter)?;
 
         let frozen_set = match args.len() {
             1 => FrozenSet::default(),

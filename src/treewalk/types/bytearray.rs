@@ -1,9 +1,10 @@
 use crate::{
     core::Container,
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
+        result::Raise,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -31,13 +32,14 @@ struct NewBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2, 3].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2, 3].contains(&len)).raise(interpreter)?;
 
         let byte_array = match args.len() {
             1 => Container::new(ByteArray::new("".into())),
             2 => match args.get_arg(1) {
                 TreewalkValue::Str(_) => {
-                    return Err(interpreter.type_error("string argument without an encoding"));
+                    return ExecutionError::type_error("string argument without an encoding")
+                        .raise(interpreter);
                 }
                 TreewalkValue::Bytes(s) => Container::new(ByteArray::new(s)),
                 _ => todo!(),

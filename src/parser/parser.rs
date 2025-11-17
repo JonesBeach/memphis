@@ -7,7 +7,7 @@ use crate::{
     lexer::{Lexer, Token},
     parser::{
         types::{
-            ast, Alias, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
+            ast, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
             ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
             FStringPart, ForClause, FormatOption, ImportedItem, KwargsOperation, LogicalOp,
             LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
@@ -644,7 +644,6 @@ impl<'a> Parser<'a> {
     fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
         match self.current_token() {
             Token::Dot => {
-                self.consume(&Token::Dot)?;
                 let mut levels = 0;
                 while self.current_token() == &Token::Dot {
                     self.consume(&Token::Dot)?;
@@ -727,11 +726,8 @@ impl<'a> Parser<'a> {
                     let symbol = self.parse_identifier()?;
                     let alias = self.parse_alias()?;
 
-                    let item = alias.map_or(ImportedItem::Direct(symbol.clone()), |a| {
-                        ImportedItem::Alias(Alias {
-                            symbol: symbol.clone(),
-                            alias_symbol: Some(a),
-                        })
+                    let item = alias.map_or(ImportedItem::direct(&symbol), |a| {
+                        ImportedItem::aliased(symbol, a)
                     });
                     items.push(item);
 
@@ -2281,10 +2277,7 @@ class Foo:
     #[test]
     fn regular_import() {
         let input = "import other";
-        let expected_ast = stmt!(StatementKind::RegularImport(vec![RegularImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
-            alias: None,
-        }]));
+        let expected_ast = stmt!(StatementKind::RegularImport(vec![import!("other")]));
 
         assert_ast_eq!(input, expected_ast);
 
@@ -2296,14 +2289,8 @@ def foo():
             name: "foo".to_string(),
             args: params![],
             body: ast![stmt!(StatementKind::RegularImport(vec![
-                RegularImport {
-                    import_path: ImportPath::Absolute(vec!["other".into()]),
-                    alias: None,
-                },
-                RegularImport {
-                    import_path: ImportPath::Absolute(vec!["second".into()]),
-                    alias: Some("third".into()),
-                },
+                import!("other"),
+                import!("second", "third"),
             ]))],
             decorators: vec![],
             is_async: false,
@@ -2317,10 +2304,7 @@ def foo():
 import other as b
 pass
 "#;
-        let expected_ast = stmt!(StatementKind::RegularImport(vec![RegularImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
-            alias: Some("b".into()),
-        }]));
+        let expected_ast = stmt!(StatementKind::RegularImport(vec![import!("other", "b")]));
 
         // Before we handling Token::As processing, this test would fail, but only once it began
         // parsing the next statement. We needed to parse two statements here to produce the
@@ -2351,8 +2335,8 @@ pass
     fn selective_import() {
         let input = "from other import something";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
-            items: vec![ImportedItem::Direct("something".to_string())],
+            import_path: ImportPath::from("other"),
+            items: vec![ImportedItem::direct("something")],
             wildcard: false,
         });
 
@@ -2360,10 +2344,10 @@ pass
 
         let input = "from other import something, something_else";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
+            import_path: ImportPath::from("other"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Direct("something_else".to_string()),
+                ImportedItem::direct("something"),
+                ImportedItem::direct("something_else"),
             ],
             wildcard: false,
         });
@@ -2372,7 +2356,7 @@ pass
 
         let input = "from other import *";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
+            import_path: ImportPath::from("other"),
             items: vec![],
             wildcard: true,
         });
@@ -2381,13 +2365,10 @@ pass
 
         let input = "from other import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
+            import_path: ImportPath::from("other"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Alias(Alias {
-                    symbol: "something_else".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
+                ImportedItem::direct("something"),
+                ImportedItem::aliased("something_else", "imported_name"),
             ],
             wildcard: false,
         });
@@ -2396,13 +2377,10 @@ pass
 
         let input = "from other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Absolute(vec!["other".into(), "module".into()]),
+            import_path: ImportPath::from("other.module"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Alias(Alias {
-                    symbol: "something_else".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
+                ImportedItem::direct("something"),
+                ImportedItem::aliased("something_else", "imported_name"),
             ],
             wildcard: false,
         });
@@ -2411,8 +2389,8 @@ pass
 
         let input = "from . import something";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Relative(0, vec![]),
-            items: vec![ImportedItem::Direct("something".to_string())],
+            import_path: ImportPath::from("."),
+            items: vec![ImportedItem::direct("something")],
             wildcard: false,
         });
 
@@ -2420,13 +2398,10 @@ pass
 
         let input = "from .other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Relative(0, vec!["other".into(), "module".into()]),
+            import_path: ImportPath::from(".other.module"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Alias(Alias {
-                    symbol: "something_else".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
+                ImportedItem::direct("something"),
+                ImportedItem::aliased("something_else", "imported_name"),
             ],
             wildcard: false,
         });
@@ -2435,13 +2410,10 @@ pass
 
         let input = "from ..other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
+            import_path: ImportPath::from("..other.module"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Alias(Alias {
-                    symbol: "something_else".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
+                ImportedItem::direct("something"),
+                ImportedItem::aliased("something_else", "imported_name"),
             ],
             wildcard: false,
         });
@@ -2453,13 +2425,10 @@ from ..other.module import (something,
                             something_else as imported_name)
 "#;
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
+            import_path: ImportPath::from("..other.module"),
             items: vec![
-                ImportedItem::Direct("something".to_string()),
-                ImportedItem::Alias(Alias {
-                    symbol: "something_else".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
+                ImportedItem::direct("something"),
+                ImportedItem::aliased("something_else", "imported_name"),
             ],
             wildcard: false,
         });
@@ -2471,13 +2440,10 @@ from ..other.module import (something as imported_name,
                             something_else)
 "#;
         let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::Relative(1, vec!["other".into(), "module".into()]),
+            import_path: ImportPath::from("..other.module"),
             items: vec![
-                ImportedItem::Alias(Alias {
-                    symbol: "something".to_string(),
-                    alias_symbol: Some("imported_name".to_string()),
-                }),
-                ImportedItem::Direct("something_else".to_string()),
+                ImportedItem::aliased("something", "imported_name"),
+                ImportedItem::direct("something_else"),
             ],
             wildcard: false,
         });

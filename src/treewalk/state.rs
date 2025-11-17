@@ -2,14 +2,17 @@ use std::{cell::UnsafeCell, path::PathBuf};
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, ImportPath, Source, ToDebugStackFrame, Type},
+    domain::{
+        DebugCallStack, DebugStackFrame, DomainResult, ExecutionError, ImportPath, Source,
+        ToDebugStackFrame, Type,
+    },
     runtime::MemphisState,
     treewalk::{
         modules::builtins,
         types::{Class, Dict, Function, Module},
         utils::EnvironmentFrame,
         ExecutionContextManager, Executor, ModuleStore, Scope, ScopeManager, TreewalkInterpreter,
-        TreewalkResult, TreewalkValue, TypeRegistry,
+        TreewalkValue, TypeRegistry,
     },
 };
 
@@ -103,14 +106,6 @@ impl Container<TreewalkState> {
     /// Attempt to read an `TreewalkValue`, adhering to Python scoping rules.
     pub fn read(&self, name: &str) -> Option<TreewalkValue> {
         self.borrow().scope_manager.read(name)
-    }
-
-    pub fn read_or_disrupt(
-        &self,
-        name: &str,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<TreewalkValue> {
-        self.read(name).ok_or_else(|| interpreter.name_error(name))
     }
 
     /// Attempt to delete an `TreewalkValue`, adhering to Python scoping rules.
@@ -230,10 +225,11 @@ impl Container<TreewalkState> {
         ))
     }
 
-    pub fn load_source(&self, import_path: &ImportPath) -> Option<Source> {
+    pub fn load_source(&self, import_path: &ImportPath) -> DomainResult<Source> {
         let current_path = self.current_path();
         let search_paths = self.borrow().memphis_state.search_paths();
         Source::from_import_path(import_path, &current_path, &search_paths)
+            .ok_or_else(|| ExecutionError::import_error(import_path))
     }
 
     #[cfg(feature = "c_stdlib")]

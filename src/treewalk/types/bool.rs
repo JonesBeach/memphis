@@ -1,8 +1,8 @@
 use crate::{
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
-        macros::*, protocols::Callable, utils::Args, TreewalkInterpreter, TreewalkResult,
-        TreewalkValue,
+        macros::*, protocols::Callable, result::Raise, utils::Args, TreewalkInterpreter,
+        TreewalkResult, TreewalkValue,
     },
 };
 
@@ -22,7 +22,8 @@ impl Callable for NewBuiltin {
             let input = args.get_arg(1).coerce_to_boolean();
             Ok(TreewalkValue::Bool(input))
         } else {
-            Err(interpreter.type_error(format!("Expected 1 found {} args", args.len())))
+            ExecutionError::type_error(format!("Expected 1 found {} args", args.len()))
+                .raise(interpreter)
         }
     }
 

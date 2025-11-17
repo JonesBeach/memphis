@@ -161,7 +161,7 @@ struct EncodeBuiltin;
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         // implements a + b
         let a = args
@@ -181,7 +181,7 @@ impl Callable for AddBuiltin {
 
 impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -200,7 +200,7 @@ impl Callable for MulBuiltin {
 
 impl Callable for ContainsBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -219,7 +219,7 @@ impl Callable for ContainsBuiltin {
 
 impl Callable for JoinBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let delim = args
             .get_self()
@@ -239,7 +239,7 @@ impl Callable for JoinBuiltin {
 
 impl Callable for SplitBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2].contains(&len)).raise(interpreter)?;
 
         let text = args
             .get_self()
@@ -272,7 +272,7 @@ impl Callable for SplitBuiltin {
 
 impl Callable for LowerBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 0, interpreter)?;
+        check_args(&args, |len| len == 0).raise(interpreter)?;
         let text = args
             .get_self()
             .raise(interpreter)?
@@ -288,7 +288,7 @@ impl Callable for LowerBuiltin {
 
 impl Callable for EncodeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [0, 1].contains(&len), interpreter)?;
+        check_args(&args, |len| [0, 1].contains(&len)).raise(interpreter)?;
         let text = args
             .get_self()
             .raise(interpreter)?

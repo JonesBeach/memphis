@@ -202,7 +202,7 @@ struct ExtendBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2].contains(&len)).raise(interpreter)?;
 
         let list = match args.len() {
             1 => List::default(),
@@ -220,7 +220,7 @@ impl Callable for NewBuiltin {
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let left_list = args
             .get_self()
@@ -241,7 +241,7 @@ impl Callable for AddBuiltin {
 
 impl Callable for AppendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let list = args
             .get_self()
@@ -260,7 +260,7 @@ impl Callable for AppendBuiltin {
 
 impl Callable for ExtendBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let list = args
             .get_self()

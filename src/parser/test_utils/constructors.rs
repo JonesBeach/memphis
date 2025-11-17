@@ -286,6 +286,21 @@ macro_rules! func_call_callee {
     };
 }
 
+macro_rules! import {
+    ($module:expr) => {
+        $crate::parser::types::RegularImport {
+            import_path: ImportPath::from($module),
+            alias: None,
+        }
+    };
+    ($module:expr, $alias:expr) => {
+        $crate::parser::types::RegularImport {
+            import_path: ImportPath::from($module),
+            alias: Some($alias.into()),
+        }
+    };
+}
+
 pub(crate) use await_expr;
 pub(crate) use bin_op;
 pub(crate) use bool;
@@ -298,6 +313,7 @@ pub(crate) use dict_unpack;
 pub(crate) use float;
 pub(crate) use func_call;
 pub(crate) use func_call_callee;
+pub(crate) use import;
 pub(crate) use int;
 pub(crate) use lambda;
 pub(crate) use list;

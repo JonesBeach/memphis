@@ -1,9 +1,10 @@
 use crate::{
     core::{log, LogLevel},
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, MemberRead},
+        result::Raise,
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -38,7 +39,8 @@ impl MemberRead for Super {
         let super_mro = class.super_mro();
         let parent_class = super_mro
             .first()
-            .ok_or_else(|| interpreter.type_error("Expected a class"))?;
+            .ok_or_else(|| ExecutionError::type_error("Expected a class"))
+            .raise(interpreter)?;
 
         if let Some(attr) = parent_class.get_member(interpreter, name)? {
             log(LogLevel::Debug, || {

@@ -1,5 +1,6 @@
 use crate::{
     core::net::Connection,
+    domain::ExecutionError,
     treewalk::{
         macros::impl_method_provider,
         protocols::Callable,
@@ -26,9 +27,12 @@ impl Callable for ConnRecv {
         let mut conn = self_val
             .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        let bytes = conn.recv(n as usize).map_err(|e| {
-            interpreter.runtime_error_with(format!("Connection.recv() failed: {}", e))
-        })?;
+        let bytes = conn
+            .recv(n as usize)
+            .map_err(|e| {
+                ExecutionError::runtime_error_with(format!("Connection.recv() failed: {}", e))
+            })
+            .raise(interpreter)?;
 
         Ok(TreewalkValue::Bytes(bytes))
     }
@@ -40,7 +44,7 @@ impl Callable for ConnRecv {
 
 impl Callable for ConnSend {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let data = args.get_arg(0).as_bytes().raise(interpreter)?;
 
@@ -48,9 +52,11 @@ impl Callable for ConnSend {
         let mut conn = self_val
             .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        conn.send(&data).map_err(|e| {
-            interpreter.runtime_error_with(format!("Connection.send() failed: {}", e))
-        })?;
+        conn.send(&data)
+            .map_err(|e| {
+                ExecutionError::runtime_error_with(format!("Connection.send() failed: {}", e))
+            })
+            .raise(interpreter)?;
 
         Ok(TreewalkValue::None)
     }
@@ -62,15 +68,17 @@ impl Callable for ConnSend {
 
 impl Callable for ConnClose {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 0, interpreter)?;
+        check_args(&args, |len| len == 0).raise(interpreter)?;
 
         let self_val = args.get_self().raise(interpreter)?;
         let mut conn = self_val
             .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
-        conn.close().map_err(|e| {
-            interpreter.runtime_error_with(format!("Connection.close() failed: {}", e))
-        })?;
+        conn.close()
+            .map_err(|e| {
+                ExecutionError::runtime_error_with(format!("Connection.close() failed: {}", e))
+            })
+            .raise(interpreter)?;
 
         Ok(TreewalkValue::None)
     }

@@ -24,11 +24,25 @@ impl Display for ImportPath {
     }
 }
 
+impl From<&ImportPath> for String {
+    fn from(value: &ImportPath) -> Self {
+        value.to_string()
+    }
+}
+
 impl ImportPath {
     pub fn as_str(&self) -> String {
         match self {
             ImportPath::Absolute(path) => path.join("."),
             ImportPath::Relative(levels, path) => ".".repeat(*levels) + &path.join("."),
+        }
+    }
+
+    pub fn head(&self) -> Option<String> {
+        match self {
+            ImportPath::Absolute(segments) | ImportPath::Relative(_, segments) => {
+                segments.first().cloned()
+            }
         }
     }
 
@@ -109,6 +123,9 @@ mod tests {
 
     #[test]
     fn parses_relative_only_dots() {
+        let path = ImportPath::from(".");
+        assert_eq!(path, ImportPath::Relative(1, vec![]));
+
         let path = ImportPath::from("..");
         assert_eq!(path, ImportPath::Relative(2, vec![]));
     }

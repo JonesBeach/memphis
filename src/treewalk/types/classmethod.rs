@@ -30,7 +30,7 @@ pub struct NewBuiltin;
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
-        check_args(&args, |len| len == 2, interpreter)?;
+        check_args(&args, |len| len == 2).raise(interpreter)?;
 
         // This is a workaround for Generic type behavior found in _collections_abc.py.
         // _weakrefset.py also uses this.

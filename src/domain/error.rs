@@ -56,6 +56,7 @@ impl RuntimeError {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
+    None,
     Treewalk(TreewalkValue),
     Vm(VmValue),
 }
@@ -80,6 +81,7 @@ impl From<RuntimeValue> for MemphisValue {
     /// NOTE: This is a lossy conversion.
     fn from(value: RuntimeValue) -> Self {
         match value {
+            RuntimeValue::None => MemphisValue::None,
             RuntimeValue::Treewalk(v) => MemphisValue::from(v),
             RuntimeValue::Vm(v) => MemphisValue::from(v),
         }
@@ -90,6 +92,7 @@ impl PartialEq for RuntimeValue {
     /// NOTE: This uses a lossy conversion, and should only be used in the presentation/test layer.
     fn eq(&self, other: &Self) -> bool {
         match self {
+            Self::None => MemphisValue::None == MemphisValue::from(other.clone()),
             Self::Treewalk(v) => MemphisValue::from(v.clone()) == MemphisValue::from(other.clone()),
             Self::Vm(v) => MemphisValue::from(v.clone()) == MemphisValue::from(other.clone()),
         }
@@ -99,6 +102,7 @@ impl PartialEq for RuntimeValue {
 impl Voidable for RuntimeValue {
     fn is_none(&self) -> bool {
         match self {
+            Self::None => true,
             Self::Treewalk(v) => v.is_none(),
             Self::Vm(v) => v.is_none(),
         }
@@ -108,6 +112,7 @@ impl Voidable for RuntimeValue {
 impl Display for RuntimeValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::None => Display::fmt(&MemphisValue::None, f),
             Self::Treewalk(v) => Display::fmt(&v, f),
             Self::Vm(v) => Display::fmt(&v, f),
         }
@@ -138,12 +143,56 @@ impl ExecutionError {
         Self::TypeError(Some(msg.into()))
     }
 
+    pub fn type_error_empty() -> Self {
+        Self::TypeError(None)
+    }
+
+    pub fn name_error(name: impl Into<String>) -> Self {
+        Self::NameError(name.into())
+    }
+
     pub fn value_error(msg: impl Into<String>) -> Self {
         Self::ValueError(msg.into())
     }
 
     pub fn lookup_error(msg: impl Into<String>) -> Self {
         Self::LookupError(msg.into())
+    }
+
+    pub fn key_error(msg: impl Into<String>) -> Self {
+        Self::KeyError(msg.into())
+    }
+
+    pub fn import_error(msg: impl Into<String>) -> Self {
+        Self::ImportError(msg.into())
+    }
+
+    pub fn attribute_error(object_type: impl Into<String>, attr: impl Into<String>) -> Self {
+        Self::AttributeError(object_type.into(), attr.into())
+    }
+
+    pub fn div_by_zero_error(msg: impl Into<String>) -> Self {
+        Self::DivisionByZero(msg.into())
+    }
+
+    pub fn runtime_error() -> Self {
+        Self::RuntimeError(None)
+    }
+
+    pub fn runtime_error_with(msg: impl Into<String>) -> Self {
+        Self::RuntimeError(Some(msg.into()))
+    }
+
+    pub fn assertion_error() -> Self {
+        Self::AssertionError
+    }
+
+    pub fn stop_iteration() -> Self {
+        Self::StopIteration(Box::new(RuntimeValue::None))
+    }
+
+    pub fn stop_iteration_with(value: impl Into<RuntimeValue>) -> Self {
+        Self::StopIteration(Box::new(value.into()))
     }
 
     pub fn unknown_encoding(encoding: impl Into<String>) -> Self {

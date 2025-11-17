@@ -1,5 +1,5 @@
 use crate::{
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
@@ -48,7 +48,7 @@ struct GeBuiltin;
 
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| [1, 2].contains(&len), interpreter)?;
+        check_args(&args, |len| [1, 2].contains(&len)).raise(interpreter)?;
 
         let a = match args.len() {
             1 => 0.0,
@@ -66,7 +66,7 @@ impl Callable for NewBuiltin {
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -80,7 +80,7 @@ impl Callable for AddBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a + b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for +"))
+            ExecutionError::type_error("unsupported operand type(s) for +").raise(interpreter)
         }
     }
 
@@ -91,7 +91,7 @@ impl Callable for AddBuiltin {
 
 impl Callable for SubBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -105,7 +105,7 @@ impl Callable for SubBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a - b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for -"))
+            ExecutionError::type_error("unsupported operand type(s) for -").raise(interpreter)
         }
     }
 
@@ -116,7 +116,7 @@ impl Callable for SubBuiltin {
 
 impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -130,7 +130,7 @@ impl Callable for MulBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a * b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for *"))
+            ExecutionError::type_error("unsupported operand type(s) for *").raise(interpreter)
         }
     }
 
@@ -141,7 +141,7 @@ impl Callable for MulBuiltin {
 
 impl Callable for TruedivBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -152,16 +152,18 @@ impl Callable for TruedivBuiltin {
 
         if let TreewalkValue::Int(b) = b {
             if b == 0 {
-                return Err(interpreter.div_by_zero_error("float division by zero"));
+                return ExecutionError::div_by_zero_error("float division by zero")
+                    .raise(interpreter);
             }
             Ok(TreewalkValue::Float(a / (b as f64)))
         } else if let TreewalkValue::Float(b) = b {
             if b == 0.0 {
-                return Err(interpreter.div_by_zero_error("float division by zero"));
+                return ExecutionError::div_by_zero_error("float division by zero")
+                    .raise(interpreter);
             }
             Ok(TreewalkValue::Float(a / b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for /"))
+            ExecutionError::type_error("unsupported operand type(s) for /").raise(interpreter)
         }
     }
 
@@ -172,7 +174,7 @@ impl Callable for TruedivBuiltin {
 
 impl Callable for LtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -186,7 +188,7 @@ impl Callable for LtBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a < b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for <"))
+            ExecutionError::type_error("unsupported operand type(s) for <").raise(interpreter)
         }
     }
 
@@ -197,7 +199,7 @@ impl Callable for LtBuiltin {
 
 impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -211,7 +213,7 @@ impl Callable for LeBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a <= b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for <="))
+            ExecutionError::type_error("unsupported operand type(s) for <=").raise(interpreter)
         }
     }
 
@@ -222,7 +224,7 @@ impl Callable for LeBuiltin {
 
 impl Callable for GtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -236,7 +238,7 @@ impl Callable for GtBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a > b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for >"))
+            ExecutionError::type_error("unsupported operand type(s) for >").raise(interpreter)
         }
     }
 
@@ -247,7 +249,7 @@ impl Callable for GtBuiltin {
 
 impl Callable for GeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args
             .get_self()
@@ -261,7 +263,7 @@ impl Callable for GeBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a >= b))
         } else {
-            Err(interpreter.type_error("unsupported operand type(s) for >="))
+            ExecutionError::type_error("unsupported operand type(s) for >=").raise(interpreter)
         }
     }
 

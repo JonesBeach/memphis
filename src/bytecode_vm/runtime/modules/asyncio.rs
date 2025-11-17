@@ -2,16 +2,16 @@ use std::time::Duration;
 
 use crate::{
     bytecode_vm::{
-        runtime::runtime::register_builtin_funcs,
-        runtime::{types::Module, BuiltinFn, Reference},
+        result::Raise,
+        runtime::{runtime::register_builtin_funcs, types::Module, BuiltinFn, Reference},
         Runtime, VirtualMachine, VmResult, VmValue,
     },
     core::Container,
 };
 
 fn asyncio_run(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let co_binding = vm.deref(args[0])?;
-    let coroutine = co_binding.expect_coroutine(vm)?;
+    let co_binding = vm.deref(args[0]).raise(vm)?;
+    let coroutine = co_binding.expect_coroutine().raise(vm)?;
 
     // take raw pointer before borrowing anything mutably
     let vm_ptr = vm as *mut VirtualMachine;
@@ -19,8 +19,8 @@ fn asyncio_run(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Refere
 }
 
 fn asyncio_create_task(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let co_binding = vm.deref(args[0])?;
-    let coroutine = co_binding.expect_coroutine(vm)?;
+    let co_binding = vm.deref(args[0]).raise(vm)?;
+    let coroutine = co_binding.expect_coroutine().raise(vm)?;
 
     // enqueue it on the executor, which will start it running
     vm.executor.spawn(coroutine.clone());
@@ -30,7 +30,7 @@ fn asyncio_create_task(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResul
 }
 
 fn asyncio_sleep(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
-    let duration_in_s = vm.deref(args[0])?.expect_float(vm)?;
+    let duration_in_s = vm.deref(args[0]).raise(vm)?.expect_float().raise(vm)?;
 
     let micros = duration_in_s * 1_000_000.0;
     let duration = Duration::from_micros(micros as u64);

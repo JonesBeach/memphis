@@ -1,7 +1,5 @@
 use crate::{
-    bytecode_vm::{
-        compiler::CodeObject, runtime::types::Module, Runtime, VmInterpreter, VmResult, VmValue,
-    },
+    bytecode_vm::{compiler::CodeObject, runtime::types::Module, Runtime, VmInterpreter, VmValue},
     core::Container,
     domain::{Dunder, Source},
     errors::MemphisResult,
@@ -35,7 +33,7 @@ impl VmContext {
         source: Source,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
-    ) -> VmResult<Container<Module>> {
+    ) -> Container<Module> {
         assert_ne!(
             Dunder::Main,
             source.name(),
@@ -48,7 +46,7 @@ impl VmContext {
         // TODO we shouldn't squash this error, but it's currently a MemphisError
         let _ = context.run().expect("VM run failed");
 
-        Ok(module)
+        module
     }
 
     /// Initialize a context from a [`Source`] and existing treewalk state.

@@ -410,44 +410,35 @@ pub struct ConditionalAst {
 /// from module_a import one, two as three, four
 /// ```
 #[derive(Debug, PartialEq, Clone)]
-pub enum ImportedItem {
-    Direct(String),
-    Alias(Alias),
+pub struct ImportedItem {
+    symbol: String,
+    alias: Option<String>,
 }
 
 impl ImportedItem {
-    pub fn as_imported_symbol(&self) -> String {
-        match self {
-            ImportedItem::Direct(name) => name.clone(),
-            ImportedItem::Alias(alias) => alias.remap(),
+    pub fn direct<S: Into<String>>(symbol: S) -> Self {
+        Self::new(symbol.into(), None)
+    }
+
+    pub fn aliased<S: Into<String>>(symbol: S, alias: S) -> Self {
+        Self::new(symbol.into(), Some(alias.into()))
+    }
+
+    fn new<S: Into<String>>(symbol: S, alias: Option<S>) -> Self {
+        Self {
+            symbol: symbol.into(),
+            alias: alias.map(Into::into),
         }
     }
 
-    pub fn as_original_symbol(&self) -> String {
-        match self {
-            ImportedItem::Direct(name) => name.clone(),
-            ImportedItem::Alias(alias) => alias.original(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Alias {
-    pub symbol: String,
-    pub alias_symbol: Option<String>,
-}
-
-impl Alias {
-    fn original(&self) -> String {
-        self.symbol.to_owned()
+    #[inline]
+    pub fn original(&self) -> &str {
+        &self.symbol
     }
 
-    fn remap(&self) -> String {
-        if let Some(s) = &self.alias_symbol {
-            return s.to_string();
-        }
-
-        self.symbol.to_owned()
+    #[inline]
+    pub fn imported(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.symbol)
     }
 }
 

@@ -2,12 +2,13 @@ use std::time::{Duration, Instant};
 
 use crate::{
     core::Container,
-    domain::Type,
+    domain::{DomainResult, Type},
     parser::types::Statement,
     treewalk::{
         macros::*,
         pausable::{Frame, Pausable, PausableStack, PausableState, PausableStepResult},
         protocols::Callable,
+        result::Raise,
         types::Function,
         utils::{check_args, Args},
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
@@ -122,11 +123,7 @@ impl Pausable for Coroutine {
         self.scope.clone()
     }
 
-    fn finish(
-        &mut self,
-        _interpreter: &TreewalkInterpreter,
-        result: TreewalkValue,
-    ) -> TreewalkResult<TreewalkValue> {
+    fn finish(&mut self, result: TreewalkValue) -> DomainResult<TreewalkValue> {
         self.set_return_val(result.clone());
         Ok(TreewalkValue::None)
     }
@@ -154,7 +151,7 @@ struct CloseBuiltin;
 // to this.
 impl Callable for CloseBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 0, interpreter)?;
+        check_args(&args, |len| len == 0).raise(interpreter)?;
         Ok(TreewalkValue::None)
     }
 

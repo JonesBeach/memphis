@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{Dunder, Type},
+    domain::{Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::{
@@ -244,13 +244,20 @@ impl MemberWrite for Container<Object> {
             .clone()
             .into_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
-            .ok_or_else(|| interpreter.attribute_error(&result, Dunder::Dict.as_ref()))?
+            .ok_or_else(|| {
+                ExecutionError::attribute_error(
+                    result.class_name(interpreter),
+                    Dunder::Dict.as_ref(),
+                )
+            })
+            .raise(interpreter)?
             .as_dict()
             .raise(interpreter)?
             .borrow()
             .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
-            return Err(interpreter.attribute_error(&result, name));
+            return ExecutionError::attribute_error(result.class_name(interpreter), name)
+                .raise(interpreter);
         }
 
         log(LogLevel::Debug, || {
@@ -391,7 +398,7 @@ impl Callable for EqBuiltin {
     /// The default behavior in Python for the `==` sign is to compare the object identity. This is
     /// only used when `Dunder::Eq` is not overridden by a user-defined class.
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a = args.get_self().raise(interpreter)?;
         let b = args.get_arg(0);
@@ -409,7 +416,7 @@ impl Callable for ContainsBuiltin {
     /// element. This is used when `Dunder::Contains` is not overridden by another type or
     /// user-defined class.
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let left = args.get_self().raise(interpreter)?;
         let right = args.get_arg(0);
@@ -425,7 +432,7 @@ impl Callable for ContainsBuiltin {
 
 impl Callable for HashBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 0, interpreter)?;
+        check_args(&args, |len| len == 0).raise(interpreter)?;
         let object = args.get_self().raise(interpreter)?;
         Ok(TreewalkValue::Int(object.hash() as i64))
     }
@@ -452,16 +459,17 @@ impl Callable for NeBuiltin {
 
 impl Callable for AddBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for +: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -471,16 +479,17 @@ impl Callable for AddBuiltin {
 
 impl Callable for SubBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for -: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -490,16 +499,17 @@ impl Callable for SubBuiltin {
 
 impl Callable for MulBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for *: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -509,16 +519,17 @@ impl Callable for MulBuiltin {
 
 impl Callable for TruedivBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for /: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -528,16 +539,17 @@ impl Callable for TruedivBuiltin {
 
 impl Callable for LtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for <: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -547,16 +559,17 @@ impl Callable for LtBuiltin {
 
 impl Callable for LeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for <=: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -566,16 +579,17 @@ impl Callable for LeBuiltin {
 
 impl Callable for GtBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for >: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {
@@ -585,16 +599,17 @@ impl Callable for GtBuiltin {
 
 impl Callable for GeBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let a_type = args.get_self().raise(interpreter)?.get_type();
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        Err(interpreter.type_error(format!(
+        ExecutionError::type_error(format!(
             "unsupported operand type(s) for >=: '{}' and '{}'",
             a_type, b_type
-        )))
+        ))
+        .raise(interpreter)
     }
 
     fn name(&self) -> String {

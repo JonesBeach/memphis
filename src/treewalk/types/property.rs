@@ -30,7 +30,7 @@ pub struct NewBuiltin;
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
-        check_args(&args, |len| len == 2, interpreter)?;
+        check_args(&args, |len| len == 2).raise(interpreter)?;
         let function = args.get_arg(1).as_callable().raise(interpreter)?;
         Ok(TreewalkValue::Property(Property::new(function)))
     }

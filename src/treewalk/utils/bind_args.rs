@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     core::Container,
+    domain::ExecutionError,
     parser::types::Params,
     treewalk::{
+        result::Raise,
         types::Tuple,
         utils::{check_args, Args},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -26,11 +28,10 @@ pub fn bind_args(
 
     // Function expects fewer positional args than it was invoked with and there is not an
     // `args_var` in which to store the rest.
-    check_args(
-        args,
-        |_| !(expected_args.args.len() < bound_args.len() && expected_args.args_var.is_none()),
-        interpreter,
-    )?;
+    check_args(args, |_| {
+        !(expected_args.args.len() < bound_args.len() && expected_args.args_var.is_none())
+    })
+    .raise(interpreter)?;
 
     let mut missing_args = vec![];
 
@@ -66,9 +67,10 @@ pub fn bind_args(
         if table.contains_key(key) || expected_args.args.iter().any(|a| &a.arg == key) {
             table.insert(key.clone(), value.clone());
         } else if expected_args.kwargs_var.is_none() {
-            return Err(interpreter.type_error(format!(
+            return ExecutionError::type_error(format!(
                 "{callee_name}() got an unexpected keyword argument '{key}'"
-            )));
+            ))
+            .raise(interpreter);
         }
     }
 
@@ -85,9 +87,10 @@ pub fn bind_args(
             .map(|a| format!("'{a}'"))
             .collect::<Vec<_>>()
             .join(" and ");
-        return Err(interpreter.type_error(format!(
+        return ExecutionError::type_error(format!(
             "{callee_name}() missing {num_missing} required positional {noun}: {arg_names}"
-        )));
+        ))
+        .raise(interpreter);
     }
 
     if let Some(ref args_var) = expected_args.args_var {

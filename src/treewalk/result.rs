@@ -1,5 +1,5 @@
 use crate::{
-    domain::{DomainResult, RuntimeError},
+    domain::{DomainResult, ExecutionError, RuntimeError},
     treewalk::{TreewalkInterpreter, TreewalkValue},
 };
 
@@ -42,5 +42,13 @@ impl<T> Raise<T> for DomainResult<T> {
     /// Convert an `ExecutionError` into a raised runtime error
     fn raise(self, interpreter: &TreewalkInterpreter) -> TreewalkResult<T> {
         self.map_err(|kind| interpreter.raise(kind))
+    }
+}
+
+impl<T> Raise<T> for ExecutionError {
+    /// Raise this `ExecutionError` in the given interpreter, returning it as a
+    /// `TreewalkResult<T>`.
+    fn raise(self, interpreter: &TreewalkInterpreter) -> TreewalkResult<T> {
+        Err(interpreter.raise(self))
     }
 }

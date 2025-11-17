@@ -7,10 +7,10 @@ use crate::{
             types::{FunctionObject, Method, Module},
             Reference,
         },
-        VirtualMachine, VmResult,
+        VirtualMachine,
     },
     core::Container,
-    domain::{DebugStackFrame, ToDebugStackFrame},
+    domain::{DebugStackFrame, DomainResult, ToDebugStackFrame},
 };
 
 use super::reference::Namespace;
@@ -50,7 +50,7 @@ impl Frame {
         vm: &mut VirtualMachine,
         function: FunctionObject,
         args: Vec<Reference>,
-    ) -> VmResult<Self> {
+    ) -> DomainResult<Self> {
         // We must associate this Frame with its Module in order to read and write global variables.
         let module_name = function.code_object.source.name();
         let module = vm.resolve_module(module_name)?;
@@ -62,7 +62,7 @@ impl Frame {
         vm: &mut VirtualMachine,
         method: Method,
         args: Vec<Reference>,
-    ) -> VmResult<Self> {
+    ) -> DomainResult<Self> {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
 

@@ -4,6 +4,7 @@ use crate::{
     treewalk::{
         macros::*,
         protocols::{Callable, NonDataDescriptor},
+        result::Raise,
         types::Class,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
@@ -28,7 +29,7 @@ pub struct NewBuiltin;
 impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // The first arg is the class itself, the second arg is the function
-        check_args(&args, |len| len == 2, interpreter)?;
+        check_args(&args, |len| len == 2).raise(interpreter)?;
         let function = args.get_arg(1);
         Ok(TreewalkValue::Staticmethod(Staticmethod::new(Box::new(
             function,

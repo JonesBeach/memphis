@@ -1,9 +1,7 @@
 use crate::{
-    bytecode_vm::{
-        runtime::{components::ErrorBuilder, Frame},
-        VmResult,
-    },
+    bytecode_vm::runtime::Frame,
     core::{log, Container, LogLevel},
+    domain::{DomainResult, ExecutionError},
     runtime::MemphisState,
 };
 
@@ -11,17 +9,13 @@ use crate::{
 pub struct CallStack {
     stack: Vec<Frame>,
     state: Container<MemphisState>,
-    error_builder: ErrorBuilder,
 }
 
 impl CallStack {
     pub fn new(state: Container<MemphisState>) -> Self {
-        let error_builder = ErrorBuilder::new(state.clone());
-
         Self {
             stack: vec![],
             state,
-            error_builder,
         }
     }
 
@@ -60,14 +54,14 @@ impl CallStack {
         self.stack.last_mut()
     }
 
-    pub fn top_frame(&self) -> VmResult<&Frame> {
-        self.top().ok_or_else(|| self.error_builder.runtime_error())
+    pub fn top_frame(&self) -> DomainResult<&Frame> {
+        self.top().ok_or_else(ExecutionError::runtime_error)
     }
 
-    pub fn top_frame_mut(&mut self) -> VmResult<&mut Frame> {
+    pub fn top_frame_mut(&mut self) -> DomainResult<&mut Frame> {
         if self.is_finished() {
             // This only uses &self, so it happens before any &mut
-            let err = self.error_builder.runtime_error();
+            let err = ExecutionError::runtime_error();
             return Err(err);
         }
 
@@ -78,7 +72,7 @@ impl CallStack {
         self.stack.is_empty()
     }
 
-    pub fn advance_pc(&mut self) -> VmResult<()> {
+    pub fn advance_pc(&mut self) -> DomainResult<()> {
         let frame = self.top_frame_mut()?;
         log(LogLevel::Trace, || {
             format!(
@@ -90,7 +84,7 @@ impl CallStack {
         Ok(())
     }
 
-    pub fn jump_to_offset(&mut self, offset: isize) -> VmResult<()> {
+    pub fn jump_to_offset(&mut self, offset: isize) -> DomainResult<()> {
         let frame = self.top_frame_mut()?;
         frame.pc = (frame.pc as isize + offset) as usize;
         Ok(())

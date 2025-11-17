@@ -8,8 +8,8 @@ use crate::{
     core::{log, LogLevel},
     domain::{Context, FunctionType, ImportPath, Source},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, LogicalOp,
-        LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, ImportedItem,
+        LogicalOp, LoopIndex, Params, RegularImport, Statement, StatementKind, UnaryOp,
     },
 };
 
@@ -150,6 +150,11 @@ impl Compiler {
                 body,
             } => self.compile_class_definition(name, parents, metaclass, body)?,
             StatementKind::RegularImport(items) => self.compile_regular_import(items)?,
+            StatementKind::SelectiveImport {
+                import_path,
+                items,
+                wildcard,
+            } => self.compile_selective_import(import_path, items, wildcard)?,
             _ => return Err(unsupported(&format!("Statement type: {stmt:?}"))),
         };
 
@@ -465,18 +470,37 @@ impl Compiler {
 
     fn compile_regular_import(&mut self, items: &[RegularImport]) -> CompilerResult<()> {
         for item in items {
-            match &item.import_path {
-                ImportPath::Absolute(abs) => {
-                    for path in abs {
-                        let index = self.get_or_set_nonlocal_index(path)?;
-                        self.emit(Opcode::ImportName(index))?;
-                    }
-                }
-                ImportPath::Relative(..) => {
-                    return Err(unsupported("Relative imports unsupported in bytecode VM."))
-                }
-            }
+            let index = self.get_or_set_nonlocal_index(&item.import_path.as_str())?;
+            self.emit(Opcode::ImportName(index))?;
+
+            let symbol_index = item
+                .alias
+                .as_ref()
+                .map(|alias| self.get_or_set_nonlocal_index(alias))
+                .unwrap_or_else(|| {
+                    let head = item.import_path.head().expect("No head!");
+                    self.get_or_set_nonlocal_index(&head)
+                })?;
+            self.emit(Opcode::StoreGlobal(symbol_index))?;
         }
+        Ok(())
+    }
+
+    fn compile_selective_import(
+        &mut self,
+        _import_path: &ImportPath,
+        _items: &[ImportedItem],
+        wildcard: &bool,
+    ) -> CompilerResult<()> {
+        if *wildcard {
+            return Err(unsupported("Wildcard imports in the bytecode VM."));
+        }
+
+        // match import_path {
+        //     ImportPath::Absolute(abs) =>
+        // }
+        // let index = self.get_or_set_nonlocal_index(import_path)?;
+        // self.emit(Opcode::ImportName(index))?;
         Ok(())
     }
 
@@ -827,7 +851,10 @@ mod tests_bytecode {
 
     use crate::{
         bytecode_vm::compiler::{test_utils::*, Bytecode},
-        parser::{test_utils::*, types::ast},
+        parser::{
+            test_utils::*,
+            types::{ast, ImportedItem},
+        },
     };
 
     impl Compiler {
@@ -1450,10 +1477,87 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import() {
-        let expr = stmt!(StatementKind::RegularImport(vec![RegularImport {
-            import_path: ImportPath::Absolute(vec!["other".into()]),
-            alias: None,
-        },]));
+        let expr = stmt!(StatementKind::RegularImport(vec![import!("other")]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn regular_import_multiple_layers() {
+        let expr = stmt!(StatementKind::RegularImport(vec![import!("other.module")]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn regular_import_alias() {
+        let expr = stmt!(StatementKind::RegularImport(vec![import!("other", "foo")]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn regular_import_multiple() {
+        let expr = stmt!(StatementKind::RegularImport(vec![
+            import!("first"),
+            import!("second"),
+        ]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(0)),
+                Opcode::ImportName(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn regular_import_multiple_alias() {
+        let expr = stmt!(StatementKind::RegularImport(vec![
+            import!("first", "first_alias"),
+            import!("second", "second_alias"),
+        ]));
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::ImportName(Index::new(2)),
+                Opcode::StoreGlobal(Index::new(3)),
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn selective_import() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            items: vec![ImportedItem::direct("foo")],
+            wildcard: false,
+        });
         let bytecode = compile_stmt(expr);
         assert_eq!(bytecode, &[Opcode::ImportName(Index::new(0))]);
     }

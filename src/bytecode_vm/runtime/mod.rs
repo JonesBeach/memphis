@@ -1,6 +1,5 @@
 mod builtin;
 mod call_stack;
-mod error_builder;
 mod executor;
 mod frame;
 mod heap;
@@ -24,6 +23,5 @@ pub use vm::VirtualMachine;
 pub mod components {
     use super::*;
 
-    pub use error_builder::ErrorBuilder;
     pub use module_loader::ModuleLoader;
 }

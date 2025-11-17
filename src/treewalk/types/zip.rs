@@ -1,5 +1,5 @@
 use crate::{
-    domain::{DomainResult, Dunder, Type},
+    domain::{DomainResult, Dunder, ExecutionError, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
@@ -70,7 +70,7 @@ impl Callable for NewBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         // This function cannot be called with 2 args (1 unbound arg) because there would be
         // nothing to zip.
-        check_args(&args, |len| len == 1 || len >= 3, interpreter)?;
+        check_args(&args, |len| len == 1 || len >= 3).raise(interpreter)?;
 
         // The default behavior will stop zipping when the shortest iterator is exhausted,
         // which matches default behavior from Python. Using strict=True causes this to throw an
@@ -98,7 +98,7 @@ impl Callable for NewBuiltin {
                     let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                     if !all_equal {
-                        return Err(interpreter.runtime_error());
+                        return ExecutionError::runtime_error().raise(interpreter);
                     }
                 }
 

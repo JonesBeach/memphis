@@ -3,7 +3,7 @@ use crate::{
         net::{Connection, Socket},
         Container,
     },
-    domain::{ImportPath, Source, Type},
+    domain::{ExecutionError, ImportPath, Source, Type},
     treewalk::{
         protocols::Callable,
         result::Raise,
@@ -22,19 +22,23 @@ pub struct NetListenBuiltin;
 
 impl Callable for NetListenBuiltin {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
-        check_args(&args, |len| len == 1, interpreter)?;
+        check_args(&args, |len| len == 1).raise(interpreter)?;
 
         let host_port = args.get_arg(0).as_tuple().raise(interpreter)?;
         let host = host_port.first().as_str().raise(interpreter)?;
         let port = host_port.second().as_int().raise(interpreter)?;
 
         let socket = Socket::new(host, port as usize)
-            .map_err(|e| interpreter.runtime_error_with(format!("Failed to bind Socket: {}", e)))?;
+            .map_err(|e| {
+                ExecutionError::runtime_error_with(format!("Failed to bind Socket: {}", e))
+            })
+            .raise(interpreter)?;
 
         let socket_class = interpreter
             .state
             .read_class(&ImportPath::from("memphis.net.Socket"))
-            .ok_or_else(|| interpreter.runtime_error_with("Socket class not found"))?;
+            .ok_or_else(|| ExecutionError::runtime_error_with("Socket class not found"))
+            .raise(interpreter)?;
 
         let obj = Object::with_payload(socket_class.clone(), socket);
 

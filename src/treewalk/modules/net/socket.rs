@@ -1,6 +1,6 @@
 use crate::{
     core::{net::Socket, Container},
-    domain::ImportPath,
+    domain::{ExecutionError, ImportPath},
     treewalk::{
         macros::impl_method_provider,
         modules::net::Connection,
@@ -22,16 +22,20 @@ impl Callable for AcceptBuiltin {
         let self_val = args.get_self().raise(interpreter)?;
         let socket = self_val.as_native_object::<Socket>().raise(interpreter)?;
 
-        let (stream, addr) = socket.accept().map_err(|e| {
-            interpreter.runtime_error_with(format!("Socket.accept() failed: {}", e))
-        })?;
+        let (stream, addr) = socket
+            .accept()
+            .map_err(|e| {
+                ExecutionError::runtime_error_with(format!("Socket.accept() failed: {}", e))
+            })
+            .raise(interpreter)?;
 
         let conn = Connection::new(stream);
 
         let conn_class = interpreter
             .state
             .read_class(&ImportPath::from("memphis.net.Connection"))
-            .ok_or_else(|| interpreter.runtime_error_with("Connection class not found"))?;
+            .ok_or_else(|| ExecutionError::runtime_error_with("Connection class not found"))
+            .raise(interpreter)?;
 
         let conn_obj = Object::with_payload(conn_class.clone(), conn);
 
