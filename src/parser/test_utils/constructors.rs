@@ -289,13 +289,13 @@ macro_rules! func_call_callee {
 macro_rules! import {
     ($module:expr) => {
         $crate::parser::types::RegularImport {
-            import_path: ImportPath::from($module),
+            module_path: $crate::domain::ModulePath::from($module),
             alias: None,
         }
     };
     ($module:expr, $alias:expr) => {
         $crate::parser::types::RegularImport {
-            import_path: ImportPath::from($module),
+            module_path: $crate::domain::ModulePath::from($module),
             alias: Some($alias.into()),
         }
     };

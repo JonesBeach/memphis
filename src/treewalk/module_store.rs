@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     core::Container,
-    domain::{ImportPath, Source},
+    domain::ModuleName,
     treewalk::{
         modules::{asyncio, net},
         types::Module,
@@ -13,7 +13,7 @@ use super::TypeRegistry;
 
 /// A store of the modules after loading and evaluation.
 pub struct ModuleStore {
-    store: HashMap<ImportPath, Container<Module>>,
+    store: HashMap<ModuleName, Container<Module>>,
 }
 
 impl ModuleStore {
@@ -28,20 +28,21 @@ impl ModuleStore {
         net::import(self, type_registry);
     }
 
-    pub fn fetch_module(&mut self, import_path: &ImportPath) -> Option<Container<Module>> {
-        self.store.get(import_path).cloned()
+    pub fn fetch_module(&mut self, name: &ModuleName) -> Option<Container<Module>> {
+        self.store.get(name).cloned()
     }
 
-    pub fn store_module(&mut self, import_path: &ImportPath, module: Container<Module>) {
-        self.store.insert(import_path.to_owned(), module);
+    pub fn store_module(&mut self, module: Container<Module>) {
+        let name = module.borrow().name().to_owned();
+        self.store.insert(name, module);
     }
 
-    pub fn get_or_create_module(&mut self, path: &ImportPath) -> Container<Module> {
-        if let Some(existing) = self.fetch_module(path) {
+    pub fn get_or_create_module(&mut self, name: &ModuleName) -> Container<Module> {
+        if let Some(existing) = self.fetch_module(name) {
             existing
         } else {
-            let new_mod = Container::new(Module::new(Source::default()));
-            self.store_module(path, new_mod.clone());
+            let new_mod = Container::new(Module::new_builtin(name.clone()));
+            self.store_module(new_mod.clone());
             new_mod
         }
     }

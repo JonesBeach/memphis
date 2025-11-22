@@ -2,12 +2,12 @@
 use std::collections::hash_map::Iter;
 use std::{
     fmt::{Display, Error, Formatter},
-    path::Path,
+    path::PathBuf,
 };
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{Dunder, ExecutionError, ImportPath, Source},
+    domain::{DebugStackFrame, Dunder, ExecutionError, ModuleName, Source, ToDebugStackFrame},
     errors::MemphisError,
     treewalk::{
         protocols::MemberRead,
@@ -18,36 +18,47 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone)]
+enum ModuleOrigin {
+    File(Source),
+    Builtin,
+    Synthetic,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct Module {
+    name: ModuleName,
     scope: Scope,
-    source: Source,
+    origin: ModuleOrigin,
 }
 
 impl Module {
     pub fn import(
         interpreter: &TreewalkInterpreter,
-        import_path: &ImportPath,
+        module_name: &ModuleName,
     ) -> TreewalkResult<Container<Self>> {
-        log(LogLevel::Debug, || format!("Reading {import_path}"));
+        log(LogLevel::Debug, || format!("Reading {module_name}"));
+
+        let source = interpreter
+            .state
+            .memphis_state()
+            .load_source(module_name)
+            .raise(interpreter)?;
+
+        let module = Container::new(Module::new(module_name.clone(), source.clone()));
+
         // Before we parse and evaluate this module, store an empty module as a placeholder. This
         // is necessary to indicate to downstream modules that the upstream module which called
         // them but hasn't yet finished importing is in progress. Without this, you would get an
         // infinite loop from any circular imports.
-        interpreter
-            .state
-            .store_module(import_path, Container::new(Module::default()));
-
-        let source = interpreter
-            .state
-            .load_source(import_path)
-            .raise(interpreter)?;
+        //
+        // We don't need to store again after evaluating this module because the object pushed onto
+        // the module stack during execution uses `Container<_>` and refers to this same module.
+        interpreter.state.store_module(module.clone());
 
         interpreter.state.save_line_number();
-        interpreter.state.push_stack_frame(&source);
-        interpreter
-            .state
-            .push_module(Container::new(Module::new(source.clone())));
+        interpreter.state.push_stack_frame(&*module.borrow());
+        interpreter.state.push_module(module);
 
         let mut context = TreewalkContext::from_state(source, interpreter.state.clone());
 
@@ -61,29 +72,51 @@ impl Module {
             _ => unreachable!(),
         };
 
-        interpreter.state.pop_stack_frame();
+        interpreter
+            .state
+            .pop_stack_frame()
+            .ok_or_else(ExecutionError::runtime_error)
+            .raise(interpreter)?;
         let module = interpreter
             .state
             .pop_module()
             .ok_or_else(ExecutionError::runtime_error)
             .raise(interpreter)?;
-
-        interpreter.state.store_module(import_path, module.clone());
         Ok(module)
     }
 
-    pub fn new(source: Source) -> Self {
+    pub fn new(name: ModuleName, source: Source) -> Self {
+        Self::_new(name, ModuleOrigin::File(source))
+    }
+
+    fn _new(name: ModuleName, origin: ModuleOrigin) -> Self {
         let mut scope = Scope::default();
-        scope.insert(&Dunder::Name, TreewalkValue::Str(Str::new(source.name())));
-        Self { source, scope }
+        scope.insert(&Dunder::Name, TreewalkValue::Str(Str::new(&name.as_str())));
+        Self {
+            name,
+            scope,
+            origin,
+        }
     }
 
-    pub fn path(&self) -> &Path {
-        self.source.display_path()
+    pub fn new_builtin(name: ModuleName) -> Self {
+        Self::_new(name, ModuleOrigin::Builtin)
     }
 
-    pub fn name(&self) -> &str {
-        self.source.name()
+    pub fn new_empty(name: ModuleName) -> Self {
+        Self::_new(name, ModuleOrigin::Synthetic)
+    }
+
+    pub fn path(&self) -> PathBuf {
+        match &self.origin {
+            ModuleOrigin::File(s) => s.display_path().to_path_buf(),
+            ModuleOrigin::Builtin => PathBuf::from("builtin"),
+            ModuleOrigin::Synthetic => PathBuf::from("synthetic"),
+        }
+    }
+
+    pub fn name(&self) -> &ModuleName {
+        &self.name
     }
 
     pub fn get(&self, name: &str) -> Option<TreewalkValue> {
@@ -127,5 +160,11 @@ impl MemberRead for Module {
 impl Display for Container<Module> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         write!(f, "<module '{}'>", self.borrow().name())
+    }
+}
+
+impl ToDebugStackFrame for Module {
+    fn to_stack_frame(&self) -> DebugStackFrame {
+        DebugStackFrame::new("<module>", self.path(), 1)
     }
 }

@@ -1,44 +1,15 @@
 use std::path::{Path, PathBuf};
 
-use crate::domain::{Dunder, ImportPath};
+use crate::domain::{Dunder, ModuleName};
 
 /// Finds a module but does not read it (returns absolute path).
-pub fn resolve(
-    import_path: &ImportPath,
-    current_path: &Path,
-    search_paths: &[PathBuf],
-) -> Option<PathBuf> {
-    let resolved_path = match import_path {
-        ImportPath::Absolute(path_segments) => resolve_absolute_path(path_segments, search_paths),
-        ImportPath::Relative(level, path_segments) => {
-            resolve_relative_path(level, path_segments, current_path)
-        }
-    }?;
-
-    Some(
-        resolved_path
-            .canonicalize()
-            .expect("Failed to turn into absolute path"),
-    )
-}
-
-fn resolve_absolute_path(path_segments: &[String], search_paths: &[PathBuf]) -> Option<PathBuf> {
-    search_paths
+pub fn resolve(module_name: &ModuleName, search_paths: &[PathBuf]) -> Option<PathBuf> {
+    let path = search_paths
         .iter()
-        .flat_map(|filepath| expand_path(filepath, path_segments))
-        .find(|filepath| filepath.exists())
-}
+        .flat_map(|filepath| expand_path(filepath, module_name.segments()))
+        .find(|filepath| filepath.exists())?;
 
-fn resolve_relative_path(
-    level: &usize,
-    path_segments: &[String],
-    current_path: &Path,
-) -> Option<PathBuf> {
-    let base_path = up_n_levels(current_path, *level)?;
-
-    expand_path(base_path, path_segments)
-        .into_iter()
-        .find(|filepath| filepath.exists())
+    path.canonicalize().ok()
 }
 
 /// For a given path and segments, this returns both the `../base.py` and `../base/__init__.py`
@@ -70,10 +41,6 @@ fn expand_path(path: &Path, segments: &[String]) -> [PathBuf; 2] {
     [base_path, init_path]
 }
 
-fn up_n_levels(path: &Path, n: usize) -> Option<&Path> {
-    (0..n).try_fold(path, |current, _| current.parent())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,7 +48,7 @@ mod tests {
     #[test]
     fn test_expand_path_with_multiple_segments() {
         let path = Path::new("/base");
-        let segments = vec!["subdir".to_string(), "file".to_string()];
+        let segments = ["subdir".to_string(), "file".to_string()];
 
         let [base_path, init_path] = expand_path(path, &segments);
 
@@ -92,7 +59,7 @@ mod tests {
     #[test]
     fn test_expand_path_with_single_segment() {
         let path = Path::new("/base");
-        let segments = vec!["file".to_string()];
+        let segments = ["file".to_string()];
 
         let [base_path, init_path] = expand_path(path, &segments);
 
@@ -104,7 +71,7 @@ mod tests {
     #[should_panic]
     fn test_expand_path_with_empty_segments() {
         let path = Path::new("/base");
-        let segments: Vec<String> = vec![];
+        let segments = [];
 
         let _ = expand_path(path, &segments);
     }

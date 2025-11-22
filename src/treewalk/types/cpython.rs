@@ -12,7 +12,7 @@ use pyo3::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionError, ImportPath},
+    domain::{Dunder, ExecutionError, ModuleName},
     treewalk::{
         protocols::{Callable, IndexRead, IndexWrite, MemberRead},
         result::Raise,
@@ -23,7 +23,7 @@ use crate::{
 };
 
 pub struct BuiltinModuleCache {
-    builtin_module_cache: HashMap<ImportPath, Container<CPythonModule>>,
+    builtin_module_cache: HashMap<ModuleName, Container<CPythonModule>>,
 }
 
 impl BuiltinModuleCache {
@@ -33,13 +33,13 @@ impl BuiltinModuleCache {
         }
     }
 
-    pub fn import_builtin_module(&mut self, import_path: &ImportPath) -> Container<CPythonModule> {
-        if let Some(module) = self.builtin_module_cache.get(import_path) {
+    pub fn import_builtin_module(&mut self, module_name: &ModuleName) -> Container<CPythonModule> {
+        if let Some(module) = self.builtin_module_cache.get(module_name) {
             module.clone()
         } else {
-            let module = Container::new(CPythonModule::new(&import_path.as_str()));
+            let module = Container::new(CPythonModule::new(&module_name.as_str()));
             self.builtin_module_cache
-                .insert(import_path.to_owned(), module.clone());
+                .insert(module_name.to_owned(), module.clone());
             module
         }
     }
@@ -47,16 +47,16 @@ impl BuiltinModuleCache {
 
 pub fn import_from_cpython(
     interpreter: &TreewalkInterpreter,
-    import_path: &ImportPath,
+    module_name: &ModuleName,
 ) -> Option<TreewalkValue> {
-    if BUILTIN_MODULE_NAMES.contains(&import_path.as_str().as_str()) {
+    if BUILTIN_MODULE_NAMES.contains(&module_name.as_str().as_str()) {
         return Some(TreewalkValue::CPythonModule(
-            interpreter.state.import_builtin_module(import_path),
+            interpreter.state.import_builtin_module(module_name),
         ));
     }
 
     if let Some(module) = interpreter.state.read("sys") {
-        let import_str = import_path.as_str();
+        let import_str = module_name.as_str();
         // TODO this is a hack so that we only take this code path for "os.path"
         if import_str != "os.path" {
             return None;
@@ -434,7 +434,7 @@ pub mod utils {
                 .collect();
             TreewalkValue::Tuple(Tuple::new(elements))
         } else if let Ok(py_module) = py_obj.extract::<Bound<PyModule>>() {
-            let mut module = Module::default();
+            let mut module = Module::new_builtin(ModuleName::from_segments(&["TODO cpython"]));
 
             // Get the module's __dict__ to iterate over all attributes
             for (key, value) in py_module.dict() {

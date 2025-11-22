@@ -9,20 +9,21 @@ use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
         DomainResult, Dunder, ExceptionLiteral, ExecutionError, FunctionType, ImportPath,
-        MemphisValue, RuntimeError, Source,
+        MemphisValue, ModuleName, RuntimeError,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
         types::{
             Ast, BinOp, CallArgs, Callee, CompareOp, CompoundOperator, ConditionalAst,
             DictOperation, ExceptClause, ExceptionInstance, Expr, FStringPart, ForClause,
-            ImportedItem, LogicalOp, LoopIndex, Params, RegularImport, SliceParams, Statement,
+            LogicalOp, LoopIndex, Params, RegularImport, SelectMode, SliceParams, Statement,
             StatementKind, TypeNode, UnaryOp, Variable,
         },
         Parser,
     },
     runtime::MemphisState,
     treewalk::{
+        import_utils,
         protocols::{MemberRead, TryEvalFrom},
         result::Raise,
         type_system::CloneableCallable,
@@ -45,10 +46,10 @@ pub struct TreewalkInterpreter {
 
 impl Default for TreewalkInterpreter {
     fn default() -> Self {
-        Self::new(TreewalkState::from_source_state(
-            Container::new(MemphisState::default()),
-            Source::default(),
-        ))
+        let state = Container::new(TreewalkState::new(Container::new(MemphisState::default())));
+        let module = Module::new_empty(ModuleName::main());
+        state.enter_module(module);
+        Self::new(state)
     }
 }
 
@@ -284,23 +285,23 @@ impl TreewalkInterpreter {
             .raise(self)
     }
 
-    // -----------------------------
-    // End of medium-order functions
-    // -----------------------------
-
-    fn evaluate_module_import(&self, import_path: &ImportPath) -> TreewalkResult<TreewalkValue> {
-        if let Some(module) = self.state.fetch_module(import_path) {
+    fn evaluate_module_import(&self, module_name: &ModuleName) -> TreewalkResult<TreewalkValue> {
+        if let Some(module) = self.state.fetch_module(module_name) {
             return Ok(TreewalkValue::Module(module));
         }
 
         #[cfg(feature = "c_stdlib")]
-        if let Some(result) = import_from_cpython(self, import_path) {
+        if let Some(result) = import_from_cpython(self, module_name) {
             return Ok(result);
         }
 
-        let module = Module::import(self, import_path)?;
+        let module = Module::import(self, module_name)?;
         Ok(TreewalkValue::Module(module))
     }
+
+    // -----------------------------
+    // End of medium-order functions
+    // -----------------------------
 
     fn evaluate_unary_operation_outer(
         &self,
@@ -965,7 +966,11 @@ impl TreewalkInterpreter {
 
     fn evaluate_regular_import(&self, items: &[RegularImport]) -> TreewalkResult<()> {
         for item in items.iter() {
-            self.evaluate_regular_import_inner(&item.import_path, &item.alias)?;
+            let module_name = self
+                .state
+                .resolve_module_path(&item.module_path)
+                .raise(self)?;
+            self.evaluate_regular_import_inner(&module_name, &item.alias)?;
         }
 
         Ok(())
@@ -973,11 +978,11 @@ impl TreewalkInterpreter {
 
     fn evaluate_regular_import_inner(
         &self,
-        import_path: &ImportPath,
+        module_name: &ModuleName,
         alias: &Option<String>,
     ) -> TreewalkResult<()> {
         // A mutable TreewalkValue::Module that will be updated on each loop iteration
-        let mut inner_module = self.evaluate_module_import(import_path)?;
+        let inner_module = self.evaluate_module_import(module_name)?;
 
         // This is a case where it's simpler if we have an alias: just make the module available
         // at the alias.
@@ -991,17 +996,13 @@ impl TreewalkInterpreter {
             // must be used as
             //
             // mypackage.myothermodule.add('1', '1')
-
-            // Iterate over the segments in reverse, skipping the last one
-            let segments = import_path.segments();
-            for segment in segments.iter().rev().take(segments.len() - 1) {
-                let mut new_outer_module = Module::default();
-                new_outer_module.insert(segment, inner_module);
-                inner_module = TreewalkValue::Module(Container::new(new_outer_module));
-            }
-
-            self.state
-                .write(import_path.segments().first().unwrap(), inner_module);
+            let outer_module =
+                import_utils::build_module_chain(module_name, inner_module).raise(self)?;
+            let symbol_name = module_name
+                .head()
+                .ok_or_else(ExecutionError::runtime_error)
+                .raise(self)?;
+            self.state.write(symbol_name, outer_module);
         }
 
         Ok(())
@@ -1010,33 +1011,47 @@ impl TreewalkInterpreter {
     fn evaluate_selective_import(
         &self,
         import_path: &ImportPath,
-        items: &[ImportedItem],
-        wildcard: &bool,
+        mode: &SelectMode,
     ) -> TreewalkResult<()> {
+        // Resolve the module name (handles relative imports correctly)
+        let module_name = self.state.resolve_import_path(import_path).raise(self)?;
         let module = self
-            .evaluate_module_import(import_path)?
+            .evaluate_module_import(&module_name)?
             .as_module()
             .raise(self)?;
 
-        let mapped_imports: HashMap<&str, &str> = items
-            .iter()
-            .map(|arg| (arg.original(), arg.imported()))
-            .collect();
+        match mode {
+            // --------------------------
+            //   from x import *
+            // --------------------------
+            SelectMode::All => {
+                for module_symbol in module.dir() {
+                    let symbol = module_symbol.as_str();
 
-        for module_symbol in module.dir() {
-            let module_symbol_ref = module_symbol.as_str();
-            let aliased_symbol = if *wildcard {
-                module_symbol_ref
-            } else if let Some(&alias) = mapped_imports.get(module_symbol_ref) {
-                alias
-            } else {
-                continue;
-            };
+                    let value = module
+                        .get_member(self, symbol)?
+                        .ok_or_else(|| ExecutionError::name_error(symbol))
+                        .raise(self)?;
 
-            if let Some(value) = module.get_member(self, module_symbol_ref)? {
-                self.state.write(aliased_symbol, value);
-            } else {
-                return ExecutionError::name_error(aliased_symbol).raise(self);
+                    self.state.write(symbol, value);
+                }
+            }
+
+            // -----------------------------------------
+            //   from x import a, b as c, d as e, ...
+            // -----------------------------------------
+            SelectMode::List(items) => {
+                for item in items {
+                    let original = item.original();
+                    let imported = item.imported();
+
+                    let value = module
+                        .get_member(self, original)?
+                        .ok_or_else(|| ExecutionError::name_error(original))
+                        .raise(self)?;
+
+                    self.state.write(imported, value);
+                }
             }
         }
 
@@ -1327,11 +1342,9 @@ impl TreewalkInterpreter {
                 body,
             } => self.evaluate_class_definition(name, parents, metaclass, body),
             StatementKind::RegularImport(items) => self.evaluate_regular_import(items),
-            StatementKind::SelectiveImport {
-                import_path,
-                items,
-                wildcard,
-            } => self.evaluate_selective_import(import_path, items, wildcard),
+            StatementKind::SelectiveImport { import_path, mode } => {
+                self.evaluate_selective_import(import_path, mode)
+            }
             StatementKind::TryExcept {
                 try_block,
                 except_clauses,

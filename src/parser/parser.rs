@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    domain::{ExceptionLiteral, ImportPath},
+    domain::{ExceptionLiteral, ImportPath, ModulePath},
     errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
@@ -10,8 +10,8 @@ use crate::{
             ast, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
             ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
             FStringPart, ForClause, FormatOption, ImportedItem, KwargsOperation, LogicalOp,
-            LoopIndex, Param, Params, RegularImport, SliceParams, Statement, StatementKind,
-            TypeNode, UnaryOp, Variable,
+            LoopIndex, Param, Params, RegularImport, SelectMode, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp, Variable,
         },
         TokenBuffer,
     },
@@ -641,6 +641,19 @@ impl<'a> Parser<'a> {
         Ok(Ast::new(statements))
     }
 
+    fn parse_module_path(&mut self) -> Result<ModulePath, ParserError> {
+        if !matches!(self.current_token(), Token::Identifier(_)) {
+            return Ok(ModulePath::default());
+        }
+
+        let mut path = vec![self.parse_identifier()?];
+        while self.current_token() == &Token::Dot {
+            self.consume(&Token::Dot)?;
+            path.push(self.parse_identifier()?);
+        }
+        Ok(ModulePath::new(path))
+    }
+
     fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
         match self.current_token() {
             Token::Dot => {
@@ -650,26 +663,12 @@ impl<'a> Parser<'a> {
                     levels += 1;
                 }
 
-                let path = if matches!(self.current_token(), Token::Identifier(_)) {
-                    let mut path = vec![self.parse_identifier()?];
-                    while self.current_token() == &Token::Dot {
-                        self.consume(&Token::Dot)?;
-                        path.push(self.parse_identifier()?);
-                    }
-                    path
-                } else {
-                    vec![]
-                };
-
+                let path = self.parse_module_path()?;
                 Ok(ImportPath::Relative(levels, path))
             }
             _ => {
-                let mut path = vec![self.parse_identifier()?];
-                while self.current_token() == &Token::Dot {
-                    self.consume(&Token::Dot)?;
-                    path.push(self.parse_identifier()?);
-                }
-
+                let path = self.parse_module_path()?;
+                assert!(!path.segments().is_empty());
                 Ok(ImportPath::Absolute(path))
             }
         }
@@ -690,9 +689,9 @@ impl<'a> Parser<'a> {
 
         let mut items = vec![];
         loop {
-            let import_path = self.parse_import_path()?;
+            let module_path = self.parse_module_path()?;
             let alias = self.parse_alias()?;
-            items.push(RegularImport { import_path, alias });
+            items.push(RegularImport { module_path, alias });
 
             if self.current_token() == &Token::Comma {
                 self.consume(&Token::Comma)?;
@@ -714,8 +713,7 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::Asterisk)?;
                 StatementKind::SelectiveImport {
                     import_path,
-                    items: vec![],
-                    wildcard: true,
+                    mode: SelectMode::All,
                 }
             }
             _ => {
@@ -755,8 +753,7 @@ impl<'a> Parser<'a> {
 
                 StatementKind::SelectiveImport {
                     import_path,
-                    items,
-                    wildcard: false,
+                    mode: SelectMode::List(items),
                 }
             }
         };
@@ -2336,8 +2333,7 @@ pass
         let input = "from other import something";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
-            items: vec![ImportedItem::direct("something")],
-            wildcard: false,
+            mode: SelectMode::List(vec![ImportedItem::direct("something")]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2345,11 +2341,10 @@ pass
         let input = "from other import something, something_else";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::direct("something_else"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2357,8 +2352,7 @@ pass
         let input = "from other import *";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
-            items: vec![],
-            wildcard: true,
+            mode: SelectMode::All,
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2366,11 +2360,10 @@ pass
         let input = "from other import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::aliased("something_else", "imported_name"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2378,11 +2371,10 @@ pass
         let input = "from other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other.module"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::aliased("something_else", "imported_name"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2390,8 +2382,7 @@ pass
         let input = "from . import something";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("."),
-            items: vec![ImportedItem::direct("something")],
-            wildcard: false,
+            mode: SelectMode::List(vec![ImportedItem::direct("something")]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2399,11 +2390,10 @@ pass
         let input = "from .other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from(".other.module"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::aliased("something_else", "imported_name"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2411,11 +2401,10 @@ pass
         let input = "from ..other.module import something, something_else as imported_name";
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("..other.module"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::aliased("something_else", "imported_name"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2426,11 +2415,10 @@ from ..other.module import (something,
 "#;
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("..other.module"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::direct("something"),
                 ImportedItem::aliased("something_else", "imported_name"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);
@@ -2441,11 +2429,10 @@ from ..other.module import (something as imported_name,
 "#;
         let expected_ast = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("..other.module"),
-            items: vec![
+            mode: SelectMode::List(vec![
                 ImportedItem::aliased("something", "imported_name"),
                 ImportedItem::direct("something_else"),
-            ],
-            wildcard: false,
+            ]),
         });
 
         assert_ast_eq!(input, expected_ast);

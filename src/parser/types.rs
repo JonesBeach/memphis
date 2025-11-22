@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
-    domain::{ExceptionLiteral, ImportPath},
+    domain::{ExceptionLiteral, ImportPath, ModulePath},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -126,7 +126,7 @@ pub enum FStringPart {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct RegularImport {
-    pub import_path: ImportPath,
+    pub module_path: ModulePath,
     pub alias: Option<String>,
 }
 
@@ -403,6 +403,12 @@ pub struct ConditionalAst {
     pub ast: Ast,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum SelectMode {
+    All, // represents '*'
+    List(Vec<ImportedItem>),
+}
+
 /// This represents one of the comma-separated values being imported. This is only used in
 /// selective imports right now.
 ///
@@ -571,8 +577,7 @@ pub enum StatementKind {
     RegularImport(Vec<RegularImport>),
     SelectiveImport {
         import_path: ImportPath,
-        items: Vec<ImportedItem>,
-        wildcard: bool,
+        mode: SelectMode,
     },
     TryExcept {
         try_block: Ast,

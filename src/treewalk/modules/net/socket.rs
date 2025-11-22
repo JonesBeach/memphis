@@ -1,6 +1,6 @@
 use crate::{
     core::{net::Socket, Container},
-    domain::{ExecutionError, ImportPath},
+    domain::{ExecutionError, ModuleName},
     treewalk::{
         macros::impl_method_provider,
         modules::net::Connection,
@@ -33,7 +33,10 @@ impl Callable for AcceptBuiltin {
 
         let conn_class = interpreter
             .state
-            .read_class(&ImportPath::from("memphis.net.Connection"))
+            .read_class(
+                &ModuleName::from_segments(&["memphis", "net"]),
+                "Connection",
+            )
             .ok_or_else(|| ExecutionError::runtime_error_with("Connection class not found"))
             .raise(interpreter)?;
 

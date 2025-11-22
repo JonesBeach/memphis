@@ -3,7 +3,7 @@ use crate::{
         net::{Connection, Socket},
         Container,
     },
-    domain::{ExecutionError, ImportPath, Source, Type},
+    domain::{ExecutionError, ModuleName, Type},
     treewalk::{
         protocols::Callable,
         result::Raise,
@@ -36,7 +36,7 @@ impl Callable for NetListenBuiltin {
 
         let socket_class = interpreter
             .state
-            .read_class(&ImportPath::from("memphis.net.Socket"))
+            .read_class(&ModuleName::from_segments(&["memphis", "net"]), "Socket")
             .ok_or_else(|| ExecutionError::runtime_error_with("Socket class not found"))
             .raise(interpreter)?;
 
@@ -103,7 +103,7 @@ fn register_native_class<T: MethodProvider>(
 }
 
 fn init(type_registry: &TypeRegistry) -> Module {
-    let mut net_mod = Module::new(Source::default());
+    let mut net_mod = Module::new_builtin(ModuleName::from_segments(&["memphis", "net"]));
     for builtin in builtins() {
         net_mod.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
@@ -117,11 +117,11 @@ fn init(type_registry: &TypeRegistry) -> Module {
 pub fn import(module_store: &mut ModuleStore, type_registry: &TypeRegistry) {
     let net_mod = init(type_registry);
 
-    let memphis_mod = module_store.get_or_create_module(&ImportPath::from("memphis"));
+    let memphis_mod = module_store.get_or_create_module(&ModuleName::from_segments(&["memphis"]));
     memphis_mod.borrow_mut().insert(
         "net",
         TreewalkValue::Module(Container::new(net_mod.clone())),
     );
 
-    module_store.store_module(&ImportPath::from("memphis.net"), Container::new(net_mod));
+    module_store.store_module(Container::new(net_mod));
 }

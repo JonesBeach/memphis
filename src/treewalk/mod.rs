@@ -2,6 +2,7 @@ mod boxing;
 mod context;
 mod execution_context;
 mod executor;
+pub mod import_utils;
 #[allow(clippy::module_inception)]
 pub mod interpreter;
 mod iterator;

@@ -1,10 +1,11 @@
 use std::{
     fmt::Display,
+    fs, io,
     path::{Path, PathBuf},
     process,
 };
 
-use crate::domain::{resolve, DebugStackFrame, Dunder, ImportPath, ToDebugStackFrame};
+use crate::domain::{Dunder, ModuleName};
 
 /// Represents a Python source, whether it comes from a file, a string, or an embedded Rust module.
 ///
@@ -21,7 +22,6 @@ pub struct Source {
 
 impl Source {
     const DEFAULT_NAME: Dunder = Dunder::Main;
-    const DEFAULT_CONTEXT: &str = "<module>";
     const DEFAULT_PATH: &str = "<stdin>";
     const DEFAULT_TEXT: &str = "<module with no Python code>";
 
@@ -42,19 +42,9 @@ impl Source {
         Self::with_path(absolute_path, text)
     }
 
-    pub fn from_import_path(
-        import_path: &ImportPath,
-        current_path: &Path,
-        search_paths: &[PathBuf],
-    ) -> Option<Self> {
-        let resolved_path = resolve(import_path, current_path, search_paths)?;
-
-        let text = std::fs::read_to_string(&resolved_path).ok()?;
-        Some(Self::with_named_path(
-            &import_path.as_str(),
-            resolved_path,
-            text,
-        ))
+    pub fn from_path_and_name(module_name: &ModuleName, path: PathBuf) -> io::Result<Self> {
+        let text = fs::read_to_string(&path)?;
+        Ok(Self::with_named_path(&module_name.as_str(), path, text))
     }
 
     /// Provide code directly as a string without reading from the file system.
@@ -80,10 +70,6 @@ impl Source {
         self.name.as_deref().unwrap_or(Self::DEFAULT_NAME.into())
     }
 
-    pub fn context(&self) -> &str {
-        self.name.as_deref().unwrap_or(Self::DEFAULT_CONTEXT)
-    }
-
     pub fn has_text(&self) -> bool {
         self.text.is_some()
     }
@@ -106,11 +92,5 @@ impl Source {
             path: Some(path),
             text: Some(text),
         }
-    }
-}
-
-impl ToDebugStackFrame for Source {
-    fn to_stack_frame(&self) -> DebugStackFrame {
-        DebugStackFrame::new(self.context(), self.display_path().to_path_buf(), 1)
     }
 }

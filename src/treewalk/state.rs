@@ -1,10 +1,10 @@
-use std::{cell::UnsafeCell, path::PathBuf};
+use std::cell::UnsafeCell;
 
 use crate::{
     core::Container,
     domain::{
-        DebugCallStack, DebugStackFrame, DomainResult, ExecutionError, ImportPath, Source,
-        ToDebugStackFrame, Type,
+        DebugCallStack, DebugStackFrame, DomainResult, ExecutionError, ImportPath, ModuleName,
+        ModulePath, ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
@@ -37,7 +37,7 @@ impl Default for TreewalkState {
 }
 
 impl TreewalkState {
-    fn new(memphis_state: Container<MemphisState>) -> Self {
+    pub fn new(memphis_state: Container<MemphisState>) -> Self {
         let type_registry = TypeRegistry::new();
 
         // We still want the `TypeRegistry` to own the type classes, but we must make some of them
@@ -58,22 +58,16 @@ impl TreewalkState {
             builtin_module_cache: BuiltinModuleCache::new(),
         }
     }
-
-    pub fn from_source_state(
-        memphis_state: Container<MemphisState>,
-        source: Source,
-    ) -> Container<Self> {
-        memphis_state.push_stack_frame(&source);
-
-        let treewalk_state = Container::new(Self::new(memphis_state));
-        treewalk_state.push_module(Container::new(Module::new(source)));
-        treewalk_state
-    }
 }
 
 impl Container<TreewalkState> {
     pub fn memphis_state(&self) -> Container<MemphisState> {
         self.borrow().memphis_state.clone()
+    }
+
+    pub fn enter_module(&self, module: Module) {
+        self.push_stack_frame(&module);
+        self.push_module(Container::new(module));
     }
 
     pub fn save_line_number(&self) {
@@ -139,13 +133,6 @@ impl Container<TreewalkState> {
 
     pub fn current_module(&self) -> Container<Module> {
         self.borrow().scope_manager.read_module()
-    }
-
-    pub fn current_path(&self) -> Box<PathBuf> {
-        let current_module = self.current_module();
-        let binding = current_module.borrow();
-        let path = binding.path();
-        Box::new(path.to_owned())
     }
 
     pub fn push_class(&self, class: Container<Class>) {
@@ -225,36 +212,56 @@ impl Container<TreewalkState> {
         ))
     }
 
-    pub fn load_source(&self, import_path: &ImportPath) -> DomainResult<Source> {
-        let current_path = self.current_path();
-        let search_paths = self.borrow().memphis_state.search_paths();
-        Source::from_import_path(import_path, &current_path, &search_paths)
-            .ok_or_else(|| ExecutionError::import_error(import_path))
+    pub fn resolve_import_path(&self, import_path: &ImportPath) -> DomainResult<ModuleName> {
+        let current_module = self.current_module();
+        let current_module = current_module.borrow();
+        let current_module = current_module.name();
+        resolve_import_path(import_path, current_module)
+    }
+
+    pub fn resolve_module_path(&self, module_path: &ModulePath) -> DomainResult<ModuleName> {
+        Ok(resolve_absolute_path(module_path))
     }
 
     #[cfg(feature = "c_stdlib")]
-    pub fn import_builtin_module(&self, import_path: &ImportPath) -> Container<CPythonModule> {
+    pub fn import_builtin_module(&self, module_name: &ModuleName) -> Container<CPythonModule> {
         self.borrow_mut()
             .builtin_module_cache
-            .import_builtin_module(import_path)
+            .import_builtin_module(module_name)
     }
 
-    pub fn store_module(&self, import_path: &ImportPath, module: Container<Module>) {
-        self.borrow_mut()
-            .module_store
-            .store_module(import_path, module)
+    pub fn store_module(&self, module: Container<Module>) {
+        self.borrow_mut().module_store.store_module(module)
     }
 
-    pub fn fetch_module(&self, import_path: &ImportPath) -> Option<Container<Module>> {
-        self.borrow_mut().module_store.fetch_module(import_path)
+    pub fn fetch_module(&self, module_name: &ModuleName) -> Option<Container<Module>> {
+        self.borrow_mut().module_store.fetch_module(module_name)
     }
 
-    pub fn read_class(&self, import_path: &ImportPath) -> Option<Container<Class>> {
-        let mut segments = import_path.segments().to_vec();
-        let class_name = segments.pop()?;
-        let module_path = ImportPath::from_segments(&segments);
-        let module = self.fetch_module(&module_path)?;
+    pub fn read_class(&self, module: &ModuleName, class: &str) -> Option<Container<Class>> {
+        let module = self.fetch_module(module)?;
         let binding = module.borrow();
-        binding.get(&class_name)?.as_class().ok()
+        binding.get(class)?.as_class().ok()
     }
+}
+
+fn resolve_import_path(
+    import_path: &ImportPath,
+    current_module: &ModuleName,
+) -> DomainResult<ModuleName> {
+    match import_path {
+        ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
+        ImportPath::Relative(levels, tail) => {
+            let base = current_module
+                .strip_last(*levels)
+                .ok_or_else(|| ExecutionError::runtime_error_with("Invalid relative import"))?;
+            Ok(base.join(tail.segments()))
+        }
+    }
+}
+
+// Convert from a parser `ModulePath` into a runtime `ModuleName`. For absolute paths, this is a
+// direct mapping.
+fn resolve_absolute_path(module_path: &ModulePath) -> ModuleName {
+    ModuleName::from_segments(module_path.segments())
 }

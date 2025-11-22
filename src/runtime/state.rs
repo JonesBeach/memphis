@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     core::Container,
-    domain::{DebugCallStack, DebugStackFrame, Source, ToDebugStackFrame},
+    domain::{
+        resolve, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError, ModuleName, Source,
+        ToDebugStackFrame,
+    },
 };
 
 use super::ImportResolver;
@@ -69,7 +72,18 @@ impl Container<MemphisState> {
         self.borrow_mut().import_resolver.register_root(path);
     }
 
-    pub fn search_paths(&self) -> Vec<PathBuf> {
+    fn search_paths(&self) -> Vec<PathBuf> {
         self.borrow().import_resolver.search_paths().to_vec()
+    }
+
+    pub fn load_source(&self, module_name: &ModuleName) -> DomainResult<Source> {
+        let path = self.resolve_module_path(module_name)?;
+        Source::from_path_and_name(module_name, path)
+            .map_err(|_| ExecutionError::import_error(module_name))
+    }
+
+    fn resolve_module_path(&self, module_name: &ModuleName) -> DomainResult<PathBuf> {
+        let search_paths = self.search_paths();
+        resolve(module_name, &search_paths).ok_or_else(|| ExecutionError::import_error(module_name))
     }
 }

@@ -4,26 +4,25 @@ use crate::{
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
-    runtime::MemphisState,
     treewalk::{TreewalkInterpreter, TreewalkState, TreewalkValue},
 };
+
+#[cfg(test)]
+use crate::{domain::ModuleName, runtime::MemphisState, treewalk::types::Module};
 
 pub struct TreewalkContext {
     lexer: Lexer,
     interpreter: TreewalkInterpreter,
 }
 
-impl Default for TreewalkContext {
-    fn default() -> Self {
-        Self::new(Source::default())
-    }
-}
-
 impl TreewalkContext {
+    #[cfg(test)]
     pub fn new(source: Source) -> Self {
         let lexer = Lexer::new(&source);
         let state = MemphisState::from_source(&source);
-        let treewalk_state = TreewalkState::from_source_state(state.clone(), source.clone());
+        let treewalk_state = Container::new(TreewalkState::new(state));
+        let module = Module::new(ModuleName::main(), source);
+        treewalk_state.enter_module(module);
         let interpreter = TreewalkInterpreter::new(treewalk_state);
 
         Self { lexer, interpreter }

@@ -1,6 +1,6 @@
 use crate::{
     core::Container,
-    domain::{ImportPath, Source},
+    domain::ModuleName,
     treewalk::{
         protocols::Callable,
         result::Raise,
@@ -65,7 +65,7 @@ fn builtins() -> Vec<Box<dyn CloneableCallable>> {
 }
 
 fn init() -> Module {
-    let mut mod_ = Module::new(Source::default());
+    let mut mod_ = Module::new_builtin(ModuleName::from_segments(&["asyncio"]));
     for builtin in builtins() {
         mod_.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }
@@ -74,5 +74,5 @@ fn init() -> Module {
 
 pub fn import(module_store: &mut ModuleStore) {
     let asyncio_mod = init();
-    module_store.store_module(&ImportPath::from("asyncio"), Container::new(asyncio_mod));
+    module_store.store_module(Container::new(asyncio_mod));
 }

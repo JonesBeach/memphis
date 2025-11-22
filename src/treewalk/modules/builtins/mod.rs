@@ -1,6 +1,6 @@
 use crate::{
     core::Container,
-    domain::{DomainResult, Dunder, ExecutionError, Source},
+    domain::{DomainResult, Dunder, ExecutionError, ModuleName},
     treewalk::{
         protocols::{Callable, Iterable},
         result::Raise,
@@ -28,7 +28,7 @@ fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
 }
 
 pub fn init(registry: &TypeRegistry) -> Module {
-    let mut mod_ = Module::new(Source::default());
+    let mut mod_ = Module::new_builtin(ModuleName::from_segments(&[Dunder::Builtins]));
     for builtin in get_builtins() {
         mod_.insert(&builtin.name(), TreewalkValue::BuiltinFunction(builtin));
     }

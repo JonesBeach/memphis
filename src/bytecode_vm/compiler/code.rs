@@ -67,9 +67,7 @@ impl CodeObject {
     }
 
     pub fn context(&self) -> &str {
-        self.name
-            .as_deref()
-            .unwrap_or_else(|| self.source.context())
+        self.name.as_deref().unwrap_or("<module>")
     }
 
     pub fn path(&self) -> &Path {

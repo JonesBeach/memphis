@@ -1,24 +1,18 @@
 use crate::{
     bytecode_vm::{Runtime, VmInterpreter},
     core::{Container, Interpreter},
-    domain::{MemphisValue, Source},
+    domain::{MemphisValue, ModuleName, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
-    treewalk::{TreewalkInterpreter, TreewalkState},
+    treewalk::{types::Module, TreewalkInterpreter, TreewalkState},
     Engine,
 };
 
 pub struct MemphisContext {
     pub lexer: Lexer,
     interpreter: Box<dyn Interpreter>,
-}
-
-impl Default for MemphisContext {
-    fn default() -> Self {
-        Self::new(Engine::DEFAULT_ENGINE, Source::default())
-    }
 }
 
 impl MemphisContext {
@@ -49,7 +43,9 @@ fn init_interpreter(engine: Engine, source: Source) -> Box<dyn Interpreter> {
     let state = MemphisState::from_source(&source);
     match engine {
         Engine::Treewalk => {
-            let treewalk_state = TreewalkState::from_source_state(state.clone(), source.clone());
+            let treewalk_state = Container::new(TreewalkState::new(state));
+            let module = Module::new(ModuleName::main(), source);
+            treewalk_state.enter_module(module);
             Box::new(TreewalkInterpreter::new(treewalk_state))
         }
         Engine::BytecodeVm => {
