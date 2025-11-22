@@ -9,7 +9,7 @@ use crate::{
         Runtime, VirtualMachine, VmResult, VmValue,
     },
     core::Container,
-    domain::{Dunder, ExecutionError},
+    domain::{Dunder, ExecutionError, ModuleName},
 };
 
 static BUILTINS: [(&str, BuiltinFn); 7] = [
@@ -23,7 +23,7 @@ static BUILTINS: [(&str, BuiltinFn); 7] = [
 ];
 
 pub fn init_module(runtime: &mut Runtime) {
-    let mut mod_ = Module::new(&Dunder::Builtins);
+    let mut mod_ = Module::new(ModuleName::from_segments(&[Dunder::Builtins]));
     register_builtin_funcs(runtime, &mut mod_, &BUILTINS);
     runtime.store_module(Container::new(mod_));
 }
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn register_builtins_inserts_list() {
         let mut runtime = Runtime::default();
-        let mut module = Module::new("test_module");
+        let mut module = Module::new(ModuleName::from_segments(&["test_module"]));
         register_builtin_funcs(&mut runtime, &mut module, &BUILTINS);
         assert!(module.global_store().contains_key("list"));
         assert!(!module.global_store().contains_key("dict"));

@@ -1,7 +1,7 @@
 use crate::{
-    bytecode_vm::{compiler::CodeObject, runtime::types::Module, Runtime, VmInterpreter, VmValue},
+    bytecode_vm::{compiler::CodeObject, Runtime, VmInterpreter, VmValue},
     core::Container,
-    domain::{Dunder, Source},
+    domain::Source,
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
@@ -29,28 +29,8 @@ impl VmContext {
         Self { lexer, interpreter }
     }
 
-    pub fn import(
-        source: Source,
-        state: Container<MemphisState>,
-        runtime: Container<Runtime>,
-    ) -> Container<Module> {
-        assert_ne!(
-            Dunder::Main,
-            source.name(),
-            "`VmContext::import` should only be used for non-main modules."
-        );
-        let module = runtime.borrow_mut().create_module(source.name());
-
-        let mut context = VmContext::from_state(source, state.clone(), runtime.clone());
-
-        // TODO we shouldn't squash this error, but it's currently a MemphisError
-        let _ = context.run().expect("VM run failed");
-
-        module
-    }
-
     /// Initialize a context from a [`Source`] and existing treewalk state.
-    fn from_state(
+    pub fn from_state(
         source: Source,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,

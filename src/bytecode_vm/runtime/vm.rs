@@ -16,7 +16,7 @@ use crate::{
         Runtime, VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
-    domain::{DomainResult, Dunder, ExecutionError, FunctionType, RuntimeError},
+    domain::{DomainResult, Dunder, ExecutionError, FunctionType, ModuleName, RuntimeError},
     runtime::MemphisState,
 };
 
@@ -76,7 +76,7 @@ impl VirtualMachine {
     // the Interpreter trait. The other option is splitting Interpreter into two traits and putting
     // the read one behind a test/repl flag.
     fn load_global_by_name(&self, name: &str) -> DomainResult<Reference> {
-        let module = self.resolve_module(&Dunder::Main)?;
+        let module = self.resolve_module(&ModuleName::main())?;
 
         let module_binding = module.borrow();
         module_binding.read(name).ok_or_else(|| {
@@ -88,7 +88,7 @@ impl VirtualMachine {
         Ok(self.current_frame()?.module.clone())
     }
 
-    pub fn resolve_module(&self, name: &str) -> DomainResult<Container<Module>> {
+    pub fn resolve_module(&self, name: &ModuleName) -> DomainResult<Container<Module>> {
         self.runtime.borrow().read_module(name).ok_or_else(|| {
             ExecutionError::runtime_error_with(format!("Failed to read module: {}", name))
         })
@@ -152,7 +152,11 @@ impl VirtualMachine {
             return Ok(val);
         }
 
-        if let Some(builtins) = self.runtime.borrow().read_module(&Dunder::Builtins) {
+        if let Some(builtins) = self
+            .runtime
+            .borrow()
+            .read_module(&ModuleName::from_segments(&[Dunder::Builtins]))
+        {
             if let Some(val) = builtins.borrow().read(name) {
                 return Ok(val);
             }
@@ -325,7 +329,8 @@ impl VirtualMachine {
     /// This ensures that newly created frames can resolve their originating module.
     fn load_module(&mut self, index: NonlocalIndex) -> DomainResult<Container<Module>> {
         let name = self.resolve_name(index)?.to_owned();
-        self.module_loader.resolve_module(&name)
+        let module_name = ModuleName::from_segments(&[name]);
+        self.module_loader.resolve_module(&module_name)
     }
 
     fn collect_n(&mut self, n: usize) -> DomainResult<Vec<Reference>> {

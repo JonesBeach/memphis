@@ -16,21 +16,24 @@ impl ModuleLoader {
     }
 
     /// Check if the module is already present (e.g. Rust-backed or previously imported).
-    pub fn resolve_module(&mut self, name: &str) -> DomainResult<Container<Module>> {
-        if let Some(module) = self.runtime.borrow().read_module(name) {
+    pub fn resolve_module(&mut self, module_name: &ModuleName) -> DomainResult<Container<Module>> {
+        if let Some(module) = self.runtime.borrow().read_module(module_name) {
             return Ok(module);
         }
 
-        self.import_from_source(name)
+        self.import_from_source(module_name)
     }
 
-    fn import_from_source(&mut self, name: &str) -> DomainResult<Container<Module>> {
-        let module_name = ModuleName::from_segments(&[name]);
-        let source = self.state.load_source(&module_name)?;
-        Ok(VmContext::import(
-            source,
-            self.state.clone(),
-            self.runtime.clone(),
-        ))
+    fn import_from_source(&mut self, module_name: &ModuleName) -> DomainResult<Container<Module>> {
+        let source = self.state.load_source(module_name)?;
+
+        let module = self.runtime.borrow_mut().create_module(module_name);
+
+        let mut context = VmContext::from_state(source, self.state.clone(), self.runtime.clone());
+
+        // TODO we shouldn't squash this error, but it's currently a MemphisError
+        let _ = context.run().expect("VM run failed");
+
+        Ok(module)
     }
 }

@@ -10,7 +10,7 @@ use crate::{
         VmValue,
     },
     core::Container,
-    domain::Dunder,
+    domain::ModuleName,
 };
 
 #[derive(Default)]
@@ -22,14 +22,14 @@ pub struct Runtime {
     /// objects.
     pub heap: Heap,
 
-    module_store: HashMap<String, Container<Module>>,
+    module_store: HashMap<ModuleName, Container<Module>>,
 }
 
 impl Runtime {
     pub fn new() -> Self {
         let mut runtime = Self::default();
 
-        let _ = runtime.create_module(&Dunder::Main);
+        let _ = runtime.create_module(&ModuleName::main());
 
         builtins::init_module(&mut runtime);
         asyncio::init_module(&mut runtime);
@@ -37,18 +37,18 @@ impl Runtime {
         runtime
     }
 
-    pub fn read_module(&self, name: &str) -> Option<Container<Module>> {
+    pub fn read_module(&self, name: &ModuleName) -> Option<Container<Module>> {
         self.module_store.get(name).cloned()
     }
 
     pub fn store_module(&mut self, module: Container<Module>) {
-        let name = module.borrow().name.to_owned();
+        let name = module.borrow().name().to_owned();
         self.module_store.insert(name, module);
     }
 
     /// Create a new empty `Module` of a given name and store it in the `Runtime`.
-    pub fn create_module(&mut self, name: &str) -> Container<Module> {
-        let module = Container::new(Module::new(name));
+    pub fn create_module(&mut self, name: &ModuleName) -> Container<Module> {
+        let module = Container::new(Module::new(name.clone()));
         self.store_module(module.clone());
         module
     }

@@ -53,7 +53,9 @@ impl Frame {
     ) -> DomainResult<Self> {
         // We must associate this Frame with its Module in order to read and write global variables.
         let module_name = function.code_object.source.name();
-        let module = vm.resolve_module(module_name)?;
+        // TODO this should not come from Source
+        let module_name = crate::domain::ModuleName::from_segments(&[module_name]);
+        let module = vm.resolve_module(&module_name)?;
 
         Ok(Frame::new(function, args, module))
     }
