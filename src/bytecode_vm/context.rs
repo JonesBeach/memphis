@@ -1,5 +1,5 @@
 use crate::{
-    bytecode_vm::{compiler::CodeObject, Runtime, VmInterpreter, VmValue},
+    bytecode_vm::{Runtime, VmInterpreter, VmValue},
     core::Container,
     domain::Source,
     errors::MemphisResult,
@@ -52,23 +52,6 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.execute(&mut parser)
     }
-
-    #[allow(dead_code)]
-    pub fn add_line(&mut self, line: &str) {
-        self.lexer
-            .add_line(line)
-            .expect("Failed to add line to lexer");
-    }
-
-    #[allow(dead_code)]
-    pub fn compile(&mut self) -> MemphisResult<CodeObject> {
-        let VmContext {
-            lexer, interpreter, ..
-        } = self;
-
-        let mut parser = Parser::new(lexer);
-        interpreter.compile(&mut parser)
-    }
 }
 
 #[cfg(test)]
@@ -77,7 +60,30 @@ impl VmContext {
         self.interpreter.read_global(name)
     }
 
+    pub fn add_line(&mut self, line: &str) {
+        self.lexer
+            .add_line(line)
+            .expect("Failed to add line to lexer");
+    }
+
     pub fn interpreter(&self) -> &VmInterpreter {
         &self.interpreter
+    }
+}
+#[cfg(any(test, feature = "wasm"))]
+mod wasm_support {
+    use super::*;
+
+    use crate::bytecode_vm::compiler::CodeObject;
+
+    impl VmContext {
+        pub fn compile(&mut self) -> MemphisResult<CodeObject> {
+            let VmContext {
+                lexer, interpreter, ..
+            } = self;
+
+            let mut parser = Parser::new(lexer);
+            interpreter.compile(&mut parser)
+        }
     }
 }
