@@ -62,9 +62,7 @@ impl VmContext {
     }
 
     pub fn add_line(&mut self, line: &str) {
-        self.lexer
-            .add_line(line)
-            .expect("Failed to add line to lexer");
+        self.lexer.add_line(line);
     }
 
     pub fn interpreter(&self) -> &VmInterpreter {

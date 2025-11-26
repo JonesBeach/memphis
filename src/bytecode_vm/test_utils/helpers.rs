@@ -9,7 +9,7 @@ fn init(text: &str) -> VmContext {
 }
 
 fn init_path(path: &str) -> VmContext {
-    VmContext::new(Source::from_path(path))
+    VmContext::new(Source::from_path(path).expect("Failed to create Source"))
 }
 
 pub fn eval(text: &str) -> VmValue {

@@ -12,10 +12,7 @@ impl IncrementalContext {
     }
 
     pub fn add_line(&mut self, line: &str) {
-        self.context
-            .lexer
-            .add_line(line)
-            .expect("Failed to add line to lexer");
+        self.context.lexer.add_line(line);
     }
 
     pub fn run(&mut self) -> MemphisResult<MemphisValue> {
