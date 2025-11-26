@@ -1,6 +1,27 @@
 use std::path::{Path, PathBuf};
 
-use crate::domain::{Dunder, ModuleName};
+use crate::domain::{DomainResult, Dunder, ExecutionError, ImportPath, ModuleName, ModulePath};
+
+pub fn resolve_import_path(
+    import_path: &ImportPath,
+    current_module: &ModuleName,
+) -> DomainResult<ModuleName> {
+    match import_path {
+        ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
+        ImportPath::Relative(levels, tail) => {
+            let base = current_module
+                .strip_last(*levels)
+                .ok_or_else(|| ExecutionError::runtime_error_with("Invalid relative import"))?;
+            Ok(base.join(tail.segments()))
+        }
+    }
+}
+
+// Convert from a parser `ModulePath` into a runtime `ModuleName`. For absolute paths, this is a
+// direct mapping.
+pub fn resolve_absolute_path(module_path: &ModulePath) -> ModuleName {
+    ModuleName::from_segments(module_path.segments())
+}
 
 /// Finds a module but does not read it (returns absolute path).
 pub fn resolve(module_name: &ModuleName, search_paths: &[PathBuf]) -> Option<PathBuf> {

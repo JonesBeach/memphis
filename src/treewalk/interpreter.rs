@@ -8,8 +8,8 @@ use super::types::cpython::import_from_cpython;
 use crate::{
     core::{log, Container, Interpreter, LogLevel},
     domain::{
-        DomainResult, Dunder, ExceptionLiteral, ExecutionError, FunctionType, ImportPath,
-        MemphisValue, ModuleName, RuntimeError,
+        resolve_absolute_path, DomainResult, Dunder, ExceptionLiteral, ExecutionError,
+        FunctionType, ImportPath, MemphisValue, ModuleName, RuntimeError,
     },
     errors::{MemphisError, MemphisResult},
     parser::{
@@ -966,10 +966,7 @@ impl TreewalkInterpreter {
 
     fn evaluate_regular_import(&self, items: &[RegularImport]) -> TreewalkResult<()> {
         for item in items.iter() {
-            let module_name = self
-                .state
-                .resolve_module_path(&item.module_path)
-                .raise(self)?;
+            let module_name = resolve_absolute_path(&item.module_path);
             self.evaluate_regular_import_inner(&module_name, &item.alias)?;
         }
 

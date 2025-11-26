@@ -6,7 +6,7 @@ use crate::{
         CompilerResult,
     },
     core::{log, LogLevel},
-    domain::{Context, FunctionType, ImportPath, ModuleName},
+    domain::{resolve_import_path, Context, FunctionType, ImportPath, ModuleName},
     parser::types::{
         Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, LogicalOp,
         LoopIndex, Params, RegularImport, SelectMode, Statement, StatementKind, UnaryOp,
@@ -488,14 +488,27 @@ impl Compiler {
 
     fn compile_selective_import(
         &mut self,
-        _import_path: &ImportPath,
-        _mode: &SelectMode,
+        import_path: &ImportPath,
+        mode: &SelectMode,
     ) -> CompilerResult<()> {
-        // match import_path {
-        //     ImportPath::Absolute(abs) =>
-        // }
-        // let index = self.get_or_set_nonlocal_index(import_path)?;
-        // self.emit(Opcode::ImportName(index))?;
+        let module_name = resolve_import_path(import_path, &self.module_name).unwrap();
+
+        let index = self.get_or_set_nonlocal_index(&module_name.as_str())?;
+        self.emit(Opcode::ImportName(index))?;
+
+        match mode {
+            SelectMode::All => todo!(),
+            SelectMode::List(items) => {
+                for item in items {
+                    let attr_index = self.get_or_set_nonlocal_index(item.original())?;
+                    self.emit(Opcode::LoadAttr(attr_index))?;
+
+                    let alias_index = self.get_or_set_nonlocal_index(item.imported())?;
+                    self.emit(Opcode::StoreGlobal(alias_index))?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1552,14 +1565,37 @@ mod tests_bytecode {
     }
 
     #[test]
-    #[ignore]
-    fn selective_import() {
+    fn selective_import_single() {
         let expr = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
             mode: SelectMode::List(vec![ImportedItem::direct("foo")]),
         });
         let bytecode = compile_stmt(expr);
-        assert_eq!(bytecode, &[Opcode::ImportName(Index::new(0))]);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn selective_import_single_alias() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::List(vec![ImportedItem::aliased("foo", "bar")]),
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(2)),
+            ]
+        );
     }
 }
 
