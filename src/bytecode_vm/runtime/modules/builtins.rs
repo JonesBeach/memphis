@@ -35,7 +35,10 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     let name = code.name().to_string();
 
     let function = FunctionObject::new(code.clone());
-    let frame = Frame::from_function(vm, function, vec![]).raise(vm)?;
+    let module = vm
+        .resolve_module(&function.code_object.module_name)
+        .raise(vm)?;
+    let frame = Frame::new(function, vec![], module);
 
     let frame = vm.call_and_return_frame(frame)?;
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))

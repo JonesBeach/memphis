@@ -62,7 +62,7 @@ impl VirtualMachine {
     }
 
     pub fn execute(&mut self, code: CodeObject) -> VmResult<VmValue> {
-        self.load(code)?;
+        self.load(code).raise(self)?;
         self.run_loop()
     }
 
@@ -84,7 +84,7 @@ impl VirtualMachine {
         })
     }
 
-    pub fn current_module(&self) -> DomainResult<Container<Module>> {
+    fn current_module(&self) -> DomainResult<Container<Module>> {
         Ok(self.current_frame()?.module.clone())
     }
 
@@ -838,8 +838,10 @@ impl VirtualMachine {
                         self.push(reference).raise(self)?;
                     }
                     VmValue::Function(ref function) => {
-                        let frame =
-                            Frame::from_function(self, function.clone(), args).raise(self)?;
+                        let module = self
+                            .resolve_module(&function.code_object.module_name)
+                            .raise(self)?;
+                        let frame = Frame::new(function.clone(), args, module);
                         match function.function_type() {
                             FunctionType::Regular => {
                                 let return_val_ref = self.call(frame)?;
@@ -856,7 +858,10 @@ impl VirtualMachine {
                         }
                     }
                     VmValue::Method(ref method) => {
-                        let frame = Frame::from_method(self, method.clone(), args).raise(self)?;
+                        let module = self
+                            .resolve_module(&method.function.code_object.module_name)
+                            .raise(self)?;
+                        let frame = Frame::from_method(method.clone(), args, module);
                         let return_val_ref = self.call(frame)?;
                         self.push(return_val_ref).raise(self)?;
                     }
@@ -873,7 +878,10 @@ impl VirtualMachine {
                             // after the constructor executes.
                             self.push(reference).raise(self)?;
 
-                            let frame = Frame::from_method(self, method, args).raise(self)?;
+                            let module = self
+                                .resolve_module(&method.function.code_object.module_name)
+                                .raise(self)?;
+                            let frame = Frame::from_method(method, args, module);
                             let _ = self.call(frame)?;
                         } else {
                             self.push(reference).raise(self)?;
@@ -959,11 +967,12 @@ impl VirtualMachine {
         Ok(StepResult::Continue)
     }
 
-    fn load(&mut self, code: CodeObject) -> VmResult<()> {
+    fn load(&mut self, code: CodeObject) -> DomainResult<()> {
         log(LogLevel::Debug, || format!("{code:?}"));
 
         let function = FunctionObject::new(code);
-        let frame = Frame::from_function(self, function, vec![]).raise(self)?;
+        let module = self.resolve_module(&function.code_object.module_name)?;
+        let frame = Frame::new(function, vec![], module);
 
         self.call_stack.push(frame);
         Ok(())
