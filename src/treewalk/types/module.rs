@@ -109,7 +109,7 @@ impl Module {
 
     pub fn path(&self) -> PathBuf {
         match &self.origin {
-            ModuleOrigin::File(s) => s.display_path().to_path_buf(),
+            ModuleOrigin::File(s) => s.path().to_path_buf(),
             ModuleOrigin::Builtin => PathBuf::from("builtin"),
             ModuleOrigin::Synthetic => PathBuf::from("synthetic"),
         }

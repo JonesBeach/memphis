@@ -1,11 +1,8 @@
-use std::{
-    fmt::{Debug, Display, Error, Formatter},
-    path::Path,
-};
+use std::fmt::{Debug, Display, Error, Formatter};
 
 use crate::{
     bytecode_vm::compiler::{Bytecode, Constant},
-    domain::{Dunder, FunctionType, Source},
+    domain::{FunctionType, ModuleName},
 };
 
 /// Represents the bytecode and associated metadata for a block of Python code. It's a compiled
@@ -14,7 +11,9 @@ use crate::{
 /// to the global or local variables it operates on.
 #[derive(Clone, PartialEq)]
 pub struct CodeObject {
-    pub name: Option<String>,
+    pub module_name: ModuleName,
+    pub name: String,
+    pub filename: String,
     pub bytecode: Bytecode,
     pub arg_count: usize,
     /// Local variable names
@@ -25,53 +24,49 @@ pub struct CodeObject {
     pub names: Vec<String>,
     pub constants: Vec<Constant>,
 
-    // this may not be the right thing here? We don't really need a full source
-    pub source: Source,
     pub line_map: Vec<(usize, usize)>,
     pub function_type: FunctionType,
 }
 
 impl CodeObject {
-    const DEFAULT_NAME: Dunder = Dunder::Main;
-
-    pub fn new_root(source: Source) -> Self {
-        Self::new_function(None, &[], source, FunctionType::Regular)
-    }
-
-    pub fn new(name: &str, source: Source) -> Self {
-        Self::new_function(Some(name.to_string()), &[], source, FunctionType::Regular)
+    pub fn new(module_name: ModuleName, filename: &str) -> Self {
+        Self::new_function(
+            "<module>",
+            module_name,
+            filename,
+            &[],
+            FunctionType::Regular,
+        )
     }
 
     pub fn new_function(
-        name: Option<String>,
+        name: &str,
+        module_name: ModuleName,
+        filename: &str,
         varnames: &[String],
-        source: Source,
         function_type: FunctionType,
     ) -> Self {
         Self {
-            name,
+            module_name,
+            name: name.to_string(),
+            filename: filename.to_string(),
             bytecode: vec![],
             arg_count: varnames.len(),
             varnames: varnames.to_vec(),
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source,
             line_map: vec![],
             function_type,
         }
     }
 
     pub fn name(&self) -> &str {
-        self.name.as_deref().unwrap_or(Self::DEFAULT_NAME.into())
+        &self.name
     }
 
-    pub fn context(&self) -> &str {
-        self.name.as_deref().unwrap_or("<module>")
-    }
-
-    pub fn path(&self) -> &Path {
-        self.source.display_path()
+    pub fn path(&self) -> &str {
+        &self.filename
     }
 
     pub fn get_line_number(&self, pc: usize) -> usize {

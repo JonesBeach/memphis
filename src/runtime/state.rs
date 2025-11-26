@@ -33,9 +33,7 @@ impl MemphisState {
 
     pub fn from_source(source: &Source) -> Container<Self> {
         let state = Container::new(Self::new());
-        if let Some(path) = source.path() {
-            state.register_root(path);
-        }
+        state.register_root(source.path());
         state
     }
 }

@@ -52,9 +52,7 @@ impl Frame {
         args: Vec<Reference>,
     ) -> DomainResult<Self> {
         // We must associate this Frame with its Module in order to read and write global variables.
-        let module_name = function.code_object.source.name();
-        // TODO this should not come from Source
-        let module_name = crate::domain::ModuleName::from_segments(&[module_name]);
+        let module_name = function.code_object.module_name.clone();
         let module = vm.resolve_module(&module_name)?;
 
         Ok(Frame::new(function, args, module))
@@ -148,8 +146,8 @@ impl Frame {
 impl ToDebugStackFrame for Frame {
     fn to_stack_frame(&self) -> DebugStackFrame {
         DebugStackFrame::new(
-            self.function.code_object.context(),
-            self.function.code_object.path().to_path_buf(),
+            self.function.code_object.name(),
+            self.function.code_object.path().into(),
             self.current_line(),
         )
     }

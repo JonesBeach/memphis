@@ -29,7 +29,12 @@ impl ModuleLoader {
 
         let module = self.runtime.borrow_mut().create_module(module_name);
 
-        let mut context = VmContext::from_state(source, self.state.clone(), self.runtime.clone());
+        let mut context = VmContext::from_state(
+            module_name.clone(),
+            source,
+            self.state.clone(),
+            self.runtime.clone(),
+        );
 
         // TODO we shouldn't squash this error, but it's currently a MemphisError
         let _ = context.run().expect("VM run failed");

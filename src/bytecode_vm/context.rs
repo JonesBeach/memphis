@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{Runtime, VmInterpreter, VmValue},
     core::Container,
-    domain::Source,
+    domain::{ModuleName, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
@@ -15,7 +15,7 @@ pub struct VmContext {
 
 impl Default for VmContext {
     fn default() -> Self {
-        Self::new(Source::default())
+        Self::new(Source::from_text(""))
     }
 }
 
@@ -24,13 +24,14 @@ impl VmContext {
         let lexer = Lexer::new(&source);
         let state = MemphisState::from_source(&source);
         let runtime = Container::new(Runtime::new());
-        let interpreter = VmInterpreter::new(state, runtime, source);
+        let interpreter = VmInterpreter::new(ModuleName::main(), state, runtime, source);
 
         Self { lexer, interpreter }
     }
 
     /// Initialize a context from a [`Source`] and existing treewalk state.
     pub fn from_state(
+        module_name: ModuleName,
         source: Source,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
@@ -39,7 +40,7 @@ impl VmContext {
 
         Self {
             lexer,
-            interpreter: VmInterpreter::new(state, runtime, source),
+            interpreter: VmInterpreter::new(module_name, state, runtime, source),
         }
     }
 

@@ -50,7 +50,12 @@ fn init_interpreter(engine: Engine, source: Source) -> Box<dyn Interpreter> {
         }
         Engine::BytecodeVm => {
             let runtime = Container::new(Runtime::new());
-            Box::new(VmInterpreter::new(state, runtime, source.clone()))
+            Box::new(VmInterpreter::new(
+                ModuleName::main(),
+                state,
+                runtime,
+                source.clone(),
+            ))
         }
         #[cfg(feature = "llvm_backend")]
         Engine::LlvmBackend => unimplemented!("LLVM Backend not yet supported by MemphisContext."),

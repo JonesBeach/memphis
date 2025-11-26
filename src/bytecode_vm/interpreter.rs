@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
     core::{log, Container, Interpreter, LogLevel},
-    domain::{MemphisValue, Source},
+    domain::{MemphisValue, ModuleName, Source},
     errors::{MemphisError, MemphisResult},
     parser::Parser,
     runtime::MemphisState,
@@ -14,12 +14,16 @@ pub struct VmInterpreter {
 
 impl VmInterpreter {
     pub fn new(
+        module_name: ModuleName,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
         source: Source,
     ) -> Self {
         Self {
-            compiler: Compiler::new(source),
+            compiler: Compiler::new(
+                module_name,
+                source.path().to_str().expect("Failed to convert path."),
+            ),
             vm: VirtualMachine::new(state, runtime),
         }
     }

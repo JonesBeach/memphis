@@ -13,16 +13,15 @@ use crate::domain::{Dunder, ModuleName};
 /// reasons:
 /// 1) Rust-backed module
 /// 2) a module created as a layer in an import such as `import mypackage.mymodule`.
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Source {
     name: Option<String>,
-    path: Option<PathBuf>,
+    path: PathBuf,
     text: Option<String>,
 }
 
 impl Source {
     const DEFAULT_NAME: Dunder = Dunder::Main;
-    const DEFAULT_PATH: &str = "<stdin>";
     const DEFAULT_TEXT: &str = "<module with no Python code>";
 
     pub fn from_path<P>(filepath: P) -> Self
@@ -51,19 +50,13 @@ impl Source {
     pub fn from_text(text: &str) -> Self {
         Self {
             name: None,
-            path: None,
+            path: "<stdin>".into(),
             text: Some(text.to_string()),
         }
     }
 
-    pub fn path(&self) -> Option<&PathBuf> {
-        self.path.as_ref()
-    }
-
-    pub fn display_path(&self) -> &Path {
-        self.path
-            .as_deref()
-            .unwrap_or(Path::new(Self::DEFAULT_PATH))
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn name(&self) -> &str {
@@ -81,7 +74,7 @@ impl Source {
     fn with_named_path(name: &str, path: PathBuf, text: String) -> Self {
         Self {
             name: Some(name.to_string()),
-            path: Some(path),
+            path,
             text: Some(text),
         }
     }
@@ -89,7 +82,7 @@ impl Source {
     fn with_path(path: PathBuf, text: String) -> Self {
         Self {
             name: None,
-            path: Some(path),
+            path,
             text: Some(text),
         }
     }
