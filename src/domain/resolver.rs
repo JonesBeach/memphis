@@ -1,22 +1,36 @@
 use std::path::{Path, PathBuf};
 
-use crate::domain::{DomainResult, Dunder, ExecutionError, ImportPath, ModuleName, ModulePath};
+use crate::domain::{Dunder, ImportPath, ModuleName, ModulePath};
+
+pub enum ImportResolutionError {
+    NoParentPackage,
+    BeyondTopLevel,
+}
+
+pub type ImportResult<T> = Result<T, ImportResolutionError>;
+
+impl ImportResolutionError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::NoParentPackage => "attempted relative import with no known parent package",
+            Self::BeyondTopLevel => "attempted relative import beyond top-level package",
+        }
+    }
+}
 
 pub fn resolve_import_path(
     import_path: &ImportPath,
     current_module: &ModuleName,
-) -> DomainResult<ModuleName> {
+) -> ImportResult<ModuleName> {
     match import_path {
         ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
         ImportPath::Relative(levels, tail) => {
             if current_module.is_main() {
-                return Err(ExecutionError::import_error(
-                    "attempted relative import with no known parent package",
-                ));
+                return Err(ImportResolutionError::NoParentPackage);
             }
-            let base = current_module.strip_last(*levels).ok_or_else(|| {
-                ExecutionError::import_error("attempted relative import beyond top-level package")
-            })?;
+            let base = current_module
+                .strip_last(*levels)
+                .ok_or(ImportResolutionError::BeyondTopLevel)?;
             Ok(base.join(tail.segments()))
         }
     }

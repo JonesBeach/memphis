@@ -492,7 +492,7 @@ impl Compiler {
         mode: &SelectMode,
     ) -> CompilerResult<()> {
         let module_name = resolve_import_path(import_path, &self.module_name)
-            .map_err(|e| CompilerError::ImportError(e.message()))?;
+            .map_err(|e| CompilerError::import_error(e.message()))?;
 
         let index = self.get_or_set_nonlocal_index(&module_name.as_str())?;
         self.emit(Opcode::ImportName(index))?;

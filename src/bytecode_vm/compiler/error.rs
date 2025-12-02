@@ -8,6 +8,12 @@ pub enum CompilerError {
     ImportError(String),
 }
 
+impl CompilerError {
+    pub fn import_error(msg: impl Into<String>) -> Self {
+        Self::ImportError(msg.into())
+    }
+}
+
 impl Display for CompilerError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {

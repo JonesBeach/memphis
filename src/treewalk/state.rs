@@ -3,8 +3,8 @@ use std::cell::UnsafeCell;
 use crate::{
     core::Container,
     domain::{
-        resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ImportPath, ModuleName,
-        ToDebugStackFrame, Type,
+        resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError,
+        ImportPath, ModuleName, ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
@@ -217,6 +217,7 @@ impl Container<TreewalkState> {
         let current_module = current_module.borrow();
         let current_module = current_module.name();
         resolve_import_path(import_path, current_module)
+            .map_err(|e| ExecutionError::import_error(e.message()))
     }
 
     #[cfg(feature = "c_stdlib")]

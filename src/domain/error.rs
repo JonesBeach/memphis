@@ -198,13 +198,6 @@ impl ExecutionError {
     pub fn unknown_encoding(encoding: impl Into<String>) -> Self {
         Self::lookup_error(format!("unknown encoding: {}", encoding.into()))
     }
-
-    pub fn message(&self) -> String {
-        match self {
-            ExecutionError::ImportError(msg) => msg.to_string(),
-            _ => todo!(),
-        }
-    }
 }
 
 impl Display for ExecutionError {
