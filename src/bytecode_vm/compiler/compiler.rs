@@ -497,7 +497,7 @@ impl Compiler {
         self.emit(Opcode::ImportName(index))?;
 
         match mode {
-            SelectMode::All => todo!(),
+            SelectMode::All => self.emit(Opcode::ImportAll)?,
             SelectMode::List(items) => {
                 for item in items {
                     let attr_index = self.get_or_set_nonlocal_index(item.original())?;
@@ -1561,6 +1561,19 @@ mod tests_bytecode {
                 Opcode::ImportName(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(3)),
             ]
+        );
+    }
+
+    #[test]
+    fn selective_import_all() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::All,
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::ImportName(Index::new(0)), Opcode::ImportAll,]
         );
     }
 

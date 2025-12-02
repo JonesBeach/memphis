@@ -950,6 +950,7 @@ impl VirtualMachine {
                     }
                 }
             }
+            Opcode::ImportAll => todo!(),
             Opcode::ImportName(index) => {
                 let module = self.load_module(index).raise(self)?;
                 self.push_value(VmValue::Module(module)).raise(self)?;

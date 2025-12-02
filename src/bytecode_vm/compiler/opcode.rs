@@ -138,6 +138,9 @@ pub enum Opcode {
     Await,
     /// Import the module indicated by the specified index.
     ImportName(NonlocalIndex),
+    /// Given a module on the top of the stack, load all its members and bind them to their names
+    /// in the current module scope.
+    ImportAll,
     /// Stop the VM
     Halt,
     /// Used internally to the compiler when constructing jump offsets.
@@ -235,6 +238,7 @@ impl Display for Opcode {
             Opcode::YieldValue => write!(f, "YIELD_VALUE"),
             Opcode::YieldFrom => write!(f, "YIELD_FROM"),
             Opcode::Await => write!(f, "AWAIT"),
+            Opcode::ImportAll => write!(f, "IMPORT_ALL"),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {i}"),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),
