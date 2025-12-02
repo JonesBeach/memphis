@@ -76,11 +76,13 @@ impl Container<MemphisState> {
 
     pub fn load_source(&self, module_name: &ModuleName) -> DomainResult<Source> {
         let path = self.resolve_module_path(module_name)?;
-        Source::from_path(path).map_err(|_| ExecutionError::import_error(module_name))
+        Source::from_path(path)
+            .map_err(|_| ExecutionError::import_error(format!("No module named {}", module_name)))
     }
 
     fn resolve_module_path(&self, module_name: &ModuleName) -> DomainResult<PathBuf> {
         let search_paths = self.search_paths();
-        resolve(module_name, &search_paths).ok_or_else(|| ExecutionError::import_error(module_name))
+        resolve(module_name, &search_paths)
+            .ok_or_else(|| ExecutionError::import_error(format!("No module named {}", module_name)))
     }
 }

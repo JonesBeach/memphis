@@ -21,6 +21,10 @@ impl ModuleName {
         Self::from_segments(&[Dunder::Main])
     }
 
+    pub fn is_main(&self) -> bool {
+        self.0.len() == 1 && self.0[0] == *Dunder::Main
+    }
+
     pub fn as_str(&self) -> String {
         self.0.join(".")
     }

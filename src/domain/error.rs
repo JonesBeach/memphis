@@ -198,6 +198,13 @@ impl ExecutionError {
     pub fn unknown_encoding(encoding: impl Into<String>) -> Self {
         Self::lookup_error(format!("unknown encoding: {}", encoding.into()))
     }
+
+    pub fn message(&self) -> String {
+        match self {
+            ExecutionError::ImportError(msg) => msg.to_string(),
+            _ => todo!(),
+        }
+    }
 }
 
 impl Display for ExecutionError {
@@ -207,8 +214,8 @@ impl Display for ExecutionError {
                 Some(msg) => write!(f, "RuntimeError: {msg}"),
                 None => write!(f, "RuntimeError"),
             },
-            ExecutionError::ImportError(name) => {
-                write!(f, "ImportError: No module named {name}")
+            ExecutionError::ImportError(msg) => {
+                write!(f, "ImportError: {msg}")
             }
             ExecutionError::TypeError(message) => match message {
                 Some(message) => write!(f, "TypeError: {message}"),
@@ -418,11 +425,8 @@ pub mod test_utils {
     macro_rules! assert_import_error {
         ($error:expr, $expected_message:expr) => {{
             match &$error.execution_error {
-                $crate::domain::ExecutionError::ImportError(module) => {
-                    assert_eq!(
-                        module, $expected_message,
-                        "Unexpected ImportError module name"
-                    );
+                $crate::domain::ExecutionError::ImportError(msg) => {
+                    assert_eq!(msg, $expected_message, "Unexpected ImportError message");
                 }
                 _ => panic!(
                     "Expected an ImportError with a module name, but got: {:?}",

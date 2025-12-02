@@ -10,5 +10,5 @@ import unknown
 "#
     );
 
-    assert_import_error!(e, "unknown");
+    assert_import_error!(e, "No module named unknown");
 }

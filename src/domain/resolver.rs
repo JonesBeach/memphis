@@ -9,9 +9,14 @@ pub fn resolve_import_path(
     match import_path {
         ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
         ImportPath::Relative(levels, tail) => {
-            let base = current_module
-                .strip_last(*levels)
-                .ok_or_else(|| ExecutionError::runtime_error_with("Invalid relative import"))?;
+            if current_module.is_main() {
+                return Err(ExecutionError::import_error(
+                    "attempted relative import with no known parent package",
+                ));
+            }
+            let base = current_module.strip_last(*levels).ok_or_else(|| {
+                ExecutionError::import_error("attempted relative import beyond top-level package")
+            })?;
             Ok(base.join(tail.segments()))
         }
     }

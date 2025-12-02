@@ -1337,7 +1337,7 @@ b = f.bar()
 import not_found
 "#;
         let e = run_expect_error(text);
-        assert_import_error!(e, "not_found");
+        assert_import_error!(e, "No module named not_found");
     }
 
     #[test]

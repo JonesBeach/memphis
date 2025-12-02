@@ -491,7 +491,8 @@ impl Compiler {
         import_path: &ImportPath,
         mode: &SelectMode,
     ) -> CompilerResult<()> {
-        let module_name = resolve_import_path(import_path, &self.module_name).unwrap();
+        let module_name = resolve_import_path(import_path, &self.module_name)
+            .map_err(|e| CompilerError::ImportError(e.message()))?;
 
         let index = self.get_or_set_nonlocal_index(&module_name.as_str())?;
         self.emit(Opcode::ImportName(index))?;
@@ -1610,6 +1611,28 @@ mod tests_bytecode {
             ]
         );
     }
+
+    #[test]
+    fn selective_import_multiple_alias() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::List(vec![
+                ImportedItem::aliased("foo", "bar"),
+                ImportedItem::aliased("one", "two")
+            ]),
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportName(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(2)),
+                Opcode::LoadAttr(Index::new(3)),
+                Opcode::StoreGlobal(Index::new(4)),
+            ]
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2248,6 +2271,52 @@ b = f.bar()
             varnames: vec![],
             freevars: vec![],
             names: vec!["f".into(), "bar".into(), "b".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_one_layer() {
+        let text = r#"
+from .outer import foo
+"#;
+        let err = compile_err(text);
+
+        match err {
+            CompilerError::ImportError(msg) => assert_eq!(
+                msg,
+                "attempted relative import with no known parent package".to_string()
+            ),
+            _ => panic!("Expected an ImportError"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn selective_import_relative_two_layers() {
+        let text = r#"
+from .outer.inner import foo
+"#;
+        let code = compile(text);
+
+        let expected = CodeObject {
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportName(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["outer.inner".into(), "foo".into()],
             constants: vec![],
             line_map: vec![],
             function_type: FunctionType::Regular,

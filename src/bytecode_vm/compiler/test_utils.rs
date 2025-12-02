@@ -2,9 +2,10 @@ use crate::{
     bytecode_vm::{
         compiler::{Bytecode, CodeObject, Compiler, Constant, Opcode},
         indices::Index,
-        VmContext,
+        CompilerError, VmContext,
     },
     domain::{FunctionType, ModuleName, Source},
+    errors::MemphisError,
     parser::{
         test_utils::*,
         types::{Expr, Statement},
@@ -39,6 +40,14 @@ pub fn compile(text: &str) -> CodeObject {
     VmContext::new(Source::from_text(text))
         .compile()
         .expect("Failed to compile test program!")
+}
+
+pub fn compile_err(text: &str) -> CompilerError {
+    match VmContext::new(Source::from_text(text)).compile() {
+        Ok(_) => panic!("Expected an CompilerError!"),
+        Err(MemphisError::Compiler(e)) => e,
+        Err(_) => panic!("Expected a CompilerError!"),
+    }
 }
 
 pub fn wrap_top_level_function(func: CodeObject) -> CodeObject {
