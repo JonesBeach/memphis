@@ -2280,6 +2280,62 @@ b = f.bar()
     }
 
     #[test]
+    fn regular_import_two_layers() {
+        let text = r#"
+import a.b.c
+"#;
+        let code = compile(text);
+
+        let expected = CodeObject {
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["a.b.c".into(), "a".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn regular_import_two_layers_with_alias() {
+        let text = r#"
+import a.b.c as foo
+"#;
+        let code = compile(text);
+
+        let expected = CodeObject {
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["a.b.c".into(), "foo".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
     fn selective_import_relative_one_layer_from_main() {
         let text = r#"
 from .outer import foo
