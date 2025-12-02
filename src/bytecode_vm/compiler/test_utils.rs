@@ -42,8 +42,22 @@ pub fn compile(text: &str) -> CodeObject {
         .expect("Failed to compile test program!")
 }
 
+pub fn compile_at_module(text: &str, module_name: ModuleName) -> CodeObject {
+    VmContext::new_at_module(module_name, Source::from_text(text))
+        .compile()
+        .expect("Failed to compile test program!")
+}
+
 pub fn compile_err(text: &str) -> CompilerError {
     match VmContext::new(Source::from_text(text)).compile() {
+        Ok(_) => panic!("Expected an CompilerError!"),
+        Err(MemphisError::Compiler(e)) => e,
+        Err(_) => panic!("Expected a CompilerError!"),
+    }
+}
+
+pub fn compile_err_at_module(text: &str, module_name: ModuleName) -> CompilerError {
+    match VmContext::new_at_module(module_name, Source::from_text(text)).compile() {
         Ok(_) => panic!("Expected an CompilerError!"),
         Err(MemphisError::Compiler(e)) => e,
         Err(_) => panic!("Expected a CompilerError!"),

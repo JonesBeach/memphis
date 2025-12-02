@@ -21,10 +21,14 @@ impl Default for VmContext {
 
 impl VmContext {
     pub fn new(source: Source) -> Self {
+        Self::new_at_module(ModuleName::main(), source)
+    }
+
+    pub fn new_at_module(module_name: ModuleName, source: Source) -> Self {
         let lexer = Lexer::new(&source);
         let state = MemphisState::from_source(&source);
         let runtime = Container::new(Runtime::new());
-        let interpreter = VmInterpreter::new(ModuleName::main(), state, runtime, source);
+        let interpreter = VmInterpreter::new(module_name, state, runtime, source);
 
         Self { lexer, interpreter }
     }

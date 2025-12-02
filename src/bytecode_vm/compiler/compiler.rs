@@ -2280,7 +2280,7 @@ b = f.bar()
     }
 
     #[test]
-    fn selective_import_relative_one_layer() {
+    fn selective_import_relative_one_layer_from_main() {
         let text = r#"
 from .outer import foo
 "#;
@@ -2296,15 +2296,15 @@ from .outer import foo
     }
 
     #[test]
-    #[ignore]
-    fn selective_import_relative_two_layers() {
+    fn selective_import_relative_one_layer_from_pkg() {
         let text = r#"
-from .outer.inner import foo
+from .outer import foo
 "#;
-        let code = compile(text);
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let code = compile_at_module(text, module_name.clone());
 
         let expected = CodeObject {
-            module_name: ModuleName::main(),
+            module_name,
             name: "<module>".into(),
             filename: "<stdin>".into(),
             bytecode: vec![
@@ -2316,13 +2316,60 @@ from .outer.inner import foo
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
-            names: vec!["outer.inner".into(), "foo".into()],
+            names: vec!["pkg.outer".into(), "foo".into()],
             constants: vec![],
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_two_layers_from_pkg() {
+        let text = r#"
+from .outer.inner import foo
+"#;
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let code = compile_at_module(text, module_name.clone());
+
+        let expected = CodeObject {
+            module_name,
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportName(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["pkg.outer.inner".into(), "foo".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_one_layer_from_pkg_too_many_levels() {
+        let text = r#"
+from ..outer import foo
+"#;
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let err = compile_err_at_module(text, module_name);
+
+        match err {
+            CompilerError::ImportError(msg) => assert_eq!(
+                msg,
+                "attempted relative import beyond top-level package".to_string()
+            ),
+            _ => panic!("Expected an ImportError"),
+        }
     }
 
     #[test]

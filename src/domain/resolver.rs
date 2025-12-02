@@ -28,6 +28,12 @@ pub fn resolve_import_path(
             if current_module.is_main() {
                 return Err(ImportResolutionError::NoParentPackage);
             }
+
+            let depth = current_module.segments().len();
+            if *levels >= depth {
+                return Err(ImportResolutionError::BeyondTopLevel);
+            }
+
             let base = current_module
                 .strip_last(*levels)
                 .ok_or(ImportResolutionError::BeyondTopLevel)?;
