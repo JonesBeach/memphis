@@ -471,7 +471,12 @@ impl Compiler {
     fn compile_regular_import(&mut self, items: &[RegularImport]) -> CompilerResult<()> {
         for item in items {
             let index = self.get_or_set_nonlocal_index(&item.module_path.as_str())?;
-            self.emit(Opcode::ImportName(index))?;
+
+            if item.alias.is_some() {
+                self.emit(Opcode::ImportFrom(index))?;
+            } else {
+                self.emit(Opcode::ImportName(index))?;
+            }
 
             let symbol_index = item
                 .alias
@@ -495,7 +500,7 @@ impl Compiler {
             .map_err(|e| CompilerError::import_error(e.message()))?;
 
         let index = self.get_or_set_nonlocal_index(&module_name.as_str())?;
-        self.emit(Opcode::ImportName(index))?;
+        self.emit(Opcode::ImportFrom(index))?;
 
         match mode {
             SelectMode::All => self.emit(Opcode::ImportAll)?,
@@ -1523,7 +1528,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::StoreGlobal(Index::new(1)),
             ]
         );
@@ -1557,9 +1562,9 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::StoreGlobal(Index::new(1)),
-                Opcode::ImportName(Index::new(2)),
+                Opcode::ImportFrom(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(3)),
             ]
         );
@@ -1574,7 +1579,7 @@ mod tests_bytecode {
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
-            &[Opcode::ImportName(Index::new(0)), Opcode::ImportAll,]
+            &[Opcode::ImportFrom(Index::new(0)), Opcode::ImportAll,]
         );
     }
 
@@ -1588,7 +1593,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::StoreGlobal(Index::new(1)),
             ]
@@ -1605,7 +1610,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::StoreGlobal(Index::new(2)),
             ]
@@ -1625,7 +1630,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::StoreGlobal(Index::new(2)),
                 Opcode::LoadAttr(Index::new(3)),
@@ -2319,7 +2324,7 @@ import a.b.c as foo
             name: "<module>".into(),
             filename: "<stdin>".into(),
             bytecode: vec![
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::Halt,
             ],
@@ -2364,7 +2369,7 @@ from .outer import foo
             name: "<module>".into(),
             filename: "<stdin>".into(),
             bytecode: vec![
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::Halt,
@@ -2394,7 +2399,7 @@ from .outer.inner import foo
             name: "<module>".into(),
             filename: "<stdin>".into(),
             bytecode: vec![
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
                 Opcode::StoreGlobal(Index::new(1)),
                 Opcode::Halt,

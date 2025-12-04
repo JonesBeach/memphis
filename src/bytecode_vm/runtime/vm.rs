@@ -7,6 +7,7 @@ use crate::{
         result::Raise,
         runtime::{
             components::ModuleLoader,
+            import_utils::build_module_chain,
             modules::builtins,
             types::{
                 Coroutine, Dict, FunctionObject, Generator, List, Method, Module, Object, Tuple,
@@ -242,16 +243,17 @@ impl VirtualMachine {
     }
 
     /// Resolves an attribute without applying method binding (used in tests or low-level access).
-    pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> DomainResult<Reference> {
-        if let Some(object) = object.as_object() {
+    pub fn resolve_raw_attr(&self, value: &VmValue, name: &str) -> DomainResult<Reference> {
+        if let Some(object) = value.as_object() {
             object
                 .read(name, self)?
-                .ok_or_else(|| ExecutionError::attribute_error("TODO class name", name))
-        } else if let Some(module) = object.as_module() {
+                .ok_or_else(|| ExecutionError::attribute_error(&value.get_type(), name))
+        } else if let Some(module) = value.as_module() {
+            dbg!(&module, name);
             module
                 .borrow()
                 .read(name)
-                .ok_or_else(|| ExecutionError::attribute_error("TODO class name", name))
+                .ok_or_else(|| ExecutionError::attribute_error(&value.get_type(), name))
         } else {
             unimplemented!()
         }
@@ -322,15 +324,6 @@ impl VirtualMachine {
     fn push_value(&mut self, value: VmValue) -> DomainResult<()> {
         let reference = self.heapify(value);
         self.push(reference)
-    }
-
-    /// Load and initialize a module, storing its reference in both the global scope and runtime
-    /// module store.
-    /// This ensures that newly created frames can resolve their originating module.
-    fn load_module(&mut self, index: NonlocalIndex) -> DomainResult<Container<Module>> {
-        let name = self.resolve_name(index)?.to_owned();
-        let module_name = ModuleName::from_dotted(&name);
-        self.module_loader.resolve_module(&module_name)
     }
 
     fn collect_n(&mut self, n: usize) -> DomainResult<Vec<Reference>> {
@@ -952,8 +945,27 @@ impl VirtualMachine {
             }
             Opcode::ImportAll => todo!(),
             Opcode::ImportName(index) => {
-                let module = self.load_module(index).raise(self)?;
-                self.push_value(VmValue::Module(module)).raise(self)?;
+                let name = self.resolve_name(index).raise(self)?.to_owned();
+                let module_name = ModuleName::from_dotted(&name);
+                let inner_module = self
+                    .module_loader
+                    .resolve_module(&module_name)
+                    .raise(self)?;
+                let inner_module_ref = self.heapify(VmValue::Module(inner_module));
+
+                let outer_module_ref =
+                    build_module_chain(self, &module_name, inner_module_ref).raise(self)?;
+                self.push(outer_module_ref).raise(self)?;
+            }
+            Opcode::ImportFrom(index) => {
+                let name = self.resolve_name(index).raise(self)?.to_owned();
+                let module_name = ModuleName::from_dotted(&name);
+                let inner_module = self
+                    .module_loader
+                    .resolve_module(&module_name)
+                    .raise(self)?;
+                let inner_module_ref = self.heapify(VmValue::Module(inner_module));
+                self.push(inner_module_ref).raise(self)?;
             }
             Opcode::Halt => {
                 return Ok(StepResult::Halt);

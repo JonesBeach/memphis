@@ -3,6 +3,7 @@ mod call_stack;
 mod executor;
 mod frame;
 mod heap;
+pub mod import_utils;
 mod module_loader;
 pub mod modules;
 mod reference;

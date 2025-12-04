@@ -147,14 +147,21 @@ impl VmValue {
             VmValue::Bool(_) => Type::Bool,
             VmValue::List(_) => Type::List,
             VmValue::Tuple(_) => Type::Tuple,
+            VmValue::Dict(_) => Type::Dict,
             VmValue::Range(_) => Type::Range,
+            VmValue::Module(_) => Type::Module,
             VmValue::ListIter(_) => Type::ListIter,
             VmValue::TupleIter(_) => Type::TupleIter,
             VmValue::RangeIter(_) => Type::RangeIter,
-            _ => unimplemented!(
-                "get_type for type {:?} unimplemented in the bytecode VM.",
-                self
-            ),
+            VmValue::Class(_) => Type::Type,
+            VmValue::Object(_) => Type::Object,
+            VmValue::Generator(_) => Type::Generator,
+            VmValue::Coroutine(_) => Type::Coroutine,
+            VmValue::Function(_) => Type::Function,
+            VmValue::BuiltinFunction(_) => Type::BuiltinFunction,
+            VmValue::Method(_) => Type::Method,
+            VmValue::Code(_) => Type::Code, // TODO is this right??
+            VmValue::SleepFuture(_) => todo!(), // TODO this doesn't exist in treewalk, not sure!
         }
     }
 

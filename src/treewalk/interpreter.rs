@@ -2150,10 +2150,13 @@ foo.bar()
     }
 
     #[test]
-    fn regular_import_relative() {
+    fn regular_import_relative_parent_package() {
         let ctx = run_path("src/fixtures/imports/relative/main_b.py");
         assert_read_eq!(ctx, "x", int!(2));
+    }
 
+    #[test]
+    fn regular_import_relative_alias() {
         let ctx = run_path("src/fixtures/imports/relative/main_c.py");
         assert_read_eq!(ctx, "x", int!(2));
     }

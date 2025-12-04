@@ -136,8 +136,12 @@ pub enum Opcode {
     YieldValue,
     YieldFrom,
     Await,
-    /// Import the module indicated by the specified index.
+    /// Import the module indicated by the specified index. This will store the parent package on
+    /// the stack.
     ImportName(NonlocalIndex),
+    /// Import the module indicated by the specified index. This will store the leaf module on
+    /// the stack.
+    ImportFrom(NonlocalIndex),
     /// Given a module on the top of the stack, load all its members and bind them to their names
     /// in the current module scope.
     ImportAll,
@@ -157,6 +161,7 @@ impl Opcode {
             Opcode::LoadAttr(i) => format!("LOAD_ATTR {} ({})", i, code.names[**i]),
             Opcode::SetAttr(i) => format!("SET_ATTR {} ({})", i, code.names[**i]),
             Opcode::ImportName(i) => format!("IMPORT_NAME {} ({})", i, code.names[**i]),
+            Opcode::ImportFrom(i) => format!("IMPORT_FROM {} ({})", i, code.names[**i]),
             Opcode::LoadFree(i) => format!("LOAD_FREE {} ({})", i, code.freevars[**i]),
             Opcode::LoadConst(i) => format!("LOAD_CONST {} ({})", i, code.constants[**i]),
             _ => self.to_string(), // fallback to Display
@@ -240,6 +245,7 @@ impl Display for Opcode {
             Opcode::Await => write!(f, "AWAIT"),
             Opcode::ImportAll => write!(f, "IMPORT_ALL"),
             Opcode::ImportName(i) => write!(f, "IMPORT_NAME {i}"),
+            Opcode::ImportFrom(i) => write!(f, "IMPORT_FROM {i}"),
             Opcode::Halt => write!(f, "HALT"),
             Opcode::Placeholder => unreachable!(),
         }
