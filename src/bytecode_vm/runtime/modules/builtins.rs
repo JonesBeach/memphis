@@ -12,8 +12,9 @@ use crate::{
     domain::{Dunder, ExecutionError, ModuleName},
 };
 
-static BUILTINS: [(&str, BuiltinFn); 7] = [
+static BUILTINS: [(&str, BuiltinFn); 8] = [
     ("bool", bool),
+    ("int", int),
     ("list", list),
     ("tuple", tuple),
     ("range", range),
@@ -103,6 +104,22 @@ fn bool(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     };
 
     Ok(vm.to_heapified_bool(value))
+}
+
+fn int(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let value = match args.len() {
+        0 => 0,
+        1 => vm.deref(args[0]).raise(vm)?.coerce_to_int().raise(vm)?,
+        _ => {
+            return ExecutionError::type_error(format!(
+                "int expected at most 1 argument, got {}",
+                args.len()
+            ))
+            .raise(vm)
+        }
+    };
+
+    Ok(vm.heapify(VmValue::Int(value)))
 }
 
 fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {

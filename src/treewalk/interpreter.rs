@@ -2121,15 +2121,6 @@ foo.bar()
     }
 
     #[test]
-    fn regular_import_relative() {
-        let ctx = run_path("src/fixtures/imports/relative/main_b.py");
-        assert_read_eq!(ctx, "x", int!(2));
-
-        let ctx = run_path("src/fixtures/imports/relative/main_c.py");
-        assert_read_eq!(ctx, "x", int!(2));
-    }
-
-    #[test]
     fn selective_import() {
         let ctx = run_path("src/fixtures/imports/selective_import_a.py");
         assert_read_eq!(ctx, "x", int!(5));
@@ -2155,6 +2146,15 @@ foo.bar()
     #[test]
     fn selective_import_relative() {
         let ctx = run_path("src/fixtures/imports/relative/main_a.py");
+        assert_read_eq!(ctx, "x", int!(2));
+    }
+
+    #[test]
+    fn regular_import_relative() {
+        let ctx = run_path("src/fixtures/imports/relative/main_b.py");
+        assert_read_eq!(ctx, "x", int!(2));
+
+        let ctx = run_path("src/fixtures/imports/relative/main_c.py");
         assert_read_eq!(ctx, "x", int!(2));
     }
 

@@ -67,7 +67,7 @@ impl Frame {
 
     pub fn current_inst_annotated(&self) -> String {
         let code = &self.function.code_object;
-        let code_name = &code.name();
+        let code_name = &code.dbg_context();
         let op = self.current_inst().display_annotated(code);
         format!("{code_name}: {op}")
     }

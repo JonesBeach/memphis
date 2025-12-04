@@ -65,6 +65,11 @@ impl CodeObject {
         &self.name
     }
 
+    // This is a helper for debug output, this does _not_ have semantic meaning.
+    pub fn dbg_context(&self) -> String {
+        format!("{}.{}", self.module_name, self.name)
+    }
+
     pub fn path(&self) -> &str {
         &self.filename
     }
@@ -94,15 +99,15 @@ impl Display for CodeObject {
 
 impl Debug for CodeObject {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        writeln!(f, "CodeObject: {}", self.name())?;
+        writeln!(f, "CodeObject: {}", self.dbg_context())?;
         writeln!(f, "names:")?;
         for (index, name) in self.names.iter().enumerate() {
-            writeln!(f, "{name}: {index:?}")?;
+            writeln!(f, "[{index:?}]: {name}")?;
         }
 
         writeln!(f, "\nconstants:")?;
         for (index, constant) in self.constants.iter().enumerate() {
-            writeln!(f, "{index}: {constant}")?;
+            writeln!(f, "[{index}]: {constant}")?;
         }
 
         for constant in self.constants.iter() {

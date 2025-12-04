@@ -17,6 +17,11 @@ impl ModuleName {
         Self(segments.iter().map(|s| s.as_ref().to_string()).collect())
     }
 
+    pub fn from_dotted(s: &str) -> Self {
+        let segments = s.split('.').map(|s| s.to_string()).collect();
+        ModuleName::new(segments)
+    }
+
     pub fn main() -> Self {
         Self::from_segments(&[Dunder::Main])
     }
@@ -129,5 +134,11 @@ mod tests {
         assert_eq!(it.next(), Some(ModuleName::from_segments(&["x", "y"])));
         assert_eq!(it.next_back(), Some(ModuleName::from_segments(&["x"])));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn from_dotted() {
+        let m = ModuleName::from_dotted("pkg.mod");
+        assert_eq!(m, ModuleName::from_segments(&["pkg", "mod"]));
     }
 }

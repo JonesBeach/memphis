@@ -1332,6 +1332,12 @@ b = f.bar()
     }
 
     #[test]
+    fn selective_import_relative() {
+        let ctx = run_path("src/fixtures/imports/relative/main_a.py");
+        assert_read_eq!(ctx, "x", int!(2));
+    }
+
+    #[test]
     fn regular_import_error() {
         let text = r#"
 import not_found

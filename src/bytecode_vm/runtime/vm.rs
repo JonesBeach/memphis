@@ -265,7 +265,7 @@ impl VirtualMachine {
         let attr_val = self.deref(attr_ref)?;
 
         let bound = match attr_val {
-            VmValue::Function(f) => {
+            VmValue::Function(f) if object.should_bind() => {
                 self.heapify(VmValue::Method(Method::new(object_ref, f.clone())))
             }
             _ => attr_ref,
@@ -329,7 +329,7 @@ impl VirtualMachine {
     /// This ensures that newly created frames can resolve their originating module.
     fn load_module(&mut self, index: NonlocalIndex) -> DomainResult<Container<Module>> {
         let name = self.resolve_name(index)?.to_owned();
-        let module_name = ModuleName::from_segments(&[name]);
+        let module_name = ModuleName::from_dotted(&name);
         self.module_loader.resolve_module(&module_name)
     }
 

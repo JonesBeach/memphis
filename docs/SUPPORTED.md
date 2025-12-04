@@ -97,7 +97,7 @@
 |`hex`|||
 |`id`|||
 |`input`|||
-|`int`|✅||
+|`int`|✅|✅|
 |`isinstance`|✅||
 |`issubclass`|✅||
 |`iter`|✅|✅|
