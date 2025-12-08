@@ -4,7 +4,6 @@ mod executor;
 mod frame;
 mod heap;
 pub mod import_utils;
-mod module_loader;
 pub mod modules;
 mod reference;
 #[allow(clippy::module_inception)]
@@ -20,9 +19,3 @@ pub use heap::Heap;
 pub use reference::Reference;
 pub use runtime::Runtime;
 pub use vm::VirtualMachine;
-
-pub mod components {
-    use super::*;
-
-    pub use module_loader::ModuleLoader;
-}

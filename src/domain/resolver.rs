@@ -29,6 +29,8 @@ pub fn resolve_import_path(
                 return Err(ImportResolutionError::NoParentPackage);
             }
 
+            dbg!(import_path, current_module);
+
             let depth = current_module.segments().len();
             if *levels >= depth {
                 return Err(ImportResolutionError::BeyondTopLevel);

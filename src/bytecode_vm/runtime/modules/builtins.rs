@@ -37,7 +37,7 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
 
     let function = FunctionObject::new(code.clone());
     let module = vm
-        .resolve_module(&function.code_object.module_name)
+        .fetch_module(&function.code_object.module_name)
         .raise(vm)?;
     let frame = Frame::new(function, vec![], module);
 
