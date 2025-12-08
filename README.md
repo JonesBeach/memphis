@@ -23,7 +23,7 @@ See [SUPPORTED.md](docs/SUPPORTED.md) for details on specific features.
 ## Installation
 Installation requires a 2021 edition of `rustc` (version `1.56.0` or higher).
 ```bash
-git clone https://github.com/JonesBeach/memphis
+git clone https://github.com/fromscratchcode/memphis
 cd memphis
 cargo install --path .
 ```
