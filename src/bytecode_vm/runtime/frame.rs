@@ -7,10 +7,9 @@ use crate::{
             types::{FunctionObject, Method, Module},
             Reference,
         },
-        VirtualMachine,
     },
     core::Container,
-    domain::{DebugStackFrame, DomainResult, ToDebugStackFrame},
+    domain::{DebugStackFrame, ToDebugStackFrame},
 };
 
 use super::reference::Namespace;
@@ -27,6 +26,7 @@ enum YieldFromState {
 pub struct Frame {
     pub function: FunctionObject,
 
+    /// We must associate this Frame with its Module in order to read and write global variables.
     pub module: Container<Module>,
 
     /// The program counter indicating the current point of execution for the immutable block of
@@ -44,32 +44,13 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Create a new `Frame` for a top-level function call.
-    /// This associates the frame with the correct module so it can read/write globals.
-    pub fn from_function(
-        vm: &mut VirtualMachine,
-        function: FunctionObject,
-        args: Vec<Reference>,
-    ) -> DomainResult<Self> {
-        // We must associate this Frame with its Module in order to read and write global variables.
-        let module_name = function.code_object.source.name();
-        let module = vm.resolve_module(module_name)?;
-
-        Ok(Frame::new(function, args, module))
-    }
-
-    pub fn from_method(
-        vm: &mut VirtualMachine,
-        method: Method,
-        args: Vec<Reference>,
-    ) -> DomainResult<Self> {
+    pub fn from_method(method: Method, args: Vec<Reference>, module: Container<Module>) -> Self {
         let mut bound_args = vec![method.receiver];
         bound_args.extend(args);
-
-        Self::from_function(vm, method.function, bound_args)
+        Self::new(method.function, bound_args, module)
     }
 
-    fn new(function: FunctionObject, args: Vec<Reference>, module: Container<Module>) -> Self {
+    pub fn new(function: FunctionObject, args: Vec<Reference>, module: Container<Module>) -> Self {
         Frame {
             function,
             pc: 0,
@@ -86,7 +67,7 @@ impl Frame {
 
     pub fn current_inst_annotated(&self) -> String {
         let code = &self.function.code_object;
-        let code_name = &code.name();
+        let code_name = &code.dbg_context();
         let op = self.current_inst().display_annotated(code);
         format!("{code_name}: {op}")
     }
@@ -146,8 +127,8 @@ impl Frame {
 impl ToDebugStackFrame for Frame {
     fn to_stack_frame(&self) -> DebugStackFrame {
         DebugStackFrame::new(
-            self.function.code_object.context(),
-            self.function.code_object.path().to_path_buf(),
+            self.function.code_object.name(),
+            self.function.code_object.path().into(),
             self.current_line(),
         )
     }

@@ -9,11 +9,12 @@ use crate::{
         Runtime, VirtualMachine, VmResult, VmValue,
     },
     core::Container,
-    domain::{Dunder, ExecutionError},
+    domain::{Dunder, ExecutionError, ModuleName},
 };
 
-static BUILTINS: [(&str, BuiltinFn); 7] = [
+static BUILTINS: [(&str, BuiltinFn); 8] = [
     ("bool", bool),
+    ("int", int),
     ("list", list),
     ("tuple", tuple),
     ("range", range),
@@ -23,7 +24,7 @@ static BUILTINS: [(&str, BuiltinFn); 7] = [
 ];
 
 pub fn init_module(runtime: &mut Runtime) {
-    let mut mod_ = Module::new(&Dunder::Builtins);
+    let mut mod_ = Module::new(ModuleName::from_segments(&[Dunder::Builtins]));
     register_builtin_funcs(runtime, &mut mod_, &BUILTINS);
     runtime.store_module(Container::new(mod_));
 }
@@ -35,7 +36,10 @@ pub fn build_class(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Re
     let name = code.name().to_string();
 
     let function = FunctionObject::new(code.clone());
-    let frame = Frame::from_function(vm, function, vec![]).raise(vm)?;
+    let module = vm
+        .resolve_module(&function.code_object.module_name)
+        .raise(vm)?;
+    let frame = Frame::new(function, vec![], module);
 
     let frame = vm.call_and_return_frame(frame)?;
     Ok(vm.heapify(VmValue::Class(Class::new(name, frame.namespace()))))
@@ -100,6 +104,22 @@ fn bool(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
     };
 
     Ok(vm.to_heapified_bool(value))
+}
+
+fn int(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
+    let value = match args.len() {
+        0 => 0,
+        1 => vm.deref(args[0]).raise(vm)?.coerce_to_int().raise(vm)?,
+        _ => {
+            return ExecutionError::type_error(format!(
+                "int expected at most 1 argument, got {}",
+                args.len()
+            ))
+            .raise(vm)
+        }
+    };
+
+    Ok(vm.heapify(VmValue::Int(value)))
 }
 
 fn range(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
@@ -222,7 +242,7 @@ mod tests {
     #[test]
     fn register_builtins_inserts_list() {
         let mut runtime = Runtime::default();
-        let mut module = Module::new("test_module");
+        let mut module = Module::new(ModuleName::from_segments(&["test_module"]));
         register_builtin_funcs(&mut runtime, &mut module, &BUILTINS);
         assert!(module.global_store().contains_key("list"));
         assert!(!module.global_store().contains_key("dict"));

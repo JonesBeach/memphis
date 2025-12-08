@@ -6,7 +6,7 @@ use crate::{
         CompilerResult,
     },
     core::{log, LogLevel},
-    domain::{Context, FunctionType, ImportPath, Source},
+    domain::{resolve_import_path, Context, FunctionType, ImportPath, ModuleName},
     parser::types::{
         Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, LogicalOp,
         LoopIndex, Params, RegularImport, SelectMode, Statement, StatementKind, UnaryOp,
@@ -15,10 +15,10 @@ use crate::{
 
 use super::opcode::{SignedOffset, UnsignedOffset};
 
-/// A Python bytecode compiler. This operates on a single `Source`.
+/// A Python bytecode compiler.
 pub struct Compiler {
-    /// This will likely need to become a stack once we support module imports.
-    source: Source,
+    filename: String,
+    module_name: ModuleName,
 
     /// Keep a reference to the code object being constructed so we can associate things with it,
     /// (variable names, constants, etc.).
@@ -29,11 +29,12 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new(source: Source) -> Self {
-        let code = CodeObject::new_root(source.clone());
+    pub fn new(module_name: ModuleName, filename: &str) -> Self {
+        let code = CodeObject::new(module_name.clone(), filename);
 
         Self {
-            source,
+            filename: filename.to_string(),
+            module_name,
             code_stack: vec![code],
             line_number: 0,
         }
@@ -439,9 +440,10 @@ impl Compiler {
             .map(|p| p.arg.clone())
             .collect::<Vec<String>>();
         let code_object = CodeObject::new_function(
-            Some(name.to_string()),
+            name,
+            self.module_name.clone(),
+            &self.filename,
             &varnames,
-            self.source.clone(),
             function_type,
         );
 
@@ -469,7 +471,12 @@ impl Compiler {
     fn compile_regular_import(&mut self, items: &[RegularImport]) -> CompilerResult<()> {
         for item in items {
             let index = self.get_or_set_nonlocal_index(&item.module_path.as_str())?;
-            self.emit(Opcode::ImportName(index))?;
+
+            if item.alias.is_some() {
+                self.emit(Opcode::ImportFrom(index))?;
+            } else {
+                self.emit(Opcode::ImportName(index))?;
+            }
 
             let symbol_index = item
                 .alias
@@ -486,14 +493,28 @@ impl Compiler {
 
     fn compile_selective_import(
         &mut self,
-        _import_path: &ImportPath,
-        _mode: &SelectMode,
+        import_path: &ImportPath,
+        mode: &SelectMode,
     ) -> CompilerResult<()> {
-        // match import_path {
-        //     ImportPath::Absolute(abs) =>
-        // }
-        // let index = self.get_or_set_nonlocal_index(import_path)?;
-        // self.emit(Opcode::ImportName(index))?;
+        let module_name = resolve_import_path(import_path, &self.module_name)
+            .map_err(|e| CompilerError::import_error(e.message()))?;
+
+        let index = self.get_or_set_nonlocal_index(&module_name.as_str())?;
+        self.emit(Opcode::ImportFrom(index))?;
+
+        match mode {
+            SelectMode::All => self.emit(Opcode::ImportAll)?,
+            SelectMode::List(items) => {
+                for item in items {
+                    let attr_index = self.get_or_set_nonlocal_index(item.original())?;
+                    self.emit(Opcode::LoadAttr(attr_index))?;
+
+                    let alias_index = self.get_or_set_nonlocal_index(item.imported())?;
+                    self.emit(Opcode::StoreGlobal(alias_index))?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -515,7 +536,13 @@ impl Compiler {
             ));
         }
 
-        let code_object = CodeObject::new(name, self.source.clone());
+        let code_object = CodeObject::new_function(
+            name,
+            self.module_name.clone(),
+            &self.filename,
+            &[],
+            FunctionType::Regular,
+        );
         let code = self.compile_ast_with_code(body, code_object)?;
 
         self.emit(Opcode::LoadBuildClass)?;
@@ -806,7 +833,7 @@ impl Compiler {
         Ok(Index::new(index))
     }
 
-    /// Since an instance of this `Compiler` operates on a single module `Source`, we can assume
+    /// Since an instance of this `Compiler` operates on a single module, we can assume
     /// that the outer code object is the global scope and any others are local scopes.
     fn context(&self) -> Context {
         match self.code_stack.len() {
@@ -1501,7 +1528,7 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::StoreGlobal(Index::new(1)),
             ]
         );
@@ -1535,32 +1562,87 @@ mod tests_bytecode {
         assert_eq!(
             bytecode,
             &[
-                Opcode::ImportName(Index::new(0)),
+                Opcode::ImportFrom(Index::new(0)),
                 Opcode::StoreGlobal(Index::new(1)),
-                Opcode::ImportName(Index::new(2)),
+                Opcode::ImportFrom(Index::new(2)),
                 Opcode::StoreGlobal(Index::new(3)),
             ]
         );
     }
 
     #[test]
-    #[ignore]
-    fn selective_import() {
+    fn selective_import_all() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::All,
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[Opcode::ImportFrom(Index::new(0)), Opcode::ImportAll,]
+        );
+    }
+
+    #[test]
+    fn selective_import_single() {
         let expr = stmt!(StatementKind::SelectiveImport {
             import_path: ImportPath::from("other"),
             mode: SelectMode::List(vec![ImportedItem::direct("foo")]),
         });
         let bytecode = compile_stmt(expr);
-        assert_eq!(bytecode, &[Opcode::ImportName(Index::new(0))]);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn selective_import_single_alias() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::List(vec![ImportedItem::aliased("foo", "bar")]),
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn selective_import_multiple_alias() {
+        let expr = stmt!(StatementKind::SelectiveImport {
+            import_path: ImportPath::from("other"),
+            mode: SelectMode::List(vec![
+                ImportedItem::aliased("foo", "bar"),
+                ImportedItem::aliased("one", "two")
+            ]),
+        });
+        let bytecode = compile_stmt(expr);
+        assert_eq!(
+            bytecode,
+            &[
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(2)),
+                Opcode::LoadAttr(Index::new(3)),
+                Opcode::StoreGlobal(Index::new(4)),
+            ]
+        );
     }
 }
 
 #[cfg(test)]
 mod tests_compiler {
-    use crate::{
-        bytecode_vm::{compiler::test_utils::*, VmContext},
-        domain::FunctionType,
-    };
+    use crate::{bytecode_vm::compiler::test_utils::*, domain::FunctionType};
 
     use super::*;
 
@@ -1573,14 +1655,15 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1598,14 +1681,15 @@ def foo(a, b):
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![],
             arg_count: 2,
             varnames: vec!["a".into(), "b".into()],
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1624,20 +1708,23 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadConst(Index::new(0)),
@@ -1651,7 +1738,6 @@ def foo():
             freevars: vec![],
             names: vec!["decorate".into(), fn_foo.name().into()],
             constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1669,20 +1755,23 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadGlobal(Index::new(1)),
@@ -1698,7 +1787,6 @@ def foo():
             freevars: vec![],
             names: vec!["inner".into(), "outer".into(), fn_foo.name().into()],
             constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1714,14 +1802,15 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::YieldValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(1)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Generator,
         };
@@ -1739,7 +1828,9 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadConst(Index::new(1)),
@@ -1751,7 +1842,6 @@ def foo():
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(1), Constant::Int(2)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Generator,
         };
@@ -1769,14 +1859,15 @@ async def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Async,
         };
@@ -1796,20 +1887,23 @@ def foo(a, b):
         let code = compile(text);
 
         let fn_inner = CodeObject {
-            name: Some("inner".into()),
+            module_name: ModuleName::main(),
+            name: "inner".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(10)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
@@ -1824,7 +1918,6 @@ def foo(a, b):
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_inner)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1844,7 +1937,9 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::StoreFast(Index::new(0)),
@@ -1859,7 +1954,6 @@ def foo():
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(10), Constant::Float(11.1)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1878,7 +1972,9 @@ def foo():
         let code = compile(text);
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::StoreFast(Index::new(0)),
@@ -1890,7 +1986,6 @@ def foo():
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(10)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1914,7 +2009,9 @@ world()
         let code = compile(text);
 
         let fn_hello = CodeObject {
-            name: Some("hello".into()),
+            module_name: ModuleName::main(),
+            name: "hello".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadConst(Index::new(0)),
@@ -1926,13 +2023,14 @@ world()
             freevars: vec![],
             names: vec!["print".into()],
             constants: vec![Constant::String("Hello".into())],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let fn_world = CodeObject {
-            name: Some("world".into()),
+            module_name: ModuleName::main(),
+            name: "world".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadConst(Index::new(0)),
@@ -1944,13 +2042,14 @@ world()
             freevars: vec![],
             names: vec!["print".into()],
             constants: vec![Constant::String("World".into())],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
@@ -1971,7 +2070,6 @@ world()
             freevars: vec![],
             names: vec!["hello".into(), "world".into()],
             constants: vec![Constant::Code(fn_hello), Constant::Code(fn_world)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -1990,7 +2088,9 @@ def make_adder(x):
         let code = compile(text);
 
         let fn_inner_adder = CodeObject {
-            name: Some("inner_adder".into()),
+            module_name: ModuleName::main(),
+            name: "inner_adder".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadFree(Index::new(0)),
                 Opcode::LoadFast(Index::new(0)),
@@ -2002,13 +2102,14 @@ def make_adder(x):
             freevars: vec!["x".into()],
             names: vec![],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let fn_make_adder = CodeObject {
-            name: Some("make_adder".into()),
+            module_name: ModuleName::main(),
+            name: "make_adder".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::LoadFast(Index::new(0)),
@@ -2022,7 +2123,6 @@ def make_adder(x):
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_inner_adder)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -2041,20 +2141,23 @@ class Foo:
         let code = compile(text);
 
         let fn_bar = CodeObject {
-            name: Some("bar".into()),
+            module_name: ModuleName::main(),
+            name: "bar".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 1,
             varnames: vec!["self".into()],
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(99)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let cls_foo = CodeObject {
-            name: Some("Foo".into()),
+            module_name: ModuleName::main(),
+            name: "Foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
@@ -2065,7 +2168,6 @@ class Foo:
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_bar)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -2084,7 +2186,9 @@ class Foo:
         let code = compile(text);
 
         let fn_bar = CodeObject {
-            name: Some("bar".into()),
+            module_name: ModuleName::main(),
+            name: "bar".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadFast(Index::new(0)),
                 Opcode::LoadAttr(Index::new(0)),
@@ -2095,13 +2199,14 @@ class Foo:
             freevars: vec![],
             names: vec!["val".into()],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let cls_foo = CodeObject {
-            name: Some("Foo".to_string()),
+            module_name: ModuleName::main(),
+            name: "Foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
@@ -2112,7 +2217,6 @@ class Foo:
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Code(fn_bar)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -2129,7 +2233,9 @@ f = Foo()
         let code = compile(text);
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::Call(0),
@@ -2141,7 +2247,6 @@ f = Foo()
             freevars: vec![],
             names: vec!["Foo".into(), "f".into()],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
@@ -2157,7 +2262,9 @@ b = f.bar()
         let code = compile(text);
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadGlobal(Index::new(0)),
                 Opcode::LoadAttr(Index::new(1)),
@@ -2170,12 +2277,160 @@ b = f.bar()
             freevars: vec![],
             names: vec!["f".into(), "bar".into(), "b".into()],
             constants: vec![],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn regular_import_two_layers() {
+        let text = r#"
+import a.b.c
+"#;
+        let code = compile(text);
+
+        let expected = CodeObject {
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportName(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["a.b.c".into(), "a".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn regular_import_two_layers_with_alias() {
+        let text = r#"
+import a.b.c as foo
+"#;
+        let code = compile(text);
+
+        let expected = CodeObject {
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["a.b.c".into(), "foo".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_one_layer_from_main() {
+        let text = r#"
+from .outer import foo
+"#;
+        let err = compile_err(text);
+
+        match err {
+            CompilerError::ImportError(msg) => assert_eq!(
+                msg,
+                "attempted relative import with no known parent package".to_string()
+            ),
+            _ => panic!("Expected an ImportError"),
+        }
+    }
+
+    #[test]
+    fn selective_import_relative_one_layer_from_pkg() {
+        let text = r#"
+from .outer import foo
+"#;
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let code = compile_at_module(text, module_name.clone());
+
+        let expected = CodeObject {
+            module_name,
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["pkg.outer".into(), "foo".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_two_layers_from_pkg() {
+        let text = r#"
+from .outer.inner import foo
+"#;
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let code = compile_at_module(text, module_name.clone());
+
+        let expected = CodeObject {
+            module_name,
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
+            bytecode: vec![
+                Opcode::ImportFrom(Index::new(0)),
+                Opcode::LoadAttr(Index::new(1)),
+                Opcode::StoreGlobal(Index::new(1)),
+                Opcode::Halt,
+            ],
+            arg_count: 0,
+            varnames: vec![],
+            freevars: vec![],
+            names: vec!["pkg.outer.inner".into(), "foo".into()],
+            constants: vec![],
+            line_map: vec![],
+            function_type: FunctionType::Regular,
+        };
+
+        assert_code_eq!(code, expected);
+    }
+
+    #[test]
+    fn selective_import_relative_one_layer_from_pkg_too_many_levels() {
+        let text = r#"
+from ..outer import foo
+"#;
+        let module_name = ModuleName::from_segments(&["pkg", "mod"]);
+        let err = compile_err_at_module(text, module_name);
+
+        match err {
+            CompilerError::ImportError(msg) => assert_eq!(
+                msg,
+                "attempted relative import beyond top-level package".to_string()
+            ),
+            _ => panic!("Expected an ImportError"),
+        }
     }
 
     #[test]
@@ -2190,20 +2445,23 @@ a = foo()
         let code = compile_incremental![first, second];
 
         let fn_foo = CodeObject {
-            name: Some("foo".into()),
+            module_name: ModuleName::main(),
+            name: "foo".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![Opcode::LoadConst(Index::new(0)), Opcode::ReturnValue],
             arg_count: 0,
             varnames: vec![],
             freevars: vec![],
             names: vec![],
             constants: vec![Constant::Int(10)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };
 
         let expected = CodeObject {
-            name: None,
+            module_name: ModuleName::main(),
+            name: "<module>".into(),
+            filename: "<stdin>".into(),
             bytecode: vec![
                 Opcode::LoadConst(Index::new(0)),
                 Opcode::MakeFunction,
@@ -2218,7 +2476,6 @@ a = foo()
             freevars: vec![],
             names: vec!["foo".into(), "a".into()],
             constants: vec![Constant::Code(fn_foo)],
-            source: Source::default(),
             line_map: vec![],
             function_type: FunctionType::Regular,
         };

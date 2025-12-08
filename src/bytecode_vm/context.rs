@@ -1,7 +1,7 @@
 use crate::{
-    bytecode_vm::{compiler::CodeObject, runtime::types::Module, Runtime, VmInterpreter, VmValue},
+    bytecode_vm::{Runtime, VmInterpreter, VmValue},
     core::Container,
-    domain::{Dunder, Source},
+    domain::{ModuleName, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
@@ -15,42 +15,27 @@ pub struct VmContext {
 
 impl Default for VmContext {
     fn default() -> Self {
-        Self::new(Source::default())
+        Self::new(Source::from_text(""))
     }
 }
 
 impl VmContext {
     pub fn new(source: Source) -> Self {
+        Self::new_at_module(ModuleName::main(), source)
+    }
+
+    pub fn new_at_module(module_name: ModuleName, source: Source) -> Self {
         let lexer = Lexer::new(&source);
         let state = MemphisState::from_source(&source);
         let runtime = Container::new(Runtime::new());
-        let interpreter = VmInterpreter::new(state, runtime, source);
+        let interpreter = VmInterpreter::new(module_name, state, runtime, source);
 
         Self { lexer, interpreter }
     }
 
-    pub fn import(
-        source: Source,
-        state: Container<MemphisState>,
-        runtime: Container<Runtime>,
-    ) -> Container<Module> {
-        assert_ne!(
-            Dunder::Main,
-            source.name(),
-            "`VmContext::import` should only be used for non-main modules."
-        );
-        let module = runtime.borrow_mut().create_module(source.name());
-
-        let mut context = VmContext::from_state(source, state.clone(), runtime.clone());
-
-        // TODO we shouldn't squash this error, but it's currently a MemphisError
-        let _ = context.run().expect("VM run failed");
-
-        module
-    }
-
     /// Initialize a context from a [`Source`] and existing treewalk state.
-    fn from_state(
+    pub fn from_state(
+        module_name: ModuleName,
         source: Source,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
@@ -59,7 +44,7 @@ impl VmContext {
 
         Self {
             lexer,
-            interpreter: VmInterpreter::new(state, runtime, source),
+            interpreter: VmInterpreter::new(module_name, state, runtime, source),
         }
     }
 
@@ -72,23 +57,6 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.execute(&mut parser)
     }
-
-    #[allow(dead_code)]
-    pub fn add_line(&mut self, line: &str) {
-        self.lexer
-            .add_line(line)
-            .expect("Failed to add line to lexer");
-    }
-
-    #[allow(dead_code)]
-    pub fn compile(&mut self) -> MemphisResult<CodeObject> {
-        let VmContext {
-            lexer, interpreter, ..
-        } = self;
-
-        let mut parser = Parser::new(lexer);
-        interpreter.compile(&mut parser)
-    }
 }
 
 #[cfg(test)]
@@ -97,7 +65,28 @@ impl VmContext {
         self.interpreter.read_global(name)
     }
 
+    pub fn add_line(&mut self, line: &str) {
+        self.lexer.add_line(line);
+    }
+
     pub fn interpreter(&self) -> &VmInterpreter {
         &self.interpreter
+    }
+}
+#[cfg(any(test, feature = "wasm"))]
+mod wasm_support {
+    use super::*;
+
+    use crate::bytecode_vm::compiler::CodeObject;
+
+    impl VmContext {
+        pub fn compile(&mut self) -> MemphisResult<CodeObject> {
+            let VmContext {
+                lexer, interpreter, ..
+            } = self;
+
+            let mut parser = Parser::new(lexer);
+            interpreter.compile(&mut parser)
+        }
     }
 }

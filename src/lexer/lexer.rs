@@ -64,20 +64,12 @@ impl Iterator for Lexer {
 impl Lexer {
     pub fn new(source: &Source) -> Lexer {
         let mut lexer = Lexer::default();
-
-        // empty Source can occur in REPL mode
-        if source.has_text() {
-            lexer
-                .add_line(source.text())
-                .expect("Failed to add line to lexer");
-        }
-
+        lexer.add_line(source.text());
         lexer
     }
 
-    pub fn add_line(&mut self, line: &str) -> LexerResult<()> {
+    pub fn add_line(&mut self, line: &str) {
         self.source_lines.push_back(line.to_string());
-        Ok(())
     }
 
     /// Since we tokenize one line at a time, we must consider whether we are inside a multiline
@@ -615,9 +607,7 @@ mod tests {
         let trimmed = input.trim_matches('\n');
 
         let mut lexer = Lexer::default();
-        lexer
-            .add_line(trimmed)
-            .expect("Failed to add input line to Lexer.");
+        lexer.add_line(trimmed);
         lexer.collect()
     }
 
@@ -625,7 +615,7 @@ mod tests {
         ( $( $line:expr ),* ) => {{
             let mut lexer = Lexer::default();
             $(
-                lexer.add_line($line).expect("Failed to add input line to Lexer.");
+                lexer.add_line($line);
             )*
             lexer.collect::<Vec<Token>>()
         }};

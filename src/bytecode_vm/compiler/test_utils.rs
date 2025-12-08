@@ -2,9 +2,10 @@ use crate::{
     bytecode_vm::{
         compiler::{Bytecode, CodeObject, Compiler, Constant, Opcode},
         indices::Index,
-        VmContext,
+        CompilerError, VmContext,
     },
-    domain::{FunctionType, Source},
+    domain::{FunctionType, ModuleName, Source},
+    errors::MemphisError,
     parser::{
         test_utils::*,
         types::{Expr, Statement},
@@ -12,7 +13,7 @@ use crate::{
 };
 
 fn init() -> Compiler {
-    Compiler::new(Source::default())
+    Compiler::new(ModuleName::main(), "compiler_unit_test")
 }
 
 pub fn compile_expr(expr: Expr) -> Bytecode {
@@ -41,9 +42,33 @@ pub fn compile(text: &str) -> CodeObject {
         .expect("Failed to compile test program!")
 }
 
+pub fn compile_at_module(text: &str, module_name: ModuleName) -> CodeObject {
+    VmContext::new_at_module(module_name, Source::from_text(text))
+        .compile()
+        .expect("Failed to compile test program!")
+}
+
+pub fn compile_err(text: &str) -> CompilerError {
+    match VmContext::new(Source::from_text(text)).compile() {
+        Ok(_) => panic!("Expected an CompilerError!"),
+        Err(MemphisError::Compiler(e)) => e,
+        Err(_) => panic!("Expected a CompilerError!"),
+    }
+}
+
+pub fn compile_err_at_module(text: &str, module_name: ModuleName) -> CompilerError {
+    match VmContext::new_at_module(module_name, Source::from_text(text)).compile() {
+        Ok(_) => panic!("Expected an CompilerError!"),
+        Err(MemphisError::Compiler(e)) => e,
+        Err(_) => panic!("Expected a CompilerError!"),
+    }
+}
+
 pub fn wrap_top_level_function(func: CodeObject) -> CodeObject {
     CodeObject {
-        name: None,
+        module_name: ModuleName::main(),
+        name: "<module>".into(),
+        filename: "<stdin>".into(),
         bytecode: vec![
             Opcode::LoadConst(Index::new(0)),
             Opcode::MakeFunction,
@@ -55,7 +80,6 @@ pub fn wrap_top_level_function(func: CodeObject) -> CodeObject {
         freevars: vec![],
         names: vec![func.name().into()],
         constants: vec![Constant::Code(func)],
-        source: Source::default(),
         line_map: vec![],
         function_type: FunctionType::Regular,
     }
@@ -63,7 +87,9 @@ pub fn wrap_top_level_function(func: CodeObject) -> CodeObject {
 
 pub fn wrap_top_level_class(name: &str, cls: CodeObject) -> CodeObject {
     CodeObject {
-        name: None,
+        module_name: ModuleName::main(),
+        name: "<module>".into(),
+        filename: "<stdin>".into(),
         bytecode: vec![
             Opcode::LoadBuildClass,
             Opcode::LoadConst(Index::new(0)),
@@ -76,7 +102,6 @@ pub fn wrap_top_level_class(name: &str, cls: CodeObject) -> CodeObject {
         freevars: vec![],
         names: vec![name.into()],
         constants: vec![Constant::Code(cls)],
-        source: Source::default(),
         line_map: vec![],
         function_type: FunctionType::Regular,
     }
@@ -90,7 +115,7 @@ macro_rules! assert_code_eq {
 
 macro_rules! compile_incremental {
         ( $( $line:expr ),* ) => {{
-            let mut context = VmContext::default();
+            let mut context = $crate::bytecode_vm::VmContext::default();
             $(
                 context.add_line($line);
             )*
@@ -102,6 +127,14 @@ macro_rules! compile_incremental {
 /// the line number mappings.
 pub fn _assert_code_eq(actual: &CodeObject, expected: &CodeObject) {
     assert_eq!(actual.name, expected.name, "Code object names do not match");
+    assert_eq!(
+        actual.filename, expected.filename,
+        "Code object filenames do not match"
+    );
+    assert_eq!(
+        actual.module_name, expected.module_name,
+        "Code object module name do not match"
+    );
     assert_eq!(
         actual.bytecode, expected.bytecode,
         "Code object bytecode does not match"

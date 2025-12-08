@@ -1,6 +1,52 @@
 use std::path::{Path, PathBuf};
 
-use crate::domain::{Dunder, ModuleName};
+use crate::domain::{Dunder, ImportPath, ModuleName, ModulePath};
+
+pub enum ImportResolutionError {
+    NoParentPackage,
+    BeyondTopLevel,
+}
+
+pub type ImportResult<T> = Result<T, ImportResolutionError>;
+
+impl ImportResolutionError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::NoParentPackage => "attempted relative import with no known parent package",
+            Self::BeyondTopLevel => "attempted relative import beyond top-level package",
+        }
+    }
+}
+
+pub fn resolve_import_path(
+    import_path: &ImportPath,
+    current_module: &ModuleName,
+) -> ImportResult<ModuleName> {
+    match import_path {
+        ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
+        ImportPath::Relative(levels, tail) => {
+            if current_module.is_main() {
+                return Err(ImportResolutionError::NoParentPackage);
+            }
+
+            let depth = current_module.segments().len();
+            if *levels >= depth {
+                return Err(ImportResolutionError::BeyondTopLevel);
+            }
+
+            let base = current_module
+                .strip_last(*levels)
+                .ok_or(ImportResolutionError::BeyondTopLevel)?;
+            Ok(base.join(tail.segments()))
+        }
+    }
+}
+
+// Convert from a parser `ModulePath` into a runtime `ModuleName`. For absolute paths, this is a
+// direct mapping.
+pub fn resolve_absolute_path(module_path: &ModulePath) -> ModuleName {
+    ModuleName::from_segments(module_path.segments())
+}
 
 /// Finds a module but does not read it (returns absolute path).
 pub fn resolve(module_name: &ModuleName, search_paths: &[PathBuf]) -> Option<PathBuf> {

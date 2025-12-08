@@ -9,7 +9,7 @@ fn init(text: &str) -> TreewalkContext {
 }
 
 fn init_path(path: &str) -> TreewalkContext {
-    TreewalkContext::new(Source::from_path(path))
+    TreewalkContext::new(Source::from_path(path).expect("Failed to create Source"))
 }
 
 pub fn eval(text: &str) -> TreewalkValue {

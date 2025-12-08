@@ -7,6 +7,7 @@ use crate::{
         Runtime, VirtualMachine, VmResult, VmValue,
     },
     core::Container,
+    domain::ModuleName,
 };
 
 fn asyncio_run(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Reference> {
@@ -40,7 +41,7 @@ fn asyncio_sleep(vm: &mut VirtualMachine, args: Vec<Reference>) -> VmResult<Refe
 }
 
 pub fn init_module(runtime: &mut Runtime) {
-    let mut asyncio_mod = Module::new("asyncio");
+    let mut asyncio_mod = Module::new(ModuleName::from_segments(&["asyncio"]));
     register_builtin_funcs(runtime, &mut asyncio_mod, &BUILTINS);
     runtime.store_module(Container::new(asyncio_mod));
 }

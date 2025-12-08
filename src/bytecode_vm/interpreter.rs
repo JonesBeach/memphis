@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
     core::{log, Container, Interpreter, LogLevel},
-    domain::{MemphisValue, Source},
+    domain::{MemphisValue, ModuleName, Source},
     errors::{MemphisError, MemphisResult},
     parser::Parser,
     runtime::MemphisState,
@@ -14,12 +14,16 @@ pub struct VmInterpreter {
 
 impl VmInterpreter {
     pub fn new(
+        module_name: ModuleName,
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
         source: Source,
     ) -> Self {
         Self {
-            compiler: Compiler::new(source),
+            compiler: Compiler::new(
+                module_name,
+                source.path().to_str().expect("Failed to convert path."),
+            ),
             vm: VirtualMachine::new(state, runtime),
         }
     }
@@ -1328,12 +1332,30 @@ b = f.bar()
     }
 
     #[test]
+    fn selective_import_relative() {
+        let ctx = run_path("src/fixtures/imports/relative/main_a.py");
+        assert_read_eq!(ctx, "x", int!(2));
+    }
+
+    #[test]
+    fn regular_import_relative_parent_package() {
+        let ctx = run_path("src/fixtures/imports/relative/main_b.py");
+        assert_read_eq!(ctx, "x", int!(2));
+    }
+
+    #[test]
+    fn regular_import_relative_alias() {
+        let ctx = run_path("src/fixtures/imports/relative/main_c.py");
+        assert_read_eq!(ctx, "x", int!(2));
+    }
+
+    #[test]
     fn regular_import_error() {
         let text = r#"
 import not_found
 "#;
         let e = run_expect_error(text);
-        assert_import_error!(e, "not_found");
+        assert_import_error!(e, "No module named not_found");
     }
 
     #[test]

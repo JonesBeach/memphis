@@ -7,6 +7,7 @@ use crate::{
         result::Raise,
         runtime::{
             components::ModuleLoader,
+            import_utils::build_module_chain,
             modules::builtins,
             types::{
                 Coroutine, Dict, FunctionObject, Generator, List, Method, Module, Object, Tuple,
@@ -16,7 +17,7 @@ use crate::{
         Runtime, VmResult, VmValue,
     },
     core::{log, log_impure, Container, LogLevel},
-    domain::{DomainResult, Dunder, ExecutionError, FunctionType, RuntimeError},
+    domain::{DomainResult, Dunder, ExecutionError, FunctionType, ModuleName, RuntimeError},
     runtime::MemphisState,
 };
 
@@ -62,7 +63,7 @@ impl VirtualMachine {
     }
 
     pub fn execute(&mut self, code: CodeObject) -> VmResult<VmValue> {
-        self.load(code)?;
+        self.load(code).raise(self)?;
         self.run_loop()
     }
 
@@ -76,7 +77,7 @@ impl VirtualMachine {
     // the Interpreter trait. The other option is splitting Interpreter into two traits and putting
     // the read one behind a test/repl flag.
     fn load_global_by_name(&self, name: &str) -> DomainResult<Reference> {
-        let module = self.resolve_module(&Dunder::Main)?;
+        let module = self.resolve_module(&ModuleName::main())?;
 
         let module_binding = module.borrow();
         module_binding.read(name).ok_or_else(|| {
@@ -84,11 +85,11 @@ impl VirtualMachine {
         })
     }
 
-    pub fn current_module(&self) -> DomainResult<Container<Module>> {
+    fn current_module(&self) -> DomainResult<Container<Module>> {
         Ok(self.current_frame()?.module.clone())
     }
 
-    pub fn resolve_module(&self, name: &str) -> DomainResult<Container<Module>> {
+    pub fn resolve_module(&self, name: &ModuleName) -> DomainResult<Container<Module>> {
         self.runtime.borrow().read_module(name).ok_or_else(|| {
             ExecutionError::runtime_error_with(format!("Failed to read module: {}", name))
         })
@@ -152,7 +153,11 @@ impl VirtualMachine {
             return Ok(val);
         }
 
-        if let Some(builtins) = self.runtime.borrow().read_module(&Dunder::Builtins) {
+        if let Some(builtins) = self
+            .runtime
+            .borrow()
+            .read_module(&ModuleName::from_segments(&[Dunder::Builtins]))
+        {
             if let Some(val) = builtins.borrow().read(name) {
                 return Ok(val);
             }
@@ -238,16 +243,17 @@ impl VirtualMachine {
     }
 
     /// Resolves an attribute without applying method binding (used in tests or low-level access).
-    pub fn resolve_raw_attr(&self, object: &VmValue, name: &str) -> DomainResult<Reference> {
-        if let Some(object) = object.as_object() {
+    pub fn resolve_raw_attr(&self, value: &VmValue, name: &str) -> DomainResult<Reference> {
+        if let Some(object) = value.as_object() {
             object
                 .read(name, self)?
-                .ok_or_else(|| ExecutionError::attribute_error("TODO class name", name))
-        } else if let Some(module) = object.as_module() {
+                .ok_or_else(|| ExecutionError::attribute_error(&value.get_type(), name))
+        } else if let Some(module) = value.as_module() {
+            dbg!(&module, name);
             module
                 .borrow()
                 .read(name)
-                .ok_or_else(|| ExecutionError::attribute_error("TODO class name", name))
+                .ok_or_else(|| ExecutionError::attribute_error(&value.get_type(), name))
         } else {
             unimplemented!()
         }
@@ -261,7 +267,7 @@ impl VirtualMachine {
         let attr_val = self.deref(attr_ref)?;
 
         let bound = match attr_val {
-            VmValue::Function(f) => {
+            VmValue::Function(f) if object.should_bind() => {
                 self.heapify(VmValue::Method(Method::new(object_ref, f.clone())))
             }
             _ => attr_ref,
@@ -318,14 +324,6 @@ impl VirtualMachine {
     fn push_value(&mut self, value: VmValue) -> DomainResult<()> {
         let reference = self.heapify(value);
         self.push(reference)
-    }
-
-    /// Load and initialize a module, storing its reference in both the global scope and runtime
-    /// module store.
-    /// This ensures that newly created frames can resolve their originating module.
-    fn load_module(&mut self, index: NonlocalIndex) -> DomainResult<Container<Module>> {
-        let name = self.resolve_name(index)?.to_owned();
-        self.module_loader.resolve_module(&name)
     }
 
     fn collect_n(&mut self, n: usize) -> DomainResult<Vec<Reference>> {
@@ -833,8 +831,10 @@ impl VirtualMachine {
                         self.push(reference).raise(self)?;
                     }
                     VmValue::Function(ref function) => {
-                        let frame =
-                            Frame::from_function(self, function.clone(), args).raise(self)?;
+                        let module = self
+                            .resolve_module(&function.code_object.module_name)
+                            .raise(self)?;
+                        let frame = Frame::new(function.clone(), args, module);
                         match function.function_type() {
                             FunctionType::Regular => {
                                 let return_val_ref = self.call(frame)?;
@@ -851,7 +851,10 @@ impl VirtualMachine {
                         }
                     }
                     VmValue::Method(ref method) => {
-                        let frame = Frame::from_method(self, method.clone(), args).raise(self)?;
+                        let module = self
+                            .resolve_module(&method.function.code_object.module_name)
+                            .raise(self)?;
+                        let frame = Frame::from_method(method.clone(), args, module);
                         let return_val_ref = self.call(frame)?;
                         self.push(return_val_ref).raise(self)?;
                     }
@@ -868,7 +871,10 @@ impl VirtualMachine {
                             // after the constructor executes.
                             self.push(reference).raise(self)?;
 
-                            let frame = Frame::from_method(self, method, args).raise(self)?;
+                            let module = self
+                                .resolve_module(&method.function.code_object.module_name)
+                                .raise(self)?;
+                            let frame = Frame::from_method(method, args, module);
                             let _ = self.call(frame)?;
                         } else {
                             self.push(reference).raise(self)?;
@@ -937,9 +943,29 @@ impl VirtualMachine {
                     }
                 }
             }
+            Opcode::ImportAll => todo!(),
             Opcode::ImportName(index) => {
-                let module = self.load_module(index).raise(self)?;
-                self.push_value(VmValue::Module(module)).raise(self)?;
+                let name = self.resolve_name(index).raise(self)?.to_owned();
+                let module_name = ModuleName::from_dotted(&name);
+                let inner_module = self
+                    .module_loader
+                    .resolve_module(&module_name)
+                    .raise(self)?;
+                let inner_module_ref = self.heapify(VmValue::Module(inner_module));
+
+                let outer_module_ref =
+                    build_module_chain(self, &module_name, inner_module_ref).raise(self)?;
+                self.push(outer_module_ref).raise(self)?;
+            }
+            Opcode::ImportFrom(index) => {
+                let name = self.resolve_name(index).raise(self)?.to_owned();
+                let module_name = ModuleName::from_dotted(&name);
+                let inner_module = self
+                    .module_loader
+                    .resolve_module(&module_name)
+                    .raise(self)?;
+                let inner_module_ref = self.heapify(VmValue::Module(inner_module));
+                self.push(inner_module_ref).raise(self)?;
             }
             Opcode::Halt => {
                 return Ok(StepResult::Halt);
@@ -954,11 +980,12 @@ impl VirtualMachine {
         Ok(StepResult::Continue)
     }
 
-    fn load(&mut self, code: CodeObject) -> VmResult<()> {
+    fn load(&mut self, code: CodeObject) -> DomainResult<()> {
         log(LogLevel::Debug, || format!("{code:?}"));
 
         let function = FunctionObject::new(code);
-        let frame = Frame::from_function(self, function, vec![]).raise(self)?;
+        let module = self.resolve_module(&function.code_object.module_name)?;
+        let frame = Frame::new(function, vec![], module);
 
         self.call_stack.push(frame);
         Ok(())

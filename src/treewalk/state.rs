@@ -3,8 +3,8 @@ use std::cell::UnsafeCell;
 use crate::{
     core::Container,
     domain::{
-        DebugCallStack, DebugStackFrame, DomainResult, ExecutionError, ImportPath, ModuleName,
-        ModulePath, ToDebugStackFrame, Type,
+        resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError,
+        ImportPath, ModuleName, ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
@@ -217,10 +217,7 @@ impl Container<TreewalkState> {
         let current_module = current_module.borrow();
         let current_module = current_module.name();
         resolve_import_path(import_path, current_module)
-    }
-
-    pub fn resolve_module_path(&self, module_path: &ModulePath) -> DomainResult<ModuleName> {
-        Ok(resolve_absolute_path(module_path))
+            .map_err(|e| ExecutionError::import_error(e.message()))
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -243,25 +240,4 @@ impl Container<TreewalkState> {
         let binding = module.borrow();
         binding.get(class)?.as_class().ok()
     }
-}
-
-fn resolve_import_path(
-    import_path: &ImportPath,
-    current_module: &ModuleName,
-) -> DomainResult<ModuleName> {
-    match import_path {
-        ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
-        ImportPath::Relative(levels, tail) => {
-            let base = current_module
-                .strip_last(*levels)
-                .ok_or_else(|| ExecutionError::runtime_error_with("Invalid relative import"))?;
-            Ok(base.join(tail.segments()))
-        }
-    }
-}
-
-// Convert from a parser `ModulePath` into a runtime `ModuleName`. For absolute paths, this is a
-// direct mapping.
-fn resolve_absolute_path(module_path: &ModulePath) -> ModuleName {
-    ModuleName::from_segments(module_path.segments())
 }

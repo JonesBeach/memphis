@@ -119,6 +119,7 @@ impl Display for VmValue {
             VmValue::Code(i) => write!(f, "{i}"),
             VmValue::BuiltinFunction(i) => write!(f, "{i}"),
             VmValue::Function(i) => write!(f, "{i}"),
+            VmValue::Method(i) => write!(f, "{i}"),
             VmValue::Module(i) => write!(f, "{}", i.borrow()),
             VmValue::Coroutine(i) => write!(f, "{}", i.borrow()),
             VmValue::SleepFuture(_) => write!(f, "<sleepfuture>"),
@@ -131,6 +132,12 @@ impl Display for VmValue {
 }
 
 impl VmValue {
+    /// This is incomplete. On the treewalk side, we handle this by calling resolve_descriptor
+    /// inside some MemberRead implementations and not in others.
+    pub fn should_bind(&self) -> bool {
+        !matches!(self, VmValue::Module(_))
+    }
+
     pub fn get_type(&self) -> Type {
         match self {
             VmValue::None => Type::None,
@@ -140,14 +147,31 @@ impl VmValue {
             VmValue::Bool(_) => Type::Bool,
             VmValue::List(_) => Type::List,
             VmValue::Tuple(_) => Type::Tuple,
+            VmValue::Dict(_) => Type::Dict,
             VmValue::Range(_) => Type::Range,
+            VmValue::Module(_) => Type::Module,
             VmValue::ListIter(_) => Type::ListIter,
             VmValue::TupleIter(_) => Type::TupleIter,
             VmValue::RangeIter(_) => Type::RangeIter,
-            _ => unimplemented!(
-                "get_type for type {:?} unimplemented in the bytecode VM.",
-                self
-            ),
+            VmValue::Class(_) => Type::Type,
+            VmValue::Object(_) => Type::Object,
+            VmValue::Generator(_) => Type::Generator,
+            VmValue::Coroutine(_) => Type::Coroutine,
+            VmValue::Function(_) => Type::Function,
+            VmValue::BuiltinFunction(_) => Type::BuiltinFunction,
+            VmValue::Method(_) => Type::Method,
+            VmValue::Code(_) => Type::Code, // TODO is this right??
+            VmValue::SleepFuture(_) => todo!(), // TODO this doesn't exist in treewalk, not sure!
+        }
+    }
+
+    pub fn coerce_to_int(&self) -> DomainResult<i64> {
+        match self {
+            VmValue::Int(i) => Ok(*i),
+            VmValue::String(s) => s
+                .parse::<i64>()
+                .map_err(|_| ExecutionError::type_error("Invalid int literal")),
+            _ => Err(ExecutionError::type_error("Cannot coerce to an int")),
         }
     }
 

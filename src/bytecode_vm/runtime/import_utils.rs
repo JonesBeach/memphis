@@ -1,7 +1,10 @@
 use crate::{
+    bytecode_vm::{
+        runtime::{types::Module, Reference},
+        VirtualMachine, VmValue,
+    },
     core::Container,
     domain::{DomainResult, ExecutionError, ModuleName},
-    treewalk::{types::Module, TreewalkValue},
 };
 
 /// Construct a module chain given a `ModuleName` and a leaf `TreewalkValue`.
@@ -17,9 +20,10 @@ use crate::{
 /// ```
 /// `myothermodule` must become a submodule of `mypackage`.
 pub fn build_module_chain(
+    vm: &mut VirtualMachine,
     full_name: &ModuleName,
-    leaf_value: TreewalkValue,
-) -> DomainResult<TreewalkValue> {
+    leaf_value: Reference,
+) -> DomainResult<Reference> {
     let mut inner = leaf_value;
     let mut child_key = full_name
         .tail()
@@ -29,12 +33,12 @@ pub fn build_module_chain(
     // parents() yields:
     // ["a.b.c", "a.b", "a"]
     for parent_name in full_name.parents() {
-        let mut outer = Module::new_empty(parent_name.clone());
+        let mut outer = Module::new(parent_name.clone());
 
         // insert inner module under the child's name
-        outer.insert(&child_key, inner);
+        outer.write(&child_key, inner);
 
-        inner = TreewalkValue::Module(Container::new(outer));
+        inner = vm.heapify(VmValue::Module(Container::new(outer)));
 
         // Next iteration the child key becomes this parent's last segment
         child_key = parent_name
