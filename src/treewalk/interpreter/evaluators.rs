@@ -5,7 +5,7 @@ use crate::{
 };
 
 impl TreewalkInterpreter {
-    pub fn evaluate_logical_op(
+    pub fn invoke_logical_op(
         &self,
         left: TreewalkValue,
         op: &LogicalOp,
@@ -31,7 +31,7 @@ impl TreewalkInterpreter {
         }
     }
 
-    pub fn evaluate_bin_op(
+    pub fn invoke_binary_op(
         &self,
         left: TreewalkValue,
         op: &BinOp,
@@ -40,23 +40,23 @@ impl TreewalkInterpreter {
         use BinOp::*;
 
         match op {
-            Add => self.invoke_method(&left, &Dunder::Add, args![right]),
-            Sub => self.invoke_method(&left, &Dunder::Sub, args![right]),
-            Mul => self.invoke_method(&left, &Dunder::Mul, args![right]),
-            Div => self.invoke_method(&left, &Dunder::Truediv, args![right]),
-            IntegerDiv => self.invoke_method(&left, &Dunder::Floordiv, args![right]),
-            Mod => self.invoke_method(&left, &Dunder::Mod, args![right]),
-            BitwiseAnd => self.invoke_method(&left, &Dunder::And, args![right]),
-            BitwiseOr => self.invoke_method(&left, &Dunder::Or, args![right]),
-            BitwiseXor => self.invoke_method(&left, &Dunder::Xor, args![right]),
-            LeftShift => self.invoke_method(&left, &Dunder::Lshift, args![right]),
-            RightShift => self.invoke_method(&left, &Dunder::Rshift, args![right]),
-            Expo => self.invoke_method(&left, &Dunder::Pow, args![right]),
+            Add => self.call_method(&left, &Dunder::Add, args![right]),
+            Sub => self.call_method(&left, &Dunder::Sub, args![right]),
+            Mul => self.call_method(&left, &Dunder::Mul, args![right]),
+            Div => self.call_method(&left, &Dunder::Truediv, args![right]),
+            IntegerDiv => self.call_method(&left, &Dunder::Floordiv, args![right]),
+            Mod => self.call_method(&left, &Dunder::Mod, args![right]),
+            BitwiseAnd => self.call_method(&left, &Dunder::And, args![right]),
+            BitwiseOr => self.call_method(&left, &Dunder::Or, args![right]),
+            BitwiseXor => self.call_method(&left, &Dunder::Xor, args![right]),
+            LeftShift => self.call_method(&left, &Dunder::Lshift, args![right]),
+            RightShift => self.call_method(&left, &Dunder::Rshift, args![right]),
+            Expo => self.call_method(&left, &Dunder::Pow, args![right]),
             MatMul => todo!(),
         }
     }
 
-    pub fn evaluate_compare_op(
+    pub fn invoke_compare_op(
         &self,
         left: TreewalkValue,
         op: &CompareOp,
@@ -67,23 +67,23 @@ impl TreewalkInterpreter {
         match op {
             // For In and NotIn, Python semantics are reversed.
             // a in [b] calls [b].__contains__(a)
-            In => self.invoke_method(&right, &Dunder::Contains, args![left]),
+            In => self.call_method(&right, &Dunder::Contains, args![left]),
             NotIn => {
-                let contains = self.invoke_method(&right, &Dunder::Contains, args![left])?;
+                let contains = self.call_method(&right, &Dunder::Contains, args![left])?;
                 Ok(contains.not())
             }
-            Equals => self.invoke_method(&left, &Dunder::Eq, args![right]),
-            NotEquals => self.invoke_method(&left, &Dunder::Ne, args![right]),
-            LessThan => self.invoke_method(&left, &Dunder::Lt, args![right]),
-            GreaterThan => self.invoke_method(&left, &Dunder::Gt, args![right]),
-            LessThanOrEqual => self.invoke_method(&left, &Dunder::Le, args![right]),
-            GreaterThanOrEqual => self.invoke_method(&left, &Dunder::Ge, args![right]),
+            Equals => self.call_method(&left, &Dunder::Eq, args![right]),
+            NotEquals => self.call_method(&left, &Dunder::Ne, args![right]),
+            LessThan => self.call_method(&left, &Dunder::Lt, args![right]),
+            GreaterThan => self.call_method(&left, &Dunder::Gt, args![right]),
+            LessThanOrEqual => self.call_method(&left, &Dunder::Le, args![right]),
+            GreaterThanOrEqual => self.call_method(&left, &Dunder::Ge, args![right]),
             Is => Ok(TreewalkValue::Bool(left.is(&right))),
             IsNot => Ok(TreewalkValue::Bool(!left.is(&right))),
         }
     }
 
-    pub fn evaluate_unary_operation(
+    pub fn invoke_unary_operation(
         &self,
         op: &UnaryOp,
         right: TreewalkValue,

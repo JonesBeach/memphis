@@ -2,12 +2,9 @@ use std::{collections::HashMap, slice::Iter};
 
 use crate::{
     domain::{DomainResult, ExecutionError},
-    parser::types::{CallArgs, KwargsOperation},
     treewalk::{
-        protocols::TryEvalFrom,
-        result::Raise,
-        types::{Dict, Str, Tuple},
-        SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        types::{Dict, Str},
+        SymbolTable, TreewalkInterpreter, TreewalkValue,
     },
 };
 
@@ -22,42 +19,6 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn from(interpreter: &TreewalkInterpreter, call_args: &CallArgs) -> TreewalkResult<Self> {
-        let mut positional = call_args
-            .args
-            .iter()
-            .map(|arg| interpreter.evaluate_expr(arg))
-            .collect::<TreewalkResult<Vec<_>>>()?;
-
-        if let Some(ref args_var) = call_args.args_var {
-            let value = interpreter.evaluate_expr(args_var)?;
-            let args = Tuple::try_eval_from(value, interpreter)?;
-            // Clone each item in place without an intermediate Vec
-            positional.extend_from_slice(args.items());
-        };
-
-        #[allow(clippy::mutable_key_type)]
-        let mut kwargs = HashMap::default();
-        for kwarg in call_args.kwargs.iter() {
-            match kwarg {
-                KwargsOperation::Pair(key, value) => {
-                    let value = interpreter.evaluate_expr(value)?;
-                    insert_kwarg(&mut kwargs, key, value).raise(interpreter)?;
-                }
-                KwargsOperation::Unpacking(expr) => {
-                    let unpacked = interpreter.evaluate_expr(expr)?;
-                    for key_val in unpacked.clone().as_iterable().raise(interpreter)? {
-                        let key = key_val.as_str().raise(interpreter)?;
-                        let value = interpreter.read_index(&unpacked, &key_val)?;
-                        insert_kwarg(&mut kwargs, &key, value).raise(interpreter)?;
-                    }
-                }
-            }
-        }
-
-        Ok(Self::new(positional, kwargs))
-    }
-
     #[allow(clippy::mutable_key_type)]
     pub fn new(args: Vec<TreewalkValue>, kwargs: HashMap<String, TreewalkValue>) -> Self {
         Self {
@@ -71,9 +32,13 @@ impl Args {
         self.args.push(arg);
     }
 
-    pub fn with_bound(mut self, val: TreewalkValue) -> Self {
-        self.bind(val);
-        self
+    pub fn with_bound_receiver(mut self, val: Option<TreewalkValue>) -> Self {
+        if let Some(receiver) = val {
+            self.bind(receiver);
+            self
+        } else {
+            self
+        }
     }
 
     pub fn with_bound_new(mut self, val: TreewalkValue) -> Self {
@@ -158,19 +123,6 @@ impl Args {
         };
         base.append(&mut self.args.clone());
         base
-    }
-}
-
-fn insert_kwarg(
-    kwargs: &mut HashMap<String, TreewalkValue>,
-    key: &str,
-    value: TreewalkValue,
-) -> DomainResult<()> {
-    if kwargs.contains_key(key) {
-        Err(ExecutionError::key_error(key))
-    } else {
-        kwargs.insert(key.to_string(), value);
-        Ok(())
     }
 }
 

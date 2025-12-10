@@ -8,18 +8,20 @@ macro_rules! extract {
 }
 
 macro_rules! extract_member {
-    ($ctx:expr, $input:expr, $field:expr) => {
+    ($ctx:expr, $input:expr, $field:expr) => {{
+        use crate::treewalk::protocols::MemberRead;
         extract!($ctx, $input, Object)
             .get_member($ctx.interpreter(), $field)
             .expect(&format!("Failed to get field: {}", $field))
             .expect(&format!("Failed to get field: {}", $field))
-    };
-    ($ctx:expr, $input:expr, $field:expr, $pattern:ident) => {
+    }};
+    ($ctx:expr, $input:expr, $field:expr, $pattern:ident) => {{
+        use crate::treewalk::protocols::MemberRead;
         extract!($ctx, $input, $pattern)
             .get_member($ctx.interpreter(), $field)
             .expect(&format!("Failed to get field: {}", $field))
             .expect(&format!("Failed to get field: {}", $field))
-    };
+    }};
 }
 
 pub(crate) use extract;

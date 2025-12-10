@@ -150,7 +150,7 @@ impl Callable for HashBuiltin {
             return Ok(TreewalkValue::Int(arg.hash() as i64));
         }
 
-        let result = interpreter.invoke_method(&arg, Dunder::Hash, args![])?;
+        let result = interpreter.call_method(&arg, Dunder::Hash, args![])?;
 
         if let TreewalkValue::Int(_) = result {
             Ok(result)

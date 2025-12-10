@@ -158,7 +158,7 @@ pub trait Pausable {
                 let mut queue = List::try_eval_from(evaluated, interpreter)?.as_queue();
 
                 if let Some(item) = queue.pop_front() {
-                    interpreter.write_loop_index(index, item)?;
+                    interpreter.execute_loop_index_assignment(index, item)?;
                     self.context_mut().push(PausableFrame::new(
                         Frame::new(body.clone()),
                         PausableState::InForLoop {
@@ -233,7 +233,7 @@ pub trait Pausable {
                     if self.context().current_frame().is_finished() {
                         let item = queue.borrow_mut().pop_front();
                         if let Some(item) = item {
-                            interpreter.write_loop_index(&index, item)?;
+                            interpreter.execute_loop_index_assignment(&index, item)?;
                             self.context_mut().restart_frame();
                         } else {
                             self.context_mut().pop();

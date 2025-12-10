@@ -1,0 +1,63 @@
+use crate::{
+    domain::ExecutionError,
+    parser::types::{Expr, LoopIndex},
+    treewalk::{result::Raise, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+};
+
+impl TreewalkInterpreter {
+    /// Assignment functionality shared by traditional assignment such as `a = 1` and compound
+    /// assignment such as `a += 1`.
+    pub fn execute_assignment(&self, name: &Expr, value: TreewalkValue) -> TreewalkResult<()> {
+        match name {
+            Expr::Variable(name) => {
+                self.state.write(name, value);
+            }
+            Expr::IndexAccess { object, index } => {
+                let index_result = self.evaluate_expr(index)?;
+                let object_result = self.evaluate_expr(object)?;
+                object_result
+                    .clone()
+                    .into_index_write(self)?
+                    .ok_or_else(|| {
+                        ExecutionError::type_error(format!(
+                            "'{}' object does not support item assignment",
+                            object_result.get_type()
+                        ))
+                    })
+                    .raise(self)?
+                    .setitem(self, index_result, value)?;
+            }
+            Expr::MemberAccess { object, field } => {
+                let result = self.evaluate_expr(object)?;
+                result
+                    .clone()
+                    .into_member_writer()
+                    .ok_or_else(|| ExecutionError::attribute_error(result.class_name(self), field))
+                    .raise(self)?
+                    .set_member(self, field, value)?;
+            }
+            _ => return ExecutionError::type_error("cannot assign").raise(self),
+        }
+
+        Ok(())
+    }
+
+    pub fn execute_loop_index_assignment(
+        &self,
+        index: &LoopIndex,
+        value: TreewalkValue,
+    ) -> TreewalkResult<()> {
+        match index {
+            LoopIndex::Variable(var) => {
+                self.state.write(var, value);
+            }
+            LoopIndex::Tuple(tuple_index) => {
+                for (key, value) in tuple_index.iter().zip(value.as_iterable().raise(self)?) {
+                    self.state.write(key, value);
+                }
+            }
+        };
+
+        Ok(())
+    }
+}

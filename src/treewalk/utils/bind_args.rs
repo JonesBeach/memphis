@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use crate::{
     core::Container,
     domain::ExecutionError,
-    parser::types::Params,
     treewalk::{
         result::Raise,
-        types::Tuple,
+        types::{function::RuntimeParams, Tuple},
         utils::{check_args, Args},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -20,7 +19,7 @@ use crate::{
 pub fn bind_args(
     callee_name: &str,
     args: &Args,
-    expected_args: &Params,
+    expected_args: &RuntimeParams,
     interpreter: &TreewalkInterpreter,
 ) -> TreewalkResult<SymbolTable> {
     let mut table = HashMap::new();
@@ -47,7 +46,7 @@ pub fn bind_args(
             bound_args[index].clone()
         } else {
             match &arg_def.default {
-                Some(default_value) => interpreter.evaluate_expr(default_value)?,
+                Some(default_value) => default_value.clone(),
                 None => {
                     missing_args.push(arg_def.arg.clone());
                     // We use None here only because if we hit this case, we will return an

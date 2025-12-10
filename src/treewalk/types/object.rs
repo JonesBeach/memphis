@@ -105,7 +105,7 @@ impl IndexWrite for Container<Object> {
         index: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let _ = interpreter.invoke_method(
+        let _ = interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::SetItem,
             args![index, value],
@@ -119,7 +119,7 @@ impl IndexWrite for Container<Object> {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<()> {
-        let _ = interpreter.invoke_method(
+        let _ = interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::DelItem,
             args![index],
@@ -135,7 +135,7 @@ impl IndexRead for Container<Object> {
         interpreter: &TreewalkInterpreter,
         index: TreewalkValue,
     ) -> TreewalkResult<Option<TreewalkValue>> {
-        let result = interpreter.invoke_method(
+        let result = interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::GetItem,
             args![index],
@@ -276,7 +276,7 @@ impl NonDataDescriptor for Container<Object> {
         instance: Option<TreewalkValue>,
         owner: Container<Class>,
     ) -> TreewalkResult<TreewalkValue> {
-        interpreter.invoke_method(
+        interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::Get,
             args![
@@ -301,7 +301,7 @@ impl DataDescriptor for Container<Object> {
         instance: TreewalkValue,
         value: TreewalkValue,
     ) -> TreewalkResult<()> {
-        interpreter.invoke_method(
+        interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::Set,
             args![instance, value],
@@ -315,7 +315,7 @@ impl DataDescriptor for Container<Object> {
         interpreter: &TreewalkInterpreter,
         instance: TreewalkValue,
     ) -> TreewalkResult<()> {
-        interpreter.invoke_method(
+        interpreter.call_method(
             &TreewalkValue::Object(self.clone()),
             Dunder::Delete,
             args![instance],
@@ -447,7 +447,7 @@ impl Callable for NeBuiltin {
     /// result. This is only used when `Dunder::Ne` is not overridden by a user-defined class.
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let receiver = args.get_self().raise(interpreter)?;
-        let result = interpreter.invoke_method(&receiver, Dunder::Eq, args![args.get_arg(0)])?;
+        let result = interpreter.call_method(&receiver, Dunder::Eq, args![args.get_arg(0)])?;
 
         Ok(result.not())
     }

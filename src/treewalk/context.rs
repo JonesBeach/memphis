@@ -50,7 +50,7 @@ impl TreewalkContext {
 
     #[cfg(test)]
     pub fn read(&self, name: &str) -> Option<TreewalkValue> {
-        self.interpreter.read_global(name)
+        self.interpreter.load_var(name).ok()
     }
 
     #[cfg(test)]

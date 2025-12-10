@@ -200,9 +200,9 @@ impl TreewalkValue {
             .clone()
             .with_bound_new(TreewalkValue::Class(class.clone()));
         let object =
-            interpreter.invoke_method(&TreewalkValue::Class(class), Dunder::New, new_args)?;
+            interpreter.call_method(&TreewalkValue::Class(class), Dunder::New, new_args)?;
 
-        interpreter.invoke_method(&object, Dunder::Init, args)?;
+        interpreter.call_method(&object, Dunder::Init, args)?;
 
         Ok(object)
     }

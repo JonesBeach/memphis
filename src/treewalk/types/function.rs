@@ -6,16 +6,29 @@ use std::{
 use crate::{
     core::{log, Container, LogLevel},
     domain::{DebugStackFrame, Dunder, FunctionType, ToDebugStackFrame, Type},
-    parser::types::{Ast, Expr, Params, Variable},
+    parser::types::{Ast, Variable},
     treewalk::{
         macros::*,
         protocols::{Callable, DataDescriptor, MemberRead, MemberWrite, NonDataDescriptor},
         result::Raise,
         types::{Cell, Class, Dict, Module, Str, Tuple},
-        utils::{args, bind_args, Args, EnvironmentFrame},
+        utils::{bind_args, Args, EnvironmentFrame},
         Scope, SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkState, TreewalkValue,
     },
 };
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeParam {
+    pub arg: Variable,
+    pub default: Option<TreewalkValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct RuntimeParams {
+    pub args: Vec<RuntimeParam>,
+    pub args_var: Option<Variable>,
+    pub kwargs_var: Option<Variable>,
+}
 
 /// This is a placeholder for what is calcuated on a functions [`Dunder::Code`].
 /// TODO this is a stub, we may need to flesh this out with bytecode if we ever want to support
@@ -26,12 +39,11 @@ pub struct Code;
 #[derive(Clone, Debug)]
 pub struct Function {
     name: String,
-    pub args: Params,
+    pub args: RuntimeParams,
     pub body: Ast,
     pub module: Container<Module>,
     pub class_context: Option<Container<Class>>,
     line_number: usize,
-    decorators: Vec<Expr>,
     function_type: FunctionType,
     pub captured_env: Container<EnvironmentFrame>,
     scope: Scope,
@@ -75,9 +87,8 @@ impl Function {
     pub fn new(
         state: Container<TreewalkState>,
         name: &str,
-        args: Params,
+        args: RuntimeParams,
         body: Ast,
-        decorators: &[Expr],
         is_async: bool,
         line_number: usize,
     ) -> Self {
@@ -101,16 +112,15 @@ impl Function {
             module,
             class_context,
             line_number,
-            decorators: decorators.to_vec(),
             function_type,
             captured_env,
             scope: Scope::default(),
         }
     }
 
-    pub fn new_lambda(state: Container<TreewalkState>, args: Params, body: Ast) -> Self {
+    pub fn new_lambda(state: Container<TreewalkState>, args: RuntimeParams, body: Ast) -> Self {
         // TODO add line number
-        Self::new(state, "<lambda>", args, body, &[], false, 1)
+        Self::new(state, "<lambda>", args, body, false, 1)
     }
 
     pub fn new_anonymous_generator(state: Container<TreewalkState>, body: Ast) -> Self {
@@ -118,9 +128,8 @@ impl Function {
         Self::new(
             state,
             "<anonymous_generator>",
-            Params::default(),
+            RuntimeParams::default(),
             body,
-            &[],
             false,
             1,
         )
@@ -220,34 +229,11 @@ impl MemberWrite for Container<Function> {
     }
 }
 
-impl Container<Function> {
-    pub fn apply_decorators(
-        &self,
-        interpreter: &TreewalkInterpreter,
-    ) -> TreewalkResult<TreewalkValue> {
-        let mut result = TreewalkValue::Function(self.clone());
-        if self.borrow().decorators.is_empty() {
-            return Ok(result);
-        }
-
-        let decorators = self.borrow().decorators.clone();
-        for decorator in decorators.iter() {
-            let function = interpreter
-                .evaluate_expr(decorator)?
-                .as_callable()
-                .raise(interpreter)?;
-            result = interpreter.call(function, args![result])?;
-        }
-
-        Ok(result)
-    }
-}
-
 impl Callable for Container<Function> {
     fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
         let symbol_table = self.borrow().bind_args(&args, interpreter)?;
         let scope = Container::new(Scope::new(symbol_table));
-        interpreter.invoke_function(self.clone(), scope)
+        interpreter.enter_function(self.clone(), scope)
     }
 
     fn name(&self) -> String {

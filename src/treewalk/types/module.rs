@@ -6,15 +6,12 @@ use std::{
 };
 
 use crate::{
-    core::{log, Container, LogLevel},
-    domain::{DebugStackFrame, Dunder, ExecutionError, ModuleName, Source, ToDebugStackFrame},
-    errors::MemphisError,
+    core::Container,
+    domain::{DebugStackFrame, Dunder, ModuleName, Source, ToDebugStackFrame},
     treewalk::{
         protocols::MemberRead,
-        result::Raise,
         types::{Dict, Str},
-        Scope, TreewalkContext, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
-        TreewalkValue,
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -33,58 +30,6 @@ pub struct Module {
 }
 
 impl Module {
-    pub fn import(
-        interpreter: &TreewalkInterpreter,
-        module_name: &ModuleName,
-    ) -> TreewalkResult<Container<Self>> {
-        log(LogLevel::Debug, || format!("Reading {module_name}"));
-
-        let source = interpreter
-            .state
-            .memphis_state()
-            .load_source(module_name)
-            .raise(interpreter)?;
-
-        let module = Container::new(Module::new(module_name.clone(), source.clone()));
-
-        // Before we parse and evaluate this module, store an empty module as a placeholder. This
-        // is necessary to indicate to downstream modules that the upstream module which called
-        // them but hasn't yet finished importing is in progress. Without this, you would get an
-        // infinite loop from any circular imports.
-        //
-        // We don't need to store again after evaluating this module because the object pushed onto
-        // the module stack during execution uses `Container<_>` and refers to this same module.
-        interpreter.state.store_module(module.clone());
-
-        interpreter.state.save_line_number();
-        interpreter.state.push_stack_frame(&*module.borrow());
-        interpreter.state.push_module(module);
-
-        let mut context = TreewalkContext::from_state(source, interpreter.state.clone());
-
-        match context.run() {
-            Ok(_) => {}
-            Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
-            Err(MemphisError::Parser(e)) => {
-                println!("{e}");
-                return Err(interpreter.raise(ExecutionError::SyntaxError));
-            }
-            _ => unreachable!(),
-        };
-
-        interpreter
-            .state
-            .pop_stack_frame()
-            .ok_or_else(ExecutionError::runtime_error)
-            .raise(interpreter)?;
-        let module = interpreter
-            .state
-            .pop_module()
-            .ok_or_else(ExecutionError::runtime_error)
-            .raise(interpreter)?;
-        Ok(module)
-    }
-
     pub fn new(name: ModuleName, source: Source) -> Self {
         Self::_new(name, ModuleOrigin::File(source))
     }

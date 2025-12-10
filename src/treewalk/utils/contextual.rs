@@ -87,7 +87,7 @@ impl Contextual<TreewalkValue> {
         //
         // "obj1 has an overridden __eq__ method" will always evaluate to false when obj1 is a
         // class, which is what we detect by checking for the unbound case (receiver().is_none()).
-        let eq = match self.interpreter.resolve_method(&self.value, Dunder::Eq) {
+        let eq = match self.interpreter.load_method(&self.value, Dunder::Eq) {
             Err(TreewalkDisruption::Signal(_)) => todo!(),
             Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
             Ok(eq) => eq,
@@ -98,7 +98,7 @@ impl Contextual<TreewalkValue> {
 
         let result =
             self.interpreter
-                .invoke_method(&self.value, Dunder::Eq, args![other.value.clone()]);
+                .call_method(&self.value, Dunder::Eq, args![other.value.clone()]);
 
         match result {
             Ok(TreewalkValue::Bool(true)) => true,
@@ -110,9 +110,12 @@ impl Contextual<TreewalkValue> {
 
     /// Use the interpreter to evaluate the hash
     fn hash(&self) -> u64 {
-        let result = self
+        // TODO this is bad, we should really be using Dunders here
+        let function = self
             .interpreter
-            .call_function("hash", args![self.value.clone()]);
+            .load_callable("hash")
+            .expect("hash resolution failed");
+        let result = self.interpreter.call(function, args![self.value.clone()]);
 
         match result {
             Ok(TreewalkValue::Int(hash_val)) => hash_val as u64,

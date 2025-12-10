@@ -2,12 +2,10 @@ use std::fmt::{Display, Error, Formatter};
 
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{Dunder, Type},
+    domain::Type,
     treewalk::{
         protocols::{Callable, MemberRead, MemberWrite},
-        result::Raise,
-        types::{Str, Tuple},
-        utils::{args, Args},
+        utils::Args,
         Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
@@ -29,42 +27,8 @@ pub struct Class {
 }
 
 impl Class {
-    /// The primary public interface to create a class. A metaclass will be used if one is found to
-    /// have a `Dunder::New` method, falling back to the `Type::Type` metaclass.
-    pub fn new(
-        interpreter: &TreewalkInterpreter,
-        name: &str,
-        parent_classes: Vec<Container<Class>>,
-        metaclass: Option<Container<Class>>,
-    ) -> TreewalkResult<Container<Self>> {
-        let type_class = interpreter.state.class_of_type(&Type::Type);
-        let metaclass = Self::find_metaclass(metaclass, parent_classes.clone(), type_class);
-
-        let bases = if parent_classes.is_empty() {
-            TreewalkValue::Tuple(Tuple::default())
-        } else {
-            let bases = parent_classes
-                .iter()
-                .cloned()
-                .map(TreewalkValue::Class)
-                .collect::<Vec<TreewalkValue>>();
-            TreewalkValue::Tuple(Tuple::new(bases))
-        };
-
-        let args = args![
-            TreewalkValue::Class(metaclass.clone()),
-            TreewalkValue::Str(Str::new(name)),
-            bases,
-            TreewalkValue::Dict(Scope::default().as_dict(interpreter))
-        ];
-        interpreter
-            .invoke_method(&TreewalkValue::Class(metaclass), Dunder::New, args)?
-            .as_class()
-            .raise(interpreter)
-    }
-
     /// Create a class directly, bypassing metaclass logic.
-    /// Used for bootstrapping builtins, native types, and the standard library.
+    /// Used for native types and the standard library.
     pub fn new_direct(
         name: impl Into<String>,
         metaclass: Option<Container<Class>>,
@@ -147,7 +111,7 @@ impl Class {
     ///     that metaclass, unless it explicitly specifies a different one.
     ///   - If neither the child class nor any of its parents specify a metaclass, then the default
     ///     metaclass type is used.
-    fn find_metaclass(
+    pub fn find_metaclass(
         metaclass: Option<Container<Class>>,
         parent_classes: Vec<Container<Class>>,
         type_class: Container<Class>,
