@@ -23,18 +23,12 @@ impl Default for MemphisState {
 }
 
 impl MemphisState {
-    fn new() -> Self {
+    pub fn new() -> Self {
         MemphisState {
             import_resolver: ImportResolver::new(),
             debug_call_stack: DebugCallStack::new(),
             line_number: 1,
         }
-    }
-
-    pub fn from_source(source: &Source) -> Container<Self> {
-        let state = Container::new(Self::new());
-        state.register_root(source.path());
-        state
     }
 }
 

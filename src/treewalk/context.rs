@@ -16,7 +16,9 @@ pub struct TreewalkContext {
 impl TreewalkContext {
     pub fn new(source: Source) -> Self {
         let lexer = Lexer::new(&source);
-        let state = MemphisState::from_source(&source);
+        let state = Container::new(MemphisState::new());
+        state.register_root(source.path());
+
         let treewalk_state = Container::new(TreewalkState::new(state));
         let module = Module::new(ModuleName::main(), source);
         treewalk_state.enter_module(module);

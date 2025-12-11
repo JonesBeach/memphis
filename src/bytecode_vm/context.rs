@@ -26,7 +26,9 @@ impl VmContext {
 
     pub fn new_at_module(module_name: ModuleName, source: Source) -> Self {
         let lexer = Lexer::new(&source);
-        let state = MemphisState::from_source(&source);
+        let state = Container::new(MemphisState::new());
+        state.register_root(source.path());
+
         let runtime = Container::new(Runtime::new());
         let interpreter = VmInterpreter::new(module_name, state, runtime, source);
 
