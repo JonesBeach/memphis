@@ -1,7 +1,7 @@
 #[cfg(feature = "c_stdlib")]
 use crate::treewalk::types::cpython::import_from_cpython;
 use crate::{
-    core::Container,
+    core::{Container, Interpreter},
     domain::{ExecutionError, ModuleName},
     errors::MemphisError,
     treewalk::{

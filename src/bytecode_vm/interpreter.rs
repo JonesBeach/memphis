@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
-    core::{log, Container, Interpreter, LogLevel},
-    domain::{MemphisValue, ModuleName, Source},
+    core::{log, Container, LogLevel},
+    domain::{ModuleName, Source},
     errors::{MemphisError, MemphisResult},
     parser::Parser,
     runtime::MemphisState,
@@ -44,16 +44,6 @@ impl VmInterpreter {
 
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
         self.vm.read_global(name).ok()
-    }
-}
-
-impl Interpreter for VmInterpreter {
-    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue> {
-        self.execute(parser).map(Into::into)
-    }
-
-    fn read(&mut self, name: &str) -> Option<MemphisValue> {
-        self.read_global(name).map(Into::into)
     }
 }
 

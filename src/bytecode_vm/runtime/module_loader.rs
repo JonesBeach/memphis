@@ -37,7 +37,7 @@ impl ModuleLoader {
         );
 
         // TODO we shouldn't squash this error, but it's currently a MemphisError
-        let _ = context.run().expect("VM run failed");
+        let _ = context.run_inner().expect("VM run failed");
 
         Ok(module)
     }

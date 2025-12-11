@@ -1,6 +1,6 @@
 use crate::{
-    core::{Container, Interpreter},
-    domain::{ExecutionError, MemphisValue, ModuleName, RuntimeError},
+    core::Container,
+    domain::{ExecutionError, ModuleName, RuntimeError},
     errors::{MemphisError, MemphisResult},
     parser::{types::Ast, Parser},
     runtime::MemphisState,
@@ -67,16 +67,6 @@ impl TreewalkInterpreter {
         }
 
         Ok(result)
-    }
-}
-
-impl Interpreter for TreewalkInterpreter {
-    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue> {
-        self.execute(parser).map(Into::into)
-    }
-
-    fn read(&mut self, name: &str) -> Option<MemphisValue> {
-        self.load_var(name).ok().map(Into::into)
     }
 }
 

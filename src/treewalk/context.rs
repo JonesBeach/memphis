@@ -1,14 +1,12 @@
 use crate::{
-    core::Container,
-    domain::Source,
+    core::{Container, Interpreter},
+    domain::{MemphisValue, ModuleName, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
-    treewalk::{TreewalkInterpreter, TreewalkState, TreewalkValue},
+    runtime::MemphisState,
+    treewalk::{types::Module, TreewalkInterpreter, TreewalkState, TreewalkValue},
 };
-
-#[cfg(test)]
-use crate::{domain::ModuleName, runtime::MemphisState, treewalk::types::Module};
 
 pub struct TreewalkContext {
     lexer: Lexer,
@@ -16,7 +14,6 @@ pub struct TreewalkContext {
 }
 
 impl TreewalkContext {
-    #[cfg(test)]
     pub fn new(source: Source) -> Self {
         let lexer = Lexer::new(&source);
         let state = MemphisState::from_source(&source);
@@ -38,7 +35,7 @@ impl TreewalkContext {
         }
     }
 
-    pub fn run(&mut self) -> MemphisResult<TreewalkValue> {
+    pub fn run_inner(&mut self) -> MemphisResult<TreewalkValue> {
         // Destructure to break the borrow into disjoint pieces
         let TreewalkContext {
             lexer, interpreter, ..
@@ -48,13 +45,30 @@ impl TreewalkContext {
         interpreter.execute(&mut parser)
     }
 
-    #[cfg(test)]
-    pub fn read(&self, name: &str) -> Option<TreewalkValue> {
+    pub fn read_inner(&self, name: &str) -> Option<TreewalkValue> {
         self.interpreter.load_var(name).ok()
+    }
+
+    pub fn add_line_inner(&mut self, line: &str) {
+        self.lexer.add_line(line);
     }
 
     #[cfg(test)]
     pub fn interpreter(&self) -> &TreewalkInterpreter {
         &self.interpreter
+    }
+}
+
+impl Interpreter for TreewalkContext {
+    fn run(&mut self) -> MemphisResult<MemphisValue> {
+        self.run_inner().map(Into::into)
+    }
+
+    fn read(&mut self, name: &str) -> Option<MemphisValue> {
+        self.read_inner(name).map(Into::into)
+    }
+
+    fn add_line(&mut self, line: &str) {
+        self.add_line_inner(line);
     }
 }

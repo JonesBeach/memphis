@@ -1,7 +1,7 @@
 use crate::{
     bytecode_vm::{Runtime, VmInterpreter, VmValue},
-    core::Container,
-    domain::{ModuleName, Source},
+    core::{Container, Interpreter},
+    domain::{MemphisValue, ModuleName, Source},
     errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
@@ -48,7 +48,7 @@ impl VmContext {
         }
     }
 
-    pub fn run(&mut self) -> MemphisResult<VmValue> {
+    pub fn run_inner(&mut self) -> MemphisResult<VmValue> {
         // Destructure to break the borrow into disjoint pieces
         let VmContext {
             lexer, interpreter, ..
@@ -57,22 +57,35 @@ impl VmContext {
         let mut parser = Parser::new(lexer);
         interpreter.execute(&mut parser)
     }
-}
 
-#[cfg(test)]
-impl VmContext {
-    pub fn read(&self, name: &str) -> Option<VmValue> {
+    pub fn read_inner(&self, name: &str) -> Option<VmValue> {
         self.interpreter.read_global(name)
     }
 
-    pub fn add_line(&mut self, line: &str) {
+    pub fn add_line_inner(&mut self, line: &str) {
         self.lexer.add_line(line);
     }
 
+    #[cfg(test)]
     pub fn interpreter(&self) -> &VmInterpreter {
         &self.interpreter
     }
 }
+
+impl Interpreter for VmContext {
+    fn run(&mut self) -> MemphisResult<MemphisValue> {
+        self.run_inner().map(Into::into)
+    }
+
+    fn read(&mut self, name: &str) -> Option<MemphisValue> {
+        self.read_inner(name).map(Into::into)
+    }
+
+    fn add_line(&mut self, line: &str) {
+        self.add_line_inner(line);
+    }
+}
+
 #[cfg(any(test, feature = "wasm"))]
 mod wasm_support {
     use super::*;

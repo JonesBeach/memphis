@@ -13,11 +13,13 @@ fn init_path(path: &str) -> VmContext {
 }
 
 pub fn eval(text: &str) -> VmValue {
-    init(text).run().expect("Failed to evaluate test string")
+    init(text)
+        .run_inner()
+        .expect("Failed to evaluate test string")
 }
 
 pub fn eval_expect_error(text: &str) -> RuntimeError {
-    match init(text).run() {
+    match init(text).run_inner() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,
         Err(_) => panic!("Expected an execution error!"),
@@ -26,19 +28,19 @@ pub fn eval_expect_error(text: &str) -> RuntimeError {
 
 pub fn run(text: &str) -> VmContext {
     let mut context = init(text);
-    context.run().expect("VM run failed!");
+    context.run_inner().expect("VM run failed!");
     context
 }
 
 pub fn run_path(path: &str) -> VmContext {
     let mut context = init_path(path);
-    context.run().expect("VM run failed!");
+    context.run_inner().expect("VM run failed!");
     context
 }
 
 pub fn run_expect_error(text: &str) -> RuntimeError {
     let mut context = init(text);
-    match context.run() {
+    match context.run_inner() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,
         Err(_) => panic!("Expected an execution error!"),
@@ -47,7 +49,7 @@ pub fn run_expect_error(text: &str) -> RuntimeError {
 
 pub fn run_path_expect_error(path: &str) -> RuntimeError {
     let mut context = init_path(path);
-    match context.run() {
+    match context.run_inner() {
         Ok(_) => panic!("Expected an error!"),
         Err(MemphisError::Execution(e)) => return e,
         Err(_) => panic!("Expected an execution error!"),
@@ -55,7 +57,7 @@ pub fn run_path_expect_error(path: &str) -> RuntimeError {
 }
 
 pub fn read(context: &VmContext, name: &str) -> VmValue {
-    context.read(name).expect("Failed to read variable.")
+    context.read_inner(name).expect("Failed to read variable.")
 }
 
 pub fn read_attr(context: &VmContext, name: &str, attr: &str) -> VmValue {

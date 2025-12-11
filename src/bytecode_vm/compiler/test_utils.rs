@@ -117,7 +117,7 @@ macro_rules! compile_incremental {
         ( $( $line:expr ),* ) => {{
             let mut context = $crate::bytecode_vm::VmContext::default();
             $(
-                context.add_line($line);
+                context.add_line_inner($line);
             )*
             context.compile().expect("Failed to compile")
         }};

@@ -7,7 +7,7 @@ pub use container::Container;
 pub use log::{log, log_impure, LogLevel};
 pub use utils::floats_equal;
 
-use crate::{domain::MemphisValue, errors::MemphisResult, parser::Parser};
+use crate::{domain::MemphisValue, errors::MemphisResult};
 
 /// Return types which None are used internally, but should never be displayed to the developer.
 pub trait Voidable {
@@ -17,9 +17,9 @@ pub trait Voidable {
 }
 
 pub trait Interpreter {
-    /// The primary interpreter entrypoint which is provided an AST in the form of the `Parser`.
-    fn run(&mut self, parser: &mut Parser) -> MemphisResult<MemphisValue>;
+    fn run(&mut self) -> MemphisResult<MemphisValue>;
     fn read(&mut self, name: &str) -> Option<MemphisValue>;
+    fn add_line(&mut self, line: &str);
 }
 
 pub mod memphis_utils {
