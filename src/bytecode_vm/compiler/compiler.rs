@@ -30,12 +30,10 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new(module_name: ModuleName, filename: &str) -> Self {
-        let code = CodeObject::new(module_name.clone(), filename);
-
         Self {
             filename: filename.to_string(),
             module_name,
-            code_stack: vec![code],
+            code_stack: vec![],
             line_number: 0,
         }
     }
@@ -43,6 +41,8 @@ impl Compiler {
     /// Compile the provided `Ast` and return a `CodeObject` which can be executed. This is not
     /// destructive, meaning multiple calls will build upon the same `CodeObject`.
     pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CodeObject> {
+        let code = CodeObject::new(self.module_name.clone(), &self.filename);
+        self.code_stack.push(code);
         self.compile_ast(ast)?;
         self.finalize()
     }
@@ -104,7 +104,7 @@ impl Compiler {
         Ok(placeholder)
     }
 
-    pub fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
+    fn compile_stmt(&mut self, stmt: &Statement) -> CompilerResult<()> {
         self.line_number = stmt.start_line;
 
         match &stmt.kind {
@@ -852,6 +852,11 @@ impl Compiler {
         self.code_stack
             .last()
             .ok_or_else(|| internal_error("Failed to find current code object."))
+    }
+
+    #[cfg(test)]
+    pub fn set_module_name(&mut self, name: ModuleName) {
+        self.module_name = name;
     }
 }
 

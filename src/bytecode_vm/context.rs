@@ -21,16 +21,12 @@ impl Default for VmContext {
 
 impl VmContext {
     pub fn new(source: Source) -> Self {
-        Self::new_at_module(ModuleName::main(), source)
-    }
-
-    pub fn new_at_module(module_name: ModuleName, source: Source) -> Self {
         let lexer = Lexer::new(&source);
         let state = Container::new(MemphisState::new());
         state.register_root(source.path());
 
         let runtime = Container::new(Runtime::new());
-        let interpreter = VmInterpreter::new(module_name, state, runtime, source);
+        let interpreter = VmInterpreter::new(ModuleName::main(), state, runtime, source);
 
         Self { lexer, interpreter }
     }
@@ -71,6 +67,11 @@ impl VmContext {
     #[cfg(test)]
     pub fn interpreter(&self) -> &VmInterpreter {
         &self.interpreter
+    }
+
+    #[cfg(test)]
+    pub fn set_module_name(&mut self, name: ModuleName) {
+        self.interpreter.set_module_name(name);
     }
 }
 

@@ -45,6 +45,11 @@ impl VmInterpreter {
     pub fn read_global(&self, name: &str) -> Option<VmValue> {
         self.vm.read_global(name).ok()
     }
+
+    #[cfg(test)]
+    pub fn set_module_name(&mut self, name: ModuleName) {
+        self.compiler.set_module_name(name);
+    }
 }
 
 #[cfg(test)]

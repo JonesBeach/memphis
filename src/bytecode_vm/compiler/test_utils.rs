@@ -8,7 +8,7 @@ use crate::{
     errors::MemphisError,
     parser::{
         test_utils::*,
-        types::{Expr, Statement},
+        types::{ast, Expr, Statement},
     },
 };
 
@@ -30,8 +30,9 @@ pub fn compile_expr(expr: Expr) -> Bytecode {
 
 pub fn compile_stmt(stmt: Statement) -> Bytecode {
     let mut compiler = init();
+    let ast = ast![stmt];
     compiler
-        .compile_stmt(&stmt)
+        .compile(&ast)
         .expect("Failed to compile test Statement!");
     compiler.bytecode()
 }
@@ -43,9 +44,9 @@ pub fn compile(text: &str) -> CodeObject {
 }
 
 pub fn compile_at_module(text: &str, module_name: ModuleName) -> CodeObject {
-    VmContext::new_at_module(module_name, Source::from_text(text))
-        .compile()
-        .expect("Failed to compile test program!")
+    let mut ctx = VmContext::new(Source::from_text(text));
+    ctx.set_module_name(module_name);
+    ctx.compile().expect("Failed to compile test program!")
 }
 
 pub fn compile_err(text: &str) -> CompilerError {
@@ -57,7 +58,9 @@ pub fn compile_err(text: &str) -> CompilerError {
 }
 
 pub fn compile_err_at_module(text: &str, module_name: ModuleName) -> CompilerError {
-    match VmContext::new_at_module(module_name, Source::from_text(text)).compile() {
+    let mut ctx = VmContext::new(Source::from_text(text));
+    ctx.set_module_name(module_name);
+    match ctx.compile() {
         Ok(_) => panic!("Expected an CompilerError!"),
         Err(MemphisError::Compiler(e)) => e,
         Err(_) => panic!("Expected a CompilerError!"),
