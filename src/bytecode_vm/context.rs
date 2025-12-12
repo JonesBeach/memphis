@@ -34,10 +34,8 @@ impl VmContext {
         state: Container<MemphisState>,
         runtime: Container<Runtime>,
     ) -> Self {
-        let lexer = Lexer::new(&source);
-
         Self {
-            lexer,
+            lexer: Lexer::new(&source),
             compiler: Compiler::new(
                 module_name,
                 source.path().to_str().expect("Failed to convert path."),

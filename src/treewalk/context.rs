@@ -21,10 +21,8 @@ impl TreewalkContext {
 
     /// Initialize a context from a [`Source`] and existing treewalk state.
     pub fn from_state(source: Source, treewalk_state: Container<TreewalkState>) -> Self {
-        let lexer = Lexer::new(&source);
-
         Self {
-            lexer,
+            lexer: Lexer::new(&source),
             interpreter: TreewalkInterpreter::new(treewalk_state),
         }
     }
