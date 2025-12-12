@@ -1,61 +1,5 @@
-use crate::{
-    bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
-    core::{log, Container, LogLevel},
-    domain::{ModuleName, Source},
-    errors::{MemphisError, MemphisResult},
-    parser::Parser,
-    runtime::MemphisState,
-};
-
-pub struct VmInterpreter {
-    compiler: Compiler,
-    vm: VirtualMachine,
-}
-
-impl VmInterpreter {
-    pub fn new(
-        module_name: ModuleName,
-        state: Container<MemphisState>,
-        runtime: Container<Runtime>,
-        source: Source,
-    ) -> Self {
-        Self {
-            compiler: Compiler::new(
-                module_name,
-                source.path().to_str().expect("Failed to convert path."),
-            ),
-            vm: VirtualMachine::new(state, runtime),
-        }
-    }
-
-    pub fn compile(&mut self, parser: &mut Parser) -> MemphisResult<CodeObject> {
-        let mut ast = parser.parse().map_err(MemphisError::Parser)?;
-        // This simulates CPython `eval` mode, which we assume to be for the tests and REPL.
-        // TODO make this explicit with `CompileMode` or similar.
-        ast.rewrite_last_expr_to_return();
-        self.compiler.compile(&ast).map_err(MemphisError::Compiler)
-    }
-
-    pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<VmValue> {
-        let code = self.compile(parser)?;
-        log(LogLevel::Trace, || format!("{code}"));
-        self.vm.execute(code).map_err(MemphisError::Execution)
-    }
-
-    pub fn read_global(&self, name: &str) -> Option<VmValue> {
-        self.vm.read_global(name).ok()
-    }
-
-    #[cfg(test)]
-    pub fn set_module_name(&mut self, name: ModuleName) {
-        self.compiler.set_module_name(name);
-    }
-}
-
 #[cfg(test)]
 mod tests_vm_interpreter {
-    use super::*;
-
     use crate::{
         bytecode_vm::{
             runtime::{
@@ -63,15 +7,10 @@ mod tests_vm_interpreter {
                 Reference,
             },
             test_utils::*,
+            VmValue,
         },
         domain::test_utils::*,
     };
-
-    impl VmInterpreter {
-        pub fn vm(&self) -> &VirtualMachine {
-            &self.vm
-        }
-    }
 
     #[test]
     fn expression() {
@@ -628,7 +567,7 @@ x = [2,"Hello"]
 "#;
         let ctx = run(text);
         let list = extract!(ctx, "x", List);
-        let values = list.resolved_items(ctx.interpreter().vm()).unwrap();
+        let values = list.resolved_items(ctx.vm()).unwrap();
         assert_eq!(values, vec![int!(2), str!("Hello")]);
     }
 
@@ -679,7 +618,7 @@ x = (2,"Hello")
 "#;
         let ctx = run(text);
         let tuple = extract!(ctx, "x", Tuple);
-        let values = tuple.resolved_items(ctx.interpreter().vm()).unwrap();
+        let values = tuple.resolved_items(ctx.vm()).unwrap();
         assert_eq!(values, vec![int!(2), str!("Hello")]);
     }
 
@@ -699,7 +638,7 @@ x = {"a": 22}
 "#;
         let ctx = run(text);
         let dict = extract!(ctx, "x", Dict);
-        let values = dict.resolved_items(ctx.interpreter().vm()).unwrap();
+        let values = dict.resolved_items(ctx.vm()).unwrap();
         assert_eq!(values, vec![(str!("a"), int!(22))]);
     }
 
