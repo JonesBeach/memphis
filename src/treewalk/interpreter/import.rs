@@ -97,9 +97,7 @@ impl TreewalkInterpreter {
         let module = self.prepare_imported_module(module_name, &source);
         self.enter_imported_module(module);
 
-        let mut context = TreewalkContext::from_state(source, self.state.clone());
-
-        match context.run_inner() {
+        match TreewalkContext::from_state(source, self.state.clone()).run_inner() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
