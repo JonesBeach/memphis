@@ -1,7 +1,7 @@
 #[cfg(feature = "c_stdlib")]
 use crate::treewalk::types::cpython::import_from_cpython;
 use crate::{
-    core::{Container, Interpreter},
+    core::Container,
     domain::{ExecutionError, ModuleName},
     errors::MemphisError,
     treewalk::{
@@ -78,7 +78,7 @@ impl TreewalkInterpreter {
 
         let mut context = TreewalkContext::from_state(source, self.state.clone());
 
-        match context.run() {
+        match context.run_inner() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
