@@ -21,14 +21,9 @@ impl Default for VmContext {
 
 impl VmContext {
     pub fn new(source: Source) -> Self {
-        let lexer = Lexer::new(&source);
-        let state = Container::new(MemphisState::new());
-        state.register_root(source.path());
-
+        let state = Self::init_state(source.clone());
         let runtime = Container::new(Runtime::new());
-        let interpreter = VmInterpreter::new(ModuleName::main(), state, runtime, source);
-
-        Self { lexer, interpreter }
+        Self::from_state(ModuleName::main(), source, state, runtime)
     }
 
     /// Initialize a context from a [`Source`] and existing treewalk state.
@@ -62,6 +57,12 @@ impl VmContext {
 
     pub fn add_line_inner(&mut self, line: &str) {
         self.lexer.add_line(line);
+    }
+
+    fn init_state(source: Source) -> Container<MemphisState> {
+        let state = Container::new(MemphisState::new());
+        state.register_root(source.path());
+        state
     }
 
     #[cfg(test)]
