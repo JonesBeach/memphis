@@ -19,17 +19,6 @@ impl TreewalkContext {
         Self::from_state(source, state)
     }
 
-    fn init_state(source: Source) -> Container<TreewalkState> {
-        let state = Container::new(MemphisState::new());
-        state.register_root(source.path());
-
-        let treewalk_state = Container::new(TreewalkState::new(state));
-        let module = Container::new(Module::new(ModuleName::main(), source.clone()));
-        treewalk_state.push_module_context(module);
-
-        treewalk_state
-    }
-
     /// Initialize a context from a [`Source`] and existing treewalk state.
     pub fn from_state(source: Source, treewalk_state: Container<TreewalkState>) -> Self {
         let lexer = Lexer::new(&source);
@@ -56,6 +45,17 @@ impl TreewalkContext {
 
     pub fn add_line_inner(&mut self, line: &str) {
         self.lexer.add_line(line);
+    }
+
+    fn init_state(source: Source) -> Container<TreewalkState> {
+        let state = Container::new(MemphisState::new());
+        state.register_root(source.path());
+
+        let treewalk_state = Container::new(TreewalkState::new(state));
+        let module = Container::new(Module::new(ModuleName::main(), source.clone()));
+        treewalk_state.push_module_context(module);
+
+        treewalk_state
     }
 
     #[cfg(test)]
