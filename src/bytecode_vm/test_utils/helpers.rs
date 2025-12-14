@@ -62,12 +62,11 @@ pub fn read(context: &VmContext, name: &str) -> VmValue {
 
 pub fn read_attr(context: &VmContext, name: &str, attr: &str) -> VmValue {
     let object = read(context, name);
-    let interpreter = context.interpreter();
-    let reference = interpreter
+    let reference = context
         .vm()
         .resolve_raw_attr(&object, attr)
         .expect("Failed to resolve");
-    interpreter
+    context
         .vm()
         .deref(reference)
         .expect("Failed to get owned value")

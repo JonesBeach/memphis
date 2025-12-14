@@ -30,10 +30,11 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new(module_name: ModuleName, filename: &str) -> Self {
+        let code = CodeObject::new(module_name.clone(), filename);
         Self {
             filename: filename.to_string(),
             module_name,
-            code_stack: vec![],
+            code_stack: vec![code],
             line_number: 0,
         }
     }
@@ -41,8 +42,6 @@ impl Compiler {
     /// Compile the provided `Ast` and return a `CodeObject` which can be executed. This is not
     /// destructive, meaning multiple calls will build upon the same `CodeObject`.
     pub fn compile(&mut self, ast: &Ast) -> CompilerResult<CodeObject> {
-        let code = CodeObject::new(self.module_name.clone(), &self.filename);
-        self.code_stack.push(code);
         self.compile_ast(ast)?;
         self.finalize()
     }
@@ -60,6 +59,7 @@ impl Compiler {
     }
 
     fn finalize(&self) -> CompilerResult<CodeObject> {
+        assert_eq!(self.code_stack.len(), 1);
         let mut code = self.ensure_code_object()?.clone();
         code.bytecode.push(Opcode::Halt);
         Ok(code)
@@ -856,7 +856,10 @@ impl Compiler {
 
     #[cfg(test)]
     pub fn set_module_name(&mut self, name: ModuleName) {
-        self.module_name = name;
+        self.module_name = name.clone();
+        // We initialize the code stack in Compiler::new, so we must inject any overridden module
+        // names there too.
+        self.code_stack[0].module_name = name;
     }
 }
 

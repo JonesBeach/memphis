@@ -1,8 +1,8 @@
 #[cfg(feature = "c_stdlib")]
 use crate::treewalk::types::cpython::import_from_cpython;
 use crate::{
-    core::{Container, Interpreter},
-    domain::{ExecutionError, ModuleName},
+    core::Container,
+    domain::{DomainResult, ExecutionError, ModuleName, Source},
     errors::MemphisError,
     treewalk::{
         import_utils, result::Raise, types::Module, TreewalkContext, TreewalkDisruption,
@@ -54,13 +54,11 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn import_module(&self, module_name: &ModuleName) -> TreewalkResult<Container<Module>> {
-        let source = self
-            .state
-            .memphis_state()
-            .load_source(module_name)
-            .raise(self)?;
-
+    fn prepare_imported_module(
+        &self,
+        module_name: &ModuleName,
+        source: &Source,
+    ) -> Container<Module> {
         let module = Container::new(Module::new(module_name.clone(), source.clone()));
 
         // Before we parse and evaluate this module, store an empty module as a placeholder. This
@@ -72,13 +70,34 @@ impl TreewalkInterpreter {
         // the module stack during execution uses `Container<_>` and refers to this same module.
         self.state.store_module(module.clone());
 
+        module
+    }
+
+    fn enter_imported_module(&self, module: Container<Module>) {
         self.state.save_line_number();
-        self.state.push_stack_frame(&*module.borrow());
-        self.state.push_module(module);
+        self.state.push_module_context(module);
+    }
 
-        let mut context = TreewalkContext::from_state(source, self.state.clone());
+    fn exit_imported_module(&self) -> DomainResult<Container<Module>> {
+        self.state
+            .pop_stack_frame()
+            .ok_or_else(ExecutionError::runtime_error)?;
+        self.state
+            .pop_module()
+            .ok_or_else(ExecutionError::runtime_error)
+    }
 
-        match context.run() {
+    fn import_module(&self, module_name: &ModuleName) -> TreewalkResult<Container<Module>> {
+        let source = self
+            .state
+            .memphis_state()
+            .load_source(module_name)
+            .raise(self)?;
+
+        let module = self.prepare_imported_module(module_name, &source);
+        self.enter_imported_module(module);
+
+        match TreewalkContext::from_state(source, self.state.clone()).run_inner() {
             Ok(_) => {}
             Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
             Err(MemphisError::Parser(e)) => {
@@ -88,15 +107,7 @@ impl TreewalkInterpreter {
             _ => unreachable!(),
         };
 
-        self.state
-            .pop_stack_frame()
-            .ok_or_else(ExecutionError::runtime_error)
-            .raise(self)?;
-        let module = self
-            .state
-            .pop_module()
-            .ok_or_else(ExecutionError::runtime_error)
-            .raise(self)?;
+        let module = self.exit_imported_module().raise(self)?;
         Ok(module)
     }
 }

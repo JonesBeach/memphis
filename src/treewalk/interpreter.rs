@@ -28,8 +28,8 @@ pub struct TreewalkInterpreter {
 impl Default for TreewalkInterpreter {
     fn default() -> Self {
         let state = Container::new(TreewalkState::new(Container::new(MemphisState::default())));
-        let module = Module::new_empty(ModuleName::main());
-        state.enter_module(module);
+        let module = Container::new(Module::new_empty(ModuleName::main()));
+        state.push_module_context(module);
         Self::new(state)
     }
 }

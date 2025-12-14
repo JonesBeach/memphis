@@ -1028,7 +1028,7 @@ class Foo:
 f = Foo()
 "#;
         let ctx = run(text);
-        let runtime = ctx.interpreter().vm().runtime.borrow();
+        let runtime = ctx.vm().runtime.borrow();
         let objects: Vec<&VmValue> = runtime
             .heap
             .iter()

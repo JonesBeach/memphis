@@ -65,9 +65,9 @@ impl Container<TreewalkState> {
         self.borrow().memphis_state.clone()
     }
 
-    pub fn enter_module(&self, module: Module) {
-        self.push_stack_frame(&module);
-        self.push_module(Container::new(module));
+    pub fn push_module_context(&self, module: Container<Module>) {
+        self.push_stack_frame(&*module.borrow());
+        self.push_module(module);
     }
 
     pub fn save_line_number(&self) {
