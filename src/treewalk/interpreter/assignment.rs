@@ -10,7 +10,7 @@ impl TreewalkInterpreter {
     pub fn execute_assignment(&self, name: &Expr, value: TreewalkValue) -> TreewalkResult<()> {
         match name {
             Expr::Variable(name) => {
-                self.state.write(name, value);
+                self.state.write(name.as_str(), value);
             }
             Expr::IndexAccess { object, index } => {
                 let index_result = self.evaluate_expr(index)?;
@@ -32,9 +32,11 @@ impl TreewalkInterpreter {
                 result
                     .clone()
                     .into_member_writer()
-                    .ok_or_else(|| ExecutionError::attribute_error(result.class_name(self), field))
+                    .ok_or_else(|| {
+                        ExecutionError::attribute_error(result.class_name(self), field.as_str())
+                    })
                     .raise(self)?
-                    .set_member(self, field, value)?;
+                    .set_member(self, field.as_str(), value)?;
             }
             _ => return ExecutionError::type_error("cannot assign").raise(self),
         }
@@ -49,11 +51,11 @@ impl TreewalkInterpreter {
     ) -> TreewalkResult<()> {
         match index {
             LoopIndex::Variable(var) => {
-                self.state.write(var, value);
+                self.state.write(var.as_str(), value);
             }
             LoopIndex::Tuple(tuple_index) => {
                 for (key, value) in tuple_index.iter().zip(value.as_iterable().raise(self)?) {
-                    self.state.write(key, value);
+                    self.state.write(key.as_str(), value);
                 }
             }
         };

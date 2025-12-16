@@ -1,4 +1,7 @@
-use crate::parser::types::{BinOp, CompareOp, LogicalOp};
+use crate::{
+    domain::Identifier,
+    parser::types::{BinOp, CompareOp, LogicalOp},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -39,7 +42,7 @@ pub enum Token {
     ReturnTypeArrow,
     Indent,
     Dedent,
-    Identifier(String),
+    Identifier(Identifier),
     StringLiteral(String),
     RawStringLiteral(String),
     BytesLiteral(Vec<u8>),

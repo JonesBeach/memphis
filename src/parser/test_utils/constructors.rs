@@ -1,6 +1,6 @@
 macro_rules! var {
     ($name:expr) => {
-        $crate::parser::types::Expr::Variable($name.to_string())
+        $crate::parser::types::Expr::Variable($crate::domain::Identifier::new($name).unwrap())
     };
 }
 
@@ -101,6 +101,23 @@ macro_rules! stmt_return {
     };
 }
 
+macro_rules! stmt_reg_import {
+    ($($expr:expr),* $(,)?) => {
+        $crate::parser::test_utils::stmt!($crate::parser::types::StatementKind::RegularImport(vec![
+            $($expr),*
+        ]))
+    };
+}
+
+macro_rules! stmt_from_import {
+    ($path:expr, $mode:expr) => {
+        $crate::parser::test_utils::stmt!($crate::parser::types::StatementKind::SelectiveImport {
+            import_path: $crate::domain::FromImportPath::from($path),
+            mode: $mode,
+        })
+    };
+}
+
 macro_rules! bin_op {
     ($left:expr, $op:ident, $right:expr) => {
         $crate::parser::types::Expr::BinaryOperation {
@@ -192,14 +209,14 @@ macro_rules! yield_from {
 macro_rules! param {
     ($name:expr) => {
         $crate::parser::types::Param {
-            arg: $name.to_string(),
+            arg: $crate::domain::Identifier::new($name).unwrap(),
             default: None,
         }
     };
 
     ($name:expr, $default:expr) => {
         $crate::parser::types::Param {
-            arg: $name.to_string(),
+            arg: $crate::domain::Identifier::new($name).unwrap(),
             default: Some($default),
         }
     };
@@ -229,7 +246,7 @@ macro_rules! member_access {
     ($object:expr, $field:expr) => {
         $crate::parser::types::Expr::MemberAccess {
             object: Box::new($object),
-            field: $field.to_string(),
+            field: $crate::domain::Identifier::new($field).unwrap(),
         }
     };
 }
@@ -257,14 +274,18 @@ macro_rules! method_call {
 macro_rules! func_call {
     ($name:expr) => {
         $crate::parser::types::Expr::FunctionCall {
-            callee: $crate::parser::types::Callee::Symbol($name.to_string()),
+            callee: $crate::parser::types::Callee::Symbol(
+                $crate::domain::Identifier::new($name).unwrap(),
+            ),
             args: call_args![],
         }
     };
 
     ($name:expr, $args:expr) => {
         $crate::parser::types::Expr::FunctionCall {
-            callee: $crate::parser::types::Callee::Symbol($name.to_string()),
+            callee: $crate::parser::types::Callee::Symbol(
+                $crate::domain::Identifier::new($name).unwrap(),
+            ),
             args: $args,
         }
     };
@@ -296,8 +317,34 @@ macro_rules! import {
     ($module:expr, $alias:expr) => {
         $crate::parser::types::RegularImport {
             module_path: $crate::domain::ModulePath::from($module),
-            alias: Some($alias.into()),
+            alias: Some($crate::domain::Identifier::new($alias).unwrap()),
         }
+    };
+}
+
+macro_rules! from_import_list {
+    ($($expr:expr),* $(,)?) => {
+        $crate::parser::types::FromImportMode::List(vec![$($expr),*])
+    };
+}
+
+macro_rules! from_import_all {
+    () => {
+        $crate::parser::types::FromImportMode::All
+    };
+}
+
+macro_rules! from_import_item {
+    ($symbol:expr) => {
+        $crate::parser::types::FromImportItem::direct(
+            $crate::domain::Identifier::new($symbol).unwrap(),
+        )
+    };
+    ($symbol:expr, $alias:expr) => {
+        $crate::parser::types::FromImportItem::aliased(
+            $crate::domain::Identifier::new($symbol).unwrap(),
+            $crate::domain::Identifier::new($alias).unwrap(),
+        )
     };
 }
 
@@ -311,6 +358,9 @@ pub(crate) use dict;
 pub(crate) use dict_pair;
 pub(crate) use dict_unpack;
 pub(crate) use float;
+pub(crate) use from_import_all;
+pub(crate) use from_import_item;
+pub(crate) use from_import_list;
 pub(crate) use func_call;
 pub(crate) use func_call_callee;
 pub(crate) use import;
@@ -328,6 +378,8 @@ pub(crate) use slice_op;
 pub(crate) use stmt;
 pub(crate) use stmt_assign;
 pub(crate) use stmt_expr;
+pub(crate) use stmt_from_import;
+pub(crate) use stmt_reg_import;
 pub(crate) use stmt_return;
 pub(crate) use str;
 pub(crate) use tuple;

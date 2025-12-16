@@ -1,20 +1,26 @@
+use crate::domain::Identifier;
+
 /// A raw module path exactly as written by the user.
 /// No validation, no resolution, no filesystem meaning.
 /// Used only during parsing.
 #[derive(Default, Debug, PartialEq, Clone, Eq, Hash)]
-pub struct ModulePath(Vec<String>);
+pub struct ModulePath(Vec<Identifier>);
 
 impl ModulePath {
-    pub fn new(segments: Vec<String>) -> Self {
+    pub fn new(segments: Vec<Identifier>) -> Self {
         Self(segments)
     }
 
     pub fn as_str(&self) -> String {
-        self.0.join(".")
+        self.segments_as_str().join(".")
     }
 
-    pub fn segments(&self) -> &[String] {
+    pub fn segments(&self) -> &[Identifier] {
         &self.0
+    }
+
+    pub fn segments_as_str(&self) -> Vec<String> {
+        self.0.iter().map(|s| s.to_string()).collect::<Vec<_>>()
     }
 
     pub fn head(&self) -> Option<&str> {
@@ -26,14 +32,23 @@ impl ModulePath {
         let segments = if path_str.is_empty() {
             vec![]
         } else {
-            path_str.split('.').map(|s| s.to_string()).collect()
+            path_str
+                .split('.')
+                .map(|s| Identifier::new(s).expect("Invalid identifier"))
+                .collect()
         };
         ModulePath(segments)
     }
 }
 
+/// Parser representation of the module path that is found in selective import statements.
+/// This specifically holds inside the brackets:
+/// from [a.b.c] import *
+/// from [.a.b] import *
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
-pub enum ImportPath {
+pub enum FromImportPath {
+    /// When an import begins with no dots, it is an absolute import and this just wraps a
+    /// ModulePath.
     Absolute(ModulePath),
     /// Any import path which _starts_ with a dot. The `usize` represents the number of levels up
     /// to look for the path. This means that this example is in the same directory.
@@ -50,20 +65,7 @@ pub enum ImportPath {
     Relative(usize, ModulePath),
 }
 
-impl ImportPath {
-    pub fn as_str(&self) -> String {
-        match self {
-            ImportPath::Absolute(path) => path.as_str(),
-            ImportPath::Relative(levels, path) => ".".repeat(*levels) + &path.as_str(),
-        }
-    }
-
-    pub fn head(&self) -> Option<&str> {
-        match self {
-            ImportPath::Absolute(path) | ImportPath::Relative(_, path) => path.head(),
-        }
-    }
-
+impl FromImportPath {
     #[cfg(test)]
     pub fn from(path_str: &str) -> Self {
         // Count leading dots (if any)
@@ -81,9 +83,9 @@ impl ImportPath {
         let path = ModulePath::from(rest);
 
         if dot_count == 0 {
-            ImportPath::Absolute(path)
+            FromImportPath::Absolute(path)
         } else {
-            ImportPath::Relative(dot_count, path)
+            FromImportPath::Relative(dot_count, path)
         }
     }
 }
@@ -94,13 +96,13 @@ mod test_module_path {
 
     #[test]
     fn module_path_as_str() {
-        let p = ModulePath::new(vec!["a".into(), "b".into()]);
+        let p = ModulePath::from("a.b");
         assert_eq!(p.as_str(), "a.b");
     }
 
     #[test]
     fn module_path_head() {
-        let p = ModulePath::new(vec!["a".into(), "b".into()]);
+        let p = ModulePath::from("a.b");
         assert_eq!(p.head(), Some("a"));
     }
 }
@@ -111,49 +113,49 @@ mod test_import_path {
 
     #[test]
     fn parses_absolute_single() {
-        let path = ImportPath::from("os");
-        assert_eq!(path, ImportPath::Absolute(ModulePath::from("os")));
+        let path = FromImportPath::from("os");
+        assert_eq!(path, FromImportPath::Absolute(ModulePath::from("os")));
     }
 
     #[test]
     fn parses_absolute_nested() {
-        let path = ImportPath::from("package.module");
+        let path = FromImportPath::from("package.module");
         assert_eq!(
             path,
-            ImportPath::Absolute(ModulePath::from("package.module"))
+            FromImportPath::Absolute(ModulePath::from("package.module"))
         );
     }
 
     #[test]
     fn parses_relative_same_dir() {
-        let path = ImportPath::from(".package.module");
+        let path = FromImportPath::from(".package.module");
         assert_eq!(
             path,
-            ImportPath::Relative(1, ModulePath::from("package.module"))
+            FromImportPath::Relative(1, ModulePath::from("package.module"))
         );
     }
 
     #[test]
     fn parses_relative_parent_dir() {
-        let path = ImportPath::from("..package.module");
+        let path = FromImportPath::from("..package.module");
         assert_eq!(
             path,
-            ImportPath::Relative(2, ModulePath::from("package.module"))
+            FromImportPath::Relative(2, ModulePath::from("package.module"))
         );
     }
 
     #[test]
     fn parses_relative_only_dots() {
-        let path = ImportPath::from(".");
-        assert_eq!(path, ImportPath::Relative(1, ModulePath::default()));
+        let path = FromImportPath::from(".");
+        assert_eq!(path, FromImportPath::Relative(1, ModulePath::default()));
 
-        let path = ImportPath::from("..");
-        assert_eq!(path, ImportPath::Relative(2, ModulePath::default()));
+        let path = FromImportPath::from("..");
+        assert_eq!(path, FromImportPath::Relative(2, ModulePath::default()));
     }
 
     #[test]
     fn parses_empty_path_as_absolute_empty() {
-        let path = ImportPath::from("");
-        assert_eq!(path, ImportPath::Absolute(ModulePath::default()));
+        let path = FromImportPath::from("");
+        assert_eq!(path, FromImportPath::Absolute(ModulePath::default()));
     }
 }

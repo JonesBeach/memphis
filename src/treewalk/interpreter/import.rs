@@ -2,7 +2,7 @@
 use crate::treewalk::types::cpython::import_from_cpython;
 use crate::{
     core::Container,
-    domain::{DomainResult, ExecutionError, ModuleName, Source},
+    domain::{DomainResult, ExecutionError, Identifier, ModuleName, Source},
     errors::MemphisError,
     treewalk::{
         import_utils, result::Raise, types::Module, TreewalkContext, TreewalkDisruption,
@@ -29,12 +29,12 @@ impl TreewalkInterpreter {
         &self,
         module_name: &ModuleName,
         module: TreewalkValue,
-        alias: &Option<String>,
+        alias: &Option<Identifier>,
     ) -> TreewalkResult<()> {
         // This is a case where it's simpler if we have an alias: just make the module available
         // at the alias.
         if let Some(alias) = alias {
-            self.state.write(alias, module);
+            self.state.write(alias.as_str(), module);
         } else {
             // Otherwise, we must create a module chain. For example:
             //

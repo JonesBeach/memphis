@@ -4,7 +4,7 @@ use crate::{
     core::Container,
     domain::{
         resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError,
-        ImportPath, ModuleName, ToDebugStackFrame, Type,
+        FromImportPath, ModuleName, ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
@@ -212,7 +212,7 @@ impl Container<TreewalkState> {
         ))
     }
 
-    pub fn resolve_import_path(&self, import_path: &ImportPath) -> DomainResult<ModuleName> {
+    pub fn resolve_import_path(&self, import_path: &FromImportPath) -> DomainResult<ModuleName> {
         let current_module = self.current_module();
         let current_module = current_module.borrow();
         let current_module = current_module.name();

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::domain::{Dunder, ImportPath, ModuleName, ModulePath};
+use crate::domain::{Dunder, FromImportPath, ModuleName, ModulePath};
 
 pub enum ImportResolutionError {
     NoParentPackage,
@@ -19,12 +19,12 @@ impl ImportResolutionError {
 }
 
 pub fn resolve_import_path(
-    import_path: &ImportPath,
+    import_path: &FromImportPath,
     current_module: &ModuleName,
 ) -> ImportResult<ModuleName> {
     match import_path {
-        ImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
-        ImportPath::Relative(levels, tail) => {
+        FromImportPath::Absolute(mp) => Ok(resolve_absolute_path(mp)),
+        FromImportPath::Relative(levels, tail) => {
             if current_module.is_main() {
                 return Err(ImportResolutionError::NoParentPackage);
             }
@@ -37,7 +37,7 @@ pub fn resolve_import_path(
             let base = current_module
                 .strip_last(*levels)
                 .ok_or(ImportResolutionError::BeyondTopLevel)?;
-            Ok(base.join(tail.segments()))
+            Ok(base.join(tail.segments_as_str()))
         }
     }
 }
@@ -45,7 +45,7 @@ pub fn resolve_import_path(
 // Convert from a parser `ModulePath` into a runtime `ModuleName`. For absolute paths, this is a
 // direct mapping.
 pub fn resolve_absolute_path(module_path: &ModulePath) -> ModuleName {
-    ModuleName::from_segments(module_path.segments())
+    ModuleName::from_segments(&module_path.segments_as_str())
 }
 
 /// Finds a module but does not read it (returns absolute path).

@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
-    domain::{ExceptionLiteral, ImportPath, ModulePath},
+    domain::{ExceptionLiteral, FromImportPath, Identifier, ModulePath},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -30,7 +30,7 @@ impl Ast {
         detector.found_yield
     }
 
-    pub fn free_vars(&self) -> Vec<String> {
+    pub fn free_vars(&self) -> Vec<Identifier> {
         let mut fa_visitor = FunctionAnalysisVisitor::new();
         self.accept(&mut fa_visitor);
         fa_visitor.get_free_vars()
@@ -78,11 +78,6 @@ macro_rules! ast {
 
 pub(crate) use ast;
 
-/// There are a handful of places where we reference a variable and it must be a variable name
-/// only, not an expression. There is nothing to resolve or evaluate on these Using [`String`]
-/// here works, but we create a [`Variable`] to be more expressive and add type-safety.
-pub type Variable = String;
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum DictOperation {
     Pair(Expr, Expr),
@@ -92,11 +87,12 @@ pub enum DictOperation {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TypeNode {
     Generic {
-        base_type: String,
+        base_type: Identifier,
         parameters: Vec<TypeNode>,
     },
     Union(Vec<TypeNode>),
-    Basic(String),
+    Basic(Identifier),
+    Ellipsis, // we don't do much with this right now
 }
 
 /// The three conversion modes supported in Python f-strings. These are specified by !s (the
@@ -127,7 +123,7 @@ pub enum FStringPart {
 #[derive(Debug, PartialEq, Clone)]
 pub struct RegularImport {
     pub module_path: ModulePath,
-    pub alias: Option<String>,
+    pub alias: Option<Identifier>,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -180,7 +176,7 @@ pub enum LogicalOp {
 /// An individual function parameter and its optional default.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Param {
-    pub arg: Variable,
+    pub arg: Identifier,
     pub default: Option<Expr>,
 }
 
@@ -199,19 +195,19 @@ pub struct Params {
     /// def foo(*args):
     ///     ...
     /// ```
-    pub args_var: Option<Variable>,
+    pub args_var: Option<Identifier>,
 
     /// An optional variable to hold arguments passed in by keyword.
     /// ```python
     /// def foo(**kwargs):
     ///     ...
     /// ```
-    pub kwargs_var: Option<Variable>,
+    pub kwargs_var: Option<Identifier>,
 }
 
 /// Call-site argument
 pub enum CallArg {
-    Keyword { arg: Variable, expr: Expr },
+    Keyword { arg: Identifier, expr: Expr },
     Positional(Expr),
 }
 
@@ -219,8 +215,8 @@ pub enum CallArg {
 // This is similar to DictOperation, but where the keys are required to be strings. This matches
 // the Python rules and simplifies usage.
 pub enum KwargsOperation {
-    Unpacking(Expr),    // Represents **kwargs_var
-    Pair(String, Expr), // Represents a key-value pair
+    Unpacking(Expr),        // Represents **kwargs_var
+    Pair(Identifier, Expr), // Represents a key-value pair
 }
 
 /// Call-site argument list
@@ -258,14 +254,14 @@ pub struct SliceParams {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ForClause {
-    pub indices: Vec<String>,
+    pub indices: Vec<Identifier>,
     pub iterable: Expr,
     pub condition: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Callee {
-    Symbol(String),
+    Symbol(Identifier),
     Expr(Box<Expr>),
 }
 
@@ -277,7 +273,7 @@ pub enum Expr {
     Integer(i64),
     Float(f64),
     Boolean(bool),
-    Variable(String),
+    Variable(Identifier),
     StringLiteral(String),
     BytesLiteral(Vec<u8>),
     List(Vec<Expr>),
@@ -313,7 +309,7 @@ pub enum Expr {
     },
     MemberAccess {
         object: Box<Expr>,
-        field: String,
+        field: Identifier,
     },
     IndexAccess {
         object: Box<Expr>,
@@ -325,10 +321,6 @@ pub enum Expr {
     },
     FunctionCall {
         callee: Callee,
-        args: CallArgs,
-    },
-    ClassInstantiation {
-        name: String,
         args: CallArgs,
     },
     GeneratorComprehension {
@@ -356,9 +348,9 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn as_variable(&self) -> Option<String> {
+    pub fn as_variable(&self) -> Option<&Identifier> {
         match self {
-            Expr::Variable(name) => Some(name.to_string()),
+            Expr::Variable(ident) => Some(ident),
             _ => None,
         }
     }
@@ -393,7 +385,7 @@ pub struct ExceptionInstance {
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExceptClause {
     pub exception_types: Vec<ExceptionLiteral>,
-    pub alias: Option<String>,
+    pub alias: Option<Identifier>,
     pub block: Ast,
 }
 
@@ -404,9 +396,9 @@ pub struct ConditionalAst {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum SelectMode {
+pub enum FromImportMode {
     All, // represents '*'
-    List(Vec<ImportedItem>),
+    List(Vec<FromImportItem>),
 }
 
 /// This represents one of the comma-separated values being imported. This is only used in
@@ -416,35 +408,32 @@ pub enum SelectMode {
 /// from module_a import one, two as three, four
 /// ```
 #[derive(Debug, PartialEq, Clone)]
-pub struct ImportedItem {
-    symbol: String,
-    alias: Option<String>,
+pub struct FromImportItem {
+    symbol: Identifier,
+    alias: Option<Identifier>,
 }
 
-impl ImportedItem {
-    pub fn direct<S: Into<String>>(symbol: S) -> Self {
-        Self::new(symbol.into(), None)
+impl FromImportItem {
+    pub fn direct(symbol: Identifier) -> Self {
+        Self::new(symbol, None)
     }
 
-    pub fn aliased<S: Into<String>>(symbol: S, alias: S) -> Self {
-        Self::new(symbol.into(), Some(alias.into()))
+    pub fn aliased(symbol: Identifier, alias: Identifier) -> Self {
+        Self::new(symbol, Some(alias))
     }
 
-    fn new<S: Into<String>>(symbol: S, alias: Option<S>) -> Self {
-        Self {
-            symbol: symbol.into(),
-            alias: alias.map(Into::into),
-        }
+    fn new(symbol: Identifier, alias: Option<Identifier>) -> Self {
+        Self { symbol, alias }
     }
 
     #[inline]
-    pub fn original(&self) -> &str {
+    pub fn original(&self) -> &Identifier {
         &self.symbol
     }
 
     #[inline]
-    pub fn imported(&self) -> &str {
-        self.alias.as_deref().unwrap_or(&self.symbol)
+    pub fn imported(&self) -> &Identifier {
+        self.alias.as_ref().unwrap_or(&self.symbol)
     }
 }
 
@@ -457,14 +446,14 @@ pub enum LoopIndex {
     /// for i in a:
     ///     ...
     /// ```
-    Variable(String),
+    Variable(Identifier),
 
     /// Used when the range returns a tuple of values.
     /// ```python
     /// for k, v in a.items()
     ///     ...
     /// ```
-    Tuple(Vec<String>),
+    Tuple(Vec<Identifier>),
 }
 
 /// Perform the listed operation before assigning the result.
@@ -547,21 +536,21 @@ pub enum StatementKind {
         value: Box<Expr>,
     },
     FunctionDef {
-        name: String,
+        name: Identifier,
         args: Params,
         body: Ast,
         decorators: Vec<Expr>,
         is_async: bool,
     },
     ClassDef {
-        name: String,
+        name: Identifier,
         parents: Vec<Expr>,
-        metaclass: Option<String>,
+        metaclass: Option<Identifier>,
         body: Ast,
     },
     Return(Vec<Expr>),
-    Nonlocal(Vec<Variable>),
-    Global(Vec<Variable>),
+    Nonlocal(Vec<Identifier>),
+    Global(Vec<Identifier>),
     IfElse {
         if_part: ConditionalAst,
         elif_parts: Vec<ConditionalAst>,
@@ -576,8 +565,8 @@ pub enum StatementKind {
     },
     RegularImport(Vec<RegularImport>),
     SelectiveImport {
-        import_path: ImportPath,
-        mode: SelectMode,
+        import_path: FromImportPath,
+        mode: FromImportMode,
     },
     TryExcept {
         try_block: Ast,
@@ -588,7 +577,7 @@ pub enum StatementKind {
     Raise(Option<ExceptionInstance>),
     ContextManager {
         expr: Expr,
-        variable: Option<String>,
+        variable: Option<Identifier>,
         block: Ast,
     },
 }

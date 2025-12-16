@@ -4880,4 +4880,24 @@ b = "unsend" in dir(net.Connection)
         assert_read_eq!(ctx, "a", bool!(true));
         assert_read_eq!(ctx, "b", bool!(false));
     }
+
+    #[test]
+    fn invalid_identifier() {
+        let input = r#"
+a.123 = 4
+"#;
+        // TODO this is ugly (ParserError vs RuntimeError) but better to lock it down.
+        let e = eval_expect_parser_error(input);
+        assert!(matches!(e, crate::errors::ParserError::SyntaxError));
+
+        // Attribute names are runtime strings, not required to be valid Python identifiers.
+        let input = r#"
+class Foo: pass
+f = Foo()
+setattr(f, "123", 456)
+a = getattr(f, "123")
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "a", int!(456));
+    }
 }

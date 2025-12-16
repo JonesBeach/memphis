@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Error, Formatter};
 
-use crate::{bytecode_vm::VmValue, core::Voidable, treewalk::TreewalkValue};
+use crate::{bytecode_vm::VmValue, core::Voidable, domain::Identifier, treewalk::TreewalkValue};
 
 use super::{DebugCallStack, MemphisValue};
 
@@ -259,11 +259,11 @@ pub enum ExceptionLiteral {
     TypeError,
     AttributeError,
     NameError,
-    Custom(String),
+    Custom(Identifier),
 }
 
-impl From<String> for ExceptionLiteral {
-    fn from(value: String) -> Self {
+impl From<Identifier> for ExceptionLiteral {
+    fn from(value: Identifier) -> Self {
         match value.as_str() {
             "ZeroDivisionError" => Self::ZeroDivisionError,
             "Exception" => Self::Exception,

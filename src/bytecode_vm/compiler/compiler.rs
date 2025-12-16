@@ -6,10 +6,11 @@ use crate::{
         CompilerResult,
     },
     core::{log, LogLevel},
-    domain::{resolve_import_path, Context, FunctionType, ImportPath, ModuleName},
+    domain::{resolve_import_path, Context, FromImportPath, FunctionType, Identifier, ModuleName},
     parser::types::{
-        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr, LogicalOp,
-        LoopIndex, Params, RegularImport, SelectMode, Statement, StatementKind, UnaryOp,
+        Ast, BinOp, CallArgs, Callee, CompareOp, ConditionalAst, DictOperation, Expr,
+        FromImportMode, LogicalOp, LoopIndex, Params, RegularImport, Statement, StatementKind,
+        UnaryOp,
     },
 };
 
@@ -184,9 +185,11 @@ impl Compiler {
         }
     }
 
-    fn generate_load(&mut self, name: &str) -> CompilerResult<Opcode> {
+    fn generate_load(&mut self, name: &Identifier) -> CompilerResult<Opcode> {
         match self.context() {
-            Context::Global => Ok(Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?)),
+            Context::Global => Ok(Opcode::LoadGlobal(
+                self.get_or_set_nonlocal_index(name.as_str())?,
+            )),
             Context::Local => {
                 // Check locals first (top of the stack)
                 if let Some(index) = self.get_local_index(name)? {
@@ -207,14 +210,16 @@ impl Compiler {
                 }
 
                 // If it's not local or free, it's global. Put that quote on the wall.
-                Ok(Opcode::LoadGlobal(self.get_or_set_nonlocal_index(name)?))
+                Ok(Opcode::LoadGlobal(
+                    self.get_or_set_nonlocal_index(name.as_str())?,
+                ))
             }
         }
     }
 
-    fn generate_store(&mut self, name: &str) -> CompilerResult<Opcode> {
+    fn generate_store(&mut self, name: &Identifier) -> CompilerResult<Opcode> {
         let opcode = match self.context() {
-            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name)?),
+            Context::Global => Opcode::StoreGlobal(self.get_or_set_nonlocal_index(name.as_str())?),
             Context::Local => Opcode::StoreFast(self.get_or_set_local_index(name)?),
         };
         Ok(opcode)
@@ -265,7 +270,7 @@ impl Compiler {
                 self.compile_expr(object)?;
                 // Push the value to be assigned onto the stack
                 self.compile_expr(right)?;
-                let attr_index = self.get_or_set_nonlocal_index(field)?;
+                let attr_index = self.get_or_set_nonlocal_index(field.as_str())?;
                 self.emit(Opcode::SetAttr(attr_index))?;
             }
             Expr::IndexAccess { .. } => {
@@ -411,7 +416,8 @@ impl Compiler {
             // We push the free vars onto the stack in reverse order so that we will pop
             // them off in order.
             for free_var in free_vars.iter().rev() {
-                self.compile_load(free_var)?;
+                // TODO this is a hack, we should either treat these as identifiers or not!
+                self.compile_load(&Identifier::new(free_var).unwrap())?;
             }
             self.emit(Opcode::MakeClosure(free_vars.len()))?;
         }
@@ -420,7 +426,7 @@ impl Compiler {
 
     fn compile_function_definition(
         &mut self,
-        name: &str,
+        name: &Identifier,
         args: &Params,
         body: &Ast,
         decorators: &[Expr],
@@ -437,10 +443,10 @@ impl Compiler {
         let varnames = args
             .args
             .iter()
-            .map(|p| p.arg.clone())
+            .map(|p| p.arg.to_string())
             .collect::<Vec<String>>();
         let code_object = CodeObject::new_function(
-            name,
+            name.as_str(),
             self.module_name.clone(),
             &self.filename,
             &varnames,
@@ -454,7 +460,7 @@ impl Compiler {
             self.compile_expr(decorator)?;
         }
 
-        // Make the functino/closure itself out of the compiled code
+        // Make the function/closure itself out of the compiled code
         self.make_function(code)?;
 
         // Apply the decorators - innermost outward
@@ -481,7 +487,7 @@ impl Compiler {
             let symbol_index = item
                 .alias
                 .as_ref()
-                .map(|alias| self.get_or_set_nonlocal_index(alias))
+                .map(|alias| self.get_or_set_nonlocal_index(alias.as_str()))
                 .unwrap_or_else(|| {
                     let head = item.module_path.head().expect("No head!");
                     self.get_or_set_nonlocal_index(head)
@@ -493,8 +499,8 @@ impl Compiler {
 
     fn compile_selective_import(
         &mut self,
-        import_path: &ImportPath,
-        mode: &SelectMode,
+        import_path: &FromImportPath,
+        mode: &FromImportMode,
     ) -> CompilerResult<()> {
         let module_name = resolve_import_path(import_path, &self.module_name)
             .map_err(|e| CompilerError::import_error(e.message()))?;
@@ -503,13 +509,13 @@ impl Compiler {
         self.emit(Opcode::ImportFrom(index))?;
 
         match mode {
-            SelectMode::All => self.emit(Opcode::ImportAll)?,
-            SelectMode::List(items) => {
+            FromImportMode::All => self.emit(Opcode::ImportAll)?,
+            FromImportMode::List(items) => {
                 for item in items {
-                    let attr_index = self.get_or_set_nonlocal_index(item.original())?;
+                    let attr_index = self.get_or_set_nonlocal_index(item.original().as_str())?;
                     self.emit(Opcode::LoadAttr(attr_index))?;
 
-                    let alias_index = self.get_or_set_nonlocal_index(item.imported())?;
+                    let alias_index = self.get_or_set_nonlocal_index(item.imported().as_str())?;
                     self.emit(Opcode::StoreGlobal(alias_index))?;
                 }
             }
@@ -520,9 +526,9 @@ impl Compiler {
 
     fn compile_class_definition(
         &mut self,
-        name: &str,
+        name: &Identifier,
         parents: &[Expr],
-        metaclass: &Option<String>,
+        metaclass: &Option<Identifier>,
         body: &Ast,
     ) -> CompilerResult<()> {
         if !parents.is_empty() {
@@ -537,7 +543,7 @@ impl Compiler {
         }
 
         let code_object = CodeObject::new_function(
-            name,
+            name.as_str(),
             self.module_name.clone(),
             &self.filename,
             &[],
@@ -586,12 +592,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_load(&mut self, name: &str) -> CompilerResult<()> {
+    fn compile_load(&mut self, name: &Identifier) -> CompilerResult<()> {
         let load = self.generate_load(name)?;
         self.emit(load)
     }
 
-    fn compile_store(&mut self, name: &str) -> CompilerResult<()> {
+    fn compile_store(&mut self, name: &Identifier) -> CompilerResult<()> {
         let store = self.generate_store(name)?;
         self.emit(store)
     }
@@ -761,14 +767,14 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_member_access(&mut self, object: &Expr, field: &str) -> CompilerResult<()> {
+    fn compile_member_access(&mut self, object: &Expr, field: &Identifier) -> CompilerResult<()> {
         self.compile_expr(object)?;
-        let attr_index = self.get_or_set_nonlocal_index(field)?;
+        let attr_index = self.get_or_set_nonlocal_index(field.as_str())?;
         self.emit(Opcode::LoadAttr(attr_index))?;
         Ok(())
     }
 
-    fn get_or_set_local_index(&mut self, name: &str) -> CompilerResult<LocalIndex> {
+    fn get_or_set_local_index(&mut self, name: &Identifier) -> CompilerResult<LocalIndex> {
         log(LogLevel::Trace, || {
             format!("Looking for '{name}' in locals")
         });
@@ -782,14 +788,14 @@ impl Compiler {
         }
     }
 
-    fn get_local_index(&self, name: &str) -> CompilerResult<Option<LocalIndex>> {
+    fn get_local_index(&self, name: &Identifier) -> CompilerResult<Option<LocalIndex>> {
         let code = self.ensure_code_object()?;
         Ok(self.resolve_local_index_for_code(name, code))
     }
 
-    fn get_or_set_free_var(&mut self, name: &str) -> CompilerResult<FreeIndex> {
+    fn get_or_set_free_var(&mut self, name: &Identifier) -> CompilerResult<FreeIndex> {
         let code = self.ensure_code_object_mut()?;
-        let index = if let Some(index) = find_index(&code.freevars, name) {
+        let index = if let Some(index) = find_index(&code.freevars, name.as_str()) {
             index
         } else {
             let new_index = code.freevars.len();
@@ -799,10 +805,16 @@ impl Compiler {
         Ok(Index::new(index))
     }
 
-    fn resolve_local_index_for_code(&self, name: &str, code: &CodeObject) -> Option<LocalIndex> {
-        find_index(&code.varnames, name).map(Index::new)
+    fn resolve_local_index_for_code(
+        &self,
+        name: &Identifier,
+        code: &CodeObject,
+    ) -> Option<LocalIndex> {
+        find_index(&code.varnames, name.as_str()).map(Index::new)
     }
 
+    // We didn't convert this one to use Identifier yet because of how it interacts with
+    // ModuleName.
     fn get_or_set_nonlocal_index(&mut self, name: &str) -> CompilerResult<NonlocalIndex> {
         log(LogLevel::Trace, || {
             format!("Looking for '{name}' in globals")
@@ -879,11 +891,12 @@ mod tests_bytecode {
 
     use crate::{
         bytecode_vm::compiler::{test_utils::*, Bytecode},
-        parser::{
-            test_utils::*,
-            types::{ast, ImportedItem},
-        },
+        parser::{test_utils::*, types::ast},
     };
+
+    fn ident(input: &str) -> Identifier {
+        Identifier::new(input).expect("Invalid identifier")
+    }
 
     impl Compiler {
         pub fn bytecode(&self) -> Bytecode {
@@ -1294,7 +1307,7 @@ mod tests_bytecode {
     #[test]
     fn for_in_loop() {
         let s = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Variable("i".to_string()),
+            index: LoopIndex::Variable(ident("i")),
             iterable: list![int!(1), int!(2)],
             body: ast![stmt_assign!(var!("a"), int!(-1))],
             else_block: None
@@ -1505,7 +1518,7 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import() {
-        let expr = stmt!(StatementKind::RegularImport(vec![import!("other")]));
+        let expr = stmt_reg_import![import!("other")];
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1518,7 +1531,7 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import_multiple_layers() {
-        let expr = stmt!(StatementKind::RegularImport(vec![import!("other.module")]));
+        let expr = stmt_reg_import![import!("other.module")];
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1531,7 +1544,7 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import_alias() {
-        let expr = stmt!(StatementKind::RegularImport(vec![import!("other", "foo")]));
+        let expr = stmt_reg_import![import!("other", "foo")];
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1544,10 +1557,7 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import_multiple() {
-        let expr = stmt!(StatementKind::RegularImport(vec![
-            import!("first"),
-            import!("second"),
-        ]));
+        let expr = stmt_reg_import![import!("first"), import!("second"),];
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1562,10 +1572,7 @@ mod tests_bytecode {
 
     #[test]
     fn regular_import_multiple_alias() {
-        let expr = stmt!(StatementKind::RegularImport(vec![
-            import!("first", "first_alias"),
-            import!("second", "second_alias"),
-        ]));
+        let expr = stmt_reg_import![import!("a", "b"), import!("c", "d"),];
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1580,10 +1587,7 @@ mod tests_bytecode {
 
     #[test]
     fn selective_import_all() {
-        let expr = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::All,
-        });
+        let expr = stmt_from_import!("other", from_import_all!());
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1593,10 +1597,7 @@ mod tests_bytecode {
 
     #[test]
     fn selective_import_single() {
-        let expr = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![ImportedItem::direct("foo")]),
-        });
+        let expr = stmt_from_import!("other", from_import_list![from_import_item!("foo")]);
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1610,10 +1611,7 @@ mod tests_bytecode {
 
     #[test]
     fn selective_import_single_alias() {
-        let expr = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![ImportedItem::aliased("foo", "bar")]),
-        });
+        let expr = stmt_from_import!("other", from_import_list![from_import_item!("foo", "bar")]);
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,
@@ -1627,13 +1625,10 @@ mod tests_bytecode {
 
     #[test]
     fn selective_import_multiple_alias() {
-        let expr = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![
-                ImportedItem::aliased("foo", "bar"),
-                ImportedItem::aliased("one", "two")
-            ]),
-        });
+        let expr = stmt_from_import!(
+            "other",
+            from_import_list![from_import_item!("a", "b"), from_import_item!("c", "d")]
+        );
         let bytecode = compile_stmt(expr);
         assert_eq!(
             bytecode,

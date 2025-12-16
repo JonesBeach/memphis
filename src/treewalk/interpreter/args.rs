@@ -37,7 +37,7 @@ impl TreewalkInterpreter {
             match kwarg {
                 KwargsOperation::Pair(key, value) => {
                     let value = self.evaluate_expr(value)?;
-                    insert_kwarg(&mut kwargs, key, value).raise(self)?;
+                    insert_kwarg(&mut kwargs, key.as_str(), value).raise(self)?;
                 }
                 KwargsOperation::Unpacking(expr) => {
                     let unpacked = self.evaluate_expr(expr)?;
@@ -64,7 +64,7 @@ impl TreewalkInterpreter {
                     None => None,
                 };
                 Ok(RuntimeParam {
-                    arg: param.arg.clone(),
+                    arg: param.arg.to_string(),
                     default,
                 })
             })
@@ -72,8 +72,12 @@ impl TreewalkInterpreter {
 
         Ok(RuntimeParams {
             args: runtime_params,
-            args_var: call_params.args_var.clone(),
-            kwargs_var: call_params.kwargs_var.clone(),
+            args_var: call_params.args_var.as_ref().map(|c| c.to_string()).clone(),
+            kwargs_var: call_params
+                .kwargs_var
+                .as_ref()
+                .map(|c| c.to_string())
+                .clone(),
         })
     }
 }

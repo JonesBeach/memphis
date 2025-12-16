@@ -99,7 +99,7 @@ impl Generator {
             let for_in_loop = Statement::new(
                 1,
                 StatementKind::ForInLoop {
-                    index: LoopIndex::Variable(index.to_string()),
+                    index: LoopIndex::Variable(index.clone()),
                     iterable: first_clause.iterable.clone(),
                     body: loop_body,
                     else_block: None,

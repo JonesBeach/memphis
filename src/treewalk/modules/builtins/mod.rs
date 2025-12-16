@@ -16,6 +16,7 @@ fn get_builtins() -> Vec<Box<dyn CloneableCallable>> {
         Box::new(CallableBuiltin),
         Box::new(DirBuiltin),
         Box::new(GetattrBuiltin),
+        Box::new(SetattrBuiltin),
         Box::new(GlobalsBuiltin),
         Box::new(HashBuiltin),
         Box::new(IsinstanceBuiltin),
@@ -52,6 +53,8 @@ pub struct CallableBuiltin;
 pub struct DirBuiltin;
 #[derive(Clone)]
 pub struct GetattrBuiltin;
+#[derive(Clone)]
+pub struct SetattrBuiltin;
 #[derive(Clone)]
 pub struct GlobalsBuiltin;
 #[derive(Clone)]
@@ -103,12 +106,12 @@ impl Callable for GetattrBuiltin {
         check_args(&args, |len| [2, 3].contains(&len)).raise(interpreter)?;
 
         let object = args.get_arg(0);
-        let name = args.get_arg(1).as_str().raise(interpreter)?;
+        let field = args.get_arg(1).as_str().raise(interpreter)?;
 
         let attr = object
             .clone()
             .into_member_reader(interpreter)
-            .get_member(interpreter, name.as_str())?;
+            .get_member(interpreter, field.as_str())?;
 
         if let Some(attr) = attr {
             Ok(attr)
@@ -117,7 +120,7 @@ impl Callable for GetattrBuiltin {
             if args.len() == 3 {
                 Ok(args.get_arg(2))
             } else {
-                ExecutionError::attribute_error(object.class_name(interpreter), name)
+                ExecutionError::attribute_error(object.class_name(interpreter), field)
                     .raise(interpreter)
             }
         }
@@ -125,6 +128,31 @@ impl Callable for GetattrBuiltin {
 
     fn name(&self) -> String {
         "getattr".into()
+    }
+}
+
+impl Callable for SetattrBuiltin {
+    fn call(&self, interpreter: &TreewalkInterpreter, args: Args) -> TreewalkResult<TreewalkValue> {
+        check_args(&args, |len| len == 3).raise(interpreter)?;
+
+        let object = args.get_arg(0);
+        let field = args.get_arg(1).as_str().raise(interpreter)?;
+        let value = args.get_arg(2);
+
+        object
+            .clone()
+            .into_member_writer()
+            .ok_or_else(|| {
+                ExecutionError::attribute_error(object.class_name(interpreter), field.as_str())
+            })
+            .raise(interpreter)?
+            .set_member(interpreter, field.as_str(), value)?;
+
+        Ok(TreewalkValue::None)
+    }
+
+    fn name(&self) -> String {
+        "setattr".into()
     }
 }
 

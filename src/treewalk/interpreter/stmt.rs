@@ -1,11 +1,12 @@
 use crate::{
     core::{log, Container, LogLevel},
     domain::{
-        resolve_absolute_path, DomainResult, Dunder, ExceptionLiteral, ExecutionError, ImportPath,
+        resolve_absolute_path, DomainResult, Dunder, ExceptionLiteral, ExecutionError,
+        FromImportPath, Identifier,
     },
     parser::types::{
         Ast, BinOp, CompoundOperator, ConditionalAst, ExceptClause, ExceptionInstance, Expr,
-        LoopIndex, Params, RegularImport, SelectMode, Statement, StatementKind, Variable,
+        FromImportMode, LoopIndex, Params, RegularImport, Statement, StatementKind,
     },
     treewalk::{
         protocols::MemberRead,
@@ -131,7 +132,7 @@ impl TreewalkInterpreter {
         for expr in exprs {
             match expr {
                 Expr::Variable(name) => {
-                    self.state.delete(name);
+                    self.state.delete(name.as_str());
                 }
                 Expr::IndexAccess { object, index } => {
                     let index_result = self.evaluate_expr(index)?;
@@ -154,10 +155,10 @@ impl TreewalkInterpreter {
                         .clone()
                         .into_member_writer()
                         .ok_or_else(|| {
-                            ExecutionError::attribute_error(result.class_name(self), field)
+                            ExecutionError::attribute_error(result.class_name(self), field.as_str())
                         })
                         .raise(self)?
-                        .delete_member(self, field)?;
+                        .delete_member(self, field.as_str())?;
                 }
                 _ => return ExecutionError::type_error("cannot delete").raise(self),
             }
@@ -167,10 +168,10 @@ impl TreewalkInterpreter {
     }
 
     /// TODO This should be moved to the semantic analysis
-    fn validate_nonlocal_context(&self, name: &str) -> TreewalkResult<()> {
+    fn validate_nonlocal_context(&self, name: &Identifier) -> TreewalkResult<()> {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
-            if env.borrow().read(name).is_none() {
+            if env.borrow().read(name.as_str()).is_none() {
                 return Err(self.raise(ExecutionError::SyntaxError));
             }
         }
@@ -184,18 +185,18 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn evaluate_nonlocal(&self, names: &[Variable]) -> TreewalkResult<()> {
+    fn evaluate_nonlocal(&self, names: &[Identifier]) -> TreewalkResult<()> {
         for name in names {
             self.validate_nonlocal_context(name)?;
-            self.state.mark_nonlocal(name);
+            self.state.mark_nonlocal(name.as_str());
         }
 
         Ok(())
     }
 
-    fn evaluate_global(&self, names: &[Variable]) -> TreewalkResult<()> {
+    fn evaluate_global(&self, names: &[Identifier]) -> TreewalkResult<()> {
         for name in names {
-            self.state.mark_global(name);
+            self.state.mark_global(name.as_str());
         }
 
         Ok(())
@@ -267,7 +268,7 @@ impl TreewalkInterpreter {
 
     fn evaluate_function_def(
         &self,
-        name: &str,
+        name: &Identifier,
         params: &Params,
         body: &Ast,
         decorators: &[Expr],
@@ -279,7 +280,7 @@ impl TreewalkInterpreter {
 
         let function = Container::new(Function::new(
             self.state.clone(),
-            name,
+            name.as_str(),
             runtime_params,
             body.clone(),
             *is_async,
@@ -293,7 +294,7 @@ impl TreewalkInterpreter {
         // We should note that what we write here it not always a `Function` or even a `Callable`.
         // In the case of the `@property` decorator, what is written to the symbol table is a
         // `MemberDescriptor`.
-        self.state.write(name, result);
+        self.state.write(name.as_str(), result);
         Ok(())
     }
 
@@ -376,9 +377,9 @@ impl TreewalkInterpreter {
 
     fn evaluate_class_definition(
         &self,
-        name: &str,
+        name: &Identifier,
         parents: &[Expr],
-        metaclass: &Option<String>,
+        metaclass: &Option<Identifier>,
         body: &Ast,
     ) -> TreewalkResult<()> {
         log(LogLevel::Debug, || format!("Defining class: {name}"));
@@ -401,7 +402,7 @@ impl TreewalkInterpreter {
         // We will update the scope on this class before we write it to the symbol table, but we
         // must instantiate the class here so we can get a reference that can be associated with
         // each function defined inside it.
-        let class = self.build_class(name, parent_classes, metaclass)?;
+        let class = self.build_class(name.as_str(), parent_classes, metaclass)?;
 
         // We must use the class scope here in case it received any initialization from its
         // metaclass `Dunder::New` method.
@@ -418,7 +419,7 @@ impl TreewalkInterpreter {
             .borrow()
             .clone();
 
-        self.state.write(name, TreewalkValue::Class(class));
+        self.state.write(name.as_str(), TreewalkValue::Class(class));
 
         Ok(())
     }
@@ -435,8 +436,8 @@ impl TreewalkInterpreter {
 
     fn evaluate_selective_import(
         &self,
-        import_path: &ImportPath,
-        mode: &SelectMode,
+        import_path: &FromImportPath,
+        mode: &FromImportMode,
     ) -> TreewalkResult<()> {
         // Resolve the module name (handles relative imports correctly)
         let module_name = self.state.resolve_import_path(import_path).raise(self)?;
@@ -446,7 +447,7 @@ impl TreewalkInterpreter {
             // --------------------------
             //   from x import *
             // --------------------------
-            SelectMode::All => {
+            FromImportMode::All => {
                 for module_symbol in module.dir() {
                     let symbol = module_symbol.as_str();
 
@@ -462,17 +463,17 @@ impl TreewalkInterpreter {
             // -----------------------------------------
             //   from x import a, b as c, d as e, ...
             // -----------------------------------------
-            SelectMode::List(items) => {
+            FromImportMode::List(items) => {
                 for item in items {
                     let original = item.original();
                     let imported = item.imported();
 
                     let value = module
-                        .get_member(self, original)?
-                        .ok_or_else(|| ExecutionError::name_error(original))
+                        .get_member(self, original.as_str())?
+                        .ok_or_else(|| ExecutionError::name_error(original.as_str()))
                         .raise(self)?;
 
-                    self.state.write(imported, value);
+                    self.state.write(imported.as_str(), value);
                 }
             }
         }
@@ -504,7 +505,7 @@ impl TreewalkInterpreter {
                         }
                         _ => TreewalkValue::Exception(error.clone()),
                     };
-                    self.state.write(alias, exception);
+                    self.state.write(alias.as_str(), exception);
                 }
 
                 match self.execute_ast(&except_clause.block) {
@@ -556,7 +557,7 @@ impl TreewalkInterpreter {
     fn evaluate_context_manager(
         &self,
         expr: &Expr,
-        variable: &Option<String>,
+        variable: &Option<Identifier>,
         block: &Ast,
     ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
@@ -572,7 +573,7 @@ impl TreewalkInterpreter {
         let result = self.call_method(&expr_result, Dunder::Enter, args![])?;
 
         if let Some(variable) = variable {
-            self.state.write(variable, result);
+            self.state.write(variable.as_str(), result);
         }
         let block_result = self.execute_ast(block);
 

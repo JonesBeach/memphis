@@ -2,15 +2,16 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    parser::types::{Ast, Expr, Statement, StatementKind, Variable},
+    domain::Identifier,
+    parser::types::{Ast, Expr, Statement, StatementKind},
 };
 
 use super::visitor::Visitor;
 
 #[derive(Debug)]
 pub struct FunctionAnalysisVisitor {
-    local_vars: HashSet<Variable>,
-    accessed_vars: Vec<Variable>,
+    local_vars: HashSet<Identifier>,
+    accessed_vars: Vec<Identifier>,
 }
 
 impl Default for FunctionAnalysisVisitor {
@@ -29,7 +30,7 @@ impl FunctionAnalysisVisitor {
 
     /// We return a Vec<_> here because the order is defined as the order in which the variables
     /// are accessed.
-    pub fn get_free_vars(&self) -> Vec<Variable> {
+    pub fn get_free_vars(&self) -> Vec<Identifier> {
         self.accessed_vars
             .iter()
             .filter(|item| !self.local_vars.contains(*item))
@@ -42,18 +43,18 @@ impl FunctionAnalysisVisitor {
             StatementKind::UnpackingAssignment { left, .. } => {
                 for var in left.iter() {
                     if let Some(name) = var.as_variable() {
-                        self.local_vars.insert(name);
+                        self.local_vars.insert(name.clone());
                     }
                 }
             }
             StatementKind::Assignment { left, .. } => {
                 if let Some(name) = left.as_variable() {
-                    self.local_vars.insert(name);
+                    self.local_vars.insert(name.clone());
                 }
             }
             StatementKind::CompoundAssignment { target, .. } => {
                 if let Some(name) = target.as_variable() {
-                    self.local_vars.insert(name);
+                    self.local_vars.insert(name.clone());
                 }
             }
             _ => {}
@@ -89,7 +90,7 @@ impl FunctionAnalysisVisitor {
             StatementKind::Expression(Expr::FunctionCall { args, .. }) => {
                 for arg in args.args.iter() {
                     if let Some(name) = arg.as_variable() {
-                        self.accessed_vars.push(name);
+                        self.accessed_vars.push(name.clone());
                     }
                 }
             }

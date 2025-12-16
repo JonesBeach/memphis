@@ -6,7 +6,7 @@ use std::{
 use crate::{
     core::{log, Container, LogLevel},
     domain::{DebugStackFrame, Dunder, FunctionType, ToDebugStackFrame, Type},
-    parser::types::{Ast, Variable},
+    parser::types::Ast,
     treewalk::{
         macros::*,
         protocols::{Callable, DataDescriptor, MemberRead, MemberWrite, NonDataDescriptor},
@@ -19,15 +19,15 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuntimeParam {
-    pub arg: Variable,
+    pub arg: String,
     pub default: Option<TreewalkValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct RuntimeParams {
     pub args: Vec<RuntimeParam>,
-    pub args_var: Option<Variable>,
-    pub kwargs_var: Option<Variable>,
+    pub args_var: Option<String>,
+    pub kwargs_var: Option<String>,
 }
 
 /// This is a placeholder for what is calcuated on a functions [`Dunder::Code`].
@@ -47,7 +47,7 @@ pub struct Function {
     function_type: FunctionType,
     pub captured_env: Container<EnvironmentFrame>,
     scope: Scope,
-    free_vars: Vec<Variable>,
+    free_vars: Vec<String>,
 }
 
 impl_typed!(Function, Type::Function);
@@ -105,7 +105,7 @@ impl Function {
         };
 
         Self {
-            free_vars: body.free_vars(),
+            free_vars: body.free_vars().iter().map(|v| v.to_string()).collect(),
             name: name.to_string(),
             args,
             body,

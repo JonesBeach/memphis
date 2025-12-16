@@ -2,16 +2,16 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    domain::{ExceptionLiteral, ImportPath, ModulePath},
+    domain::{ExceptionLiteral, FromImportPath, Identifier, ModulePath},
     errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
         types::{
             ast, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
             ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
-            FStringPart, ForClause, FormatOption, ImportedItem, KwargsOperation, LogicalOp,
-            LoopIndex, Param, Params, RegularImport, SelectMode, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp, Variable,
+            FStringPart, ForClause, FormatOption, FromImportItem, FromImportMode, KwargsOperation,
+            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
+            StatementKind, TypeNode, UnaryOp,
         },
         TokenBuffer,
     },
@@ -258,7 +258,7 @@ impl<'a> Parser<'a> {
 
         Ok(Expr::MemberAccess {
             object: Box::new(left),
-            field: field.clone(),
+            field,
         })
     }
 
@@ -654,7 +654,7 @@ impl<'a> Parser<'a> {
         Ok(ModulePath::new(path))
     }
 
-    fn parse_import_path(&mut self) -> Result<ImportPath, ParserError> {
+    fn parse_import_path(&mut self) -> Result<FromImportPath, ParserError> {
         match self.current_token() {
             Token::Dot => {
                 let mut levels = 0;
@@ -664,17 +664,17 @@ impl<'a> Parser<'a> {
                 }
 
                 let path = self.parse_module_path()?;
-                Ok(ImportPath::Relative(levels, path))
+                Ok(FromImportPath::Relative(levels, path))
             }
             _ => {
                 let path = self.parse_module_path()?;
                 assert!(!path.segments().is_empty());
-                Ok(ImportPath::Absolute(path))
+                Ok(FromImportPath::Absolute(path))
             }
         }
     }
 
-    fn parse_alias(&mut self) -> Result<Option<String>, ParserError> {
+    fn parse_alias(&mut self) -> Result<Option<Identifier>, ParserError> {
         if self.current_token() == &Token::As {
             self.consume(&Token::As)?;
             let alias = self.parse_identifier()?;
@@ -713,7 +713,7 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::Asterisk)?;
                 StatementKind::SelectiveImport {
                     import_path,
-                    mode: SelectMode::All,
+                    mode: FromImportMode::All,
                 }
             }
             _ => {
@@ -724,8 +724,8 @@ impl<'a> Parser<'a> {
                     let symbol = self.parse_identifier()?;
                     let alias = self.parse_alias()?;
 
-                    let item = alias.map_or(ImportedItem::direct(&symbol), |a| {
-                        ImportedItem::aliased(symbol, a)
+                    let item = alias.map_or(FromImportItem::direct(symbol.clone()), |a| {
+                        FromImportItem::aliased(symbol, a)
                     });
                     items.push(item);
 
@@ -753,7 +753,7 @@ impl<'a> Parser<'a> {
 
                 StatementKind::SelectiveImport {
                     import_path,
-                    mode: SelectMode::List(items),
+                    mode: FromImportMode::List(items),
                 }
             }
         };
@@ -788,42 +788,36 @@ impl<'a> Parser<'a> {
 
         loop {
             let node = match self.current_token() {
-                Token::Identifier(ref identifier) => match identifier.as_str() {
-                    "int" => {
-                        self.consume(&Token::Identifier("int".into()))?;
-                        TypeNode::Basic("int".into())
-                    }
-                    "str" => {
-                        self.consume(&Token::Identifier("str".into()))?;
-                        TypeNode::Basic("str".into())
-                    }
-                    "dict" => {
-                        self.consume(&Token::Identifier("dict".into()))?;
-                        TypeNode::Basic("dict".into())
-                    }
-                    "list" => {
-                        self.consume(&Token::Identifier("list".into()))?;
-
-                        if self.current_token() == &Token::LBracket {
-                            self.consume(&Token::LBracket)?;
-                            let parameters = self.parse_type_node()?;
-                            self.consume(&Token::RBracket)?;
-
-                            TypeNode::Generic {
-                                base_type: "list".into(),
-                                parameters: vec![parameters],
-                            }
-                        } else {
-                            TypeNode::Basic("list".into())
+                Token::Identifier(ref ident) => {
+                    let i = ident.clone();
+                    match ident.as_str() {
+                        "int" | "str" | "dict" => {
+                            self.consume(&Token::Identifier(i.clone()))?;
+                            TypeNode::Basic(i.clone())
                         }
+                        "list" => {
+                            self.consume(&Token::Identifier(i.clone()))?;
+
+                            if self.current_token() == &Token::LBracket {
+                                self.consume(&Token::LBracket)?;
+                                let parameters = self.parse_type_node()?;
+                                self.consume(&Token::RBracket)?;
+
+                                TypeNode::Generic {
+                                    base_type: i.clone(),
+                                    parameters: vec![parameters],
+                                }
+                            } else {
+                                TypeNode::Basic(i.clone())
+                            }
+                        }
+                        _ => unimplemented!(),
                     }
-                    _ => unimplemented!(),
-                },
+                }
                 Token::Ellipsis => {
                     self.consume(&Token::Ellipsis)?;
-                    // should this be modeled in a better way?
                     // this is from _collections_abc.py: EllipsisType = type(...)
-                    TypeNode::Basic("...".into())
+                    TypeNode::Ellipsis
                 }
                 _ => unimplemented!(),
             };
@@ -1080,9 +1074,10 @@ impl<'a> Parser<'a> {
         if self.current_token() == &Token::LParen {
             self.consume(&Token::LParen)?;
             while self.current_token() != &Token::RParen {
+                let mc_ident = Identifier::new("metaclass").unwrap();
                 if self
                     .tokens
-                    .peek_ahead_contains(&[Token::Identifier("metaclass".into()), Token::Assign])
+                    .peek_ahead_contains(&[Token::Identifier(mc_ident.clone()), Token::Assign])
                 {
                     // Support for metaclasses, i.e. the `__new__` method which constructs a class
                     // (instead of an object like the normal `__new__` method).
@@ -1092,7 +1087,7 @@ impl<'a> Parser<'a> {
                     // class ABC(metaclass=ABCMeta):
                     //     pass
                     // ```
-                    self.consume(&Token::Identifier("metaclass".into()))?;
+                    self.consume(&Token::Identifier(mc_ident))?;
                     self.consume(&Token::Assign)?;
                     metaclass = Some(self.parse_identifier()?);
                     break;
@@ -1400,9 +1395,9 @@ impl<'a> Parser<'a> {
 
                     let format = if self.current_token() == &Token::Exclamation {
                         self.consume(&Token::Exclamation)?;
-                        if let Token::Identifier(token) = self.current_token().clone() {
-                            self.consume(&Token::Identifier(token.to_string()))?;
-                            match token.as_str() {
+                        if let Token::Identifier(ident) = self.current_token().clone() {
+                            self.consume(&Token::Identifier(ident.clone()))?;
+                            match ident.as_str() {
                                 "r" => FormatOption::Repr,
                                 "s" => FormatOption::Str,
                                 "a" => FormatOption::Ascii,
@@ -1620,7 +1615,8 @@ impl<'a> Parser<'a> {
                                 DictOperation::Pair(key, value) => {
                                     let key_name =
                                         key.as_string().ok_or(ParserError::SyntaxError)?;
-                                    kwargs.push(KwargsOperation::Pair(key_name, value));
+                                    let ident = Identifier::new(key_name).expect("Invalid key");
+                                    kwargs.push(KwargsOperation::Pair(ident, value));
                                 }
                                 _ => unimplemented!(),
                             }
@@ -1667,7 +1663,7 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::Assign)?;
                 let arg = expr.as_variable().ok_or(ParserError::SyntaxError)?;
                 Ok(CallArg::Keyword {
-                    arg,
+                    arg: arg.clone(),
                     expr: self.parse_simple_expr()?,
                 })
             }
@@ -1778,7 +1774,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_identifiers(&mut self) -> Result<Vec<Variable>, ParserError> {
+    fn parse_identifiers(&mut self) -> Result<Vec<Identifier>, ParserError> {
         let mut items = vec![self.parse_identifier()?];
         while self.current_token() == &Token::Comma {
             self.consume(&Token::Comma)?;
@@ -1788,14 +1784,13 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a `Token::Identifier` without any semantic analysis.
-    fn parse_identifier(&mut self) -> Result<String, ParserError> {
+    fn parse_identifier(&mut self) -> Result<Identifier, ParserError> {
         match self.current_token().clone() {
-            Token::Identifier(name) => {
-                let name_clone = name.clone();
-                self.consume(&Token::Identifier(name_clone.clone()))?;
-                Ok(name_clone)
+            Token::Identifier(ident) => {
+                self.consume(&Token::Identifier(ident.clone()))?;
+                Ok(ident)
             }
-            _ => Err(ParserError::UnexpectedToken(self.current_token().clone())),
+            _ => Err(ParserError::SyntaxError),
         }
     }
 }
@@ -1805,6 +1800,10 @@ mod tests {
     use super::*;
 
     use crate::parser::test_utils::*;
+
+    fn ident(input: &str) -> Identifier {
+        Identifier::new(input).expect("Invalid identifier")
+    }
 
     #[test]
     fn expression() {
@@ -1887,7 +1886,7 @@ def add(x, y):
     return x + y
 ";
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "add".to_string(),
+            name: ident("add"),
             args: params![param!("x"), param!("y")],
             body: ast![stmt_return![bin_op!(var!("x"), Add, var!("y"))]],
             decorators: vec![],
@@ -1898,7 +1897,7 @@ def add(x, y):
 
         let input = "def _f(): pass";
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "_f".to_string(),
+            name: ident("_f"),
             args: params![],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
@@ -1939,7 +1938,7 @@ def __init__(
     pass
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "__init__".into(),
+            name: ident("__init__"),
             args: params![param!("self"), param!("indent", Expr::None)],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
@@ -2203,19 +2202,19 @@ class Foo:
         print(self.x)
 "#;
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "Foo".to_string(),
+            name: ident("Foo"),
             parents: vec![],
             metaclass: None,
             body: ast![
                 stmt!(StatementKind::FunctionDef {
-                    name: "__init__".to_string(),
+                    name: ident("__init__"),
                     args: params![param!("self")],
                     body: ast![stmt_assign!(member_access!(var!("self"), "x"), int!(0))],
                     decorators: vec![],
                     is_async: false,
                 }),
                 stmt!(StatementKind::FunctionDef {
-                    name: "bar".to_string(),
+                    name: ident("bar"),
                     args: params![param!("self")],
                     body: ast![stmt_expr!(func_call!(
                         "print",
@@ -2231,7 +2230,7 @@ class Foo:
 
         let input = "class Foo(Bar, Baz): pass";
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "Foo".to_string(),
+            name: ident("Foo"),
             parents: vec![var!("Bar"), var!("Baz")],
             metaclass: None,
             body: ast![stmt!(StatementKind::Pass)],
@@ -2241,7 +2240,7 @@ class Foo:
 
         let input = "class Foo(module.Bar): pass";
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "Foo".to_string(),
+            name: ident("Foo"),
             parents: vec![member_access!(var!("module"), "Bar")],
             metaclass: None,
             body: ast![stmt!(StatementKind::Pass)],
@@ -2274,21 +2273,18 @@ class Foo:
     #[test]
     fn regular_import() {
         let input = "import other";
-        let expected_ast = stmt!(StatementKind::RegularImport(vec![import!("other")]));
+        let expected_ast = stmt_reg_import![import!("other")];
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"
 def foo():
-    import other, second as third
+    import a, b as c
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "foo".to_string(),
+            name: ident("foo"),
             args: params![],
-            body: ast![stmt!(StatementKind::RegularImport(vec![
-                import!("other"),
-                import!("second", "third"),
-            ]))],
+            body: ast![stmt_reg_import![import!("a"), import!("b", "c"),]],
             decorators: vec![],
             is_async: false,
         });
@@ -2301,7 +2297,7 @@ def foo():
 import other as b
 pass
 "#;
-        let expected_ast = stmt!(StatementKind::RegularImport(vec![import!("other", "b")]));
+        let expected_ast = stmt_reg_import![import!("other", "b")];
 
         // Before we handling Token::As processing, this test would fail, but only once it began
         // parsing the next statement. We needed to parse two statements here to produce the
@@ -2330,110 +2326,80 @@ pass
 
     #[test]
     fn selective_import() {
-        let input = "from other import something";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![ImportedItem::direct("something")]),
-        });
+        let input = "from other import a";
+        let expected_ast = stmt_from_import!("other", from_import_list![from_import_item!("a")]);
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from other import something, something_else";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::direct("something_else"),
-            ]),
-        });
+        let input = "from other import a, b";
+        let expected_ast = stmt_from_import!(
+            "other",
+            from_import_list![from_import_item!("a"), from_import_item!("b")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "from other import *";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::All,
-        });
+        let expected_ast = stmt_from_import!("other", from_import_all!());
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from other import something, something_else as imported_name";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::aliased("something_else", "imported_name"),
-            ]),
-        });
+        let input = "from other import a, b as c";
+        let expected_ast = stmt_from_import!(
+            "other",
+            from_import_list![from_import_item!("a"), from_import_item!("b", "c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from other.module import something, something_else as imported_name";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("other.module"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::aliased("something_else", "imported_name"),
-            ]),
-        });
+        let input = "from other.module import a, b as c";
+        let expected_ast = stmt_from_import!(
+            "other.module",
+            from_import_list![from_import_item!("a"), from_import_item!("b", "c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from . import something";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("."),
-            mode: SelectMode::List(vec![ImportedItem::direct("something")]),
-        });
+        let input = "from . import a";
+        let expected_ast = stmt_from_import!(".", from_import_list![from_import_item!("a")]);
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from .other.module import something, something_else as imported_name";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from(".other.module"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::aliased("something_else", "imported_name"),
-            ]),
-        });
+        let input = "from .other.module import a, b as c";
+        let expected_ast = stmt_from_import!(
+            ".other.module",
+            from_import_list![from_import_item!("a"), from_import_item!("b", "c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
-        let input = "from ..other.module import something, something_else as imported_name";
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("..other.module"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::aliased("something_else", "imported_name"),
-            ]),
-        });
+        let input = "from ..other.module import a, b as c";
+        let expected_ast = stmt_from_import!(
+            "..other.module",
+            from_import_list![from_import_item!("a"), from_import_item!("b", "c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"
-from ..other.module import (something,
-                            something_else as imported_name)
+from ..other.module import (a,
+                            b as c)
 "#;
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("..other.module"),
-            mode: SelectMode::List(vec![
-                ImportedItem::direct("something"),
-                ImportedItem::aliased("something_else", "imported_name"),
-            ]),
-        });
+        let expected_ast = stmt_from_import!(
+            "..other.module",
+            from_import_list![from_import_item!("a"), from_import_item!("b", "c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"
-from ..other.module import (something as imported_name,
-                            something_else)
+from ..other.module import (a as b,
+                            c)
 "#;
-        let expected_ast = stmt!(StatementKind::SelectiveImport {
-            import_path: ImportPath::from("..other.module"),
-            mode: SelectMode::List(vec![
-                ImportedItem::aliased("something", "imported_name"),
-                ImportedItem::direct("something_else"),
-            ]),
-        });
+        let expected_ast = stmt_from_import!(
+            "..other.module",
+            from_import_list![from_import_item!("a", "b"), from_import_item!("c")]
+        );
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2656,7 +2622,7 @@ for i in a:
     print(i)
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Variable("i".into()),
+            index: LoopIndex::Variable(ident("i")),
             iterable: var!("a"),
             body: ast![stmt_expr!(func_call!("print", call_args![var!("i")]))],
             else_block: None,
@@ -2669,7 +2635,7 @@ for k, v in a.items():
     print(v)
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Tuple(vec!["k".into(), "v".into()]),
+            index: LoopIndex::Tuple(vec![ident("k"), ident("v")]),
             iterable: method_call!(var!("a"), "items"),
             body: ast![stmt_expr!(func_call!("print", call_args![var!("v")]))],
             else_block: None,
@@ -2684,7 +2650,7 @@ for k, v in a.items():
         let expected_ast = Expr::ListComprehension {
             body: Box::new(bin_op!(var!("i"), Mul, int!(2))),
             clauses: vec![ForClause {
-                indices: vec!["i".to_string()],
+                indices: vec![ident("i")],
                 iterable: var!("a"),
                 condition: None,
             }],
@@ -2696,7 +2662,7 @@ for k, v in a.items():
         let expected_ast = Expr::ListComprehension {
             body: Box::new(bin_op!(var!("i"), Mul, int!(2))),
             clauses: vec![ForClause {
-                indices: vec!["i".to_string()],
+                indices: vec![ident("i")],
                 iterable: var!("a"),
                 condition: Some(bool!(true)),
             }],
@@ -2714,7 +2680,7 @@ def countdown(n):
         n = n - 1
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "countdown".to_string(),
+            name: ident("countdown"),
             args: params![param!("n")],
             body: ast![stmt!(StatementKind::WhileLoop(ConditionalAst {
                 condition: cmp_op!(var!("n"), GreaterThan, int!(0)),
@@ -2760,9 +2726,9 @@ class Foo(metaclass=Parent):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "Foo".to_string(),
+            name: ident("Foo"),
             parents: vec![],
-            metaclass: Some("Parent".to_string()),
+            metaclass: Some(ident("Parent")),
             body: ast![stmt!(StatementKind::Pass)],
         });
 
@@ -2773,9 +2739,9 @@ class Foo(Bar, metaclass=Parent):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "Foo".to_string(),
+            name: ident("Foo"),
             parents: vec![var!("Bar")],
-            metaclass: Some("Parent".to_string()),
+            metaclass: Some(ident("Parent")),
             body: ast![stmt!(StatementKind::Pass)],
         });
 
@@ -2786,7 +2752,7 @@ class InterfaceMeta(type):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::ClassDef {
-            name: "InterfaceMeta".to_string(),
+            name: ident("InterfaceMeta"),
             parents: vec![var!("type")],
             metaclass: None,
             body: ast![stmt!(StatementKind::Pass)],
@@ -2841,7 +2807,7 @@ namespace = {
         let input = r#"{ key: val * 2 for key, val in d }"#;
         let expected_ast = Expr::DictComprehension {
             clauses: vec![ForClause {
-                indices: vec!["key".to_string(), "val".to_string()],
+                indices: vec![ident("key"), ident("val")],
                 iterable: var!("d"),
                 condition: None,
             }],
@@ -2854,7 +2820,7 @@ namespace = {
         let input = r#"{ key: val * 2 for (key, val) in d }"#;
         let expected_ast = Expr::DictComprehension {
             clauses: vec![ForClause {
-                indices: vec!["key".to_string(), "val".to_string()],
+                indices: vec![ident("key"), ident("val")],
                 iterable: var!("d"),
                 condition: None,
             }],
@@ -2873,7 +2839,7 @@ async def main():
     return await task_1
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "main".to_string(),
+            name: ident("main"),
             args: params![],
             body: ast![
                 stmt_assign!(
@@ -2938,7 +2904,7 @@ finally:
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
-                alias: Some("e".into()),
+                alias: Some(ident("e")),
                 block: ast![stmt_assign!(var!("a"), int!(2))],
             }],
             else_block: None,
@@ -2960,7 +2926,7 @@ except (ZeroDivisionError, IOError) as e:
                     ExceptionLiteral::ZeroDivisionError,
                     ExceptionLiteral::IOError,
                 ],
-                alias: Some("e".into()),
+                alias: Some(ident("e")),
                 block: ast![stmt_assign!(var!("a"), int!(2))],
             }],
             else_block: None,
@@ -2983,7 +2949,7 @@ finally:
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             except_clauses: vec![ExceptClause {
                 exception_types: vec![ExceptionLiteral::ZeroDivisionError],
-                alias: Some("e".into()),
+                alias: Some(ident("e")),
                 block: ast![stmt_assign!(var!("a"), int!(2))],
             }],
             else_block: Some(ast![stmt_assign!(var!("a"), int!(4))]),
@@ -3044,10 +3010,10 @@ def test_args(*args):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "test_args".into(),
+            name: ident("test_args"),
             args: Params {
                 args: vec![],
-                args_var: Some("args".into()),
+                args_var: Some(ident("args")),
                 kwargs_var: None,
             },
             body: ast![stmt!(StatementKind::Pass)],
@@ -3062,11 +3028,11 @@ def test_args(*args, **kwargs):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "test_args".into(),
+            name: ident("test_args"),
             args: Params {
                 args: vec![],
-                args_var: Some("args".into()),
-                kwargs_var: Some("kwargs".into()),
+                args_var: Some(ident("args")),
+                kwargs_var: Some(ident("kwargs")),
             },
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
@@ -3083,7 +3049,7 @@ def test_kwargs(**kwargs):
         let expected_args = Params {
             args: vec![],
             args_var: None,
-            kwargs_var: Some("kwargs".into()),
+            kwargs_var: Some(ident("kwargs")),
         };
         let StatementKind::FunctionDef { args, .. } = ast.kind else {
             panic!("Expected function def")
@@ -3095,7 +3061,7 @@ def test_default(file=None):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "test_default".into(),
+            name: ident("test_default"),
             args: params![param!("file", Expr::None)],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
@@ -3110,8 +3076,8 @@ def test_default(file=None):
             CallArgs {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), int!(1)),
-                    KwargsOperation::Pair("b".into(), int!(2)),
+                    KwargsOperation::Pair(ident("a"), int!(1)),
+                    KwargsOperation::Pair(ident("b"), int!(2)),
                 ],
                 args_var: None,
             }
@@ -3125,8 +3091,8 @@ def test_default(file=None):
             CallArgs {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), int!(1)),
-                    KwargsOperation::Pair("b".into(), int!(2)),
+                    KwargsOperation::Pair(ident("a"), int!(1)),
+                    KwargsOperation::Pair(ident("b"), int!(2)),
                 ],
                 args_var: None,
             }
@@ -3140,9 +3106,9 @@ def test_default(file=None):
             CallArgs {
                 args: vec![],
                 kwargs: vec![
-                    KwargsOperation::Pair("a".into(), int!(1)),
-                    KwargsOperation::Pair("b".into(), int!(2)),
-                    KwargsOperation::Pair("c".into(), int!(3)),
+                    KwargsOperation::Pair(ident("a"), int!(1)),
+                    KwargsOperation::Pair(ident("b"), int!(2)),
+                    KwargsOperation::Pair(ident("c"), int!(3)),
                 ],
                 args_var: None,
             }
@@ -3223,7 +3189,7 @@ def get_val():
     return 2
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "get_val".into(),
+            name: ident("get_val"),
             args: params![],
             body: ast![stmt_return![int!(2)]],
             decorators: vec![var!("test_decorator")],
@@ -3281,7 +3247,7 @@ with open('test.txt') as f:
 "#;
         let expected_ast = stmt!(StatementKind::ContextManager {
             expr: func_call!("open", call_args![str!("test.txt")]),
-            variable: Some("f".into()),
+            variable: Some(ident("f")),
             block: ast![stmt!(StatementKind::Pass)],
         });
 
@@ -3306,8 +3272,8 @@ with open('test.txt'):
         let expected_ast = stmt_assign!(
             var!("a"),
             Expr::TypeNode(TypeNode::Generic {
-                base_type: "list".into(),
-                parameters: vec![TypeNode::Basic("int".into())],
+                base_type: ident("list"),
+                parameters: vec![TypeNode::Basic(ident("int"))],
             })
         );
 
@@ -3317,8 +3283,8 @@ with open('test.txt'):
         let expected_ast = stmt_assign!(
             var!("u"),
             Expr::TypeNode(TypeNode::Union(vec![
-                TypeNode::Basic("int".into()),
-                TypeNode::Basic("str".into()),
+                TypeNode::Basic(ident("int")),
+                TypeNode::Basic(ident("str")),
             ]))
         );
 
@@ -3642,7 +3608,7 @@ for i in a:
     break
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Variable("i".into()),
+            index: LoopIndex::Variable(ident("i")),
             iterable: var!("a"),
             body: ast![stmt!(StatementKind::Break)],
             else_block: None,
@@ -3655,7 +3621,7 @@ for i in a:
     continue
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Variable("i".into()),
+            index: LoopIndex::Variable(ident("i")),
             iterable: var!("a"),
             body: ast![stmt!(StatementKind::Continue)],
             else_block: None,
@@ -3670,7 +3636,7 @@ else:
     pass
 "#;
         let expected_ast = stmt!(StatementKind::ForInLoop {
-            index: LoopIndex::Variable("i".into()),
+            index: LoopIndex::Variable(ident("i")),
             iterable: var!("a"),
             body: ast![stmt!(StatementKind::Break)],
             else_block: Some(ast![stmt!(StatementKind::Pass)]),
@@ -3754,13 +3720,13 @@ def outer():
         print(a)
 ";
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "outer".into(),
+            name: ident("outer"),
             args: params![],
             body: ast![
                 stmt_assign!(var!("a"), int!(1)),
                 stmt_assign!(var!("b"), int!(2)),
                 stmt!(StatementKind::FunctionDef {
-                    name: "inner".into(),
+                    name: ident("inner"),
                     args: params![],
                     body: ast![
                         stmt_assign!(var!("b"), int!(3)),
@@ -3780,22 +3746,22 @@ def outer():
     #[test]
     fn scope_modifiers() {
         let input = "nonlocal var";
-        let expected_ast = stmt!(StatementKind::Nonlocal(vec!["var".into()]));
+        let expected_ast = stmt!(StatementKind::Nonlocal(vec![ident("var")]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "nonlocal var, var2";
-        let expected_ast = stmt!(StatementKind::Nonlocal(vec!["var".into(), "var2".into()]));
+        let expected_ast = stmt!(StatementKind::Nonlocal(vec![ident("var"), ident("var2")]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "global var";
-        let expected_ast = stmt!(StatementKind::Global(vec!["var".into()]));
+        let expected_ast = stmt!(StatementKind::Global(vec![ident("var")]));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "global var, var2";
-        let expected_ast = stmt!(StatementKind::Global(vec!["var".into(), "var2".into()]));
+        let expected_ast = stmt!(StatementKind::Global(vec![ident("var"), ident("var2")]));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3843,7 +3809,7 @@ def outer():
             Expr::GeneratorComprehension {
                 body: Box::new(bin_op!(var!("i"), Mul, int!(2))),
                 clauses: vec![ForClause {
-                    indices: vec!["i".into()],
+                    indices: vec![ident("i")],
                     iterable: var!("b"),
                     condition: None,
                 }],
@@ -3858,7 +3824,7 @@ def outer():
             call_args![Expr::GeneratorComprehension {
                 body: Box::new(bin_op!(var!("i"), Mul, int!(2))),
                 clauses: vec![ForClause {
-                    indices: vec!["i".into()],
+                    indices: vec![ident("i")],
                     iterable: var!("b"),
                     condition: None,
                 }],
@@ -3875,7 +3841,7 @@ def foo(data=None):
     pass
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
-            name: "foo".into(),
+            name: ident("foo"),
             args: params![param!("data", Expr::None)],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
@@ -3943,5 +3909,12 @@ if True:
         });
 
         assert_ast_eq!(input, expected_ast);
+    }
+
+    #[test]
+    fn invalid_identifier() {
+        let input = "a.123";
+        let e = expect_error!(input, Expr);
+        assert_eq!(e, ParserError::SyntaxError);
     }
 }

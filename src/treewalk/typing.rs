@@ -42,9 +42,9 @@ fn convert_to_type_expr(type_node: &TypeNode) -> TypeExpr {
         TypeNode::Basic(type_str) => match type_str.as_str() {
             "int" => TypeExpr::Int,
             "str" => TypeExpr::Str,
-            "..." => TypeExpr::Ellipsis,
             _ => unimplemented!(),
         },
+        TypeNode::Ellipsis => TypeExpr::Ellipsis,
     }
 }
 

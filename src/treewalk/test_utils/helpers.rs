@@ -26,6 +26,14 @@ pub fn eval_expect_error(text: &str) -> RuntimeError {
     };
 }
 
+pub fn eval_expect_parser_error(text: &str) -> crate::errors::ParserError {
+    match init(text).run_inner() {
+        Ok(_) => panic!("Expected an error!"),
+        Err(MemphisError::Parser(e)) => return e,
+        Err(_) => panic!("Expected a parser error!"),
+    };
+}
+
 pub fn run(text: &str) -> TreewalkContext {
     let mut context = init(text);
     context.run_inner().expect("Treewalk evaluation failed!");

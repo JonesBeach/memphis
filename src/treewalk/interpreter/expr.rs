@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    core::{log, Container, LogLevel},
-    domain::ExecutionError,
+    core::Container,
+    domain::{ExecutionError, Identifier},
     parser::types::{
         Ast, BinOp, CallArgs, Callee, CompareOp, DictOperation, Expr, FStringPart, ForClause,
         LogicalOp, Params, SliceParams, TypeNode, UnaryOp,
@@ -31,7 +31,7 @@ impl TreewalkInterpreter {
             Expr::Boolean(value) => Ok(TreewalkValue::Bool(*value)),
             Expr::StringLiteral(value) => Ok(TreewalkValue::Str(Str::new(value))),
             Expr::BytesLiteral(value) => Ok(TreewalkValue::Bytes(value.clone())),
-            Expr::Variable(name) => self.load_var(name),
+            Expr::Variable(name) => self.load_var(name.as_str()),
             Expr::List(items) => self.evaluate_list(items),
             Expr::Set(items) => self.evaluate_set(items),
             Expr::Dict(dict_ops) => self.evaluate_dict(dict_ops),
@@ -57,9 +57,6 @@ impl TreewalkInterpreter {
             Expr::ComparisonChain { left, ops } => self.evaluate_comparison_chain(left, ops),
             Expr::Await(right) => self.evaluate_await(right),
             Expr::FunctionCall { callee, args } => self.evaluate_function_call(callee, args),
-            Expr::ClassInstantiation { name, args } => {
-                self.evaluate_class_instantiation(name, args)
-            }
             Expr::LogicalOperation { left, op, right } => {
                 self.evaluate_logical_operation(left, op, right)
             }
@@ -167,14 +164,14 @@ impl TreewalkInterpreter {
                 .raise(self)?
             {
                 if first_clause.indices.len() == 1 {
-                    self.state.write(&first_clause.indices[0], i);
+                    self.state.write(first_clause.indices[0].as_str(), i);
                 } else {
                     for (key, value) in first_clause
                         .indices
                         .iter()
                         .zip(i.as_iterable().raise(self)?)
                     {
-                        self.state.write(key, value);
+                        self.state.write(key.as_str(), value);
                     }
                 }
 
@@ -234,7 +231,7 @@ impl TreewalkInterpreter {
                 .iter()
                 .zip(i.as_iterable().raise(self)?)
             {
-                self.state.write(key, value);
+                self.state.write(key.as_str(), value);
             }
             let key_result = self.evaluate_expr(key_body)?;
             let value_result = self.evaluate_expr(value_body)?;
@@ -309,34 +306,10 @@ impl TreewalkInterpreter {
 
         let function = match callee {
             Callee::Expr(callee) => self.evaluate_expr(callee)?.as_callable().raise(self)?,
-            Callee::Symbol(name) => self.load_callable(name)?,
+            Callee::Symbol(name) => self.load_callable(name.as_str())?,
         };
 
         self.call(function, args)
-    }
-
-    fn evaluate_class_instantiation(
-        &self,
-        name: &str,
-        call_args: &CallArgs,
-    ) -> TreewalkResult<TreewalkValue> {
-        log(LogLevel::Debug, || format!("Instantiating: {name}"));
-        log(LogLevel::Trace, || {
-            format!("... from module: {}", self.state.current_module())
-        });
-        log(LogLevel::Trace, || {
-            format!(
-                "... from path: {}",
-                self.state.current_module().borrow().path().display()
-            )
-        });
-        if let Some(class) = self.state.current_class() {
-            log(LogLevel::Trace, || format!("... from class: {class}"));
-        }
-
-        let class = self.load_callable(name)?;
-        let args = self.evaluate_args(call_args)?;
-        self.call(class, args)
     }
 
     fn evaluate_logical_operation(
@@ -363,9 +336,13 @@ impl TreewalkInterpreter {
         }
     }
 
-    fn evaluate_member_access(&self, object: &Expr, field: &str) -> TreewalkResult<TreewalkValue> {
+    fn evaluate_member_access(
+        &self,
+        object: &Expr,
+        field: &Identifier,
+    ) -> TreewalkResult<TreewalkValue> {
         let result = self.evaluate_expr(object)?;
-        self.load_member(&result, field)
+        self.load_member(&result, field.as_str())
     }
 
     fn evaluate_index_access(&self, object: &Expr, index: &Expr) -> TreewalkResult<TreewalkValue> {

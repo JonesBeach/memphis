@@ -121,7 +121,7 @@
 |`reversed`|✅||
 |`round`|||
 |`set`|✅||
-|`setattr`|||
+|`setattr`|✅||
 |`slice`|✅||
 |`sorted`|||
 |`staticmethod`|✅||
