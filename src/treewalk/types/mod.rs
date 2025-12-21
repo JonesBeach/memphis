@@ -36,6 +36,7 @@ mod super_type;
 mod traceback;
 mod tuple;
 mod r#type;
+mod type_error;
 mod zip;
 
 pub use bool::Bool;
@@ -73,6 +74,7 @@ pub use str::Str;
 pub use super_type::Super;
 pub use traceback::Traceback;
 pub use tuple::Tuple;
+pub use type_error::TypeError;
 
 pub mod iterators {
     pub use super::dict_items::DictItemsIter;

@@ -133,13 +133,13 @@ pub fn assert_stmt_eq_inner(actual: &Statement, expected: &Statement) {
         (
             StatementKind::TryExcept {
                 try_block: actual_try_block,
-                except_clauses: actual_except_clauses,
+                handlers: actual_handlers,
                 else_block: actual_else_block,
                 finally_block: actual_finally_block,
             },
             StatementKind::TryExcept {
                 try_block: expected_try_block,
-                except_clauses: expected_except_clauses,
+                handlers: expected_handlers,
                 else_block: expected_else_block,
                 finally_block: expected_finally_block,
             },
@@ -154,31 +154,26 @@ pub fn assert_stmt_eq_inner(actual: &Statement, expected: &Statement) {
             }
 
             assert_eq!(
-                actual_except_clauses.len(),
-                expected_except_clauses.len(),
-                "Except clauses length mismatch"
+                actual_handlers.len(),
+                expected_handlers.len(),
+                "Except handlers length mismatch"
             );
-            for (actual_except_clause, expected_except_clause) in actual_except_clauses
-                .iter()
-                .zip(expected_except_clauses.iter())
+            for (actual_handler, expected_handler) in
+                actual_handlers.iter().zip(expected_handlers.iter())
             {
                 assert_eq!(
-                    actual_except_clause.exception_types, expected_except_clause.exception_types,
-                    "Except clause types mismatch"
+                    actual_handler.kind, expected_handler.kind,
+                    "Except handler kind mismatch"
                 );
                 assert_eq!(
-                    actual_except_clause.alias, expected_except_clause.alias,
-                    "Except clause alias mismatch"
+                    actual_handler.block.len(),
+                    expected_handler.block.len(),
+                    "Except handler block length mismatch"
                 );
-                assert_eq!(
-                    actual_except_clause.block.len(),
-                    expected_except_clause.block.len(),
-                    "Except_clause.block length mismatch"
-                );
-                for (a, e) in actual_except_clause
+                for (a, e) in actual_handler
                     .block
                     .iter()
-                    .zip(expected_except_clause.block.iter())
+                    .zip(expected_handler.block.iter())
                 {
                     assert_stmt_eq_inner(a, e);
                 }

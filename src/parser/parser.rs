@@ -2,16 +2,16 @@ use std::collections::HashSet;
 
 use crate::{
     core::{log, LogLevel},
-    domain::{ExceptionLiteral, FromImportPath, Identifier, ModulePath},
+    domain::{FromImportPath, Identifier, ModulePath},
     errors::ParserError,
     lexer::{Lexer, Token},
     parser::{
         types::{
             ast, Ast, BinOp, CallArg, CallArgs, Callee, CompareOp, CompoundOperator,
-            ConditionalAst, DictOperation, ExceptClause, ExceptionInstance, Expr, ExprFormat,
-            FStringPart, ForClause, FormatOption, FromImportItem, FromImportMode, KwargsOperation,
-            LogicalOp, LoopIndex, Param, Params, RegularImport, SliceParams, Statement,
-            StatementKind, TypeNode, UnaryOp,
+            ConditionalAst, DictOperation, ExceptHandler, Expr, ExprFormat, FStringPart, ForClause,
+            FormatOption, FromImportItem, FromImportMode, KwargsOperation, LogicalOp, LoopIndex,
+            Param, Params, RaiseKind, RegularImport, SliceParams, Statement, StatementKind,
+            TypeNode, UnaryOp,
         },
         TokenBuffer,
     },
@@ -674,7 +674,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_alias(&mut self) -> Result<Option<Identifier>, ParserError> {
+    fn parse_optional_alias(&mut self) -> Result<Option<Identifier>, ParserError> {
         if self.current_token() == &Token::As {
             self.consume(&Token::As)?;
             let alias = self.parse_identifier()?;
@@ -690,7 +690,7 @@ impl<'a> Parser<'a> {
         let mut items = vec![];
         loop {
             let module_path = self.parse_module_path()?;
-            let alias = self.parse_alias()?;
+            let alias = self.parse_optional_alias()?;
             items.push(RegularImport { module_path, alias });
 
             if self.current_token() == &Token::Comma {
@@ -722,7 +722,7 @@ impl<'a> Parser<'a> {
                 let mut items = Vec::new();
                 loop {
                     let symbol = self.parse_identifier()?;
-                    let alias = self.parse_alias()?;
+                    let alias = self.parse_optional_alias()?;
 
                     let item = alias.map_or(FromImportItem::direct(symbol.clone()), |a| {
                         FromImportItem::aliased(symbol, a)
@@ -837,11 +837,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_exception_literal(&mut self) -> Result<ExceptionLiteral, ParserError> {
-        let symbol = self.parse_identifier()?;
-        Ok(symbol.into())
-    }
-
     fn parse_context_manager(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::With)?;
         let expr = self.parse_simple_expr()?;
@@ -865,26 +860,22 @@ impl<'a> Parser<'a> {
     fn parse_raise(&mut self) -> Result<StatementKind, ParserError> {
         self.consume(&Token::Raise)?;
 
-        let instance = if matches!(self.current_token(), Token::Identifier(_)) {
-            let literal = self.parse_exception_literal()?;
+        if self.end_of_statement() {
+            return Ok(StatementKind::Raise(RaiseKind::Reraise));
+        }
 
-            let args = if self.current_token() == &Token::LParen {
-                self.parse_function_call_args()?
-            } else {
-                CallArgs::default()
-            };
+        let exception = self.parse_expr()?;
 
-            // TODO support exception chaining here and in the interpreter
-            if self.current_token() == &Token::From {
-                self.consume(&Token::From)?;
-                let _from = self.parse_simple_expr()?;
-            }
-            Some(ExceptionInstance { literal, args })
+        if self.current_token() == &Token::From {
+            self.consume(&Token::From)?;
+            let cause = self.parse_expr()?;
+            Ok(StatementKind::Raise(RaiseKind::RaiseFrom {
+                exception,
+                cause,
+            }))
         } else {
-            None
-        };
-
-        Ok(StatementKind::Raise(instance))
+            Ok(StatementKind::Raise(RaiseKind::Raise(exception)))
+        }
     }
 
     fn parse_try_except(&mut self) -> Result<StatementKind, ParserError> {
@@ -892,45 +883,33 @@ impl<'a> Parser<'a> {
         self.consume(&Token::Colon)?;
         let try_block = self.parse_indented_block()?;
 
-        let mut except_clauses: Vec<ExceptClause> = vec![];
+        let mut handlers = vec![];
         while self.current_token() == &Token::Except {
             self.consume(&Token::Except)?;
             if self.current_token() == &Token::Colon {
                 self.consume(&Token::Colon)?;
-                let except_block = self.parse_indented_block()?;
-                except_clauses.push(ExceptClause {
-                    exception_types: vec![],
-                    alias: None,
-                    block: except_block,
-                });
+                let block = self.parse_indented_block()?;
+                handlers.push(ExceptHandler::bare(block));
             } else if self.current_token() == &Token::LParen {
                 self.consume(&Token::LParen)?;
-                let mut literals = vec![];
+                let mut exprs = vec![];
                 while self.current_token() != &Token::RParen {
-                    let literal = self.parse_exception_literal()?;
-                    literals.push(literal);
+                    let literal = self.parse_simple_expr()?;
+                    exprs.push(literal);
                     self.consume_optional(&Token::Comma);
                 }
 
                 self.consume(&Token::RParen)?;
-                let alias = self.parse_alias()?;
+                let alias = self.parse_optional_alias()?;
                 self.consume(&Token::Colon)?;
-                let except_block = self.parse_indented_block()?;
-                except_clauses.push(ExceptClause {
-                    exception_types: literals,
-                    alias,
-                    block: except_block,
-                });
+                let block = self.parse_indented_block()?;
+                handlers.push(ExceptHandler::typed(exprs, alias, block));
             } else {
-                let literal = self.parse_exception_literal()?;
-                let alias = self.parse_alias()?;
+                let expr = self.parse_simple_expr()?;
+                let alias = self.parse_optional_alias()?;
                 self.consume(&Token::Colon)?;
-                let except_block = self.parse_indented_block()?;
-                except_clauses.push(ExceptClause {
-                    exception_types: vec![literal],
-                    alias,
-                    block: except_block,
-                });
+                let block = self.parse_indented_block()?;
+                handlers.push(ExceptHandler::typed(vec![expr], alias, block));
             }
         }
 
@@ -950,13 +929,13 @@ impl<'a> Parser<'a> {
             None
         };
 
-        if except_clauses.is_empty() && finally_block.is_none() {
+        if handlers.is_empty() && finally_block.is_none() {
             return Err(ParserError::SyntaxError);
         }
 
         Ok(StatementKind::TryExcept {
             try_block,
-            except_clauses,
+            handlers,
             else_block,
             finally_block,
         })
@@ -1939,7 +1918,7 @@ def __init__(
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
             name: ident("__init__"),
-            args: params![param!("self"), param!("indent", Expr::None)],
+            args: params![param!("self"), param!("indent", none!())],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -2035,12 +2014,12 @@ if (a
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x is None";
-        let expected_ast = cmp_op!(var!("x"), Is, Expr::None);
+        let expected_ast = cmp_op!(var!("x"), Is, none!());
 
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x is not None";
-        let expected_ast = cmp_op!(var!("x"), IsNot, Expr::None);
+        let expected_ast = cmp_op!(var!("x"), IsNot, none!());
 
         assert_ast_eq!(input, expected_ast, Expr);
     }
@@ -2058,12 +2037,12 @@ if (a
         assert_ast_eq!(input, expected_ast, Expr);
 
         let input = "x = None";
-        let expected_ast = stmt_assign!(var!("x"), Expr::None);
+        let expected_ast = stmt_assign!(var!("x"), none!());
 
         assert_ast_eq!(input, expected_ast);
 
         let input = "return None";
-        let expected_ast = stmt_return![Expr::None];
+        let expected_ast = stmt_return![none!()];
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -2881,11 +2860,7 @@ finally:
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
-            except_clauses: vec![ExceptClause {
-                exception_types: vec![],
-                alias: None,
-                block: ast![stmt_assign!(var!("a"), int!(2))],
-            }],
+            handlers: vec![ExceptHandler::bare(ast![stmt_assign!(var!("a"), int!(2))])],
             else_block: None,
             finally_block: Some(ast![stmt_assign!(var!("a"), int!(3))]),
         });
@@ -2902,11 +2877,11 @@ finally:
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
-            except_clauses: vec![ExceptClause {
-                exception_types: vec![ExceptionLiteral::ZeroDivisionError],
-                alias: Some(ident("e")),
-                block: ast![stmt_assign!(var!("a"), int!(2))],
-            }],
+            handlers: vec![ExceptHandler::typed(
+                vec![var!("ZeroDivisionError")],
+                Some(ident("e")),
+                ast![stmt_assign!(var!("a"), int!(2))]
+            )],
             else_block: None,
             finally_block: Some(ast![stmt_assign!(var!("a"), int!(3))]),
         });
@@ -2921,14 +2896,11 @@ except (ZeroDivisionError, IOError) as e:
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
-            except_clauses: vec![ExceptClause {
-                exception_types: vec![
-                    ExceptionLiteral::ZeroDivisionError,
-                    ExceptionLiteral::IOError,
-                ],
-                alias: Some(ident("e")),
-                block: ast![stmt_assign!(var!("a"), int!(2))],
-            }],
+            handlers: vec![ExceptHandler::typed(
+                vec![var!("ZeroDivisionError"), var!("IOError")],
+                Some(ident("e")),
+                ast![stmt_assign!(var!("a"), int!(2))]
+            )],
             else_block: None,
             finally_block: None,
         });
@@ -2947,11 +2919,11 @@ finally:
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
-            except_clauses: vec![ExceptClause {
-                exception_types: vec![ExceptionLiteral::ZeroDivisionError],
-                alias: Some(ident("e")),
-                block: ast![stmt_assign!(var!("a"), int!(2))],
-            }],
+            handlers: vec![ExceptHandler::typed(
+                vec![var!("ZeroDivisionError")],
+                Some(ident("e")),
+                ast![stmt_assign!(var!("a"), int!(2))]
+            )],
             else_block: Some(ast![stmt_assign!(var!("a"), int!(4))]),
             finally_block: Some(ast![stmt_assign!(var!("a"), int!(3))]),
         });
@@ -2967,11 +2939,7 @@ a = 1
 "#;
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt!(StatementKind::Pass)],
-            except_clauses: vec![ExceptClause {
-                exception_types: vec![],
-                alias: None,
-                block: ast![stmt_return![]],
-            }],
+            handlers: vec![ExceptHandler::bare(ast![stmt_return![]])],
             else_block: None,
             finally_block: None,
         });
@@ -3062,7 +3030,7 @@ def test_default(file=None):
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
             name: ident("test_default"),
-            args: params![param!("file", Expr::None)],
+            args: params![param!("file", none!())],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,
@@ -3209,32 +3177,29 @@ def get_val():
 
     #[test]
     fn raise() {
+        let input = "raise";
+        let expected_ast = stmt!(StatementKind::Raise(RaiseKind::Reraise));
+
+        assert_ast_eq!(input, expected_ast);
+
         let input = "raise Exception";
-        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
-            literal: ExceptionLiteral::Exception,
-            args: call_args![],
-        })));
+        let expected_ast = stmt!(StatementKind::Raise(RaiseKind::Raise(var!("Exception"))));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"raise Exception("message")"#;
-        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
-            literal: ExceptionLiteral::Exception,
-            args: call_args![str!("message")],
-        })));
-
-        assert_ast_eq!(input, expected_ast);
-
-        let input = "raise";
-        let expected_ast = stmt!(StatementKind::Raise(None));
+        let expected_ast = stmt!(StatementKind::Raise(RaiseKind::Raise(func_call!(
+            "Exception",
+            call_args![str!("message")]
+        ))));
 
         assert_ast_eq!(input, expected_ast);
 
         let input = r#"raise Exception("message") from None"#;
-        let expected_ast = stmt!(StatementKind::Raise(Some(ExceptionInstance {
-            literal: ExceptionLiteral::Exception,
-            args: call_args![str!("message")],
-        })));
+        let expected_ast = stmt!(StatementKind::Raise(RaiseKind::RaiseFrom {
+            exception: func_call!("Exception", call_args![str!("message")]),
+            cause: none!()
+        }));
 
         assert_ast_eq!(input, expected_ast);
     }
@@ -3842,7 +3807,7 @@ def foo(data=None):
 "#;
         let expected_ast = stmt!(StatementKind::FunctionDef {
             name: ident("foo"),
-            args: params![param!("data", Expr::None)],
+            args: params![param!("data", none!())],
             body: ast![stmt!(StatementKind::Pass)],
             decorators: vec![],
             is_async: false,

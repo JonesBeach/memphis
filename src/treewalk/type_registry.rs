@@ -12,7 +12,7 @@ use crate::{
             iterators::{ReversedIter, ZipIterator},
             Bool, ByteArray, Bytes, Class, Classmethod, Complex, Coroutine, Dict, Exception, Float,
             FrozenSet, Function, Int, List, Memoryview, Object, Property, Range, Set, Slice,
-            Staticmethod, StopIteration, Str, Super, Traceback, Tuple, TypeClass,
+            Staticmethod, StopIteration, Str, Super, Traceback, Tuple, TypeClass, TypeError,
         },
         TreewalkValue,
     },
@@ -28,6 +28,23 @@ fn register_descriptors<T: DescriptorProvider + Typed>(
     methods: &mut HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>>,
 ) {
     methods.insert(T::get_type(), T::get_descriptors());
+}
+
+/// Helper function to get a list of parent classes for a given `Type`.
+fn parent_classes(
+    type_: &Type,
+    type_classes: &HashMap<Type, Container<Class>>,
+) -> Vec<Container<Class>> {
+    let parent_types = type_.parents();
+    parent_types
+        .iter()
+        .map(|t| {
+            type_classes
+                .get(t)
+                .unwrap_or_else(|| panic!("Failed to get parent class for {}", type_))
+                .clone()
+        })
+        .collect()
 }
 
 /// Register methods for each type that implements `MethodProvider`. [`Type::Type`] and
@@ -58,6 +75,7 @@ fn builtin_methods() -> HashMap<Type, Vec<Box<dyn CloneableCallable>>> {
     register_methods::<Classmethod>(&mut methods);
     register_methods::<Staticmethod>(&mut methods);
     register_methods::<Property>(&mut methods);
+    register_methods::<TypeError>(&mut methods);
 
     methods
 }
@@ -83,7 +101,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-static ALL_TYPES: [Type; 53] = [
+static ALL_TYPES: [Type; 65] = [
     Type::Super,
     Type::GetSetDescriptor,
     Type::MemberDescriptor,
@@ -127,8 +145,6 @@ static ALL_TYPES: [Type; 53] = [
     Type::ReversedIter,
     Type::SetIter,
     Type::TupleIter,
-    Type::Exception,
-    Type::StopIteration,
     Type::Traceback,
     Type::Frame,
     Type::Module,
@@ -137,10 +153,24 @@ static ALL_TYPES: [Type; 53] = [
     Type::Classmethod,
     Type::Staticmethod,
     Type::Property,
+    Type::Exception,
+    Type::StopIteration,
+    Type::TypeError,
+    Type::ZeroDivisionError,
+    Type::RuntimeError,
+    Type::ImportError,
+    Type::LookupError,
+    Type::KeyError,
+    Type::ValueError,
+    Type::NameError,
+    Type::AttributeError,
+    Type::AssertionError,
+    Type::SyntaxError,
+    Type::IOError,
 ];
 
 /// These types are callable and behave like a builtin function.
-static CALLABLE_TYPES: [Type; 25] = [
+static CALLABLE_TYPES: [Type; 37] = [
     Type::Type,
     Type::Object,
     Type::Super,
@@ -164,11 +194,20 @@ static CALLABLE_TYPES: [Type; 25] = [
     Type::Classmethod,
     Type::Staticmethod,
     Type::Property,
-    // ----------------------------------------------------------------------------------------
-    // Technically not a builtin, but it is callable. We may need to handle builtin class such
-    // as these separately.
     Type::Exception,
     Type::StopIteration,
+    Type::TypeError,
+    Type::ZeroDivisionError,
+    Type::RuntimeError,
+    Type::ImportError,
+    Type::LookupError,
+    Type::KeyError,
+    Type::ValueError,
+    Type::NameError,
+    Type::AttributeError,
+    Type::AssertionError,
+    Type::SyntaxError,
+    Type::IOError,
 ];
 
 /// Create the [`Type::Type`] class which is the metaclass to all classes, including itself.
@@ -245,8 +284,8 @@ fn init_type_classes() -> HashMap<Type, Container<Class>> {
     let mut methods = builtin_methods();
     let mut attributes = descriptors();
     for type_ in ALL_TYPES.iter() {
-        let mut class =
-            Class::new_builtin(*type_, Some(type_class.clone()), vec![object_class.clone()]);
+        let parent_classes = parent_classes(type_, &type_classes);
+        let mut class = Class::new_builtin(*type_, Some(type_class.clone()), parent_classes);
 
         // Add the builtin methods for this type class.
         //

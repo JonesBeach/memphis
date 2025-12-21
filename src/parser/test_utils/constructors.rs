@@ -10,6 +10,12 @@ macro_rules! str {
     };
 }
 
+macro_rules! none {
+    () => {
+        $crate::parser::types::Expr::None
+    };
+}
+
 macro_rules! int {
     ($val:expr) => {
         $crate::parser::types::Expr::Integer($val)
@@ -370,6 +376,7 @@ pub(crate) use list;
 pub(crate) use logic_op;
 pub(crate) use member_access;
 pub(crate) use method_call;
+pub(crate) use none;
 pub(crate) use param;
 pub(crate) use params;
 pub(crate) use set;

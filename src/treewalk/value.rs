@@ -10,9 +10,7 @@ use std::{
 use crate::treewalk::types::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{floats_equal, Container, Voidable},
-    domain::{
-        DomainResult, Dunder, ExecutionError, MemphisValue, RuntimeError, RuntimeValue, Type,
-    },
+    domain::{DomainResult, Dunder, ExecutionError, MemphisValue, RuntimeValue, Type},
     treewalk::{
         protocols::MemberRead,
         type_system::{
@@ -75,7 +73,7 @@ pub enum TreewalkValue {
     MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
-    Exception(RuntimeError),
+    Exception(ExecutionError),
     /// Only constructed when a `StopIteration` exception is caught and aliased,
     /// e.g., `except StopIteration as e:`. Mirrors CPython behavior to expose `.value`.
     StopIteration(Box<StopIteration>),
@@ -379,7 +377,7 @@ impl TreewalkValue {
             TreewalkValue::Cell(_) => Type::Cell,
             TreewalkValue::Code(_) => Type::Code,
             TreewalkValue::Module(_) => Type::Module,
-            TreewalkValue::Exception(_) => Type::Exception,
+            TreewalkValue::Exception(e) => e.get_type(),
             TreewalkValue::StopIteration(_) => Type::StopIteration,
             TreewalkValue::Traceback(_) => Type::Traceback,
             TreewalkValue::Frame => Type::Frame,
@@ -652,6 +650,13 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Set(i) => Ok(i.clone()),
             _ => Err(ExecutionError::type_error("Expected a set")),
+        }
+    }
+
+    pub fn as_exception(&self) -> DomainResult<ExecutionError> {
+        match self {
+            TreewalkValue::Exception(i) => Ok(i.clone()),
+            _ => Err(ExecutionError::type_error("Expected an exception")),
         }
     }
 

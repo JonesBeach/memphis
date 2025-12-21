@@ -1,12 +1,11 @@
 use crate::{
     core::{log, Container, LogLevel},
     domain::{
-        resolve_absolute_path, DomainResult, Dunder, ExceptionLiteral, ExecutionError,
-        FromImportPath, Identifier,
+        resolve_absolute_path, DomainResult, Dunder, ExecutionError, FromImportPath, Identifier,
     },
     parser::types::{
-        Ast, BinOp, CompoundOperator, ConditionalAst, ExceptClause, ExceptionInstance, Expr,
-        FromImportMode, LoopIndex, Params, RegularImport, Statement, StatementKind,
+        Ast, BinOp, CompoundOperator, ConditionalAst, ExceptHandler, Expr, FromImportMode,
+        HandlerKind, LoopIndex, Params, RaiseKind, RegularImport, Statement, StatementKind,
     },
     treewalk::{
         protocols::MemberRead,
@@ -83,10 +82,10 @@ impl TreewalkInterpreter {
             }
             StatementKind::TryExcept {
                 try_block,
-                except_clauses,
+                handlers,
                 else_block,
                 finally_block,
-            } => self.evaluate_try_except(try_block, except_clauses, else_block, finally_block),
+            } => self.evaluate_try_except(try_block, handlers, else_block, finally_block),
             StatementKind::Raise(exception) => self.evaluate_raise(exception),
             StatementKind::ContextManager {
                 expr,
@@ -484,41 +483,61 @@ impl TreewalkInterpreter {
     fn evaluate_try_except(
         &self,
         try_block: &Ast,
-        except_clauses: &[ExceptClause],
+        handlers: &[ExceptHandler],
         else_block: &Option<Ast>,
         finally_block: &Option<Ast>,
     ) -> TreewalkResult<()> {
         if let Err(TreewalkDisruption::Error(error)) = self.execute_ast(try_block) {
-            // Only the first matching clause should be evaluated. They will still be in order
-            // here from the parsed code.
-            if let Some(except_clause) = except_clauses
-                .iter()
-                .find(|clause| error.matches_except_clause(&clause.exception_types))
-            {
-                if let Some(alias) = &except_clause.alias {
-                    let exception = match &error.execution_error {
-                        ExecutionError::StopIteration(v) => {
-                            let stop_iter_payload = v.clone().unwrap_treewalk();
-                            TreewalkValue::StopIteration(Box::new(StopIteration::new(
-                                stop_iter_payload,
-                            )))
-                        }
-                        _ => TreewalkValue::Exception(error.clone()),
-                    };
-                    self.state.write(alias.as_str(), exception);
-                }
-
-                match self.execute_ast(&except_clause.block) {
-                    Err(TreewalkDisruption::Signal(TreewalkSignal::Raise)) => {
-                        return Err(TreewalkDisruption::Error(error))
+            // Find the first handler that matches, these will still be in parse-order
+            let mut matched_handler = None;
+            for handler in handlers {
+                let matches = match &handler.kind {
+                    HandlerKind::Bare => true,
+                    HandlerKind::Typed { exprs, .. } => {
+                        let classes: Vec<_> = exprs
+                            .iter()
+                            .map(|expr| self.evaluate_expr(expr)?.as_class().raise(self))
+                            .collect::<TreewalkResult<_>>()?;
+                        self.matches_exception_classes(&error.execution_error.get_type(), &classes)
                     }
-                    Err(second_error) => return Err(second_error),
-                    Ok(_) => {}
+                };
+
+                if matches {
+                    matched_handler = Some(handler);
+                    break;
                 }
-            } else {
-                // Uncaught errors should be raised
-                return Err(TreewalkDisruption::Error(error));
             }
+
+            let Some(handler) = matched_handler else {
+                // No handler matched → rethrow
+                return Err(TreewalkDisruption::Error(error));
+            };
+
+            // Bind alias if present (typed handlers only)
+            if let HandlerKind::Typed {
+                alias: Some(alias), ..
+            } = &handler.kind
+            {
+                let exception_value = match &error.execution_error {
+                    ExecutionError::StopIteration(v) => {
+                        let payload = v.clone().unwrap_treewalk();
+                        TreewalkValue::StopIteration(Box::new(StopIteration::new(payload)))
+                    }
+                    _ => TreewalkValue::Exception(error.execution_error.clone()),
+                };
+
+                self.state.write(alias.as_str(), exception_value);
+            }
+
+            self.state.set_current_exception(error.clone());
+            match self.execute_ast(&handler.block) {
+                Err(TreewalkDisruption::Signal(TreewalkSignal::Raise)) => {
+                    return Err(TreewalkDisruption::Error(error))
+                }
+                Err(other) => return Err(other),
+                Ok(_) => {}
+            }
+            self.state.clear_current_exception();
         } else if let Some(else_block) = else_block {
             // Else block is only evaluated if an error was not thrown
             self.execute_ast(else_block)?;
@@ -532,26 +551,35 @@ impl TreewalkInterpreter {
         Ok(())
     }
 
-    fn evaluate_raise(&self, instance: &Option<ExceptionInstance>) -> TreewalkResult<()> {
-        // TODO we should throw a 'RuntimeError: No active exception to reraise'
-        if instance.is_none() {
-            return Err(TreewalkDisruption::Signal(TreewalkSignal::Raise));
-        }
-
-        let instance = instance.as_ref().unwrap();
-        let args = self.evaluate_args(&instance.args)?;
-        let error = match instance.literal {
-            ExceptionLiteral::TypeError => {
-                if args.len() == 1 {
-                    ExecutionError::type_error(args.get_arg(0).as_str().raise(self)?)
+    fn evaluate_raise(&self, kind: &RaiseKind) -> TreewalkResult<()> {
+        match kind {
+            RaiseKind::Reraise => {
+                if let Some(error) = self.state.current_exception() {
+                    Err(TreewalkDisruption::Error(error))
                 } else {
-                    ExecutionError::type_error_empty()
+                    ExecutionError::runtime_error_with("No active exception to reraise").raise(self)
                 }
             }
-            _ => unimplemented!(),
-        };
-
-        error.raise(self)
+            RaiseKind::Raise(expr) => {
+                let value = self.evaluate_expr(expr)?;
+                // If we raised a class, we must first turn it into an instance.
+                let exc_instance = if value.as_class().is_ok() {
+                    let callable = value.as_callable().raise(self)?;
+                    self.call(callable, args![])?
+                } else {
+                    value
+                };
+                let exception = exc_instance.as_exception().raise(self)?;
+                exception.raise(self)
+            }
+            RaiseKind::RaiseFrom { exception, cause } => {
+                let _exc = self.evaluate_expr(exception)?;
+                let _cause = self.evaluate_expr(cause)?;
+                // let exc = exc.as_exception()?.with_cause(cause);
+                // exc.raise(self)
+                todo!()
+            }
+        }
     }
 
     fn evaluate_context_manager(

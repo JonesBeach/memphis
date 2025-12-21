@@ -1,5 +1,6 @@
 use crate::{
     core::Container,
+    domain::RuntimeError,
     treewalk::{
         types::{Class, Function},
         TreewalkValue,
@@ -22,6 +23,8 @@ pub struct ExecutionContextManager {
     /// We do not need a container here because the [`Object`] and [`Class`] variants of
     /// [`TreewalkValue`] already are wrapped in a [`Container`].
     current_receiver_stack: Vec<TreewalkValue>,
+
+    current_exception: Option<RuntimeError>,
 }
 
 impl ExecutionContextManager {
@@ -30,7 +33,20 @@ impl ExecutionContextManager {
             lexical_class_stack: vec![],
             current_function_stack: vec![],
             current_receiver_stack: vec![],
+            current_exception: None,
         }
+    }
+
+    pub fn current_exception(&self) -> Option<RuntimeError> {
+        self.current_exception.clone()
+    }
+
+    pub fn set_current_exception(&mut self, exception: RuntimeError) {
+        self.current_exception = Some(exception);
+    }
+
+    pub fn clear_current_exception(&mut self) {
+        self.current_exception = None;
     }
 
     pub fn push_class(&mut self, class: Container<Class>) {

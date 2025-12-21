@@ -77,7 +77,7 @@ mod tests {
         assert!(result.is_err());
         let err_binding = result.unwrap_err();
         let err = err_binding.as_err();
-        assert_runtime_error_contains!(err, "Failed to bind Socket");
+        assert_runtime_error_contains!(err.execution_error, "Failed to bind Socket");
     }
 }
 

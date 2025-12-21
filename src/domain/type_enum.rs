@@ -55,8 +55,6 @@ pub enum Type {
     BytesIter,
     ByteArrayIter,
     RangeIter,
-    Exception,
-    StopIteration,
     Traceback,
     Frame,
     Module,
@@ -65,6 +63,21 @@ pub enum Type {
     Classmethod,
     Staticmethod,
     Property,
+    #[allow(clippy::enum_variant_names)]
+    TypeError,
+    Exception,
+    StopIteration,
+    ZeroDivisionError,
+    RuntimeError,
+    ImportError,
+    LookupError,
+    KeyError,
+    ValueError,
+    NameError,
+    AttributeError,
+    AssertionError,
+    SyntaxError,
+    IOError,
 }
 
 impl Type {
@@ -119,17 +132,37 @@ impl Type {
             Type::BytesIter => "bytes_iterator",
             Type::ByteArrayIter => "byte_array_iterator",
             Type::RangeIter => "range_iterator",
-            Type::Exception => "Exception",
-            Type::StopIteration => "StopIteration",
-            Type::Traceback => "traceback",
-            Type::Frame => "frame",
             Type::Module => "module",
             Type::Cell => "cell",
             Type::Code => "code",
             Type::Classmethod => "classmethod",
             Type::Staticmethod => "staticmethod",
             Type::Property => "property",
+            Type::Traceback => "traceback",
+            Type::Frame => "frame",
+            Type::Exception => "Exception",
+            Type::StopIteration => "StopIteration",
+            Type::TypeError => "TypeError",
+            Type::ZeroDivisionError => "ZeroDivisionError",
+            Type::RuntimeError => "RuntimeError",
+            Type::ImportError => "ImportError",
+            Type::LookupError => "LookupError",
+            Type::KeyError => "KeyError",
+            Type::ValueError => "ValueError",
+            Type::NameError => "NameError",
+            Type::AttributeError => "AttributeError",
+            Type::AssertionError => "AssertionError",
+            Type::SyntaxError => "SyntaxError",
+            Type::IOError => "IOError",
         }
+    }
+
+    pub fn parents(&self) -> &'static [Type] {
+        TYPE_PARENTS
+            .iter()
+            .find(|(t, _)| t == self)
+            .map(|(_, parents)| *parents)
+            .unwrap_or(&[Type::Object])
     }
 }
 
@@ -150,3 +183,17 @@ impl From<&Type> for &str {
         value.value()
     }
 }
+
+static TYPE_PARENTS: [(Type, &[Type]); 11] = [
+    (Type::TypeError, &[Type::Exception]),
+    (Type::StopIteration, &[Type::Exception]),
+    (Type::RuntimeError, &[Type::Exception]),
+    (Type::ImportError, &[Type::Exception]),
+    (Type::LookupError, &[Type::Exception]),
+    (Type::KeyError, &[Type::Exception]),
+    (Type::NameError, &[Type::Exception]),
+    (Type::AttributeError, &[Type::Exception]),
+    (Type::AssertionError, &[Type::Exception]),
+    (Type::SyntaxError, &[Type::Exception]),
+    (Type::IOError, &[Type::Exception]),
+];

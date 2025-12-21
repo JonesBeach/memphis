@@ -4,7 +4,7 @@ use crate::{
     core::Container,
     domain::{
         resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError,
-        FromImportPath, ModuleName, ToDebugStackFrame, Type,
+        FromImportPath, ModuleName, RuntimeError, ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
@@ -169,6 +169,22 @@ impl Container<TreewalkState> {
 
     pub fn current_receiver(&self) -> Option<TreewalkValue> {
         self.borrow().execution_context.read_current_receiver()
+    }
+
+    pub fn current_exception(&self) -> Option<RuntimeError> {
+        self.borrow().execution_context.current_exception()
+    }
+
+    pub fn set_current_exception(&self, exception: RuntimeError) {
+        self.borrow_mut()
+            .execution_context
+            .set_current_exception(exception);
+    }
+
+    pub fn clear_current_exception(&self) {
+        self.borrow_mut()
+            .execution_context
+            .clear_current_exception();
     }
 
     pub fn read_captured_env(&self) -> Option<Box<Container<EnvironmentFrame>>> {

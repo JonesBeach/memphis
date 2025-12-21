@@ -246,7 +246,7 @@ impl Callable for IssubclassBuiltin {
             .raise(interpreter)?;
 
         Ok(TreewalkValue::Bool(
-            instance_class.mro().contains(&reference_class),
+            instance_class.is_subclass_of(&reference_class),
         ))
     }
 

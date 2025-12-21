@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     analysis::{AcceptsVisitor, FunctionAnalysisVisitor, YieldDetector},
-    domain::{ExceptionLiteral, FromImportPath, Identifier, ModulePath},
+    domain::{FromImportPath, Identifier, ModulePath},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -377,16 +377,45 @@ impl Hash for Expr {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ExceptionInstance {
-    pub literal: ExceptionLiteral,
-    pub args: CallArgs,
+pub enum RaiseKind {
+    Reraise,
+    Raise(Expr),
+    RaiseFrom { exception: Expr, cause: Expr },
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ExceptClause {
-    pub exception_types: Vec<ExceptionLiteral>,
-    pub alias: Option<Identifier>,
+pub struct ExceptHandler {
+    pub kind: HandlerKind,
     pub block: Ast,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum HandlerKind {
+    Bare,
+    Typed {
+        exprs: Vec<Expr>, // non-empty
+        alias: Option<Identifier>,
+    },
+}
+
+impl ExceptHandler {
+    pub fn bare(block: Ast) -> Self {
+        ExceptHandler {
+            kind: HandlerKind::Bare,
+            block,
+        }
+    }
+
+    pub fn typed(exprs: Vec<Expr>, alias: Option<Identifier>, block: Ast) -> Self {
+        assert!(
+            !exprs.is_empty(),
+            "A typed ExceptHandler must have at least one Expr"
+        );
+        ExceptHandler {
+            kind: HandlerKind::Typed { exprs, alias },
+            block,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -570,11 +599,11 @@ pub enum StatementKind {
     },
     TryExcept {
         try_block: Ast,
-        except_clauses: Vec<ExceptClause>,
+        handlers: Vec<ExceptHandler>,
         else_block: Option<Ast>,
         finally_block: Option<Ast>,
     },
-    Raise(Option<ExceptionInstance>),
+    Raise(RaiseKind),
     ContextManager {
         expr: Expr,
         variable: Option<Identifier>,

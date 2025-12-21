@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Error, Formatter};
 
-use crate::{bytecode_vm::VmValue, core::Voidable, domain::Identifier, treewalk::TreewalkValue};
+use crate::{bytecode_vm::VmValue, core::Voidable, domain::Type, treewalk::TreewalkValue};
 
 use super::{DebugCallStack, MemphisValue};
 
@@ -29,26 +29,6 @@ impl Display for RuntimeError {
 impl Debug for RuntimeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self, f)
-    }
-}
-
-impl RuntimeError {
-    /// When an `InterpreterError` is thrown inside a try-except block, this method is used to
-    /// determine whether a given except clause should be run. It does this by mapping
-    /// `InterpreterError` variants (from the interpreter) to `ExceptionLiteral` variants from the
-    /// parser.
-    pub fn matches_except_clause(&self, handled_exception_types: &[ExceptionLiteral]) -> bool {
-        if handled_exception_types.is_empty() {
-            return true;
-        }
-
-        if let Ok(literal) = (&self.execution_error).try_into() {
-            // Always match `Exception`
-            handled_exception_types.contains(&ExceptionLiteral::Exception)
-                || handled_exception_types.contains(&literal)
-        } else {
-            false
-        }
     }
 }
 
@@ -198,6 +178,26 @@ impl ExecutionError {
     pub fn unknown_encoding(encoding: impl Into<String>) -> Self {
         Self::lookup_error(format!("unknown encoding: {}", encoding.into()))
     }
+
+    // TODO this could used the Typed trait in the future
+    pub fn get_type(&self) -> Type {
+        match self {
+            ExecutionError::TypeError(_) => Type::TypeError,
+            ExecutionError::StopIteration(_) => Type::StopIteration,
+            ExecutionError::DivisionByZero(_) => Type::ZeroDivisionError,
+            ExecutionError::RuntimeError(_) => Type::RuntimeError,
+            ExecutionError::ImportError(_) => Type::ImportError,
+            ExecutionError::LookupError(_) => Type::LookupError,
+            ExecutionError::KeyError(_) => Type::KeyError,
+            ExecutionError::ValueError(_) => Type::ValueError,
+            ExecutionError::NameError(_) => Type::NameError,
+            ExecutionError::AttributeError(..) => Type::AttributeError,
+            ExecutionError::AssertionError => Type::AssertionError,
+            // this isn't a Python type, what should we do here.
+            ExecutionError::MissingContextManagerProtocol => unimplemented!(),
+            ExecutionError::SyntaxError => Type::SyntaxError,
+        }
+    }
 }
 
 impl Display for ExecutionError {
@@ -249,83 +249,34 @@ impl Display for ExecutionError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExceptionLiteral {
-    Exception,
-    ZeroDivisionError,
-    IOError,
-    ImportError,
-    StopIteration,
-    TypeError,
-    AttributeError,
-    NameError,
-    Custom(Identifier),
-}
-
-impl From<Identifier> for ExceptionLiteral {
-    fn from(value: Identifier) -> Self {
-        match value.as_str() {
-            "ZeroDivisionError" => Self::ZeroDivisionError,
-            "Exception" => Self::Exception,
-            "IOError" => Self::IOError,
-            "ImportError" => Self::ImportError,
-            "StopIteration" => Self::StopIteration,
-            "TypeError" => Self::TypeError,
-            "AttributeError" => Self::AttributeError,
-            "NameError" => Self::NameError,
-            // TODO we don't handle Self::Custom in the interpreter yet
-            _ => Self::Custom(value.to_owned()),
-        }
-    }
-}
-
-impl TryFrom<&ExecutionError> for ExceptionLiteral {
-    type Error = ();
-
-    fn try_from(value: &ExecutionError) -> Result<Self, Self::Error> {
-        match value {
-            ExecutionError::DivisionByZero(..) => Ok(Self::ZeroDivisionError),
-            ExecutionError::ImportError(..) => Ok(Self::ImportError),
-            ExecutionError::TypeError(..) => Ok(Self::TypeError),
-            ExecutionError::AttributeError(..) => Ok(Self::AttributeError),
-            ExecutionError::NameError(..) => Ok(Self::NameError),
-            ExecutionError::StopIteration(..) => Ok(Self::StopIteration),
-            _ => Err(()),
-        }
-    }
-}
-
 #[cfg(test)]
 pub mod test_utils {
     macro_rules! assert_error_eq {
         ($error:expr, $expected_kind:expr) => {
-            assert_eq!($error.execution_error, $expected_kind);
+            assert_eq!($error, $expected_kind);
         };
     }
 
     macro_rules! assert_stop_iteration {
         ($error:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::StopIteration(value) => {
                     assert!($crate::core::Voidable::is_none(&**value))
                 }
-                _ => panic!(
-                    "Expected a StopIteration error, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a StopIteration error, but got: {:?}", &$error),
             }
         }};
     }
 
     macro_rules! assert_div_by_zero_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::DivisionByZero(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected DivisionByZero message");
                 }
                 _ => panic!(
                     "Expected a DivisionByZero error with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
@@ -333,13 +284,13 @@ pub mod test_utils {
 
     macro_rules! assert_lookup_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::LookupError(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected LookupError message");
                 }
                 _ => panic!(
                     "Expected a LookupError error with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
@@ -347,24 +298,24 @@ pub mod test_utils {
 
     macro_rules! assert_runtime_error {
         ($error:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::RuntimeError(msg) => {
                     assert!(msg.is_none(), "Unexpected RuntimeError message");
                 }
                 _ => panic!(
                     "Expected a RuntimeError with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::RuntimeError(Some(msg)) => {
                     assert_eq!(msg, $expected_message, "Unexpected RuntimeError message");
                 }
                 _ => panic!(
                     "Expected a RuntimeError with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
@@ -373,7 +324,7 @@ pub mod test_utils {
     // Use this when the error message may vary across platforms (e.g., os error 48 vs 98)
     macro_rules! assert_runtime_error_contains {
         ($error:expr, $expected_substr:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::RuntimeError(Some(msg)) => {
                     assert!(
                         msg.contains($expected_substr),
@@ -384,7 +335,7 @@ pub mod test_utils {
                 }
                 _ => panic!(
                     "Expected a RuntimeError with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
@@ -392,38 +343,32 @@ pub mod test_utils {
 
     macro_rules! assert_type_error {
         ($error:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::TypeError(msg) => {
                     assert!(msg.is_none(), "Unexpected TypeError message");
                 }
-                _ => panic!(
-                    "Expected a TypeError with message, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a TypeError with message, but got: {:?}", &$error),
             }
         }};
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::TypeError(Some(msg)) => {
                     assert_eq!(msg, $expected_message, "Unexpected TypeError message");
                 }
-                _ => panic!(
-                    "Expected a TypeError with message, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a TypeError with message, but got: {:?}", &$error),
             }
         }};
     }
 
     macro_rules! assert_import_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::ImportError(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected ImportError message");
                 }
                 _ => panic!(
                     "Expected an ImportError with a module name, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};
@@ -431,56 +376,47 @@ pub mod test_utils {
 
     macro_rules! assert_name_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::NameError(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected NameError message");
                 }
-                _ => panic!(
-                    "Expected a NameError with message, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a NameError with message, but got: {:?}", &$error),
             }
         }};
     }
 
     macro_rules! assert_key_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::KeyError(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected KeyError message");
                 }
-                _ => panic!(
-                    "Expected a KeyError with message, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a KeyError with message, but got: {:?}", &$error),
             }
         }};
     }
 
     macro_rules! assert_value_error {
         ($error:expr, $expected_message:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::ValueError(msg) => {
                     assert_eq!(msg, $expected_message, "Unexpected ValueError message");
                 }
-                _ => panic!(
-                    "Expected a ValueError with message, but got: {:?}",
-                    &$error.execution_error
-                ),
+                _ => panic!("Expected a ValueError with message, but got: {:?}", &$error),
             }
         }};
     }
 
     macro_rules! assert_attribute_error {
         ($error:expr, $expected_obj:expr, $expected_attr:expr) => {{
-            match &$error.execution_error {
+            match &$error {
                 $crate::domain::ExecutionError::AttributeError(object, attr) => {
                     assert_eq!(object, $expected_obj, "Unexpected AttributeError object");
                     assert_eq!(attr, $expected_attr, "Unexpected AttributeError attr");
                 }
                 _ => panic!(
                     "Expected a AttributeError with message, but got: {:?}",
-                    &$error.execution_error
+                    &$error
                 ),
             }
         }};

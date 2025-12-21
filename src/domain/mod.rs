@@ -20,7 +20,7 @@ pub use dunder::Dunder;
 pub use encoding::Encoding;
 #[cfg(test)]
 pub use error::test_utils;
-pub use error::{ExceptionLiteral, ExecutionError, RuntimeError, RuntimeValue};
+pub use error::{ExecutionError, RuntimeError, RuntimeValue};
 pub use function::FunctionType;
 pub use identifier::Identifier;
 pub use import_path::{FromImportPath, ModulePath};

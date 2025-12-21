@@ -177,6 +177,10 @@ impl Container<Class> {
             .collect::<Vec<Container<Class>>>()
     }
 
+    pub fn is_subclass_of(&self, other: &Container<Class>) -> bool {
+        self.mro().contains(other)
+    }
+
     pub fn get_from_class(&self, name: &str) -> Option<TreewalkValue> {
         log(LogLevel::Debug, || format!("Searching for: {self}::{name}"));
         search(&self.mro(), name)

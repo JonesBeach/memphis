@@ -14,6 +14,7 @@ mod assignment;
 mod call;
 mod class;
 mod evaluators;
+mod exception_handling;
 mod expr;
 mod function;
 mod import;
@@ -91,33 +92,36 @@ mod tests {
     fn undefined_variable() {
         let input = "x + 1";
         let e = eval_expect_error(input);
-        assert_name_error!(e, "x");
+        assert_name_error!(e.execution_error, "x");
     }
 
     #[test]
     fn division_by_zero() {
         let input = "1 / 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
 
         let input = "1 / 0.0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
 
         let input = "1.0 / 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e, "float division by zero");
+        assert_div_by_zero_error!(e.execution_error, "float division by zero");
 
         let input = "1.0 / 0.0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e, "float division by zero");
+        assert_div_by_zero_error!(e.execution_error, "float division by zero");
     }
 
     #[test]
     fn unsupported_operand() {
         let input = r#""a" / 0"#;
         let e = eval_expect_error(input);
-        assert_type_error!(e, "unsupported operand type(s) for /: 'str' and 'int'");
+        assert_type_error!(
+            e.execution_error,
+            "unsupported operand type(s) for /: 'str' and 'int'"
+        );
     }
 
     #[test]
@@ -142,7 +146,7 @@ mod tests {
 
         let input = "4.1 + 'a'";
         let e = eval_expect_error(input);
-        assert_type_error!(e, "unsupported operand type(s) for +");
+        assert_type_error!(e.execution_error, "unsupported operand type(s) for +");
     }
 
     #[test]
@@ -164,7 +168,7 @@ mod tests {
 
         let input = "5 // 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
     }
 
     #[test]
@@ -202,7 +206,7 @@ mod tests {
 
         let input = "~5.5";
         let e = eval_expect_error(input);
-        assert_type_error!(e, "bad operand type for unary ~: 'float'");
+        assert_type_error!(e.execution_error, "bad operand type for unary ~: 'float'");
     }
 
     #[test]
@@ -813,7 +817,7 @@ foo.bar()
         assert_read_eq!(ctx, "z", int!(6));
 
         let e = run_path_expect_error("src/fixtures/imports/selective_import_c.py");
-        assert_name_error!(e, "something_third");
+        assert_name_error!(e.execution_error, "something_third");
 
         let ctx = run_path("src/fixtures/imports/selective_import_d.py");
         assert_read_eq!(ctx, "z", int!(8));
@@ -890,8 +894,7 @@ z = add(2.1, 3)
 float(1, 1)
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
     }
 
     #[test]
@@ -925,7 +928,7 @@ j = +(-3)
     #[test]
     fn call_stack() {
         let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
-        assert_name_error!(e, "unknown");
+        assert_name_error!(e.execution_error, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
@@ -950,7 +953,7 @@ j = +(-3)
         assert_eq!(call_stack.get(2).line_number(), 5);
 
         let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
-        assert_name_error!(e, "unknown");
+        assert_name_error!(e.execution_error, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
@@ -989,7 +992,7 @@ b = 10
 c = foo()
 "#;
         let e = run_expect_error(input);
-        assert_name_error!(e, "foo");
+        assert_name_error!(e.execution_error, "foo");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 1);
@@ -1058,8 +1061,7 @@ t.extend([3,4])
 
         let input = "list([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
     }
 
     #[test]
@@ -1101,8 +1103,7 @@ l = {1} <= {2}
 
         let input = "set({1,2,3}, {1,2})";
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
     }
 
     #[test]
@@ -1137,8 +1138,7 @@ k = tuple()
 
         let input = "tuple([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
     }
 
     #[test]
@@ -1166,23 +1166,26 @@ d = (1,2,3)
 d[0] = 10
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "'tuple' object does not support item assignment");
+        assert_type_error!(
+            e.execution_error,
+            "'tuple' object does not support item assignment"
+        );
 
         let input = r#"
 d = (1,2,3)
 del d[0]
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "'tuple' object does not support item deletion");
+        assert_type_error!(
+            e.execution_error,
+            "'tuple' object does not support item deletion"
+        );
 
         let input = r#"
 4[1]
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "'int' object is not subscriptable");
+        assert_type_error!(e.execution_error, "'int' object is not subscriptable");
     }
 
     #[test]
@@ -1289,8 +1292,7 @@ f = next(iter(range(5)))
 next(range(5))
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "'range' object is not an iterator");
+        assert_type_error!(e.execution_error, "'range' object is not an iterator");
     }
 
     #[test]
@@ -1449,7 +1451,7 @@ c = next(a)
 "#;
 
         let e = eval_expect_error(input);
-        assert_stop_iteration!(e);
+        assert_stop_iteration!(e.execution_error);
     }
 
     #[test]
@@ -1684,8 +1686,7 @@ d = ChildTwo().three()
 "#;
 
         let e = eval_expect_error(input);
-
-        assert_attribute_error!(e, "ChildTwo", "x");
+        assert_attribute_error!(e.execution_error, "ChildTwo", "x");
 
         // Test that multiple levels of a hierarchy can be traversed.
         let input = r#"
@@ -2084,14 +2085,14 @@ g = a == b == c == d == e == f
         let input = r#"dict([('a',)])"#;
         let e = eval_expect_error(input);
         assert_value_error!(
-            e,
+            e.execution_error,
             "dictionary update sequence element #0 has length 1; 2 is required"
         );
 
         let input = r#"dict([('a', 1, 2)])"#;
         let e = eval_expect_error(input);
         assert_value_error!(
-            e,
+            e.execution_error,
             "dictionary update sequence element #0 has length 3; 2 is required"
         );
     }
@@ -2107,8 +2108,7 @@ assert True
 assert False
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::AssertionError);
+        assert_error_eq!(e.execution_error, ExecutionError::AssertionError);
     }
 
     #[test]
@@ -2283,9 +2283,11 @@ except ValueError:
     a = 2
 "#;
         let e = eval_expect_error(input);
+        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+    }
 
-        assert_div_by_zero_error!(e, "integer division or modulo by zero");
-
+    #[test]
+    fn reraise() {
         let input = r#"
 try:
     a = 8 / 0
@@ -2293,8 +2295,7 @@ except ZeroDivisionError:
     raise
 "#;
         let e = eval_expect_error(input);
-
-        assert_div_by_zero_error!(e, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
     }
 
     #[test]
@@ -2360,7 +2361,7 @@ second = {"a": 2}
 foo(**first, **second)
 "#;
         let e = eval_expect_error(input);
-        assert_key_error!(e, "a");
+        assert_key_error!(e.execution_error, "a");
 
         let input = r#"
 def foo(**kwargs):
@@ -2369,7 +2370,7 @@ def foo(**kwargs):
 foo(**{"a": 1}, **{"a": 2})
 "#;
         let e = eval_expect_error(input);
-        assert_key_error!(e, "a");
+        assert_key_error!(e.execution_error, "a");
 
         let input = r#"
 def test_args(*args):
@@ -2411,9 +2412,8 @@ def test_args(one, two):
 b = test_args(0)
 "#;
         let e = eval_expect_error(input);
-
         assert_type_error!(
-            e,
+            e.execution_error,
             "test_args() missing 1 required positional argument: 'two'"
         );
 
@@ -2424,9 +2424,8 @@ def test_args(one, two, three):
 b = test_args(0)
 "#;
         let e = eval_expect_error(input);
-
         assert_type_error!(
-            e,
+            e.execution_error,
             "test_args() missing 2 required positional arguments: 'two' and 'three'"
         );
 
@@ -2437,8 +2436,7 @@ def test_args(one, two):
 b = test_args(1, 2, 3)
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
 
         let input = r#"
 def test_args(one, two, *args):
@@ -2500,8 +2498,10 @@ def foo():
 foo(b=5)
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "foo() got an unexpected keyword argument 'b'");
+        assert_type_error!(
+            e.execution_error,
+            "foo() got an unexpected keyword argument 'b'"
+        );
     }
 
     #[test]
@@ -2735,20 +2735,30 @@ a = f.calculate(2)
     }
 
     #[test]
-    fn raise() {
+    fn raise_class() {
         let input = r#"
 raise TypeError
 "#;
         let e = eval_expect_error(input);
+        assert_type_error!(e.execution_error);
+    }
 
-        assert_type_error!(e);
+    #[test]
+    fn raise_without_active_exception() {
+        let input = r#"
+raise
+"#;
+        let e = eval_expect_error(input);
+        assert_runtime_error!(e.execution_error, "No active exception to reraise");
+    }
 
+    #[test]
+    fn raise_instance() {
         let input = r#"
 raise TypeError('type is no good')
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "type is no good");
+        assert_type_error!(e.execution_error, "type is no good");
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -2853,8 +2863,10 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
+        assert_error_eq!(
+            e.execution_error,
+            ExecutionError::MissingContextManagerProtocol
+        );
 
         let input = r#"
 class MyContextManager:
@@ -2872,8 +2884,10 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::MissingContextManagerProtocol);
+        assert_error_eq!(
+            e.execution_error,
+            ExecutionError::MissingContextManagerProtocol
+        );
     }
 
     #[test]
@@ -2892,8 +2906,7 @@ del a['b']
 c = a['b']
 "#;
         let e = eval_expect_error(input);
-
-        assert_key_error!(e, "b");
+        assert_key_error!(e.execution_error, "b");
 
         let input = r#"
 a = [0,1,2]
@@ -2913,8 +2926,7 @@ del f.x
 a = f.x
 "#;
         let e = eval_expect_error(input);
-
-        assert_attribute_error!(e, "Foo", "x");
+        assert_attribute_error!(e.execution_error, "Foo", "x");
 
         let input = r#"
 class Foo:
@@ -2925,8 +2937,7 @@ f = Foo()
 del f.bar
 "#;
         let e = eval_expect_error(input);
-
-        assert_attribute_error!(e, "Foo", "bar");
+        assert_attribute_error!(e.execution_error, "Foo", "bar");
 
         let input = r#"
 a = 4
@@ -2976,13 +2987,13 @@ b'hello'.decode()
 b'hello'.decode("bad-encoding")
 "#;
         let e = eval_expect_error(input);
-        assert_lookup_error!(e, "unknown encoding: bad-encoding");
+        assert_lookup_error!(e.execution_error, "unknown encoding: bad-encoding");
 
         let input = r#"
 b'\xff\xfe\xfa'.decode()
 "#;
         let e = eval_expect_error(input);
-        assert_value_error!(e, "failed to decode with encoding 'utf-8'");
+        assert_value_error!(e.execution_error, "failed to decode with encoding 'utf-8'");
     }
 
     #[test]
@@ -3001,7 +3012,7 @@ bytearray(b'hello')
 bytearray('hello')
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e, "string argument without an encoding");
+        assert_type_error!(e.execution_error, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytearray())
@@ -3034,7 +3045,7 @@ bytes(b'hello')
 bytes('hello')
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e, "string argument without an encoding");
+        assert_type_error!(e.execution_error, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytes())
@@ -3412,7 +3423,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
         let e = eval_expect_error(input);
-        assert_runtime_error!(e);
+        assert_runtime_error!(e.execution_error);
     }
 
     #[test]
@@ -3558,8 +3569,7 @@ class Foo:
 b = Foo.make()
 "#;
         let e = eval_expect_error(input);
-
-        assert_attribute_error!(e, "Foo", "val");
+        assert_attribute_error!(e.execution_error, "Foo", "val");
 
         let input = r#"
 class Foo:
@@ -3573,8 +3583,7 @@ class Foo:
 b = Foo().make()
 "#;
         let e = eval_expect_error(input);
-
-        assert_attribute_error!(e, "Foo", "val");
+        assert_attribute_error!(e.execution_error, "Foo", "val");
     }
 
     #[test]
@@ -3603,8 +3612,7 @@ class Foo:
 c = Foo().make()
 "#;
         let e = eval_expect_error(input);
-
-        assert_type_error!(e, "Found 0 args");
+        assert_type_error!(e.execution_error, "Found 0 args");
     }
 
     #[test]
@@ -3849,8 +3857,7 @@ def foo():
 foo()
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::SyntaxError);
+        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
 
         let input = r#"
 def foo():
@@ -3858,15 +3865,13 @@ def foo():
 foo()
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::SyntaxError);
+        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
 
         let input = r#"
 nonlocal a
 "#;
         let e = eval_expect_error(input);
-
-        assert_error_eq!(e, ExecutionError::SyntaxError);
+        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
     }
 
     #[test]
@@ -3975,7 +3980,10 @@ b = Child.one()
 
         let e = eval_expect_error(input);
 
-        assert_type_error!(e, "one() missing 1 required positional argument: 'self'");
+        assert_type_error!(
+            e.execution_error,
+            "one() missing 1 required positional argument: 'self'"
+        );
 
         let input = r#"
 class Child:
@@ -4027,7 +4035,7 @@ b, c = [1, 2, 3]
 
         let e = eval_expect_error(input);
 
-        assert_value_error!(e, "too many values to unpack (expected 2)");
+        assert_value_error!(e.execution_error, "too many values to unpack (expected 2)");
 
         let input = r#"
 a, b, c = [2, 3]
@@ -4035,7 +4043,10 @@ a, b, c = [2, 3]
 
         let e = eval_expect_error(input);
 
-        assert_value_error!(e, "not enough values to unpack (expected 3, got 2)");
+        assert_value_error!(
+            e.execution_error,
+            "not enough values to unpack (expected 3, got 2)"
+        );
 
         let input = r#"
 b, c = (1, 2)
@@ -4067,7 +4078,10 @@ a = (*l,)
 
         let input = r#"(*5)"#;
         let e = eval_expect_error(input);
-        assert_type_error!(e, "Value after * must be an iterable, not int");
+        assert_type_error!(
+            e.execution_error,
+            "Value after * must be an iterable, not int"
+        );
 
         // TODO not sure where to detect this, probably in semantic analysis
         //         let input = r#"
@@ -4244,7 +4258,7 @@ e = frozenset().__contains__
 
         let input = "frozenset([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-        assert_type_error!(e, "Found 3 args");
+        assert_type_error!(e.execution_error, "Found 3 args");
     }
 
     #[test]
@@ -4272,7 +4286,7 @@ b = foo()
         let e = eval_expect_error(input);
 
         assert_type_error!(
-            e,
+            e.execution_error,
             "foo() missing 1 required positional argument: 'data_one'"
         );
     }
@@ -4304,7 +4318,7 @@ b = getattr(f, 'val_two')
 
         let e = eval_expect_error(input);
 
-        assert_attribute_error!(e, "Foo", "val_two");
+        assert_attribute_error!(e.execution_error, "Foo", "val_two");
     }
 
     #[test]
@@ -4351,7 +4365,7 @@ isinstance([], (int, 5))
 
         let e = eval_expect_error(input);
         assert_type_error!(
-            e,
+            e.execution_error,
             "isinstance() arg 2 must be a type, a tuple of types, or a union"
         );
     }
@@ -4395,7 +4409,7 @@ issubclass([], type)
 "#;
 
         let e = eval_expect_error(input);
-        assert_type_error!(e, "issubclass() arg 1 must be a class");
+        assert_type_error!(e.execution_error, "issubclass() arg 1 must be a class");
 
         let input = r#"
 issubclass(object, [])
@@ -4403,7 +4417,7 @@ issubclass(object, [])
 
         let e = eval_expect_error(input);
         assert_type_error!(
-            e,
+            e.execution_error,
             "issubclass() arg 2 must be a type, a tuple of types, or a union"
         );
     }
@@ -4899,5 +4913,26 @@ a = getattr(f, "123")
 "#;
         let ctx = run(input);
         assert_read_eq!(ctx, "a", int!(456));
+    }
+
+    #[test]
+    fn type_error_instance() {
+        let input = r#"
+a = TypeError
+t = type(TypeError())
+b = TypeError()
+c = TypeError("a")
+d = TypeError("a", "b")
+"#;
+        let ctx = run(input);
+        assert_type_eq!(ctx, "a", Type::TypeError);
+        assert_type_eq!(ctx, "t", Type::TypeError);
+        let b = extract!(ctx, "b", Exception);
+        assert_type_error!(b);
+        let c = extract!(ctx, "c", Exception);
+        assert_type_error!(c, "a");
+        let d = extract!(ctx, "d", Exception);
+        // TODO fix this
+        assert_type_error!(d, "a");
     }
 }
