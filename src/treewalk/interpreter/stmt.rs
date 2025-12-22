@@ -8,7 +8,6 @@ use crate::{
         HandlerKind, LoopIndex, Params, RaiseKind, RegularImport, Statement, StatementKind,
     },
     treewalk::{
-        protocols::MemberRead,
         result::Raise,
         types::{Function, StopIteration, Tuple},
         utils::{args, Args},
@@ -493,11 +492,9 @@ impl TreewalkInterpreter {
             for handler in handlers {
                 let matches = match &handler.kind {
                     HandlerKind::Bare => true,
-                    HandlerKind::Typed { exprs, .. } => {
-                        let classes: Vec<_> = exprs
-                            .iter()
-                            .map(|expr| self.evaluate_expr(expr)?.as_class().raise(self))
-                            .collect::<TreewalkResult<_>>()?;
+                    HandlerKind::Typed { expr, .. } => {
+                        let result = self.evaluate_expr(expr)?;
+                        let classes = self.exception_classes(result)?;
                         self.matches_exception_classes(&error.execution_error.get_type(), &classes)
                     }
                 };
@@ -589,13 +586,15 @@ impl TreewalkInterpreter {
         block: &Ast,
     ) -> TreewalkResult<()> {
         let expr_result = self.evaluate_expr(expr)?;
-        // TODO this probably doesn't need to be an object
-        let object = expr_result.as_object().raise(self)?;
 
+        let object = expr_result.clone().into_member_reader(self);
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.raise(ExecutionError::MissingContextManagerProtocol));
+            return Err(self.raise(ExecutionError::type_error(format!(
+                "\'{}\' object does not support the context manager protocol",
+                expr_result.class_name(self)
+            ))));
         }
 
         let result = self.call_method(&expr_result, Dunder::Enter, args![])?;

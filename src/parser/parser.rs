@@ -890,26 +890,12 @@ impl<'a> Parser<'a> {
                 self.consume(&Token::Colon)?;
                 let block = self.parse_indented_block()?;
                 handlers.push(ExceptHandler::bare(block));
-            } else if self.current_token() == &Token::LParen {
-                self.consume(&Token::LParen)?;
-                let mut exprs = vec![];
-                while self.current_token() != &Token::RParen {
-                    let literal = self.parse_simple_expr()?;
-                    exprs.push(literal);
-                    self.consume_optional(&Token::Comma);
-                }
-
-                self.consume(&Token::RParen)?;
-                let alias = self.parse_optional_alias()?;
-                self.consume(&Token::Colon)?;
-                let block = self.parse_indented_block()?;
-                handlers.push(ExceptHandler::typed(exprs, alias, block));
             } else {
                 let expr = self.parse_simple_expr()?;
                 let alias = self.parse_optional_alias()?;
                 self.consume(&Token::Colon)?;
                 let block = self.parse_indented_block()?;
-                handlers.push(ExceptHandler::typed(vec![expr], alias, block));
+                handlers.push(ExceptHandler::typed(expr, alias, block));
             }
         }
 
@@ -2878,7 +2864,7 @@ finally:
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             handlers: vec![ExceptHandler::typed(
-                vec![var!("ZeroDivisionError")],
+                var!("ZeroDivisionError"),
                 Some(ident("e")),
                 ast![stmt_assign!(var!("a"), int!(2))]
             )],
@@ -2897,8 +2883,27 @@ except (ZeroDivisionError, IOError) as e:
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             handlers: vec![ExceptHandler::typed(
-                vec![var!("ZeroDivisionError"), var!("IOError")],
+                tuple![var!("ZeroDivisionError"), var!("IOError")],
                 Some(ident("e")),
+                ast![stmt_assign!(var!("a"), int!(2))]
+            )],
+            else_block: None,
+            finally_block: None,
+        });
+
+        assert_ast_eq!(input, expected_ast);
+
+        let input = r#"
+try:
+    4 / 0
+except excs():
+    a = 2
+"#;
+        let expected_ast = stmt!(StatementKind::TryExcept {
+            try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
+            handlers: vec![ExceptHandler::typed(
+                func_call!("excs", call_args![]),
+                None,
                 ast![stmt_assign!(var!("a"), int!(2))]
             )],
             else_block: None,
@@ -2920,7 +2925,7 @@ finally:
         let expected_ast = stmt!(StatementKind::TryExcept {
             try_block: ast![stmt_expr!(bin_op!(int!(4), Div, int!(0)))],
             handlers: vec![ExceptHandler::typed(
-                vec![var!("ZeroDivisionError")],
+                var!("ZeroDivisionError"),
                 Some(ident("e")),
                 ast![stmt_assign!(var!("a"), int!(2))]
             )],

@@ -393,7 +393,7 @@ pub struct ExceptHandler {
 pub enum HandlerKind {
     Bare,
     Typed {
-        exprs: Vec<Expr>, // non-empty
+        expr: Expr,
         alias: Option<Identifier>,
     },
 }
@@ -406,13 +406,9 @@ impl ExceptHandler {
         }
     }
 
-    pub fn typed(exprs: Vec<Expr>, alias: Option<Identifier>, block: Ast) -> Self {
-        assert!(
-            !exprs.is_empty(),
-            "A typed ExceptHandler must have at least one Expr"
-        );
+    pub fn typed(expr: Expr, alias: Option<Identifier>, block: Ast) -> Self {
         ExceptHandler {
-            kind: HandlerKind::Typed { exprs, alias },
+            kind: HandlerKind::Typed { expr, alias },
             block,
         }
     }

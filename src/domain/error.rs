@@ -112,7 +112,6 @@ pub enum ExecutionError {
     DivisionByZero(String),
     StopIteration(Box<RuntimeValue>),
     AssertionError,
-    MissingContextManagerProtocol,
     // TODO where this is used should really be moved into the parser but we currently don't have
     // enough scope context during that stage to do so.
     SyntaxError,
@@ -125,6 +124,10 @@ impl ExecutionError {
 
     pub fn type_error_empty() -> Self {
         Self::TypeError(None)
+    }
+
+    pub fn type_error_must_inherit_base_exception() -> Self {
+        Self::type_error("catching classes that do not inherit from BaseException is not allowed")
     }
 
     pub fn name_error(name: impl Into<String>) -> Self {
@@ -193,8 +196,6 @@ impl ExecutionError {
             ExecutionError::NameError(_) => Type::NameError,
             ExecutionError::AttributeError(..) => Type::AttributeError,
             ExecutionError::AssertionError => Type::AssertionError,
-            // this isn't a Python type, what should we do here.
-            ExecutionError::MissingContextManagerProtocol => unimplemented!(),
             ExecutionError::SyntaxError => Type::SyntaxError,
         }
     }
@@ -238,9 +239,6 @@ impl Display for ExecutionError {
             }
             ExecutionError::AssertionError => {
                 write!(f, "AssertionError")
-            }
-            ExecutionError::MissingContextManagerProtocol => {
-                write!(f, "object does not support the context manager protocol")
             }
             ExecutionError::SyntaxError => {
                 todo!()

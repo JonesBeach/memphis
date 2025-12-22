@@ -2287,6 +2287,116 @@ except ValueError:
     }
 
     #[test]
+    fn try_except_expr_tuple_result() {
+        let input = r#"
+def excs():
+    return (ValueError, TypeError)
+
+try:
+    int("nope")
+except excs():
+    x = 42
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "x", int!(42));
+    }
+
+    #[test]
+    fn try_except_expr_single_class_result() {
+        let input = r#"
+def excs():
+    return ValueError
+
+try:
+    int("nope")
+except excs():
+    x = 42
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "x", int!(42));
+    }
+
+    #[test]
+    fn try_except_expr_tuple_as_variable() {
+        let input = r#"
+E = (ValueError, TypeError)
+
+try:
+    int("nope")
+except E:
+    x = 42
+"#;
+        let ctx = run(input);
+        assert_read_eq!(ctx, "x", int!(42));
+    }
+
+    #[test]
+    fn try_except_expr_list_result_raises_type_error() {
+        let input = r#"
+def excs():
+    return [ValueError, TypeError]
+
+try:
+    int("nope")
+except excs():
+    x = 42
+"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e.execution_error,
+            "catching classes that do not inherit from BaseException is not allowed"
+        );
+    }
+
+    #[test]
+    fn try_except_expr_non_class_raises_type_error() {
+        let input = r#"
+try:
+    int("nope")
+except (ValueError, 123):
+    x = 42
+"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e.execution_error,
+            "catching classes that do not inherit from BaseException is not allowed"
+        );
+    }
+
+    #[test]
+    fn try_except_expr_non_base_exception_class_raises_type_error() {
+        let input = r#"
+class Foo:
+    pass
+
+try:
+    int("nope")
+except Foo:
+    x = 42
+"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e.execution_error,
+            "catching classes that do not inherit from BaseException is not allowed"
+        );
+    }
+
+    #[test]
+    fn try_except_expr_nested_tuple_raises_type_error() {
+        let input = r#"
+try:
+    int("nope")
+except ((ValueError,),):
+    x = 42
+"#;
+        let e = eval_expect_error(input);
+        assert_type_error!(
+            e.execution_error,
+            "catching classes that do not inherit from BaseException is not allowed"
+        );
+    }
+
+    #[test]
     fn reraise() {
         let input = r#"
 try:
@@ -2863,9 +2973,9 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(
+        assert_type_error!(
             e.execution_error,
-            ExecutionError::MissingContextManagerProtocol
+            "'MyContextManager' object does not support the context manager protocol"
         );
 
         let input = r#"
@@ -2884,9 +2994,9 @@ with MyContextManager() as cm:
     cm.call()
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(
+        assert_type_error!(
             e.execution_error,
-            ExecutionError::MissingContextManagerProtocol
+            "'MyContextManager' object does not support the context manager protocol"
         );
     }
 

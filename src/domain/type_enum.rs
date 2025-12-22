@@ -63,9 +63,10 @@ pub enum Type {
     Classmethod,
     Staticmethod,
     Property,
+    BaseException,
+    Exception,
     #[allow(clippy::enum_variant_names)]
     TypeError,
-    Exception,
     StopIteration,
     ZeroDivisionError,
     RuntimeError,
@@ -140,6 +141,7 @@ impl Type {
             Type::Property => "property",
             Type::Traceback => "traceback",
             Type::Frame => "frame",
+            Type::BaseException => "BaseException",
             Type::Exception => "Exception",
             Type::StopIteration => "StopIteration",
             Type::TypeError => "TypeError",
@@ -184,13 +186,16 @@ impl From<&Type> for &str {
     }
 }
 
-static TYPE_PARENTS: [(Type, &[Type]); 11] = [
+static TYPE_PARENTS: [(Type, &[Type]); 14] = [
+    (Type::Exception, &[Type::BaseException]),
     (Type::TypeError, &[Type::Exception]),
     (Type::StopIteration, &[Type::Exception]),
+    (Type::ZeroDivisionError, &[Type::Exception]),
     (Type::RuntimeError, &[Type::Exception]),
     (Type::ImportError, &[Type::Exception]),
     (Type::LookupError, &[Type::Exception]),
     (Type::KeyError, &[Type::Exception]),
+    (Type::ValueError, &[Type::Exception]),
     (Type::NameError, &[Type::Exception]),
     (Type::AttributeError, &[Type::Exception]),
     (Type::AssertionError, &[Type::Exception]),

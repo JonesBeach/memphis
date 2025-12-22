@@ -170,7 +170,7 @@ impl VmValue {
             VmValue::Int(i) => Ok(*i),
             VmValue::String(s) => s
                 .parse::<i64>()
-                .map_err(|_| ExecutionError::type_error("Invalid int literal")),
+                .map_err(|_| ExecutionError::value_error("Invalid int literal")),
             _ => Err(ExecutionError::type_error("Cannot coerce to an int")),
         }
     }

@@ -101,7 +101,7 @@ fn descriptors() -> HashMap<Type, Vec<Box<dyn CloneableNonDataDescriptor>>> {
 ///
 /// We also leave [`Type::Object`] out of here because it must be initialized first as it is the
 /// parent class for all of these type classes.
-static ALL_TYPES: [Type; 65] = [
+static ALL_TYPES: [Type; 66] = [
     Type::Super,
     Type::GetSetDescriptor,
     Type::MemberDescriptor,
@@ -153,6 +153,7 @@ static ALL_TYPES: [Type; 65] = [
     Type::Classmethod,
     Type::Staticmethod,
     Type::Property,
+    Type::BaseException,
     Type::Exception,
     Type::StopIteration,
     Type::TypeError,
@@ -170,7 +171,7 @@ static ALL_TYPES: [Type; 65] = [
 ];
 
 /// These types are callable and behave like a builtin function.
-static CALLABLE_TYPES: [Type; 37] = [
+static CALLABLE_TYPES: [Type; 38] = [
     Type::Type,
     Type::Object,
     Type::Super,
@@ -194,6 +195,7 @@ static CALLABLE_TYPES: [Type; 37] = [
     Type::Classmethod,
     Type::Staticmethod,
     Type::Property,
+    Type::BaseException,
     Type::Exception,
     Type::StopIteration,
     Type::TypeError,
