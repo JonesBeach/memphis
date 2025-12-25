@@ -8,14 +8,15 @@ use crate::{
         compiler::{CodeObject, Constant},
         runtime::{
             types::{
-                Class, Coroutine, Dict, FunctionObject, Generator, List, ListIter, Method, Module,
-                Object, Range, RangeIter, Tuple, TupleIter,
+                Class, Coroutine, Dict, Exception, FunctionObject, Generator, List, ListIter,
+                Method, Module, Object, Range, RangeIter, Tuple, TupleIter,
             },
             BuiltinFunction, Reference,
         },
+        DomainResult,
     },
     core::{floats_equal, Container, Voidable},
-    domain::{DomainResult, ExecutionError, MemphisValue, Type},
+    domain::{MemphisValue, Type},
 };
 
 #[derive(Clone, Debug)]
@@ -170,8 +171,8 @@ impl VmValue {
             VmValue::Int(i) => Ok(*i),
             VmValue::String(s) => s
                 .parse::<i64>()
-                .map_err(|_| ExecutionError::value_error("Invalid int literal")),
-            _ => Err(ExecutionError::type_error("Cannot coerce to an int")),
+                .map_err(|_| Exception::value_error("Invalid int literal")),
+            _ => Err(Exception::type_error("Cannot coerce to an int")),
         }
     }
 
@@ -184,7 +185,7 @@ impl VmValue {
 
     pub fn expect_integer(&self) -> DomainResult<i64> {
         self.as_integer()
-            .ok_or_else(|| ExecutionError::type_error("Expected an integer"))
+            .ok_or_else(|| Exception::type_error("Expected an integer"))
     }
 
     pub fn as_float(&self) -> Option<f64> {
@@ -196,7 +197,7 @@ impl VmValue {
 
     pub fn expect_float(&self) -> DomainResult<f64> {
         self.as_float()
-            .ok_or_else(|| ExecutionError::type_error("Expected a float"))
+            .ok_or_else(|| Exception::type_error("Expected a float"))
     }
 
     pub fn to_boolean(&self) -> bool {
@@ -222,7 +223,7 @@ impl VmValue {
 
     pub fn expect_code(&self) -> DomainResult<&CodeObject> {
         self.as_code()
-            .ok_or_else(|| ExecutionError::type_error("Expected a code object"))
+            .ok_or_else(|| Exception::type_error("Expected a code object"))
     }
 
     pub fn as_function(&self) -> Option<&FunctionObject> {
@@ -234,7 +235,7 @@ impl VmValue {
 
     pub fn expect_function(&self) -> DomainResult<&FunctionObject> {
         self.as_function()
-            .ok_or_else(|| ExecutionError::type_error("Expected a function object"))
+            .ok_or_else(|| Exception::type_error("Expected a function object"))
     }
 
     pub fn as_object(&self) -> Option<&Object> {
@@ -260,7 +261,7 @@ impl VmValue {
 
     pub fn expect_class(&self) -> DomainResult<&Class> {
         self.as_class()
-            .ok_or_else(|| ExecutionError::type_error("Expected a class"))
+            .ok_or_else(|| Exception::type_error("Expected a class"))
     }
 
     pub fn as_coroutine(&self) -> Option<&Container<Coroutine>> {
@@ -272,7 +273,7 @@ impl VmValue {
 
     pub fn expect_coroutine(&self) -> DomainResult<&Container<Coroutine>> {
         self.as_coroutine()
-            .ok_or_else(|| ExecutionError::type_error("Expected a coroutine"))
+            .ok_or_else(|| Exception::type_error("Expected a coroutine"))
     }
 }
 

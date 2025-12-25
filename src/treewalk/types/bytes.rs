@@ -1,10 +1,10 @@
 use crate::{
-    domain::{Dunder, Encoding, ExecutionError, Type},
+    domain::{Dunder, Encoding, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
         result::Raise,
-        types::Str,
+        types::{Exception, Str},
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -31,7 +31,7 @@ impl Callable for NewBuiltin {
             2 => match args.get_arg(1) {
                 TreewalkValue::Bytes(b) => b,
                 TreewalkValue::Str(_) => {
-                    return ExecutionError::type_error("string argument without an encoding")
+                    return Exception::type_error("string argument without an encoding")
                         .raise(interpreter);
                 }
                 _ => todo!(),

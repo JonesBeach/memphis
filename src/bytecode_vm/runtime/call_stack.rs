@@ -1,7 +1,9 @@
 use crate::{
-    bytecode_vm::runtime::Frame,
+    bytecode_vm::{
+        runtime::{types::Exception, Frame},
+        DomainResult,
+    },
     core::{log, Container, LogLevel},
-    domain::{DomainResult, ExecutionError},
     runtime::MemphisState,
 };
 
@@ -55,13 +57,13 @@ impl CallStack {
     }
 
     pub fn top_frame(&self) -> DomainResult<&Frame> {
-        self.top().ok_or_else(ExecutionError::runtime_error)
+        self.top().ok_or_else(Exception::runtime_error)
     }
 
     pub fn top_frame_mut(&mut self) -> DomainResult<&mut Frame> {
         if self.is_finished() {
             // This only uses &self, so it happens before any &mut
-            let err = ExecutionError::runtime_error();
+            let err = Exception::runtime_error();
             return Err(err);
         }
 

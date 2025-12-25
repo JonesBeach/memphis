@@ -1,7 +1,4 @@
-use crate::{
-    bytecode_vm::{runtime::Reference, VirtualMachine, VmValue},
-    domain::DomainResult,
-};
+use crate::bytecode_vm::{runtime::Reference, DomainResult, VirtualMachine, VmValue};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct List {

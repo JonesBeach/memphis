@@ -1,11 +1,12 @@
 use std::fmt::{Display, Error, Formatter};
 
 use crate::{
-    domain::{Dunder, ExecutionError, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
         result::Raise,
+        types::Exception,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -83,14 +84,14 @@ impl Callable for NewBuiltin {
                         .get_arg(1)
                         .as_str()
                         .map_err(|_| {
-                            ExecutionError::type_error(format!(
+                            Exception::type_error(format!(
                                 "complex() first argument must be a string or a number, not '{}'",
                                 args.get_arg(1).get_type()
                             ))
                         })
                         .raise(interpreter)?;
                     Complex::from_str(input)
-                        .ok_or_else(|| ExecutionError::type_error("Expected a complex number"))
+                        .ok_or_else(|| Exception::type_error("Expected a complex number"))
                         .raise(interpreter)?
                 }
             },

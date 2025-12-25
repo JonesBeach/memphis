@@ -12,11 +12,11 @@ use pyo3::{
 
 use crate::{
     core::Container,
-    domain::{Dunder, ExecutionError, ModuleName},
+    domain::{Dunder, ModuleName},
     treewalk::{
         protocols::{Callable, IndexRead, IndexWrite, MemberRead},
         result::Raise,
-        types::Str,
+        types::{Exception, Str},
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -223,7 +223,7 @@ impl Callable for CPythonObject {
                     unimplemented!()
                 }
             } else {
-                ExecutionError::name_error(self.name()).raise(interpreter)
+                Exception::name_error(self.name()).raise(interpreter)
             }
         })
     }

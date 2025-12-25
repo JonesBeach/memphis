@@ -1,17 +1,16 @@
 use std::collections::HashMap;
 
 use crate::{
-    domain::{DomainResult, ExecutionError},
     parser::types::{CallArgs, KwargsOperation, Params},
     treewalk::{
         protocols::TryEvalFrom,
         result::Raise,
         types::{
             function::{RuntimeParam, RuntimeParams},
-            Tuple,
+            Exception, Tuple,
         },
         utils::Args,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -88,7 +87,7 @@ fn insert_kwarg(
     value: TreewalkValue,
 ) -> DomainResult<()> {
     if kwargs.contains_key(key) {
-        Err(ExecutionError::key_error(key))
+        Err(Exception::key_error(key))
     } else {
         kwargs.insert(key.to_string(), value);
         Ok(())

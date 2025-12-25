@@ -1,7 +1,8 @@
 use crate::{
-    domain::ExecutionError,
     parser::types::{Expr, LoopIndex},
-    treewalk::{result::Raise, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        result::Raise, types::Exception, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 impl TreewalkInterpreter {
@@ -19,7 +20,7 @@ impl TreewalkInterpreter {
                     .clone()
                     .into_index_write(self)?
                     .ok_or_else(|| {
-                        ExecutionError::type_error(format!(
+                        Exception::type_error(format!(
                             "'{}' object does not support item assignment",
                             object_result.get_type()
                         ))
@@ -33,12 +34,12 @@ impl TreewalkInterpreter {
                     .clone()
                     .into_member_writer()
                     .ok_or_else(|| {
-                        ExecutionError::attribute_error(result.class_name(self), field.as_str())
+                        Exception::attribute_error(result.class_name(self), field.as_str())
                     })
                     .raise(self)?
                     .set_member(self, field.as_str(), value)?;
             }
-            _ => return ExecutionError::type_error("cannot assign").raise(self),
+            _ => return Exception::type_error("cannot assign").raise(self),
         }
 
         Ok(())

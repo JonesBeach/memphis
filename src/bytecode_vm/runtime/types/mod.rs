@@ -1,6 +1,7 @@
 mod class;
 mod coroutine;
 mod dict;
+mod exception;
 mod function;
 mod generator;
 mod list;
@@ -13,6 +14,7 @@ mod tuple;
 pub use class::Class;
 pub use coroutine::{Coroutine, CoroutineState};
 pub use dict::Dict;
+pub use exception::Exception;
 pub use function::FunctionObject;
 pub use generator::Generator;
 pub use list::{List, ListIter};

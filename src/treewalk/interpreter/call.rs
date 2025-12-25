@@ -1,10 +1,10 @@
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{ExecutionError, FunctionType},
+    domain::FunctionType,
     treewalk::{
         result::Raise,
         type_system::CloneableCallable,
-        types::{iterators::GeneratorIter, Coroutine, Function, Generator},
+        types::{iterators::GeneratorIter, Coroutine, Exception, Function, Generator},
         utils::Args,
         Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
         TreewalkValue,
@@ -63,7 +63,7 @@ impl TreewalkInterpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or_else(|| ExecutionError::type_error("Expected a function"))
+                    .ok_or_else(|| Exception::type_error("Expected a function"))
                     .raise(self)?;
                 let symbol_table = function.borrow().bind_args(&args, self)?;
                 let scope = Container::new(Scope::new(symbol_table));
@@ -76,7 +76,7 @@ impl TreewalkInterpreter {
                     .as_any()
                     .downcast_ref::<Container<Function>>()
                     .cloned()
-                    .ok_or_else(|| ExecutionError::type_error("Expected a function"))
+                    .ok_or_else(|| Exception::type_error("Expected a function"))
                     .raise(self)?;
                 let symbol_table = function.borrow().bind_args(&args, self)?;
                 let scope = Container::new(Scope::new(symbol_table));

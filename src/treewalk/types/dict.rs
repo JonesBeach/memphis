@@ -5,14 +5,14 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{DomainResult, Dunder, ExecutionError, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
         result::Raise,
-        types::{iterators::DictKeysIter, DictItems},
+        types::{iterators::DictKeysIter, DictItems, Exception},
         utils::{check_args, Args, Contextual, ContextualPair},
-        SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -127,7 +127,7 @@ impl TryEvalFrom for Container<Dict> {
                 let dict_items = DictItems::from_iterable(iter, interpreter).raise(interpreter)?;
                 Ok(Container::new(dict_items.to_dict()))
             }
-            _ => ExecutionError::type_error("Expected a dict").raise(interpreter),
+            _ => Exception::type_error("Expected a dict").raise(interpreter),
         }
     }
 }

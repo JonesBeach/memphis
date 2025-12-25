@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{
-    bytecode_vm::{
-        runtime::{reference::Namespace, Reference},
-        VirtualMachine,
-    },
-    domain::DomainResult,
+use crate::bytecode_vm::{
+    runtime::{reference::Namespace, Reference},
+    DomainResult, VirtualMachine,
 };
 
 #[derive(Clone, Debug, PartialEq)]

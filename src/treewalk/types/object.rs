@@ -4,18 +4,13 @@ use std::{
 };
 
 use crate::{
-    core::{log, Container, LogLevel},
-    domain::{Dunder, ExecutionError, Type},
+    core::{Container, LogLevel, log},
+    domain::{Dunder, Type},
     treewalk::{
-        macros::*,
-        protocols::{
+        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue, macros::*, protocols::{
             Callable, DataDescriptor, IndexRead, IndexWrite, MemberRead, MemberWrite,
             NonDataDescriptor,
-        },
-        result::Raise,
-        types::{Class, Str},
-        utils::{args, check_args, Args},
-        Scope, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        }, result::Raise, types::{Class, Exception, Str}, utils::{Args, args, check_args}
     },
 };
 
@@ -245,7 +240,7 @@ impl MemberWrite for Container<Object> {
             .into_member_reader(interpreter)
             .get_member(interpreter, &Dunder::Dict)?
             .ok_or_else(|| {
-                ExecutionError::attribute_error(
+                Exception::attribute_error(
                     result.class_name(interpreter),
                     Dunder::Dict.as_ref(),
                 )
@@ -256,7 +251,7 @@ impl MemberWrite for Container<Object> {
             .borrow()
             .has(interpreter.clone(), &TreewalkValue::Str(Str::new(name)))
         {
-            return ExecutionError::attribute_error(result.class_name(interpreter), name)
+            return Exception::attribute_error(result.class_name(interpreter), name)
                 .raise(interpreter);
         }
 
@@ -465,7 +460,7 @@ impl Callable for AddBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for +: '{}' and '{}'",
             a_type, b_type
         ))
@@ -485,7 +480,7 @@ impl Callable for SubBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for -: '{}' and '{}'",
             a_type, b_type
         ))
@@ -505,7 +500,7 @@ impl Callable for MulBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for *: '{}' and '{}'",
             a_type, b_type
         ))
@@ -525,7 +520,7 @@ impl Callable for TruedivBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for /: '{}' and '{}'",
             a_type, b_type
         ))
@@ -545,7 +540,7 @@ impl Callable for LtBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for <: '{}' and '{}'",
             a_type, b_type
         ))
@@ -565,7 +560,7 @@ impl Callable for LeBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for <=: '{}' and '{}'",
             a_type, b_type
         ))
@@ -585,7 +580,7 @@ impl Callable for GtBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for >: '{}' and '{}'",
             a_type, b_type
         ))
@@ -605,7 +600,7 @@ impl Callable for GeBuiltin {
         let b_type = args.get_arg(0).get_type();
 
         // This is only implemented for int and float
-        ExecutionError::type_error(format!(
+        Exception::type_error(format!(
             "unsupported operand type(s) for >=: '{}' and '{}'",
             a_type, b_type
         ))

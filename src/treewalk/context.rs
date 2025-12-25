@@ -5,7 +5,7 @@ use crate::{
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
-    treewalk::{types::Module, TreewalkInterpreter, TreewalkState, TreewalkValue},
+    treewalk::{types::Module, RaisedException, TreewalkInterpreter, TreewalkState, TreewalkValue},
 };
 
 pub struct TreewalkContext {
@@ -27,7 +27,7 @@ impl TreewalkContext {
         }
     }
 
-    pub fn run_inner(&mut self) -> MemphisResult<TreewalkValue> {
+    pub fn run_inner(&mut self) -> Result<TreewalkValue, RaisedException> {
         // Destructure to break the borrow into disjoint pieces
         let TreewalkContext {
             lexer, interpreter, ..
@@ -64,7 +64,7 @@ impl TreewalkContext {
 
 impl Interpreter for TreewalkContext {
     fn run(&mut self) -> MemphisResult<MemphisValue> {
-        self.run_inner().map(Into::into)
+        self.run_inner().map(Into::into).map_err(Into::into)
     }
 
     fn read(&mut self, name: &str) -> Option<MemphisValue> {

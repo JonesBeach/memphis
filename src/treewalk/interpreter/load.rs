@@ -1,9 +1,8 @@
 use crate::{
     core::{log, LogLevel},
-    domain::ExecutionError,
     treewalk::{
-        result::Raise, type_system::CloneableCallable, TreewalkInterpreter, TreewalkResult,
-        TreewalkValue,
+        result::Raise, type_system::CloneableCallable, types::Exception, TreewalkInterpreter,
+        TreewalkResult, TreewalkValue,
     },
 };
 
@@ -11,7 +10,7 @@ impl TreewalkInterpreter {
     pub fn load_var(&self, name: &str) -> TreewalkResult<TreewalkValue> {
         self.state
             .read(name)
-            .ok_or_else(|| ExecutionError::name_error(name))
+            .ok_or_else(|| Exception::name_error(name))
             .raise(self)
     }
 
@@ -28,14 +27,14 @@ impl TreewalkInterpreter {
             .clone()
             .into_index_read(self)?
             .ok_or_else(|| {
-                ExecutionError::type_error(format!(
+                Exception::type_error(format!(
                     "'{}' object is not subscriptable",
                     object.get_type()
                 ))
             })
             .raise(self)?
             .getitem(self, index.clone())?
-            .ok_or_else(|| ExecutionError::key_error(index))
+            .ok_or_else(|| Exception::key_error(index))
             .raise(self)
     }
 
@@ -50,7 +49,7 @@ impl TreewalkInterpreter {
             .clone()
             .into_member_reader(self)
             .get_member(self, field.as_ref())?
-            .ok_or_else(|| ExecutionError::attribute_error(result.class_name(self), field.as_ref()))
+            .ok_or_else(|| Exception::attribute_error(result.class_name(self), field.as_ref()))
             .raise(self)
     }
 

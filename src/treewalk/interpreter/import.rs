@@ -2,11 +2,13 @@
 use crate::treewalk::types::cpython::import_from_cpython;
 use crate::{
     core::Container,
-    domain::{DomainResult, ExecutionError, Identifier, ModuleName, Source},
-    errors::MemphisError,
+    domain::{Identifier, ModuleName, Source},
     treewalk::{
-        import_utils, result::Raise, types::Module, TreewalkContext, TreewalkDisruption,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        import_utils,
+        result::Raise,
+        types::{Exception, Module},
+        DomainResult, TreewalkContext, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
 
@@ -46,7 +48,7 @@ impl TreewalkInterpreter {
             let outer_module = import_utils::build_module_chain(module_name, module).raise(self)?;
             let symbol_name = module_name
                 .head()
-                .ok_or_else(ExecutionError::runtime_error)
+                .ok_or_else(Exception::runtime_error)
                 .raise(self)?;
             self.state.write(symbol_name, outer_module);
         }
@@ -81,10 +83,8 @@ impl TreewalkInterpreter {
     fn exit_imported_module(&self) -> DomainResult<Container<Module>> {
         self.state
             .pop_stack_frame()
-            .ok_or_else(ExecutionError::runtime_error)?;
-        self.state
-            .pop_module()
-            .ok_or_else(ExecutionError::runtime_error)
+            .ok_or_else(Exception::runtime_error)?;
+        self.state.pop_module().ok_or_else(Exception::runtime_error)
     }
 
     fn import_module(&self, module_name: &ModuleName) -> TreewalkResult<Container<Module>> {
@@ -92,20 +92,15 @@ impl TreewalkInterpreter {
             .state
             .memphis_state()
             .load_source(module_name)
+            .map_err(|err| Exception::import_error(err.message))
             .raise(self)?;
 
         let module = self.prepare_imported_module(module_name, &source);
         self.enter_imported_module(module);
 
-        match TreewalkContext::from_state(source, self.state.clone()).run_inner() {
-            Ok(_) => {}
-            Err(MemphisError::Execution(e)) => return Err(TreewalkDisruption::Error(e)),
-            Err(MemphisError::Parser(e)) => {
-                println!("{e}");
-                return Err(self.raise(ExecutionError::SyntaxError));
-            }
-            _ => unreachable!(),
-        };
+        TreewalkContext::from_state(source, self.state.clone())
+            .run_inner()
+            .map_err(TreewalkDisruption::Error)?;
 
         let module = self.exit_imported_module().raise(self)?;
         Ok(module)

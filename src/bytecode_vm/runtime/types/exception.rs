@@ -1,29 +1,20 @@
-use std::fmt::{Debug, Display, Error, Formatter};
+use std::fmt::{Display, Error, Formatter};
 
-use crate::{
-    core::Container,
-    domain::{Dunder, ExceptionKind, Type},
-    treewalk::{
-        macros::*,
-        protocols::NonDataDescriptor,
-        types::{Class, Str, Traceback},
-        TreewalkResult, TreewalkValue,
-    },
-};
+use crate::{bytecode_vm::runtime::Reference, domain::{ExceptionKind, Type}};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Exception {
-    pub kind: ExceptionKind,
-    pub payload: Vec<TreewalkValue>,
+    kind: ExceptionKind,
+    payload: Vec<Reference>,
 }
 
 impl Exception {
-    pub fn new(kind: ExceptionKind, payload: Vec<TreewalkValue>) -> Self {
+    pub fn new(kind: ExceptionKind, payload: Vec<Reference>) -> Self {
         Self { kind, payload }
     }
 
-    fn new_from_str(kind: ExceptionKind, msg: impl Into<String>) -> Self {
-        Self::new(kind, vec![TreewalkValue::Str(Str::new(&msg.into()))])
+    fn new_from_str(_kind: ExceptionKind, _msg: impl Into<String>) -> Self {
+        todo!();
     }
 
     fn new_empty(kind: ExceptionKind) -> Self {
@@ -65,7 +56,7 @@ impl Exception {
         Self::new_empty(ExceptionKind::StopIteration)
     }
 
-    pub fn stop_iteration_with(obj: TreewalkValue) -> Self {
+    pub fn stop_iteration_with(obj: Reference) -> Self {
         Self::new(ExceptionKind::StopIteration, vec![obj])
     }
 
@@ -115,26 +106,5 @@ impl Exception {
 impl Display for Exception {
     fn fmt(&self, _f: &mut Formatter) -> Result<(), Error> {
         todo!()
-    }
-}
-
-impl_typed!(Exception, Type::Exception);
-impl_descriptor_provider!(Exception, [TracebackAttribute]);
-
-#[derive(Clone)]
-struct TracebackAttribute;
-
-impl NonDataDescriptor for TracebackAttribute {
-    fn get_attr(
-        &self,
-        _interpreter: &crate::treewalk::TreewalkInterpreter,
-        _instance: Option<TreewalkValue>,
-        _owner: Container<Class>,
-    ) -> TreewalkResult<TreewalkValue> {
-        Ok(TreewalkValue::Traceback(Traceback))
-    }
-
-    fn name(&self) -> String {
-        Dunder::Traceback.into()
     }
 }

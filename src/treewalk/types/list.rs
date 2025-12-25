@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{DomainResult, Dunder, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead, IndexWrite, TryEvalFrom},
@@ -14,7 +14,7 @@ use crate::{
         type_system::CloneableIterable,
         types::Slice,
         utils::{check_args, format_comma_separated, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 

@@ -1,14 +1,16 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::{bytecode_vm::CompilerError, domain::RuntimeError, lexer::Token};
+use crate::lexer::Token;
 
 pub type MemphisResult<T> = Result<T, MemphisError>;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum MemphisError {
-    Parser(ParserError),
-    Execution(RuntimeError),
-    Compiler(CompilerError),
+pub struct MemphisError(String);
+
+impl MemphisError {
+    pub fn new(msg: String) -> Self {
+        Self(msg)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -28,11 +30,7 @@ pub enum ParserError {
 
 impl Display for MemphisError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self {
-            MemphisError::Parser(e) => write!(f, "Parser error: {e}"),
-            MemphisError::Compiler(e) => write!(f, "Compiler error: {e}"),
-            MemphisError::Execution(e) => write!(f, "{e}"),
-        }
+        write!(f, "{}", self.0)
     }
 }
 

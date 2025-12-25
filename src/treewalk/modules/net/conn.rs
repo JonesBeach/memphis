@@ -1,10 +1,10 @@
 use crate::{
     core::net::Connection,
-    domain::ExecutionError,
     treewalk::{
         macros::impl_method_provider,
         protocols::Callable,
         result::Raise,
+        types::Exception,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -29,9 +29,7 @@ impl Callable for ConnRecv {
             .raise(interpreter)?;
         let bytes = conn
             .recv(n as usize)
-            .map_err(|e| {
-                ExecutionError::runtime_error_with(format!("Connection.recv() failed: {}", e))
-            })
+            .map_err(|e| Exception::runtime_error_with(format!("Connection.recv() failed: {}", e)))
             .raise(interpreter)?;
 
         Ok(TreewalkValue::Bytes(bytes))
@@ -53,9 +51,7 @@ impl Callable for ConnSend {
             .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
         conn.send(&data)
-            .map_err(|e| {
-                ExecutionError::runtime_error_with(format!("Connection.send() failed: {}", e))
-            })
+            .map_err(|e| Exception::runtime_error_with(format!("Connection.send() failed: {}", e)))
             .raise(interpreter)?;
 
         Ok(TreewalkValue::None)
@@ -75,9 +71,7 @@ impl Callable for ConnClose {
             .as_native_object_mut::<Connection>()
             .raise(interpreter)?;
         conn.close()
-            .map_err(|e| {
-                ExecutionError::runtime_error_with(format!("Connection.close() failed: {}", e))
-            })
+            .map_err(|e| Exception::runtime_error_with(format!("Connection.close() failed: {}", e)))
             .raise(interpreter)?;
 
         Ok(TreewalkValue::None)

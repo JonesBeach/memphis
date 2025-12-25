@@ -1,7 +1,10 @@
 use crate::{
-    bytecode_vm::{runtime::types::Module, Runtime, VmContext},
+    bytecode_vm::{
+        runtime::types::{Exception, Module},
+        RaisedException, Runtime, VmContext, VmResult,
+    },
     core::Container,
-    domain::{DomainResult, ModuleName},
+    domain::ModuleName,
     runtime::MemphisState,
 };
 
@@ -16,7 +19,7 @@ impl ModuleLoader {
     }
 
     /// Check if the module is already present (e.g. Rust-backed or previously imported).
-    pub fn resolve_module(&mut self, module_name: &ModuleName) -> DomainResult<Container<Module>> {
+    pub fn resolve_module(&mut self, module_name: &ModuleName) -> VmResult<Container<Module>> {
         if let Some(module) = self.runtime.borrow().read_module(module_name) {
             return Ok(module);
         }
@@ -24,8 +27,17 @@ impl ModuleLoader {
         self.import_from_source(module_name)
     }
 
-    fn import_from_source(&mut self, module_name: &ModuleName) -> DomainResult<Container<Module>> {
-        let source = self.state.load_source(module_name)?;
+    // TODO this is currently duplicated from VM, we should remove this
+    fn raise(&self, exception: Exception) -> RaisedException {
+        self.state.save_line_number();
+        RaisedException::new(self.state.debug_call_stack(), exception)
+    }
+
+    fn import_from_source(&mut self, module_name: &ModuleName) -> VmResult<Container<Module>> {
+        let source = self
+            .state
+            .load_source(module_name)
+            .map_err(|err| self.raise(Exception::import_error(err.message)))?;
 
         let module = self.runtime.borrow_mut().create_module(module_name);
 
@@ -36,8 +48,7 @@ impl ModuleLoader {
             self.runtime.clone(),
         );
 
-        // TODO we shouldn't squash this error, but it's currently a MemphisError
-        let _ = context.run_inner().expect("VM run failed");
+        context.run_inner()?;
 
         Ok(module)
     }

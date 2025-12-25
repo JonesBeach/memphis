@@ -10,7 +10,7 @@ use std::{
 use crate::treewalk::types::cpython::{CPythonClass, CPythonModule, CPythonObject};
 use crate::{
     core::{floats_equal, Container, Voidable},
-    domain::{DomainResult, Dunder, ExecutionError, MemphisValue, RuntimeValue, Type},
+    domain::{Dunder, MemphisValue, Type},
     treewalk::{
         protocols::MemberRead,
         type_system::{
@@ -23,12 +23,13 @@ use crate::{
                 ReversedIter, SetIter, StrIter, TupleIter, ZipIterator,
             },
             ByteArray, Cell, Class, Classmethod, Code, Complex, Coroutine, Dict, DictItems,
-            DictKeys, DictValues, FrozenSet, Function, List, MappingProxy, Method, Module, Object,
-            Property, Range, Set, Slice, Staticmethod, StopIteration, Str, Super, Traceback, Tuple,
+            DictKeys, DictValues, Exception, FrozenSet, Function, List, MappingProxy, Method,
+            Module, Object, Property, Range, Set, Slice, Staticmethod, StopIteration, Str, Super,
+            Traceback, Tuple,
         },
         typing::TypeExpr,
         utils::Args,
-        SymbolTable, TreewalkInterpreter, TreewalkResult,
+        DomainResult, SymbolTable, TreewalkInterpreter, TreewalkResult,
     },
 };
 
@@ -73,7 +74,7 @@ pub enum TreewalkValue {
     MappingProxy(MappingProxy),
     Range(Range),
     Tuple(Tuple),
-    Exception(ExecutionError),
+    Exception(Exception),
     /// Only constructed when a `StopIteration` exception is caught and aliased,
     /// e.g., `except StopIteration as e:`. Mirrors CPython behavior to expose `.value`.
     StopIteration(Box<StopIteration>),
@@ -483,7 +484,7 @@ impl TreewalkValue {
             TreewalkValue::ReversedIter(_) => self,
             TreewalkValue::Zip(_) => self,
             _ => {
-                return Err(ExecutionError::type_error(format!(
+                return Err(Exception::type_error(format!(
                     "'{}' object is not iterable",
                     self.get_type()
                 )))
@@ -498,8 +499,8 @@ impl TreewalkValue {
             TreewalkValue::Int(i) => Ok(*i),
             TreewalkValue::Str(s) => s
                 .parse::<i64>()
-                .map_err(|_| ExecutionError::value_error("Invalid int literal")),
-            _ => Err(ExecutionError::type_error("Cannot coerce to an int")),
+                .map_err(|_| Exception::value_error("Invalid int literal")),
+            _ => Err(Exception::type_error("Cannot coerce to an int")),
         }
     }
 
@@ -507,7 +508,7 @@ impl TreewalkValue {
         match self {
             TreewalkValue::Float(i) => Ok(*i),
             TreewalkValue::Int(i) => Ok(*i as f64),
-            _ => Err(ExecutionError::type_error("Cannot coerce to a float")),
+            _ => Err(Exception::type_error("Cannot coerce to a float")),
         }
     }
 
@@ -529,13 +530,13 @@ impl TreewalkValue {
             TreewalkValue::Object(obj) => {
                 let binding = obj.borrow();
                 Ref::filter_map(binding, |any| any.downcast_ref::<T>()).map_err(|_| {
-                    ExecutionError::type_error(format!(
+                    Exception::type_error(format!(
                         "Expected native object of type {}",
                         std::any::type_name::<T>()
                     ))
                 })
             }
-            _ => Err(ExecutionError::type_error(format!(
+            _ => Err(Exception::type_error(format!(
                 "Expected native object of type {}",
                 std::any::type_name::<T>()
             ))),
@@ -547,13 +548,13 @@ impl TreewalkValue {
             TreewalkValue::Object(obj) => {
                 let binding = obj.borrow_mut();
                 RefMut::filter_map(binding, |any| any.downcast_mut::<T>()).map_err(|_| {
-                    ExecutionError::type_error(format!(
+                    Exception::type_error(format!(
                         "Expected native object of type {}",
                         std::any::type_name::<T>()
                     ))
                 })
             }
-            _ => Err(ExecutionError::type_error(format!(
+            _ => Err(Exception::type_error(format!(
                 "Expected native object of type {}",
                 std::any::type_name::<T>()
             ))),
@@ -565,105 +566,105 @@ impl TreewalkValue {
             TreewalkValue::Module(i) => Ok(Box::new(i.borrow().clone())),
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonModule(i) => Ok(Box::new(i.borrow().clone())),
-            _ => Err(ExecutionError::type_error("Expected an int")),
+            _ => Err(Exception::type_error("Expected an int")),
         }
     }
 
     pub fn as_symbol_table(&self) -> DomainResult<SymbolTable> {
         match self {
             TreewalkValue::Dict(dict) => Ok(dict.borrow().to_symbol_table()?),
-            _ => Err(ExecutionError::type_error("Expected a dict with str keys")),
+            _ => Err(Exception::type_error("Expected a dict with str keys")),
         }
     }
 
     pub fn as_int(&self) -> DomainResult<i64> {
         match self {
             TreewalkValue::Int(i) => Ok(*i),
-            _ => Err(ExecutionError::type_error("Expected an int")),
+            _ => Err(Exception::type_error("Expected an int")),
         }
     }
 
     pub fn as_float(&self) -> DomainResult<f64> {
         match self {
             TreewalkValue::Float(i) => Ok(*i),
-            _ => Err(ExecutionError::type_error("Expected a float")),
+            _ => Err(Exception::type_error("Expected a float")),
         }
     }
 
     pub fn as_tuple(&self) -> DomainResult<Tuple> {
         match self {
             TreewalkValue::Tuple(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a tuple")),
+            _ => Err(Exception::type_error("Expected a tuple")),
         }
     }
 
     pub fn as_str(&self) -> DomainResult<String> {
         match self {
             TreewalkValue::Str(i) => Ok(i.to_string()),
-            _ => Err(ExecutionError::type_error("Expected a string")),
+            _ => Err(Exception::type_error("Expected a string")),
         }
     }
 
     pub fn as_dict(&self) -> DomainResult<Container<Dict>> {
         match self {
             TreewalkValue::Dict(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a dict")),
+            _ => Err(Exception::type_error("Expected a dict")),
         }
     }
 
     pub fn as_class(&self) -> DomainResult<Container<Class>> {
         match self {
             TreewalkValue::Class(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a class")),
+            _ => Err(Exception::type_error("Expected a class")),
         }
     }
 
     pub fn as_coroutine(&self) -> DomainResult<Container<Coroutine>> {
         match self {
             TreewalkValue::Coroutine(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a coroutine")),
+            _ => Err(Exception::type_error("Expected a coroutine")),
         }
     }
 
     pub fn as_function(&self) -> DomainResult<Container<Function>> {
         match self {
             TreewalkValue::Function(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a function")),
+            _ => Err(Exception::type_error("Expected a function")),
         }
     }
 
     pub fn as_list(&self) -> DomainResult<Container<List>> {
         match self {
             TreewalkValue::List(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a list")),
+            _ => Err(Exception::type_error("Expected a list")),
         }
     }
 
     pub fn as_object(&self) -> DomainResult<Container<Object>> {
         match self {
             TreewalkValue::Object(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected an object")),
+            _ => Err(Exception::type_error("Expected an object")),
         }
     }
 
     pub fn as_set(&self) -> DomainResult<Container<Set>> {
         match self {
             TreewalkValue::Set(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected a set")),
+            _ => Err(Exception::type_error("Expected a set")),
         }
     }
 
-    pub fn as_exception(&self) -> DomainResult<ExecutionError> {
+    pub fn as_exception(&self) -> DomainResult<Exception> {
         match self {
             TreewalkValue::Exception(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected an exception")),
+            _ => Err(Exception::type_error("Expected an exception")),
         }
     }
 
     pub fn as_bytes(&self) -> DomainResult<Vec<u8>> {
         match self {
             TreewalkValue::Bytes(i) => Ok(i.clone()),
-            _ => Err(ExecutionError::type_error("Expected bytes")),
+            _ => Err(Exception::type_error("Expected bytes")),
         }
     }
 
@@ -690,12 +691,6 @@ impl From<&TreewalkValue> for String {
     // This gives us Into<String> for free, which is useful when constructing error messages.
     fn from(value: &TreewalkValue) -> Self {
         value.to_string()
-    }
-}
-
-impl From<TreewalkValue> for RuntimeValue {
-    fn from(value: TreewalkValue) -> Self {
-        Self::Treewalk(value)
     }
 }
 

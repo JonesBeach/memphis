@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     core::Container,
-    domain::ExecutionError,
     treewalk::{
         result::Raise,
-        types::{function::RuntimeParams, Tuple},
+        types::{function::RuntimeParams, Exception, Tuple},
         utils::{check_args, Args},
         SymbolTable, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -66,7 +65,7 @@ pub fn bind_args(
         if table.contains_key(key) || expected_args.args.iter().any(|a| &a.arg == key) {
             table.insert(key.clone(), value.clone());
         } else if expected_args.kwargs_var.is_none() {
-            return ExecutionError::type_error(format!(
+            return Exception::type_error(format!(
                 "{callee_name}() got an unexpected keyword argument '{key}'"
             ))
             .raise(interpreter);
@@ -86,7 +85,7 @@ pub fn bind_args(
             .map(|a| format!("'{a}'"))
             .collect::<Vec<_>>()
             .join(" and ");
-        return ExecutionError::type_error(format!(
+        return Exception::type_error(format!(
             "{callee_name}() missing {num_missing} required positional {noun}: {arg_names}"
         ))
         .raise(interpreter);

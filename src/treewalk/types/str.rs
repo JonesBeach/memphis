@@ -6,14 +6,14 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{DomainResult, Dunder, Encoding, ExecutionError, Type},
+    domain::{Dunder, Encoding, Type},
     treewalk::{
         macros::*,
         protocols::{Callable, IndexRead},
         result::Raise,
-        types::{List, Slice},
+        types::{Exception, List, Slice},
         utils::{check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -43,7 +43,7 @@ impl Str {
     pub fn decode(bytes: &[u8], encoding: Encoding) -> DomainResult<Self> {
         let str = match encoding {
             Encoding::Utf8 => str::from_utf8(bytes).map_err(|_| {
-                ExecutionError::value_error(format!("failed to decode with encoding '{encoding}'"))
+                Exception::value_error(format!("failed to decode with encoding '{encoding}'"))
             })?,
         };
 

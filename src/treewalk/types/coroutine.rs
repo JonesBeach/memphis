@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::{
     core::Container,
-    domain::{DomainResult, Type},
+    domain::Type,
     parser::types::Statement,
     treewalk::{
         macros::*,
@@ -11,8 +11,8 @@ use crate::{
         result::Raise,
         types::Function,
         utils::{check_args, Args},
-        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
-        TreewalkValue,
+        DomainResult, Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkSignal, TreewalkValue,
     },
 };
 

@@ -6,9 +6,11 @@ use std::{
 
 use crate::{
     core::memphis_utils,
-    domain::{Dunder, ExecutionError, RuntimeError},
-    errors::MemphisError,
-    treewalk::{utils::args, TreewalkDisruption, TreewalkInterpreter, TreewalkValue},
+    domain::Dunder,
+    treewalk::{
+        types::Exception, utils::args, RaisedException, TreewalkDisruption, TreewalkInterpreter,
+        TreewalkValue,
+    },
 };
 
 /// A wrapper which includes a reference to an `Interpreter`.
@@ -89,7 +91,7 @@ impl Contextual<TreewalkValue> {
         // class, which is what we detect by checking for the unbound case (receiver().is_none()).
         let eq = match self.interpreter.load_method(&self.value, Dunder::Eq) {
             Err(TreewalkDisruption::Signal(_)) => todo!(),
-            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(e.into()),
             Ok(eq) => eq,
         };
         if eq.receiver().is_none() {
@@ -104,7 +106,7 @@ impl Contextual<TreewalkValue> {
             Ok(TreewalkValue::Bool(true)) => true,
             Ok(_) => false,
             Err(TreewalkDisruption::Signal(_)) => todo!(),
-            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(e.into()),
         }
     }
 
@@ -119,12 +121,15 @@ impl Contextual<TreewalkValue> {
 
         match result {
             Ok(TreewalkValue::Int(hash_val)) => hash_val as u64,
-            Ok(_) => memphis_utils::exit(MemphisError::Execution(RuntimeError::new(
-                self.interpreter.state.debug_call_stack(),
-                ExecutionError::TypeError(None),
-            ))),
+            Ok(_) => memphis_utils::exit(
+                RaisedException::new(
+                    self.interpreter.state.debug_call_stack(),
+                    Exception::type_error(""),
+                )
+                .into(),
+            ),
             Err(TreewalkDisruption::Signal(_)) => todo!(),
-            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(MemphisError::Execution(e)),
+            Err(TreewalkDisruption::Error(e)) => memphis_utils::exit(e.into()),
         }
     }
 }

@@ -1,13 +1,13 @@
 use crate::{
-    domain::{DomainResult, Dunder, ExecutionError, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
         result::Raise,
         type_system::CloneableIterable,
-        types::Tuple,
+        types::{Exception, Tuple},
         utils::{check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -98,7 +98,7 @@ impl Callable for NewBuiltin {
                     let all_equal = lengths.is_empty() || lengths.iter().all(|&x| x == lengths[0]);
 
                     if !all_equal {
-                        return ExecutionError::runtime_error().raise(interpreter);
+                        return Exception::runtime_error().raise(interpreter);
                     }
                 }
 

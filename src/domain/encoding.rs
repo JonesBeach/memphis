@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::domain::{DomainResult, ExecutionError};
+use crate::treewalk::{types::Exception, DomainResult};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum Encoding {
@@ -9,12 +9,12 @@ pub enum Encoding {
 }
 
 impl TryFrom<&str> for Encoding {
-    type Error = ExecutionError;
+    type Error = Exception;
 
     fn try_from(value: &str) -> DomainResult<Self> {
         match value {
             "utf-8" => Ok(Self::Utf8),
-            _ => Err(ExecutionError::unknown_encoding(value)),
+            _ => Err(Exception::unknown_encoding(value)),
         }
     }
 }

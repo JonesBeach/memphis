@@ -1,13 +1,13 @@
 use crate::{
     core::Container,
-    domain::{DomainResult, Dunder, ExecutionError, ModuleName},
+    domain::{Dunder, ModuleName},
     treewalk::{
         protocols::{Callable, Iterable},
         result::Raise,
         type_system::CloneableCallable,
-        types::{List, Module, Str},
+        types::{Exception, List, Module, Str},
         utils::{args, check_args, Args},
-        TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -120,8 +120,7 @@ impl Callable for GetattrBuiltin {
             if args.len() == 3 {
                 Ok(args.get_arg(2))
             } else {
-                ExecutionError::attribute_error(object.class_name(interpreter), field)
-                    .raise(interpreter)
+                Exception::attribute_error(object.class_name(interpreter), field).raise(interpreter)
             }
         }
     }
@@ -143,7 +142,7 @@ impl Callable for SetattrBuiltin {
             .clone()
             .into_member_writer()
             .ok_or_else(|| {
-                ExecutionError::attribute_error(object.class_name(interpreter), field.as_str())
+                Exception::attribute_error(object.class_name(interpreter), field.as_str())
             })
             .raise(interpreter)?
             .set_member(interpreter, field.as_str(), value)?;
@@ -183,7 +182,7 @@ impl Callable for HashBuiltin {
         if let TreewalkValue::Int(_) = result {
             Ok(result)
         } else {
-            ExecutionError::type_error(format!("{} method should return an integer", Dunder::Hash))
+            Exception::type_error(format!("{} method should return an integer", Dunder::Hash))
                 .raise(interpreter)
         }
     }
@@ -206,9 +205,9 @@ impl Callable for IsinstanceBuiltin {
                 .into_iter()
                 .map(|item| item.as_class())
                 .collect::<DomainResult<Vec<_>>>()
-                .map_err(|_| ExecutionError::type_error(message))
+                .map_err(|_| Exception::type_error(message))
                 .raise(interpreter)?,
-            _ => return ExecutionError::type_error(message).raise(interpreter),
+            _ => return Exception::type_error(message).raise(interpreter),
         };
 
         let isinstance = if args.get_arg(0).as_class().is_ok() {
@@ -232,14 +231,14 @@ impl Callable for IssubclassBuiltin {
         let instance_class = args
             .get_arg(0)
             .as_class()
-            .map_err(|_| ExecutionError::type_error("issubclass() arg 1 must be a class"))
+            .map_err(|_| Exception::type_error("issubclass() arg 1 must be a class"))
             .raise(interpreter)?;
 
         let reference_class = args
             .get_arg(1)
             .as_class()
             .map_err(|_| {
-                ExecutionError::type_error(
+                Exception::type_error(
                     "issubclass() arg 2 must be a type, a tuple of types, or a union",
                 )
             })
@@ -295,7 +294,7 @@ impl Callable for NextBuiltin {
         let mut iterator = args.get_arg(0).as_iterator_strict().raise(interpreter)?;
         match Iterable::try_next(&mut iterator) {
             Ok(Some(val)) => Ok(val),
-            Ok(None) => ExecutionError::stop_iteration().raise(interpreter),
+            Ok(None) => Exception::stop_iteration().raise(interpreter),
             Err(e) => Err(e),
         }
     }

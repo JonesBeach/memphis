@@ -1,10 +1,13 @@
 use crate::{
     bytecode_vm::{
-        runtime::{types::Module, Reference},
-        VirtualMachine, VmValue,
+        runtime::{
+            types::{Exception, Module},
+            Reference,
+        },
+        DomainResult, VirtualMachine, VmValue,
     },
     core::Container,
-    domain::{DomainResult, ExecutionError, ModuleName},
+    domain::ModuleName,
 };
 
 /// Construct a module chain given a `ModuleName` and a leaf `TreewalkValue`.
@@ -27,7 +30,7 @@ pub fn build_module_chain(
     let mut inner = leaf_value;
     let mut child_key = full_name
         .tail()
-        .ok_or_else(ExecutionError::runtime_error)?
+        .ok_or_else(Exception::runtime_error)?
         .to_owned(); // last segment, e.g. "d"
 
     // parents() yields:
@@ -43,7 +46,7 @@ pub fn build_module_chain(
         // Next iteration the child key becomes this parent's last segment
         child_key = parent_name
             .tail()
-            .ok_or_else(ExecutionError::runtime_error)?
+            .ok_or_else(Exception::runtime_error)?
             .to_owned();
     }
 

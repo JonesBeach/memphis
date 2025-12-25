@@ -1,9 +1,10 @@
 use crate::{
-    domain::{Dunder, ExecutionError, Type},
+    domain::{Dunder, Type},
     treewalk::{
         macros::*,
         protocols::Callable,
         result::Raise,
+        types::Exception,
         utils::{check_args, Args},
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -80,7 +81,7 @@ impl Callable for AddBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a + b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for +").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for +").raise(interpreter)
         }
     }
 
@@ -105,7 +106,7 @@ impl Callable for SubBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a - b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for -").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for -").raise(interpreter)
         }
     }
 
@@ -130,7 +131,7 @@ impl Callable for MulBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Float(a * b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for *").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for *").raise(interpreter)
         }
     }
 
@@ -152,18 +153,16 @@ impl Callable for TruedivBuiltin {
 
         if let TreewalkValue::Int(b) = b {
             if b == 0 {
-                return ExecutionError::div_by_zero_error("float division by zero")
-                    .raise(interpreter);
+                return Exception::div_by_zero_error("float division by zero").raise(interpreter);
             }
             Ok(TreewalkValue::Float(a / (b as f64)))
         } else if let TreewalkValue::Float(b) = b {
             if b == 0.0 {
-                return ExecutionError::div_by_zero_error("float division by zero")
-                    .raise(interpreter);
+                return Exception::div_by_zero_error("float division by zero").raise(interpreter);
             }
             Ok(TreewalkValue::Float(a / b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for /").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for /").raise(interpreter)
         }
     }
 
@@ -188,7 +187,7 @@ impl Callable for LtBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a < b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for <").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for <").raise(interpreter)
         }
     }
 
@@ -213,7 +212,7 @@ impl Callable for LeBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a <= b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for <=").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for <=").raise(interpreter)
         }
     }
 
@@ -238,7 +237,7 @@ impl Callable for GtBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a > b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for >").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for >").raise(interpreter)
         }
     }
 
@@ -263,7 +262,7 @@ impl Callable for GeBuiltin {
         } else if let TreewalkValue::Float(b) = b {
             Ok(TreewalkValue::Bool(a >= b))
         } else {
-            ExecutionError::type_error("unsupported operand type(s) for >=").raise(interpreter)
+            Exception::type_error("unsupported operand type(s) for >=").raise(interpreter)
         }
     }
 

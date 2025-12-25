@@ -1,12 +1,12 @@
 use crate::{
     core::{net::Socket, Container},
-    domain::{ExecutionError, ModuleName},
+    domain::ModuleName,
     treewalk::{
         macros::impl_method_provider,
         modules::net::Connection,
         protocols::Callable,
         result::Raise,
-        types::{Object, Str, Tuple},
+        types::{Exception, Object, Str, Tuple},
         utils::Args,
         TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
@@ -24,9 +24,7 @@ impl Callable for AcceptBuiltin {
 
         let (stream, addr) = socket
             .accept()
-            .map_err(|e| {
-                ExecutionError::runtime_error_with(format!("Socket.accept() failed: {}", e))
-            })
+            .map_err(|e| Exception::runtime_error_with(format!("Socket.accept() failed: {}", e)))
             .raise(interpreter)?;
 
         let conn = Connection::new(stream);
@@ -37,7 +35,7 @@ impl Callable for AcceptBuiltin {
                 &ModuleName::from_segments(&["memphis", "net"]),
                 "Connection",
             )
-            .ok_or_else(|| ExecutionError::runtime_error_with("Connection class not found"))
+            .ok_or_else(|| Exception::runtime_error_with("Connection class not found"))
             .raise(interpreter)?;
 
         let conn_obj = Object::with_payload(conn_class.clone(), conn);

@@ -1,15 +1,14 @@
 use crate::{
     core::Container,
-    domain::{DomainResult, ExecutionError},
     parser::types::{Ast, Expr, ForClause, LoopIndex, Statement, StatementKind},
     treewalk::{
         pausable::{Frame, Pausable, PausableStack, PausableStepResult},
         protocols::Iterable,
         result::Raise,
         type_system::CloneableIterable,
-        types::Function,
-        Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
-        TreewalkState, TreewalkValue,
+        types::{Exception, Function},
+        DomainResult, Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkSignal, TreewalkState, TreewalkValue,
     },
 };
 
@@ -53,7 +52,7 @@ impl Generator {
         match interpreter.evaluate_statement(&stmt) {
             Ok(_) => Ok(None),
             Err(TreewalkDisruption::Signal(TreewalkSignal::Return(val))) => {
-                ExecutionError::stop_iteration_with(val).raise(interpreter)
+                Exception::stop_iteration_with(val).raise(interpreter)
             }
             Err(TreewalkDisruption::Signal(TreewalkSignal::Yield(val))) => Ok(Some(val)),
             Err(TreewalkDisruption::Signal(TreewalkSignal::YieldFrom(val))) => {
@@ -69,7 +68,7 @@ impl Generator {
                     // We can only hit this if the iterable we are calling yield from on is
                     // empty.
                     // This matches Python's behavior for: `yield from []`
-                    None => ExecutionError::stop_iteration().raise(interpreter),
+                    None => Exception::stop_iteration().raise(interpreter),
                 }
             }
             Err(e) => Err(e),
@@ -127,7 +126,7 @@ impl Pausable for Generator {
     }
 
     fn finish(&mut self, _result: TreewalkValue) -> DomainResult<TreewalkValue> {
-        Err(ExecutionError::stop_iteration())
+        Err(Exception::stop_iteration())
     }
 
     fn handle_step(

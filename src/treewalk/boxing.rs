@@ -1,13 +1,14 @@
 use crate::{
-    domain::{DomainResult, Dunder, ExecutionError},
+    domain::Dunder,
     treewalk::{
         protocols::{IndexRead, IndexWrite, MemberRead, MemberWrite},
         type_system::{
             CloneableCallable, CloneableDataDescriptor, CloneableIterable,
             CloneableNonDataDescriptor,
         },
+        types::Exception,
         utils::BuiltinObject,
-        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        DomainResult, TreewalkInterpreter, TreewalkResult, TreewalkValue,
     },
 };
 
@@ -158,7 +159,7 @@ impl TreewalkValue {
             TreewalkValue::Generator(i) => Box::new(i),
             TreewalkValue::Zip(i) => Box::new(i),
             _ => {
-                return Err(ExecutionError::type_error(format!(
+                return Err(Exception::type_error(format!(
                     "'{}' object is not an iterator",
                     self.get_type()
                 )))
@@ -178,7 +179,7 @@ impl TreewalkValue {
             TreewalkValue::Class(i) => Box::new(i),
             #[cfg(feature = "c_stdlib")]
             TreewalkValue::CPythonObject(i) => Box::new(i),
-            _ => return Err(ExecutionError::type_error("Expected a callable")),
+            _ => return Err(Exception::type_error("Expected a callable")),
         };
 
         Ok(result)

@@ -1,8 +1,11 @@
 use crate::{
-    bytecode_vm::{compiler::CodeObject, Compiler, Runtime, VirtualMachine, VmValue},
+    bytecode_vm::{
+        compiler::CodeObject, runtime::types::Exception, Compiler, Runtime, VirtualMachine,
+        VmResult, VmValue,
+    },
     core::{Container, Interpreter},
     domain::{MemphisValue, ModuleName, Source},
-    errors::{MemphisError, MemphisResult},
+    errors::MemphisResult,
     lexer::Lexer,
     parser::Parser,
     runtime::MemphisState,
@@ -44,16 +47,22 @@ impl VmContext {
         }
     }
 
-    pub fn run_inner(&mut self) -> MemphisResult<VmValue> {
+    pub fn run_inner(&mut self) -> VmResult<VmValue> {
         let code = self.compile()?;
-        self.vm.execute(code).map_err(MemphisError::Execution)
+        self.vm.execute(code)
     }
 
-    pub fn compile(&mut self) -> MemphisResult<CodeObject> {
+    pub fn compile(&mut self) -> VmResult<CodeObject> {
         let mut parser = Parser::new(&mut self.lexer);
-        let mut ast = parser.parse().map_err(MemphisError::Parser)?;
+        let mut ast = parser
+            .parse()
+            // TODO use a real syntax error here
+            .map_err(|_e| self.vm.raise(Exception::syntax_error()))?;
         ast.rewrite_last_expr_to_return();
-        self.compiler.compile(&ast).map_err(MemphisError::Compiler)
+        self.compiler
+            .compile(&ast)
+            // TODO use a real syntax error here
+            .map_err(|_e| self.vm.raise(Exception::syntax_error()))
     }
 
     pub fn read_inner(&self, name: &str) -> Option<VmValue> {
@@ -83,7 +92,7 @@ impl VmContext {
 
 impl Interpreter for VmContext {
     fn run(&mut self) -> MemphisResult<MemphisValue> {
-        self.run_inner().map(Into::into)
+        self.run_inner().map(Into::into).map_err(Into::into)
     }
 
     fn read(&mut self, name: &str) -> Option<MemphisValue> {

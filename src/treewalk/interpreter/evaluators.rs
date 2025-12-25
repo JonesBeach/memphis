@@ -1,7 +1,10 @@
 use crate::{
-    domain::{Dunder, ExecutionError},
+    domain::Dunder,
     parser::types::{BinOp, CompareOp, LogicalOp, UnaryOp},
-    treewalk::{result::Raise, utils::args, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+    treewalk::{
+        result::Raise, types::Exception, utils::args, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
+    },
 };
 
 impl TreewalkInterpreter {
@@ -93,7 +96,7 @@ impl TreewalkInterpreter {
         match op {
             Minus => right
                 .negated()
-                .ok_or_else(|| ExecutionError::type_error("Unsupported operand type for unary '-'"))
+                .ok_or_else(|| Exception::type_error("Unsupported operand type for unary '-'"))
                 .raise(self),
             // this acts as a no-op. can be overridden with __pos__ for custom classes
             Plus => Ok(right),
@@ -102,7 +105,7 @@ impl TreewalkInterpreter {
                 let i = right
                     .as_int()
                     .map_err(|_| {
-                        ExecutionError::type_error(format!(
+                        Exception::type_error(format!(
                             "bad operand type for unary ~: '{}'",
                             right.get_type()
                         ))
@@ -115,7 +118,7 @@ impl TreewalkInterpreter {
                     .as_list()
                     // Attempted to unpack a non-iterable
                     .map_err(|_| {
-                        ExecutionError::type_error(format!(
+                        Exception::type_error(format!(
                             "Value after * must be an iterable, not {}",
                             right.get_type()
                         ))

@@ -3,12 +3,12 @@ use crate::{
         net::{Connection, Socket},
         Container,
     },
-    domain::{ExecutionError, ModuleName, Type},
+    domain::{ModuleName, Type},
     treewalk::{
         protocols::Callable,
         result::Raise,
         type_system::{CloneableCallable, MethodProvider},
-        types::{Class, Module, Object},
+        types::{Class, Exception, Module, Object},
         utils::{check_args, Args},
         ModuleStore, TreewalkInterpreter, TreewalkResult, TreewalkValue, TypeRegistry,
     },
@@ -29,15 +29,13 @@ impl Callable for NetListenBuiltin {
         let port = host_port.second().as_int().raise(interpreter)?;
 
         let socket = Socket::new(host, port as usize)
-            .map_err(|e| {
-                ExecutionError::runtime_error_with(format!("Failed to bind Socket: {}", e))
-            })
+            .map_err(|e| Exception::runtime_error_with(format!("Failed to bind Socket: {}", e)))
             .raise(interpreter)?;
 
         let socket_class = interpreter
             .state
             .read_class(&ModuleName::from_segments(&["memphis", "net"]), "Socket")
-            .ok_or_else(|| ExecutionError::runtime_error_with("Socket class not found"))
+            .ok_or_else(|| Exception::runtime_error_with("Socket class not found"))
             .raise(interpreter)?;
 
         let obj = Object::with_payload(socket_class.clone(), socket);
@@ -77,7 +75,7 @@ mod tests {
         assert!(result.is_err());
         let err_binding = result.unwrap_err();
         let err = err_binding.as_err();
-        assert_runtime_error_contains!(err.execution_error, "Failed to bind Socket");
+        assert_runtime_error_contains!(err.exception, "Failed to bind Socket");
     }
 }
 

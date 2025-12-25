@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     core::Container,
-    domain::{ExecutionError, Identifier},
+    domain::Identifier,
     parser::types::{
         Ast, BinOp, CallArgs, Callee, CompareOp, DictOperation, Expr, FStringPart, ForClause,
         LogicalOp, Params, SliceParams, TypeNode, UnaryOp,
@@ -14,7 +14,8 @@ use crate::{
         protocols::TryEvalFrom,
         result::Raise,
         types::{
-            iterators::GeneratorIter, Dict, Function, Generator, List, Set, Slice, Str, Tuple,
+            iterators::GeneratorIter, Dict, Exception, Function, Generator, List, Set, Slice, Str,
+            Tuple,
         },
         TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
     },
@@ -293,7 +294,7 @@ impl TreewalkInterpreter {
             });
             Err(TreewalkDisruption::Signal(TreewalkSignal::Await))
         } else {
-            ExecutionError::type_error("Expected a coroutine").raise(self)
+            Exception::type_error("Expected a coroutine").raise(self)
         }
     }
 

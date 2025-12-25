@@ -1,11 +1,12 @@
 use crate::{
     core::Container,
-    domain::{ExecutionError, ModuleName, RuntimeError},
-    errors::{MemphisError, MemphisResult},
+    domain::ModuleName,
     parser::{types::Ast, Parser},
     runtime::MemphisState,
     treewalk::{
-        types::Module, Executor, TreewalkDisruption, TreewalkResult, TreewalkState, TreewalkValue,
+        types::{Exception, Module},
+        Executor, RaisedException, TreewalkDisruption, TreewalkResult, TreewalkState,
+        TreewalkValue,
     },
 };
 
@@ -46,9 +47,14 @@ impl TreewalkInterpreter {
         f(executor)
     }
 
-    pub fn raise(&self, error: ExecutionError) -> TreewalkDisruption {
+    pub fn raise(&self, error: Exception) -> TreewalkDisruption {
         self.state.save_line_number();
-        TreewalkDisruption::Error(RuntimeError::new(self.state.debug_call_stack(), error))
+        TreewalkDisruption::Error(RaisedException::new(self.state.debug_call_stack(), error))
+    }
+
+    fn raise_at_boundary(&self, error: Exception) -> RaisedException {
+        self.state.save_line_number();
+        RaisedException::new(self.state.debug_call_stack(), error)
     }
 
     fn execute_ast(&self, ast: &Ast) -> TreewalkResult<TreewalkValue> {
@@ -56,14 +62,19 @@ impl TreewalkInterpreter {
             .try_fold(TreewalkValue::None, |_, stmt| self.evaluate_statement(stmt))
     }
 
-    pub fn execute(&mut self, parser: &mut Parser) -> MemphisResult<TreewalkValue> {
+    pub fn execute(&mut self, parser: &mut Parser) -> Result<TreewalkValue, RaisedException> {
         let mut result = TreewalkValue::None;
         while !parser.is_finished() {
-            let stmt = parser.parse_statement().map_err(MemphisError::Parser)?;
+            let stmt = parser.parse_statement().map_err(|_e| {
+                // TODO use the real syntax error metadata here
+                self.raise_at_boundary(Exception::syntax_error())
+            })?;
             result = match self.evaluate_statement(&stmt) {
                 Ok(result) => result,
-                Err(TreewalkDisruption::Error(e)) => return Err(MemphisError::Execution(e)),
-                Err(TreewalkDisruption::Signal(_)) => todo!(),
+                Err(TreewalkDisruption::Error(e)) => return Err(e),
+                Err(TreewalkDisruption::Signal(_)) => {
+                    return Err(self.raise_at_boundary(Exception::runtime_error()))
+                }
             }
         }
 
@@ -76,7 +87,7 @@ mod tests {
     use super::*;
 
     use crate::{
-        domain::{test_utils::*, Type},
+        domain::Type,
         parser::{
             test_utils::stmt_expr,
             types::{ast, Expr},
@@ -92,26 +103,26 @@ mod tests {
     fn undefined_variable() {
         let input = "x + 1";
         let e = eval_expect_error(input);
-        assert_name_error!(e.execution_error, "x");
+        assert_name_error!(e.exception, "x");
     }
 
     #[test]
     fn division_by_zero() {
         let input = "1 / 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.exception, "integer division or modulo by zero");
 
         let input = "1 / 0.0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.exception, "integer division or modulo by zero");
 
         let input = "1.0 / 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "float division by zero");
+        assert_div_by_zero_error!(e.exception, "float division by zero");
 
         let input = "1.0 / 0.0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "float division by zero");
+        assert_div_by_zero_error!(e.exception, "float division by zero");
     }
 
     #[test]
@@ -119,7 +130,7 @@ mod tests {
         let input = r#""a" / 0"#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "unsupported operand type(s) for /: 'str' and 'int'"
         );
     }
@@ -146,7 +157,7 @@ mod tests {
 
         let input = "4.1 + 'a'";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "unsupported operand type(s) for +");
+        assert_type_error!(e.exception, "unsupported operand type(s) for +");
     }
 
     #[test]
@@ -168,7 +179,7 @@ mod tests {
 
         let input = "5 // 0";
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.exception, "integer division or modulo by zero");
     }
 
     #[test]
@@ -206,7 +217,7 @@ mod tests {
 
         let input = "~5.5";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "bad operand type for unary ~: 'float'");
+        assert_type_error!(e.exception, "bad operand type for unary ~: 'float'");
     }
 
     #[test]
@@ -817,7 +828,7 @@ foo.bar()
         assert_read_eq!(ctx, "z", int!(6));
 
         let e = run_path_expect_error("src/fixtures/imports/selective_import_c.py");
-        assert_name_error!(e.execution_error, "something_third");
+        assert_name_error!(e.exception, "something_third");
 
         let ctx = run_path("src/fixtures/imports/selective_import_d.py");
         assert_read_eq!(ctx, "z", int!(8));
@@ -894,7 +905,7 @@ z = add(2.1, 3)
 float(1, 1)
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
     }
 
     #[test]
@@ -928,7 +939,7 @@ j = +(-3)
     #[test]
     fn call_stack() {
         let e = run_path_expect_error("src/fixtures/call_stack/call_stack.py");
-        assert_name_error!(e.execution_error, "unknown");
+        assert_name_error!(e.exception, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
@@ -953,7 +964,7 @@ j = +(-3)
         assert_eq!(call_stack.get(2).line_number(), 5);
 
         let e = run_path_expect_error("src/fixtures/call_stack/call_stack_one_file.py");
-        assert_name_error!(e.execution_error, "unknown");
+        assert_name_error!(e.exception, "unknown");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 3);
@@ -991,8 +1002,8 @@ a = 4
 b = 10
 c = foo()
 "#;
-        let e = run_expect_error(input);
-        assert_name_error!(e.execution_error, "foo");
+        let e = eval_expect_error(input);
+        assert_name_error!(e.exception, "foo");
 
         let call_stack = e.debug_call_stack;
         assert_eq!(call_stack.len(), 1);
@@ -1061,7 +1072,7 @@ t.extend([3,4])
 
         let input = "list([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
     }
 
     #[test]
@@ -1103,7 +1114,7 @@ l = {1} <= {2}
 
         let input = "set({1,2,3}, {1,2})";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
     }
 
     #[test]
@@ -1138,7 +1149,7 @@ k = tuple()
 
         let input = "tuple([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
     }
 
     #[test]
@@ -1167,7 +1178,7 @@ d[0] = 10
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "'tuple' object does not support item assignment"
         );
 
@@ -1176,16 +1187,13 @@ d = (1,2,3)
 del d[0]
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(
-            e.execution_error,
-            "'tuple' object does not support item deletion"
-        );
+        assert_type_error!(e.exception, "'tuple' object does not support item deletion");
 
         let input = r#"
 4[1]
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "'int' object is not subscriptable");
+        assert_type_error!(e.exception, "'int' object is not subscriptable");
     }
 
     #[test]
@@ -1292,7 +1300,7 @@ f = next(iter(range(5)))
 next(range(5))
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "'range' object is not an iterator");
+        assert_type_error!(e.exception, "'range' object is not an iterator");
     }
 
     #[test]
@@ -1451,7 +1459,7 @@ c = next(a)
 "#;
 
         let e = eval_expect_error(input);
-        assert_stop_iteration!(e.execution_error);
+        assert_stop_iteration!(e.exception);
     }
 
     #[test]
@@ -1686,7 +1694,7 @@ d = ChildTwo().three()
 "#;
 
         let e = eval_expect_error(input);
-        assert_attribute_error!(e.execution_error, "ChildTwo", "x");
+        assert_attribute_error!(e.exception, "ChildTwo", "x");
 
         // Test that multiple levels of a hierarchy can be traversed.
         let input = r#"
@@ -2085,14 +2093,14 @@ g = a == b == c == d == e == f
         let input = r#"dict([('a',)])"#;
         let e = eval_expect_error(input);
         assert_value_error!(
-            e.execution_error,
+            e.exception,
             "dictionary update sequence element #0 has length 1; 2 is required"
         );
 
         let input = r#"dict([('a', 1, 2)])"#;
         let e = eval_expect_error(input);
         assert_value_error!(
-            e.execution_error,
+            e.exception,
             "dictionary update sequence element #0 has length 3; 2 is required"
         );
     }
@@ -2108,7 +2116,7 @@ assert True
 assert False
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(e.execution_error, ExecutionError::AssertionError);
+        assert_assertion_error!(e.exception);
     }
 
     #[test]
@@ -2283,7 +2291,7 @@ except ValueError:
     a = 2
 "#;
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.exception, "integer division or modulo by zero");
     }
 
     #[test]
@@ -2343,7 +2351,7 @@ except excs():
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "catching classes that do not inherit from BaseException is not allowed"
         );
     }
@@ -2358,7 +2366,7 @@ except (ValueError, 123):
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "catching classes that do not inherit from BaseException is not allowed"
         );
     }
@@ -2376,7 +2384,7 @@ except Foo:
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "catching classes that do not inherit from BaseException is not allowed"
         );
     }
@@ -2391,7 +2399,7 @@ except ((ValueError,),):
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "catching classes that do not inherit from BaseException is not allowed"
         );
     }
@@ -2405,7 +2413,7 @@ except ZeroDivisionError:
     raise
 "#;
         let e = eval_expect_error(input);
-        assert_div_by_zero_error!(e.execution_error, "integer division or modulo by zero");
+        assert_div_by_zero_error!(e.exception, "integer division or modulo by zero");
     }
 
     #[test]
@@ -2471,7 +2479,7 @@ second = {"a": 2}
 foo(**first, **second)
 "#;
         let e = eval_expect_error(input);
-        assert_key_error!(e.execution_error, "a");
+        assert_key_error!(e.exception, "a");
 
         let input = r#"
 def foo(**kwargs):
@@ -2480,7 +2488,7 @@ def foo(**kwargs):
 foo(**{"a": 1}, **{"a": 2})
 "#;
         let e = eval_expect_error(input);
-        assert_key_error!(e.execution_error, "a");
+        assert_key_error!(e.exception, "a");
 
         let input = r#"
 def test_args(*args):
@@ -2523,7 +2531,7 @@ b = test_args(0)
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "test_args() missing 1 required positional argument: 'two'"
         );
 
@@ -2535,7 +2543,7 @@ b = test_args(0)
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "test_args() missing 2 required positional arguments: 'two' and 'three'"
         );
 
@@ -2546,7 +2554,7 @@ def test_args(one, two):
 b = test_args(1, 2, 3)
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
 
         let input = r#"
 def test_args(one, two, *args):
@@ -2608,10 +2616,7 @@ def foo():
 foo(b=5)
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(
-            e.execution_error,
-            "foo() got an unexpected keyword argument 'b'"
-        );
+        assert_type_error!(e.exception, "foo() got an unexpected keyword argument 'b'");
     }
 
     #[test]
@@ -2850,7 +2855,7 @@ a = f.calculate(2)
 raise TypeError
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error);
+        assert_type_error!(e.exception);
     }
 
     #[test]
@@ -2859,7 +2864,7 @@ raise TypeError
 raise
 "#;
         let e = eval_expect_error(input);
-        assert_runtime_error!(e.execution_error, "No active exception to reraise");
+        assert_runtime_error!(e.exception, "No active exception to reraise");
     }
 
     #[test]
@@ -2868,7 +2873,7 @@ raise
 raise TypeError('type is no good')
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "type is no good");
+        assert_type_error!(e.exception, "type is no good");
     }
 
     #[cfg(feature = "c_stdlib")]
@@ -2974,7 +2979,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "'MyContextManager' object does not support the context manager protocol"
         );
 
@@ -2995,7 +3000,7 @@ with MyContextManager() as cm:
 "#;
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "'MyContextManager' object does not support the context manager protocol"
         );
     }
@@ -3016,7 +3021,7 @@ del a['b']
 c = a['b']
 "#;
         let e = eval_expect_error(input);
-        assert_key_error!(e.execution_error, "b");
+        assert_key_error!(e.exception, "b");
 
         let input = r#"
 a = [0,1,2]
@@ -3036,7 +3041,7 @@ del f.x
 a = f.x
 "#;
         let e = eval_expect_error(input);
-        assert_attribute_error!(e.execution_error, "Foo", "x");
+        assert_attribute_error!(e.exception, "Foo", "x");
 
         let input = r#"
 class Foo:
@@ -3047,7 +3052,7 @@ f = Foo()
 del f.bar
 "#;
         let e = eval_expect_error(input);
-        assert_attribute_error!(e.execution_error, "Foo", "bar");
+        assert_attribute_error!(e.exception, "Foo", "bar");
 
         let input = r#"
 a = 4
@@ -3097,13 +3102,13 @@ b'hello'.decode()
 b'hello'.decode("bad-encoding")
 "#;
         let e = eval_expect_error(input);
-        assert_lookup_error!(e.execution_error, "unknown encoding: bad-encoding");
+        assert_lookup_error!(e.exception, "unknown encoding: bad-encoding");
 
         let input = r#"
 b'\xff\xfe\xfa'.decode()
 "#;
         let e = eval_expect_error(input);
-        assert_value_error!(e.execution_error, "failed to decode with encoding 'utf-8'");
+        assert_value_error!(e.exception, "failed to decode with encoding 'utf-8'");
     }
 
     #[test]
@@ -3122,7 +3127,7 @@ bytearray(b'hello')
 bytearray('hello')
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "string argument without an encoding");
+        assert_type_error!(e.exception, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytearray())
@@ -3155,7 +3160,7 @@ bytes(b'hello')
 bytes('hello')
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "string argument without an encoding");
+        assert_type_error!(e.exception, "string argument without an encoding");
 
         let input = r#"
 a = iter(bytes())
@@ -3533,7 +3538,7 @@ h = [ i for i in zip([1,2,3], [4,5,6], strict=False) ]
 [ i for i in zip(range(5), range(4), strict=True) ]
 "#;
         let e = eval_expect_error(input);
-        assert_runtime_error!(e.execution_error);
+        assert_runtime_error!(e.exception);
     }
 
     #[test]
@@ -3679,7 +3684,7 @@ class Foo:
 b = Foo.make()
 "#;
         let e = eval_expect_error(input);
-        assert_attribute_error!(e.execution_error, "Foo", "val");
+        assert_attribute_error!(e.exception, "Foo", "val");
 
         let input = r#"
 class Foo:
@@ -3693,7 +3698,7 @@ class Foo:
 b = Foo().make()
 "#;
         let e = eval_expect_error(input);
-        assert_attribute_error!(e.execution_error, "Foo", "val");
+        assert_attribute_error!(e.exception, "Foo", "val");
     }
 
     #[test]
@@ -3722,7 +3727,7 @@ class Foo:
 c = Foo().make()
 "#;
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 0 args");
+        assert_type_error!(e.exception, "Found 0 args");
     }
 
     #[test]
@@ -3967,7 +3972,7 @@ def foo():
 foo()
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
+        assert_syntax_error!(e.exception);
 
         let input = r#"
 def foo():
@@ -3975,13 +3980,13 @@ def foo():
 foo()
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
+        assert_syntax_error!(e.exception);
 
         let input = r#"
 nonlocal a
 "#;
         let e = eval_expect_error(input);
-        assert_error_eq!(e.execution_error, ExecutionError::SyntaxError);
+        assert_syntax_error!(e.exception);
     }
 
     #[test]
@@ -4091,7 +4096,7 @@ b = Child.one()
         let e = eval_expect_error(input);
 
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "one() missing 1 required positional argument: 'self'"
         );
 
@@ -4145,7 +4150,7 @@ b, c = [1, 2, 3]
 
         let e = eval_expect_error(input);
 
-        assert_value_error!(e.execution_error, "too many values to unpack (expected 2)");
+        assert_value_error!(e.exception, "too many values to unpack (expected 2)");
 
         let input = r#"
 a, b, c = [2, 3]
@@ -4154,7 +4159,7 @@ a, b, c = [2, 3]
         let e = eval_expect_error(input);
 
         assert_value_error!(
-            e.execution_error,
+            e.exception,
             "not enough values to unpack (expected 3, got 2)"
         );
 
@@ -4188,10 +4193,7 @@ a = (*l,)
 
         let input = r#"(*5)"#;
         let e = eval_expect_error(input);
-        assert_type_error!(
-            e.execution_error,
-            "Value after * must be an iterable, not int"
-        );
+        assert_type_error!(e.exception, "Value after * must be an iterable, not int");
 
         // TODO not sure where to detect this, probably in semantic analysis
         //         let input = r#"
@@ -4368,7 +4370,7 @@ e = frozenset().__contains__
 
         let input = "frozenset([1,2,3], [1,2])";
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "Found 3 args");
+        assert_type_error!(e.exception, "Found 3 args");
     }
 
     #[test]
@@ -4396,7 +4398,7 @@ b = foo()
         let e = eval_expect_error(input);
 
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "foo() missing 1 required positional argument: 'data_one'"
         );
     }
@@ -4428,7 +4430,7 @@ b = getattr(f, 'val_two')
 
         let e = eval_expect_error(input);
 
-        assert_attribute_error!(e.execution_error, "Foo", "val_two");
+        assert_attribute_error!(e.exception, "Foo", "val_two");
     }
 
     #[test]
@@ -4475,7 +4477,7 @@ isinstance([], (int, 5))
 
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "isinstance() arg 2 must be a type, a tuple of types, or a union"
         );
     }
@@ -4519,7 +4521,7 @@ issubclass([], type)
 "#;
 
         let e = eval_expect_error(input);
-        assert_type_error!(e.execution_error, "issubclass() arg 1 must be a class");
+        assert_type_error!(e.exception, "issubclass() arg 1 must be a class");
 
         let input = r#"
 issubclass(object, [])
@@ -4527,7 +4529,7 @@ issubclass(object, [])
 
         let e = eval_expect_error(input);
         assert_type_error!(
-            e.execution_error,
+            e.exception,
             "issubclass() arg 2 must be a type, a tuple of types, or a union"
         );
     }
@@ -5010,9 +5012,8 @@ b = "unsend" in dir(net.Connection)
         let input = r#"
 a.123 = 4
 "#;
-        // TODO this is ugly (ParserError vs RuntimeError) but better to lock it down.
-        let e = eval_expect_parser_error(input);
-        assert!(matches!(e, crate::errors::ParserError::SyntaxError));
+        let e = eval_expect_error(input);
+        assert_syntax_error!(e.exception);
 
         // Attribute names are runtime strings, not required to be valid Python identifiers.
         let input = r#"

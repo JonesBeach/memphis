@@ -1,17 +1,16 @@
 use crate::{
     core::{log, Container, LogLevel},
-    domain::{
-        resolve_absolute_path, DomainResult, Dunder, ExecutionError, FromImportPath, Identifier,
-    },
+    domain::{resolve_absolute_path, Dunder, FromImportPath, Identifier},
     parser::types::{
         Ast, BinOp, CompoundOperator, ConditionalAst, ExceptHandler, Expr, FromImportMode,
         HandlerKind, LoopIndex, Params, RaiseKind, RegularImport, Statement, StatementKind,
     },
     treewalk::{
         result::Raise,
-        types::{Function, StopIteration, Tuple},
+        types::{Exception, Function, Tuple},
         utils::{args, Args},
-        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal, TreewalkValue,
+        DomainResult, TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkSignal,
+        TreewalkValue,
     },
 };
 
@@ -122,7 +121,7 @@ impl TreewalkInterpreter {
         if self.evaluate_expr(expr)?.coerce_to_boolean() {
             Ok(())
         } else {
-            ExecutionError::assertion_error().raise(self)
+            Exception::assertion_error().raise(self)
         }
     }
 
@@ -139,7 +138,7 @@ impl TreewalkInterpreter {
                         .clone()
                         .into_index_write(self)?
                         .ok_or_else(|| {
-                            ExecutionError::type_error(format!(
+                            Exception::type_error(format!(
                                 "'{}' object does not support item deletion",
                                 object_result.get_type()
                             ))
@@ -153,12 +152,12 @@ impl TreewalkInterpreter {
                         .clone()
                         .into_member_writer()
                         .ok_or_else(|| {
-                            ExecutionError::attribute_error(result.class_name(self), field.as_str())
+                            Exception::attribute_error(result.class_name(self), field.as_str())
                         })
                         .raise(self)?
                         .delete_member(self, field.as_str())?;
                 }
-                _ => return ExecutionError::type_error("cannot delete").raise(self),
+                _ => return Exception::type_error("cannot delete").raise(self),
             }
         }
 
@@ -170,14 +169,14 @@ impl TreewalkInterpreter {
         // We could not find the variable `name` in an enclosing context.
         if let Some(env) = self.state.read_captured_env() {
             if env.borrow().read(name.as_str()).is_none() {
-                return Err(self.raise(ExecutionError::SyntaxError));
+                return Exception::syntax_error().raise(self);
             }
         }
 
         // `nonlocal` cannot be used at the module-level (outside of a function,
         // i.e. captured environment).
         if self.state.read_captured_env().is_none() {
-            return Err(self.raise(ExecutionError::SyntaxError));
+            return Exception::syntax_error().raise(self);
         }
 
         Ok(())
@@ -228,13 +227,13 @@ impl TreewalkInterpreter {
         let right_len = right_items.len();
 
         if left.len() < right_len {
-            ExecutionError::value_error(format!(
+            Exception::value_error(format!(
                 "too many values to unpack (expected {})",
                 left.len()
             ))
             .raise(self)
         } else if left.len() > right_len {
-            ExecutionError::value_error(format!(
+            Exception::value_error(format!(
                 "not enough values to unpack (expected {}, got {})",
                 left.len(),
                 right_len
@@ -412,7 +411,7 @@ impl TreewalkInterpreter {
         class.borrow_mut().scope = self
             .state
             .pop_local()
-            .ok_or_else(ExecutionError::runtime_error)
+            .ok_or_else(Exception::runtime_error)
             .raise(self)?
             .borrow()
             .clone();
@@ -451,7 +450,7 @@ impl TreewalkInterpreter {
 
                     let value = module
                         .get_member(self, symbol)?
-                        .ok_or_else(|| ExecutionError::name_error(symbol))
+                        .ok_or_else(|| Exception::name_error(symbol))
                         .raise(self)?;
 
                     self.state.write(symbol, value);
@@ -468,7 +467,7 @@ impl TreewalkInterpreter {
 
                     let value = module
                         .get_member(self, original.as_str())?
-                        .ok_or_else(|| ExecutionError::name_error(original.as_str()))
+                        .ok_or_else(|| Exception::name_error(original.as_str()))
                         .raise(self)?;
 
                     self.state.write(imported.as_str(), value);
@@ -486,7 +485,7 @@ impl TreewalkInterpreter {
         else_block: &Option<Ast>,
         finally_block: &Option<Ast>,
     ) -> TreewalkResult<()> {
-        if let Err(TreewalkDisruption::Error(error)) = self.execute_ast(try_block) {
+        if let Err(TreewalkDisruption::Error(raised_exception)) = self.execute_ast(try_block) {
             // Find the first handler that matches, these will still be in parse-order
             let mut matched_handler = None;
             for handler in handlers {
@@ -495,7 +494,10 @@ impl TreewalkInterpreter {
                     HandlerKind::Typed { expr, .. } => {
                         let result = self.evaluate_expr(expr)?;
                         let classes = self.exception_classes(result)?;
-                        self.matches_exception_classes(&error.execution_error.get_type(), &classes)
+                        self.matches_exception_classes(
+                            &raised_exception.exception.get_type(),
+                            &classes,
+                        )
                     }
                 };
 
@@ -507,7 +509,7 @@ impl TreewalkInterpreter {
 
             let Some(handler) = matched_handler else {
                 // No handler matched → rethrow
-                return Err(TreewalkDisruption::Error(error));
+                return Err(TreewalkDisruption::Error(raised_exception));
             };
 
             // Bind alias if present (typed handlers only)
@@ -515,21 +517,16 @@ impl TreewalkInterpreter {
                 alias: Some(alias), ..
             } = &handler.kind
             {
-                let exception_value = match &error.execution_error {
-                    ExecutionError::StopIteration(v) => {
-                        let payload = v.clone().unwrap_treewalk();
-                        TreewalkValue::StopIteration(Box::new(StopIteration::new(payload)))
-                    }
-                    _ => TreewalkValue::Exception(error.execution_error.clone()),
-                };
-
-                self.state.write(alias.as_str(), exception_value);
+                self.state.write(
+                    alias.as_str(),
+                    TreewalkValue::Exception(raised_exception.exception.clone()),
+                );
             }
 
-            self.state.set_current_exception(error.clone());
+            self.state.set_current_exception(raised_exception.clone());
             match self.execute_ast(&handler.block) {
                 Err(TreewalkDisruption::Signal(TreewalkSignal::Raise)) => {
-                    return Err(TreewalkDisruption::Error(error))
+                    return Err(TreewalkDisruption::Error(raised_exception))
                 }
                 Err(other) => return Err(other),
                 Ok(_) => {}
@@ -554,7 +551,7 @@ impl TreewalkInterpreter {
                 if let Some(error) = self.state.current_exception() {
                     Err(TreewalkDisruption::Error(error))
                 } else {
-                    ExecutionError::runtime_error_with("No active exception to reraise").raise(self)
+                    Exception::runtime_error_with("No active exception to reraise").raise(self)
                 }
             }
             RaiseKind::Raise(expr) => {
@@ -591,10 +588,11 @@ impl TreewalkInterpreter {
         if object.get_member(self, &Dunder::Enter)?.is_none()
             || object.get_member(self, &Dunder::Exit)?.is_none()
         {
-            return Err(self.raise(ExecutionError::type_error(format!(
+            return Exception::type_error(format!(
                 "\'{}\' object does not support the context manager protocol",
                 expr_result.class_name(self)
-            ))));
+            ))
+            .raise(self);
         }
 
         let result = self.call_method(&expr_result, Dunder::Enter, args![])?;

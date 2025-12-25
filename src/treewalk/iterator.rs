@@ -1,7 +1,6 @@
 use crate::{
     core::memphis_utils,
-    domain::ExecutionError,
-    errors::MemphisError,
+    domain::Type,
     treewalk::{
         protocols::Iterable, type_system::CloneableIterable, TreewalkDisruption, TreewalkResult,
         TreewalkValue,
@@ -22,15 +21,13 @@ impl Iterator for Box<dyn CloneableIterable> {
     fn next(&mut self) -> Option<Self::Item> {
         match Iterable::try_next(self) {
             Ok(v) => v,
-            Err(TreewalkDisruption::Error(e))
-                if matches!(e.execution_error, ExecutionError::StopIteration(_)) =>
-            {
+            Err(TreewalkDisruption::Error(e)) if e.exception.get_type() == Type::StopIteration => {
                 None
             }
             Err(TreewalkDisruption::Error(e)) => {
                 // We must use the hard exit here because the Iterator trait doesn't give us
                 // an interface to surface a runtime error.
-                memphis_utils::exit(MemphisError::Execution(e));
+                memphis_utils::exit(e.into());
             }
             Err(TreewalkDisruption::Signal(_)) => panic!("Unexpected signal during Iterator eval"),
         }

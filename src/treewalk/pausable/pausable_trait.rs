@@ -1,10 +1,11 @@
 use crate::{
     core::Container,
-    domain::{DomainResult, ExecutionError},
+    domain::Type,
     parser::types::{Statement, StatementKind},
     treewalk::{
-        protocols::TryEvalFrom, result::Raise, type_system::CloneableIterable, types::List, Scope,
-        TreewalkDisruption, TreewalkInterpreter, TreewalkResult, TreewalkValue,
+        protocols::TryEvalFrom, result::Raise, type_system::CloneableIterable, types::List,
+        DomainResult, Scope, TreewalkDisruption, TreewalkInterpreter, TreewalkResult,
+        TreewalkValue,
     },
 };
 
@@ -192,7 +193,7 @@ pub trait Pausable {
                     self.clear_delegated();
                 }
                 Err(TreewalkDisruption::Error(e))
-                    if matches!(e.execution_error, ExecutionError::StopIteration(_)) =>
+                    if e.exception.get_type() == Type::StopIteration =>
                 {
                     // Sub-generator finished, fall through and resume parent generator
                     self.clear_delegated();

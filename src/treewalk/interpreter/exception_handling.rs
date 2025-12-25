@@ -1,7 +1,11 @@
 use crate::{
     core::Container,
-    domain::{ExecutionError, Type},
-    treewalk::{result::Raise, types::Class, TreewalkInterpreter, TreewalkResult, TreewalkValue},
+    domain::Type,
+    treewalk::{
+        result::Raise,
+        types::{Class, Exception},
+        TreewalkInterpreter, TreewalkResult, TreewalkValue,
+    },
 };
 
 impl TreewalkInterpreter {
@@ -27,19 +31,19 @@ impl TreewalkInterpreter {
                 for item in result {
                     items.push(
                         item.as_class()
-                            .map_err(|_| ExecutionError::type_error_must_inherit_base_exception())
+                            .map_err(|_| Exception::type_error_must_inherit_base_exception())
                             .raise(self)?,
                     );
                 }
                 items
             }
-            _ => ExecutionError::type_error_must_inherit_base_exception().raise(self)?,
+            _ => Exception::type_error_must_inherit_base_exception().raise(self)?,
         };
 
         let base_exception = self.state.class_of_type(&Type::BaseException);
         let is_base_exception = classes.iter().all(|c| c.is_subclass_of(&base_exception));
         if !is_base_exception {
-            ExecutionError::type_error_must_inherit_base_exception().raise(self)?
+            Exception::type_error_must_inherit_base_exception().raise(self)?
         }
 
         Ok(classes)

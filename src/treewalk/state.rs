@@ -3,16 +3,16 @@ use std::cell::UnsafeCell;
 use crate::{
     core::Container,
     domain::{
-        resolve_import_path, DebugCallStack, DebugStackFrame, DomainResult, ExecutionError,
-        FromImportPath, ModuleName, RuntimeError, ToDebugStackFrame, Type,
+        resolve_import_path, DebugCallStack, DebugStackFrame, FromImportPath, ModuleName,
+        ToDebugStackFrame, Type,
     },
     runtime::MemphisState,
     treewalk::{
         modules::builtins,
-        types::{Class, Dict, Function, Module},
+        types::{Class, Dict, Exception, Function, Module},
         utils::EnvironmentFrame,
-        ExecutionContextManager, Executor, ModuleStore, Scope, ScopeManager, TreewalkInterpreter,
-        TreewalkValue, TypeRegistry,
+        DomainResult, ExecutionContextManager, Executor, ModuleStore, RaisedException, Scope,
+        ScopeManager, TreewalkInterpreter, TreewalkValue, TypeRegistry,
     },
 };
 
@@ -171,11 +171,11 @@ impl Container<TreewalkState> {
         self.borrow().execution_context.read_current_receiver()
     }
 
-    pub fn current_exception(&self) -> Option<RuntimeError> {
+    pub fn current_exception(&self) -> Option<RaisedException> {
         self.borrow().execution_context.current_exception()
     }
 
-    pub fn set_current_exception(&self, exception: RuntimeError) {
+    pub fn set_current_exception(&self, exception: RaisedException) {
         self.borrow_mut()
             .execution_context
             .set_current_exception(exception);
@@ -233,7 +233,7 @@ impl Container<TreewalkState> {
         let current_module = current_module.borrow();
         let current_module = current_module.name();
         resolve_import_path(import_path, current_module)
-            .map_err(|e| ExecutionError::import_error(e.message()))
+            .map_err(|e| Exception::import_error(e.message()))
     }
 
     #[cfg(feature = "c_stdlib")]
